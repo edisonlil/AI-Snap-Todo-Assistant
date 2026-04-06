@@ -28,8 +28,8 @@ class _TodoCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -81,8 +81,8 @@ class TodoPanel(QWidget):
         surface = QFrame()
         surface.setObjectName("panelSurface")
         surface_layout = QVBoxLayout(surface)
-        surface_layout.setContentsMargins(14, 12, 14, 12)
-        surface_layout.setSpacing(10)
+        surface_layout.setContentsMargins(10, 10, 10, 10)
+        surface_layout.setSpacing(8)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -92,11 +92,11 @@ class TodoPanel(QWidget):
         title.setObjectName("panelTitle")
         header.addWidget(title)
 
-        header.addStretch()
+        self._count_label = QLabel("")
+        self._count_label.setObjectName("countLabel")
+        header.addWidget(self._count_label)
 
-        self._hint = QLabel("选中后下一次截图会追加到该任务")
-        self._hint.setObjectName("panelHint")
-        header.addWidget(self._hint)
+        header.addStretch()
 
         self._clear_button = QPushButton("清除选中")
         self._clear_button.setObjectName("clearButton")
@@ -104,10 +104,6 @@ class TodoPanel(QWidget):
         header.addWidget(self._clear_button)
 
         surface_layout.addLayout(header)
-
-        self._count_label = QLabel("")
-        self._count_label.setObjectName("countLabel")
-        surface_layout.addWidget(self._count_label)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -124,9 +120,9 @@ class TodoPanel(QWidget):
         surface_layout.addWidget(scroll, 1)
 
         root_layout.addWidget(surface)
-        self.setMinimumWidth(320)
-        self.setMaximumWidth(360)
-        self.resize(340, 420)
+        self.setMinimumWidth(272)
+        self.setMaximumWidth(304)
+        self.resize(288, 380)
         self._apply_style()
         self.hide()
 
@@ -183,11 +179,11 @@ class TodoPanel(QWidget):
                 border-radius: 18px;
             }
             QLabel#panelTitle {
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 700;
                 color: #f8fbff;
             }
-            QLabel#panelHint, QLabel#countLabel {
+            QLabel#countLabel {
                 font-size: 11px;
                 color: rgba(229, 238, 251, 0.72);
             }
@@ -211,9 +207,9 @@ class TodoPanel(QWidget):
                 color: #ffffff;
             }
             QPushButton#completeButton, QPushButton#clearButton {
-                border-radius: 9px;
-                padding: 4px 10px;
-                font-size: 11px;
+                border-radius: 8px;
+                padding: 4px 8px;
+                font-size: 10px;
                 font-weight: 600;
             }
             QPushButton#completeButton {
