@@ -122,8 +122,8 @@ class TodoPanel(QQuickView):
         super().__init__(parent)
         self._bridge = _TodoPanelBridge()
         self._base_height = 62
-        self._row_height = 40
-        self._bottom_padding = 12
+        self._row_height = 32
+        self._bottom_padding = 2
         self._panel_width = 286
 
         self.setFlags(
