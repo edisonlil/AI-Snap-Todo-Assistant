@@ -1,8 +1,6 @@
 """Top-right floating panel for active todos."""
 from __future__ import annotations
 
-from datetime import datetime
-
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,13 +14,6 @@ from PyQt6.QtWidgets import (
 )
 
 from .todo_store import TodoItem
-
-
-def _format_time(value: str) -> str:
-    try:
-        return datetime.fromisoformat(value).strftime("%H:%M")
-    except ValueError:
-        return value
 
 
 class _TodoCard(QFrame):
@@ -60,16 +51,6 @@ class _TodoCard(QFrame):
         header.addWidget(detail_button)
 
         layout.addLayout(header)
-
-        summary = QLabel(todo.summary or "等待补充上下文")
-        summary.setObjectName("todoSummary")
-        summary.setWordWrap(True)
-        summary.setToolTip(todo.summary or "")
-        layout.addWidget(summary)
-
-        meta = QLabel(f"{todo.timeline_count} 条记录  ·  更新于 {_format_time(todo.updated_at)}")
-        meta.setObjectName("todoMeta")
-        layout.addWidget(meta)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -206,7 +187,7 @@ class TodoPanel(QWidget):
                 font-weight: 700;
                 color: #f8fbff;
             }
-            QLabel#panelHint, QLabel#countLabel, QLabel#todoMeta {
+            QLabel#panelHint, QLabel#countLabel {
                 font-size: 11px;
                 color: rgba(229, 238, 251, 0.72);
             }
@@ -228,10 +209,6 @@ class TodoPanel(QWidget):
                 font-size: 13px;
                 font-weight: 700;
                 color: #ffffff;
-            }
-            QLabel#todoSummary {
-                font-size: 11px;
-                color: rgba(229, 238, 251, 0.90);
             }
             QPushButton#completeButton, QPushButton#clearButton {
                 border-radius: 9px;

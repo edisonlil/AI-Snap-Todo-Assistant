@@ -12,13 +12,15 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from aica.api_key_dialog import ApiKeyDialog
+from aica.analysis_flow import AnalysisFlowCoordinator
+from aica.capture_session import CaptureSession
+from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
 from aica.feedback import FeedbackData
-from aica.feedback_panel import FeedbackPanel
 from aica.hotkey import HotkeyManager
 from aica.overlay import OverlayWindow
 from aica.prompts import PromptManager
-from aica.result_dialog import ResultDialog
+from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
@@ -68,7 +70,6 @@ def main() -> None:
     config_mgr = ConfigManager()
     prompt_mgr = PromptManager()
     hotkey_mgr = HotkeyManager()
-    overlays: list[OverlayWindow] = []
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
     todo_controller = TodoController(todo_store)
@@ -78,13 +79,14 @@ def main() -> None:
     toolbar.set_scenarios(prompt_mgr.list_scenarios())
     toolbar.set_current_scenario(prompt_mgr.get_current_scenario_name())
 
-    current_selection: QRect | None = None
-    current_capture: QPixmap | None = None
-    active_overlay: OverlayWindow | None = None
-    capture_session: list[QPixmap] = []
-    current_worker = None
+    capture_session = CaptureSession()
     feedback_workers: list[FeedbackOptimizeWorker] = []
-    capture_locked = False
+    capture_ui = CaptureUiFlow(
+        toolbar=toolbar,
+        todo_panel=todo_panel,
+        todo_detail_panel=todo_detail_panel,
+        capture_session=capture_session,
+    )
 
     def _refresh_todo_panel() -> None:
         todo_panel.set_todos(
@@ -106,95 +108,30 @@ def main() -> None:
         _refresh_todo_panel()
         return save_result.action, save_result.todo.title
 
-    def _rebuild_overlays() -> None:
-        nonlocal overlays
-        for current_overlay in overlays:
-            current_overlay.hide()
-            current_overlay.deleteLater()
-
-        overlays = [OverlayWindow(screen) for screen in app.screens()]
-        for current_overlay in overlays:
-            current_overlay.selection_complete.connect(_on_selection_complete)
-            current_overlay.selection_changed.connect(_on_selection_changed)
-            current_overlay.cancelled.connect(_on_cancel)
-
     def _show_overlays() -> None:
-        nonlocal active_overlay
-        active_overlay = None
-        todo_panel.hide()
-        todo_detail_panel.hide()
-        _rebuild_overlays()
-        toolbar.attach_to_overlay(None)
-        toolbar.set_edit_mode("move")
-        for current_overlay in overlays:
-            current_overlay.show_overlay()
+        capture_ui.rebuild_overlays(
+            app.screens(),
+            overlay_factory=OverlayWindow,
+            on_selection_complete=_on_selection_complete,
+            on_selection_changed=_on_selection_changed,
+            on_cancel=_on_cancel,
+        )
+        capture_ui.show_overlays()
 
     def _hide_overlays(*, reset: bool = True, preserve_active: bool = False) -> None:
-        for current_overlay in overlays:
-            if preserve_active and current_overlay is active_overlay:
-                current_overlay.suspend_overlay()
-            elif reset:
-                current_overlay.dismiss_overlay()
-            else:
-                current_overlay.suspend_overlay()
+        capture_ui.hide_overlays(reset=reset, preserve_active=preserve_active)
 
     def _sync_capture_from_active_overlay() -> bool:
-        nonlocal current_selection, current_capture
-        if active_overlay is None or not active_overlay.has_selection():
-            return current_capture is not None and current_selection is not None
-
-        selection = active_overlay.current_global_selection()
-        capture = active_overlay.export_selection_pixmap()
-        if selection is None or capture.isNull():
-            return False
-
-        current_selection = selection
-        current_capture = capture
-        return True
+        return capture_session.sync_from_active_overlay()
 
     def _clear_capture_state() -> None:
-        nonlocal current_selection, current_capture, active_overlay, capture_session
-        _hide_overlays(reset=True)
-        current_selection = None
-        current_capture = None
-        active_overlay = None
-        capture_session = []
-        toolbar.attach_to_overlay(None)
-        toolbar.set_single_capture_mode()
-        toolbar.hide()
-        _refresh_todo_panel()
+        capture_ui.clear_capture_state(_refresh_todo_panel)
 
     def _restore_toolbar_for_current_capture() -> None:
-        if not _sync_capture_from_active_overlay():
-            return
-
-        if active_overlay is not None:
-            active_overlay.resume_overlay()
-
-        if capture_session:
-            toolbar.set_multi_capture_mode(_session_capture_count())
-        else:
-            toolbar.set_single_capture_mode()
-        if active_overlay is not None:
-            active_overlay.set_edit_mode("move")
-        toolbar.show_at(current_selection)
-
-    def _session_capture_count() -> int:
-        return len(capture_session) + (1 if current_capture is not None else 0)
+        capture_ui.restore_toolbar_for_current_capture()
 
     def _queue_current_capture() -> bool:
-        nonlocal current_selection, current_capture, active_overlay
-        if not _sync_capture_from_active_overlay():
-            return False
-
-        capture_session.append(current_capture)
-        current_selection = None
-        current_capture = None
-
-        if active_overlay is not None:
-            active_overlay.dismiss_overlay()
-        active_overlay = None
-        return True
+        return capture_ui.queue_current_capture()
 
     def _cleanup_feedback_worker(worker: FeedbackOptimizeWorker) -> None:
         if worker in feedback_workers:
@@ -247,14 +184,21 @@ def main() -> None:
         worker.error.connect(_on_feedback_optimization_error)
         worker.start()
 
+    result_flow = ResultFlowCoordinator(
+        get_scenario=toolbar.get_current_scenario,
+        get_model=lambda: config_mgr.load().model,
+        save_result_to_todo=_save_analysis_to_todo,
+        clear_capture_state=_clear_capture_state,
+        start_feedback_optimization=_start_feedback_optimization,
+    )
+
     def _on_hotkey() -> None:
-        nonlocal capture_locked, active_overlay
-        if capture_locked or toolbar.is_loading() or current_capture is not None:
+        if analysis_flow.capture_locked or toolbar.is_loading() or capture_session.current_capture is not None:
             return
 
-        if any(current_overlay.isVisible() for current_overlay in overlays):
+        if capture_ui.any_overlay_visible():
             _hide_overlays(reset=True)
-            active_overlay = None
+            capture_session.active_overlay = None
             toolbar.hide()
             _refresh_todo_panel()
         else:
@@ -262,55 +206,13 @@ def main() -> None:
             QTimer.singleShot(50, _show_overlays)
 
     def _on_selection_complete(rect: QRect, cropped: QPixmap) -> None:
-        nonlocal current_selection, current_capture, active_overlay
         selected_overlay = app.sender()
         if not isinstance(selected_overlay, OverlayWindow):
             return
-
-        for current_overlay in overlays:
-            if current_overlay is selected_overlay:
-                active_overlay = current_overlay
-                current_overlay.lock_selection()
-                current_overlay.raise_()
-            else:
-                current_overlay.dismiss_overlay()
-
-        toolbar.attach_to_overlay(selected_overlay)
-        current_selection = rect
-        current_capture = cropped
-        toolbar.set_edit_mode("move")
-        if capture_session:
-            toolbar.set_multi_capture_mode(_session_capture_count())
-        else:
-            toolbar.set_single_capture_mode()
-        toolbar.show_at(rect)
+        capture_ui.handle_selection_complete(selected_overlay, rect, cropped)
 
     def _on_selection_changed(rect: QRect) -> None:
-        nonlocal current_selection
-        current_selection = rect
-        if not toolbar.is_loading():
-            toolbar.show_at(rect)
-
-    def _create_analysis_worker(images: list[QPixmap], config):
-        if len(images) == 1:
-            return AIWorker(
-                images[0],
-                config.api_key,
-                config.model,
-                config.api_base_url,
-                config.timeout_seconds,
-                prompt_manager=prompt_mgr,
-                scenario=toolbar.get_current_scenario(),
-            )
-        return MultiCaptureAIWorker(
-            images,
-            config.api_key,
-            config.model,
-            config.api_base_url,
-            config.timeout_seconds,
-            prompt_manager=prompt_mgr,
-            scenario=toolbar.get_current_scenario(),
-        )
+        capture_ui.handle_selection_changed(rect)
 
     def _ensure_api_key_configured():
         config = config_mgr.load()
@@ -324,32 +226,32 @@ def main() -> None:
                 return saved_config
         return None
 
+    def _handle_analysis_finished(result, feedback_image_base64: str) -> None:
+        result_flow.handle_ai_finished(
+            result,
+            feedback_image_base64=feedback_image_base64,
+        )
+
+    analysis_flow = AnalysisFlowCoordinator(
+        capture_session=capture_session,
+        toolbar=toolbar,
+        prompt_manager=prompt_mgr,
+        get_scenario=toolbar.get_current_scenario,
+        ensure_api_key_configured=_ensure_api_key_configured,
+        hide_overlays=_hide_overlays,
+        restore_toolbar_for_current_capture=_restore_toolbar_for_current_capture,
+        on_finished=_handle_analysis_finished,
+        single_worker_factory=AIWorker,
+        multi_worker_factory=MultiCaptureAIWorker,
+    )
+
     def _on_summarize() -> None:
-        nonlocal current_worker, capture_locked
-        print(f"[DEBUG] _on_summarize called, current_selection={current_selection}, session_count={len(capture_session)}")
-        if capture_locked or not _sync_capture_from_active_overlay():
-            return
-
-        images_to_analyze = [*capture_session, current_capture]
-        if not images_to_analyze:
-            return
-
-        capture_locked = True
-        _hide_overlays(reset=False, preserve_active=True)
-        toolbar.hide()
-
-        config = _ensure_api_key_configured()
-        if config is None:
-            capture_locked = False
-            _restore_toolbar_for_current_capture()
-            return
-
-        toolbar.set_loading(True)
-        current_worker = _create_analysis_worker(images_to_analyze, config)
-        current_worker.finished.connect(_on_ai_finished)
-        current_worker.error.connect(_on_ai_error)
-        current_worker.parse_error.connect(_on_ai_parse_error)
-        current_worker.start()
+        print(
+            "[DEBUG] _on_summarize called, "
+            f"current_selection={capture_session.current_selection}, "
+            f"session_count={len(capture_session.queued_captures)}"
+        )
+        analysis_flow.start_analysis()
 
     def _on_continue_capture() -> None:
         if not _queue_current_capture():
@@ -366,102 +268,24 @@ def main() -> None:
             QMessageBox.warning(None, "错误", "当前没有可复制的截图")
             return
 
-        QApplication.clipboard().setPixmap(current_capture)
+        QApplication.clipboard().setPixmap(capture_session.current_capture)
         _clear_capture_state()
 
     def _on_edit_mode_changed(mode: str) -> None:
-        if active_overlay is not None:
-            active_overlay.set_edit_mode(mode)
+        if capture_session.active_overlay is not None:
+            capture_session.active_overlay.set_edit_mode(mode)
 
     def _on_undo_annotation() -> None:
-        if active_overlay is None:
+        if capture_session.active_overlay is None:
             return
-        active_overlay.undo_last_annotation()
+        capture_session.active_overlay.undo_last_annotation()
         _sync_capture_from_active_overlay()
 
     def _on_clear_annotations() -> None:
-        if active_overlay is None:
+        if capture_session.active_overlay is None:
             return
-        active_overlay.clear_annotations()
+        capture_session.active_overlay.clear_annotations()
         _sync_capture_from_active_overlay()
-
-    def _on_ai_finished(result) -> None:
-        import pyperclip
-
-        nonlocal capture_locked
-        toolbar.set_loading(False)
-
-        def on_save_result(result_str):
-            pyperclip.copy(result_str)
-            action, todo_title = _save_analysis_to_todo(result_str)
-            if action == "append":
-                message = f"结果已复制到剪贴板，并已追加到待办：\n{todo_title}"
-            else:
-                message = f"结果已复制到剪贴板，并已创建待办：\n{todo_title}"
-            QMessageBox.information(None, "完成", message)
-            _clear_capture_state()
-
-        def on_feedback(result_str, feedback_data):
-            result_dialog.close()
-
-            feedback_data.original_result = str(result)
-            feedback_data.edited_result = result_str
-            feedback_data.user_edited = str(result) != result_str
-            feedback_data.image_base64 = getattr(current_worker, "_feedback_image_base64", "")
-            feedback_data.correction = {"raw": result_str}
-
-            def on_save_feedback(fb_data, optimize_now):
-                if optimize_now:
-                    QMessageBox.information(
-                        None,
-                        "Feedback Saved",
-                        "Feedback saved. Prompt optimization is running in the background.",
-                    )
-                    _start_feedback_optimization(fb_data)
-                else:
-                    QMessageBox.information(None, "Feedback Saved", "Feedback saved.")
-                _clear_capture_state()
-
-            config = config_mgr.load()
-            feedback_panel = FeedbackPanel(
-                result_str,
-                feedback_data,
-                toolbar.get_current_scenario(),
-                config.model,
-                save_callback=on_save_feedback,
-                parent=None,
-            )
-            feedback_panel.exec()
-
-        config = config_mgr.load()
-        result_dialog = ResultDialog(
-            result,
-            toolbar.get_current_scenario(),
-            config.model,
-            feedback_callback=on_feedback,
-            save_callback=on_save_result,
-            parent=None,
-        )
-        result_dialog.exec()
-        _clear_capture_state()
-        capture_locked = False
-
-    def _on_ai_error(message: str) -> None:
-        nonlocal capture_locked
-        toolbar.set_loading(False)
-        capture_locked = False
-        QMessageBox.critical(None, "错误", message)
-        _restore_toolbar_for_current_capture()
-
-    def _on_ai_parse_error(raw_text: str) -> None:
-        import pyperclip
-
-        nonlocal capture_locked
-        pyperclip.copy(raw_text)
-        toolbar.set_loading(False)
-        capture_locked = False
-        QMessageBox.warning(None, "格式异常", "AI 返回格式异常，已将原始内容写入剪贴板")
-        _restore_toolbar_for_current_capture()
 
     def _on_scenario_changed(scenario_name: str) -> None:
         if prompt_mgr.set_current_scenario(scenario_name):
