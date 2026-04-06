@@ -62,7 +62,7 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
+                        onClicked: function(mouse) {
                             mouse.accepted = true
                             todoPanelBridge.toggleExpanded()
                         }
@@ -90,7 +90,7 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
+                        onClicked: function(mouse) {
                             mouse.accepted = true
                             todoPanelBridge.toggleMinimized()
                         }
@@ -119,7 +119,7 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
+                        onClicked: function(mouse) {
                             mouse.accepted = true
                             todoPanelBridge.clearSelection()
                         }
@@ -200,7 +200,7 @@ Rectangle {
 
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: {
+                                onClicked: function(mouse) {
                                     mouse.accepted = true
                                     todoPanelBridge.selectTodo(modelData.id)
                                 }
@@ -226,7 +226,7 @@ Rectangle {
                             x: titleText.x
                             width: titleText.width
                             height: parent.height
-                            onClicked: {
+                            onClicked: function(mouse) {
                                 mouse.accepted = true
                                 todoPanelBridge.requestDetail(modelData.id)
                             }

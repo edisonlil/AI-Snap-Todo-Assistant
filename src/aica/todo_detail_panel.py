@@ -1,25 +1,18 @@
-"""Detail side panel for a todo item and its timeline."""
+"""QML-backed detail panel for a todo item and its timeline."""
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QScrollArea,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
+from PyQt6.QtQuick import QQuickView
+from PyQt6.QtWidgets import QApplication
 
 from .models import TicketSummaryFields
 from .todo_store import TimelineEvent, TodoItem
+
+_EMPTY_TEXT = "未填写"
 
 
 def _format_ts(value: str) -> str:
@@ -29,38 +22,188 @@ def _format_ts(value: str) -> str:
         return value
 
 
-class _TimelineEditorCard(QFrame):
-    def __init__(self, event: TimelineEvent, parent=None):
-        super().__init__(parent)
-        self._event_id = event.id
-        self._timestamp = event.timestamp
-        self._scenario = event.scenario
-        self.setObjectName("timelineCard")
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
-
-        meta = QLabel(f"{_format_ts(event.timestamp)} · {event.scenario or '分析'}")
-        meta.setObjectName("timeLabel")
-        layout.addWidget(meta)
-
-        self._content_edit = QTextEdit()
-        self._content_edit.setObjectName("timelineEdit")
-        self._content_edit.setPlainText(event.content)
-        self._content_edit.setMinimumHeight(72)
-        layout.addWidget(self._content_edit)
-
-    def build_event(self) -> TimelineEvent:
-        return TimelineEvent(
-            id=self._event_id,
-            timestamp=self._timestamp,
-            scenario=self._scenario,
-            content=self._content_edit.toPlainText().strip(),
-        )
+def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
+    text = str(value or "").strip()
+    return text or fallback
 
 
-class TodoDetailPanel(QWidget):
+class _TodoDetailBridge(QObject):
+    dataChanged = pyqtSignal()
+    timelineExpandedChanged = pyqtSignal()
+
+    saveRequested = pyqtSignal(str, object)
+    closeRequested = pyqtSignal()
+    completeRequested = pyqtSignal(str)
+    deleteRequested = pyqtSignal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._todo_id: str | None = None
+        self._title = ""
+        self._group_name = _EMPTY_TEXT
+        self._environment = _EMPTY_TEXT
+        self._product_line = _EMPTY_TEXT
+        self._ticket_type = _EMPTY_TEXT
+        self._current_summary = ""
+        self._overview = ""
+        self._created_at = ""
+        self._updated_at = ""
+        self._timeline: list[dict[str, str]] = []
+        self._timeline_expanded = True
+
+    @pyqtProperty(str, notify=dataChanged)
+    def title(self) -> str:
+        return self._title
+
+    @pyqtProperty(str, notify=dataChanged)
+    def overview(self) -> str:
+        return self._overview
+
+    @pyqtProperty(str, notify=dataChanged)
+    def groupName(self) -> str:
+        return self._group_name
+
+    @pyqtProperty(str, notify=dataChanged)
+    def environment(self) -> str:
+        return self._environment
+
+    @pyqtProperty(str, notify=dataChanged)
+    def productLine(self) -> str:
+        return self._product_line
+
+    @pyqtProperty(str, notify=dataChanged)
+    def ticketType(self) -> str:
+        return self._ticket_type
+
+    @pyqtProperty(str, notify=dataChanged)
+    def currentSummary(self) -> str:
+        return self._current_summary
+
+    @pyqtProperty(str, notify=dataChanged)
+    def createdAtLabel(self) -> str:
+        return self._created_at
+
+    @pyqtProperty(str, notify=dataChanged)
+    def updatedAtLabel(self) -> str:
+        return self._updated_at
+
+    @pyqtProperty(int, notify=dataChanged)
+    def timelineCount(self) -> int:
+        return len(self._timeline)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def timeline(self):  # noqa: ANN201
+        return self._timeline
+
+    @pyqtProperty(bool, notify=timelineExpandedChanged)
+    def timelineExpanded(self) -> bool:
+        return self._timeline_expanded
+
+    def set_todo(self, todo: TodoItem) -> None:
+        self._todo_id = todo.id
+        self._title = todo.title.strip()
+        self._overview = todo.title.strip()
+        self._group_name = _clean_text(todo.summary_fields.group_name)
+        self._environment = _clean_text(todo.summary_fields.environment)
+        self._product_line = _clean_text(todo.summary_fields.product_line)
+        self._ticket_type = _clean_text(todo.summary_fields.ticket_type)
+        self._current_summary = todo.current_summary.strip()
+        self._created_at = _format_ts(todo.created_at)
+        self._updated_at = _format_ts(todo.updated_at)
+        self._timeline = [
+            {
+                "id": event.id,
+                "timestamp": event.timestamp,
+                "timeLabel": _format_ts(event.timestamp),
+                "scenario": (event.scenario or "系统记录").strip() or "系统记录",
+                "content": event.content.strip(),
+                "kind": event.kind,
+            }
+            for event in reversed(todo.timeline)
+        ]
+        if not self._current_summary and self._timeline:
+            self._current_summary = self._timeline[0]["content"]
+        self._timeline_expanded = bool(self._timeline)
+        self.dataChanged.emit()
+        self.timelineExpandedChanged.emit()
+
+    @pyqtSlot(str, str)
+    def updateField(self, name: str, value: str) -> None:
+        text = str(value)
+        if name == "title":
+            self._title = text
+            self._overview = text.strip()
+        elif name == "group_name":
+            self._group_name = text
+        elif name == "environment":
+            self._environment = text
+        elif name == "product_line":
+            self._product_line = text
+        elif name == "ticket_type":
+            self._ticket_type = text
+        elif name == "current_summary":
+            self._current_summary = text
+        else:
+            return
+        self.dataChanged.emit()
+
+    @pyqtSlot(str, str)
+    def updateTimelineContent(self, event_id: str, value: str) -> None:
+        for item in self._timeline:
+            if item["id"] == event_id:
+                item["content"] = str(value)
+                self.dataChanged.emit()
+                return
+
+    @pyqtSlot()
+    def toggleTimeline(self) -> None:
+        self._timeline_expanded = not self._timeline_expanded
+        self.timelineExpandedChanged.emit()
+
+    @pyqtSlot()
+    def saveTodo(self) -> None:
+        if self._todo_id is None:
+            return
+        payload = {
+            "title": self._title.strip(),
+            "current_summary": self._current_summary.strip(),
+            "summary_fields": TicketSummaryFields(
+                group_name=_clean_text(self._group_name),
+                environment=_clean_text(self._environment),
+                product_line=_clean_text(self._product_line),
+                ticket_type=_clean_text(self._ticket_type),
+            ).to_dict(),
+            "timeline": [
+                TimelineEvent(
+                    id=item["id"],
+                    timestamp=item["timestamp"],
+                    kind=item.get("kind", "analysis"),
+                    scenario=item.get("scenario", ""),
+                    content=item.get("content", "").strip(),
+                )
+                for item in reversed(self._timeline)
+            ],
+        }
+        self.saveRequested.emit(self._todo_id, payload)
+
+    @pyqtSlot()
+    def closePanel(self) -> None:
+        self.closeRequested.emit()
+
+    @pyqtSlot()
+    def completeTodo(self) -> None:
+        if self._todo_id is None:
+            return
+        self.completeRequested.emit(self._todo_id)
+
+    @pyqtSlot()
+    def deleteTodo(self) -> None:
+        if self._todo_id is None:
+            return
+        self.deleteRequested.emit(self._todo_id)
+
+
+class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
@@ -68,253 +211,74 @@ class TodoDetailPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._todo_id: str | None = None
-        self._timeline_cards: list[_TimelineEditorCard] = []
+        self._bridge = _TodoDetailBridge()
+        self._panel_width = 396
+        self._panel_height = 760
+        self._screen_margin = 20
+        self._anchor_gap = 16
 
-        self.setWindowFlags(
+        self.setFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
+        self.setSource(
+            QUrl.fromLocalFile(
+                str(Path(__file__).with_name("qml").joinpath("TodoDetailPanel.qml"))
+            )
+        )
+        self._ensure_qml_loaded()
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
+        self._bridge.saveRequested.connect(self.save_requested)
+        self._bridge.closeRequested.connect(self._close_panel)
+        self._bridge.completeRequested.connect(self.complete_requested)
+        self._bridge.deleteRequested.connect(self.delete_requested)
 
-        surface = QFrame()
-        surface.setObjectName("detailSurface")
-        layout = QVBoxLayout(surface)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        header = QHBoxLayout()
-        title = QLabel("任务详情")
-        title.setObjectName("headerTitle")
-        header.addWidget(title)
-        header.addStretch()
-        close_button = QPushButton("关闭")
-        close_button.setObjectName("ghostButton")
-        close_button.clicked.connect(self._close_panel)
-        header.addWidget(close_button)
-        layout.addLayout(header)
-
-        fields_card = QFrame()
-        fields_card.setObjectName("editorCard")
-        fields_layout = QVBoxLayout(fields_card)
-        fields_layout.setContentsMargins(12, 12, 12, 12)
-        fields_layout.setSpacing(8)
-
-        self._title_edit = QLineEdit()
-        self._title_edit.setObjectName("titleEdit")
-        self._title_edit.setPlaceholderText("任务标题")
-        fields_layout.addWidget(self._title_edit)
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(8)
-        self._group_name_edit = QLineEdit()
-        self._environment_edit = QLineEdit()
-        self._product_line_edit = QLineEdit()
-        self._ticket_type_edit = QLineEdit()
-        form.addRow("群聊名称", self._group_name_edit)
-        form.addRow("环境", self._environment_edit)
-        form.addRow("产品线", self._product_line_edit)
-        form.addRow("工单类型", self._ticket_type_edit)
-        fields_layout.addLayout(form)
-
-        summary_label = QLabel("当前摘要")
-        summary_label.setObjectName("fieldLabel")
-        fields_layout.addWidget(summary_label)
-
-        self._summary_edit = QTextEdit()
-        self._summary_edit.setObjectName("summaryEdit")
-        self._summary_edit.setPlaceholderText("一句话记录当前结论或处理状态")
-        self._summary_edit.setMinimumHeight(84)
-        fields_layout.addWidget(self._summary_edit)
-        layout.addWidget(fields_card)
-
-        actions = QHBoxLayout()
-        self._meta_label = QLabel("")
-        self._meta_label.setObjectName("metaLabel")
-        actions.addWidget(self._meta_label)
-        actions.addStretch()
-        complete_button = QPushButton("完成待办")
-        complete_button.setObjectName("ghostButton")
-        complete_button.clicked.connect(self._complete)
-        actions.addWidget(complete_button)
-        delete_button = QPushButton("删除待办")
-        delete_button.setObjectName("dangerButton")
-        delete_button.clicked.connect(self._delete)
-        actions.addWidget(delete_button)
-        save_button = QPushButton("保存")
-        save_button.setObjectName("primaryButton")
-        save_button.clicked.connect(self._save)
-        actions.addWidget(save_button)
-        layout.addLayout(actions)
-
-        timeline_header = QLabel("时间线")
-        timeline_header.setObjectName("sectionTitle")
-        layout.addWidget(timeline_header)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setObjectName("timelineScroll")
-
-        self._timeline_container = QWidget()
-        self._timeline_layout = QVBoxLayout(self._timeline_container)
-        self._timeline_layout.setContentsMargins(0, 0, 0, 0)
-        self._timeline_layout.setSpacing(6)
-        self._timeline_layout.addStretch()
-        scroll.setWidget(self._timeline_container)
-        layout.addWidget(scroll, 1)
-
-        root_layout.addWidget(surface)
-        self.resize(440, 560)
-        self.setMinimumWidth(408)
-        self.setMaximumWidth(480)
-        self._apply_style()
+        self.resize(self._panel_width, self._panel_height)
         self.hide()
 
+    def _ensure_qml_loaded(self) -> None:
+        if self.status() != QQuickView.Status.Error:
+            return
+        errors = "\n".join(error.toString() for error in self.errors())
+        raise RuntimeError(f"Failed to load TodoDetailPanel.qml:\n{errors}")
+
     def show_todo(self, todo: TodoItem, anchor_rect=None) -> None:
-        self._todo_id = todo.id
-        self._title_edit.setText(todo.title)
-        self._group_name_edit.setText(todo.summary_fields.group_name)
-        self._environment_edit.setText(todo.summary_fields.environment)
-        self._product_line_edit.setText(todo.summary_fields.product_line)
-        self._ticket_type_edit.setText(todo.summary_fields.ticket_type)
-        self._summary_edit.setPlainText(todo.current_summary)
-        self._meta_label.setText(f"{todo.timeline_count} 条记录 · 更新于 {_format_ts(todo.updated_at)}")
-
-        self._timeline_cards = []
-        while self._timeline_layout.count() > 1:
-            item = self._timeline_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        for event in reversed(todo.timeline):
-            card = _TimelineEditorCard(event, self._timeline_container)
-            self._timeline_cards.append(card)
-            self._timeline_layout.insertWidget(self._timeline_layout.count() - 1, card)
-
+        self._bridge.set_todo(todo)
+        self.resize(self._panel_width, self._panel_height)
         self._reposition(anchor_rect)
         self.show()
         self.raise_()
-        self.activateWindow()
+        self.requestActivate()
 
     def _reposition(self, anchor_rect=None) -> None:
         screen = QApplication.primaryScreen()
         if screen is None:
             return
         available = screen.availableGeometry()
-        margin = 18
         if anchor_rect is None:
-            x = available.right() - self.width() - margin
-            y = available.top() + margin
+            x = available.right() - self.width() - self._screen_margin
+            y = available.top() + self._screen_margin
         else:
-            x = anchor_rect.left() - self.width() - 12
-            if x < available.left() + margin:
-                x = anchor_rect.right() + 12
-            x = min(x, available.right() - self.width() - margin)
-            y = anchor_rect.top()
-            y = max(available.top() + margin, min(y, available.bottom() - self.height() - margin))
-        self.move(x, y)
-
-    def _save(self) -> None:
-        if self._todo_id is None:
-            return
-        payload = {
-            "title": self._title_edit.text().strip(),
-            "current_summary": self._summary_edit.toPlainText().strip(),
-            "summary_fields": TicketSummaryFields(
-                group_name=self._group_name_edit.text().strip() or "未知",
-                environment=self._environment_edit.text().strip() or "未知",
-                product_line=self._product_line_edit.text().strip() or "未知",
-                ticket_type=self._ticket_type_edit.text().strip() or "未知",
-            ).to_dict(),
-            "timeline": [card.build_event() for card in self._timeline_cards],
-        }
-        self.save_requested.emit(self._todo_id, payload)
+            x = anchor_rect.left() - self.width() - self._anchor_gap
+            if x < available.left() + self._screen_margin:
+                x = anchor_rect.right() + self._anchor_gap
+            x = max(
+                available.left() + self._screen_margin,
+                min(x, available.right() - self.width() - self._screen_margin),
+            )
+            y = max(
+                available.top() + self._screen_margin,
+                min(
+                    anchor_rect.top(),
+                    available.bottom() - self.height() - self._screen_margin,
+                ),
+            )
+        self.setPosition(x, y)
 
     def _close_panel(self) -> None:
         self.hide()
         self.closed.emit()
-
-    def _complete(self) -> None:
-        if self._todo_id is None:
-            return
-        self.complete_requested.emit(self._todo_id)
-
-    def _delete(self) -> None:
-        if self._todo_id is None:
-            return
-        self.delete_requested.emit(self._todo_id)
-
-    def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QWidget {
-                background: transparent;
-                color: #1f2937;
-                font-family: 'SF Pro Text', 'Segoe UI Variable Text', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
-            }
-            QFrame#detailSurface {
-                background-color: rgba(247, 246, 242, 242);
-                border: 1px solid rgba(255, 255, 255, 0.70);
-                border-radius: 28px;
-            }
-            QLabel#headerTitle, QLabel#sectionTitle {
-                color: #171717;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QLabel#metaLabel, QLabel#timeLabel {
-                color: rgba(23, 23, 23, 0.46);
-                font-size: 11px;
-            }
-            QLabel#fieldLabel {
-                color: rgba(23, 23, 23, 0.52);
-                font-size: 10px;
-                font-weight: 600;
-            }
-            QFrame#editorCard, QFrame#timelineCard {
-                background-color: rgba(255, 255, 255, 0.78);
-                border: 1px solid rgba(17, 24, 39, 0.05);
-                border-radius: 18px;
-            }
-            QLineEdit, QTextEdit {
-                background-color: #fffdfc;
-                color: #111827;
-                border: 1px solid rgba(17, 24, 39, 0.08);
-                border-radius: 14px;
-                padding: 9px 11px;
-                selection-background-color: rgba(147, 197, 253, 0.42);
-                font-size: 12px;
-            }
-            QTextEdit#timelineEdit {
-                min-height: 72px;
-            }
-            QPushButton#primaryButton, QPushButton#ghostButton, QPushButton#dangerButton {
-                border-radius: 999px;
-                padding: 5px 12px;
-                font-size: 10px;
-                font-weight: 500;
-            }
-            QPushButton#primaryButton {
-                color: #1d4ed8;
-                background-color: rgba(238, 244, 255, 0.96);
-                border: 1px solid rgba(214, 228, 251, 0.92);
-            }
-            QPushButton#ghostButton {
-                color: rgba(17, 24, 39, 0.70);
-                background-color: rgba(255, 253, 252, 0.96);
-                border: 1px solid rgba(236, 231, 222, 0.96);
-            }
-            QPushButton#dangerButton {
-                color: #b42318;
-                background-color: rgba(254, 242, 242, 0.98);
-                border: 1px solid rgba(254, 205, 211, 0.98);
-            }
-            """
-        )
