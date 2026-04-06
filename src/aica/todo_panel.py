@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QCursor
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
@@ -18,11 +18,15 @@ class _TodoPanelBridge(QObject):
     hasSelectedChanged = pyqtSignal()
     expandedChanged = pyqtSignal()
     canExpandChanged = pyqtSignal()
+    minimizedChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
     detailRequested = pyqtSignal(str)
     selectionCleared = pyqtSignal()
+    dragStarted = pyqtSignal()
+    dragMoved = pyqtSignal()
+    dragEnded = pyqtSignal()
 
     def __init__(self, visible_limit: int = 3):
         super().__init__()
@@ -30,9 +34,12 @@ class _TodoPanelBridge(QObject):
         self._selected_id: str | None = None
         self._expanded = False
         self._visible_limit = visible_limit
+        self._minimized = False
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
+        if self._minimized:
+            return []
         return self._todos if self._expanded else self._todos[: self._visible_limit]
 
     @pyqtProperty(int, notify=todosChanged)
@@ -58,6 +65,10 @@ class _TodoPanelBridge(QObject):
     @pyqtProperty(bool, notify=canExpandChanged)
     def canExpand(self) -> bool:
         return len(self._todos) > self._visible_limit
+
+    @pyqtProperty(bool, notify=minimizedChanged)
+    def minimized(self) -> bool:
+        return self._minimized
 
     @pyqtProperty(str, notify=expandedChanged)
     def expandLabel(self) -> str:
@@ -86,14 +97,33 @@ class _TodoPanelBridge(QObject):
         self.hasSelectedChanged.emit()
         self.expandedChanged.emit()
         self.canExpandChanged.emit()
+        self.minimizedChanged.emit()
 
     @pyqtSlot()
     def toggleExpanded(self) -> None:
-        if not self.canExpand:
+        if self._minimized or not self.canExpand:
             return
         self._expanded = not self._expanded
         self.todosChanged.emit()
         self.expandedChanged.emit()
+
+    @pyqtSlot()
+    def toggleMinimized(self) -> None:
+        self._minimized = not self._minimized
+        self.todosChanged.emit()
+        self.minimizedChanged.emit()
+
+    @pyqtSlot()
+    def startDrag(self) -> None:
+        self.dragStarted.emit()
+
+    @pyqtSlot()
+    def moveDrag(self) -> None:
+        self.dragMoved.emit()
+
+    @pyqtSlot()
+    def endDrag(self) -> None:
+        self.dragEnded.emit()
 
     @pyqtSlot(str)
     def selectTodo(self, todo_id: str) -> None:
@@ -124,7 +154,12 @@ class TodoPanel(QQuickView):
         self._base_height = 62
         self._row_height = 32
         self._bottom_padding = 2
+        self._minimized_height = 46
         self._panel_width = 286
+        self._drag_offset = None
+        self._custom_position = None
+        self._snap_margin = 18
+        self._snap_threshold = 28
 
         self.setFlags(
             Qt.WindowType.FramelessWindowHint
@@ -140,6 +175,10 @@ class TodoPanel(QQuickView):
         self._bridge.todoCompleted.connect(self.todo_completed)
         self._bridge.detailRequested.connect(self.detail_requested)
         self._bridge.selectionCleared.connect(self.selection_cleared)
+        self._bridge.minimizedChanged.connect(self._update_panel_size)
+        self._bridge.dragStarted.connect(self._start_drag)
+        self._bridge.dragMoved.connect(self._move_drag)
+        self._bridge.dragEnded.connect(self._end_drag)
 
         self.resize(self._panel_width, 194)
         self.hide()
@@ -156,19 +195,70 @@ class TodoPanel(QQuickView):
             self.hide()
 
     def _update_panel_size(self) -> None:
-        visible_count = max(1, self._bridge.visibleCount)
-        height = self._base_height + visible_count * self._row_height + self._bottom_padding
+        if self._bridge.minimized:
+            height = self._minimized_height
+        else:
+            visible_count = max(1, self._bridge.visibleCount)
+            height = self._base_height + visible_count * self._row_height + self._bottom_padding
         self.resize(self._panel_width, height)
+        if self.isVisible():
+            self._reposition()
 
     def _reposition(self) -> None:
         screen = QApplication.primaryScreen()
         if screen is None:
             return
         available = screen.availableGeometry()
-        margin = 18
-        x = available.right() - self.width() - margin
-        y = available.top() + margin
+        if self._custom_position is not None:
+            x = min(max(self._custom_position.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
+            y = min(max(self._custom_position.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+        else:
+            x = available.right() - self.width() - self._snap_margin
+            y = available.top() + self._snap_margin
         self.setPosition(x, y)
+        self._custom_position = self.position()
 
     def frameGeometry(self):  # noqa: N802, ANN201
         return self.geometry()
+
+    def _start_drag(self) -> None:
+        cursor_pos = QCursor.pos()
+        self._drag_offset = cursor_pos - self.position()
+
+    def _move_drag(self) -> None:
+        if self._drag_offset is None:
+            return
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        cursor_pos = QCursor.pos()
+        candidate = cursor_pos - self._drag_offset
+        x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
+        y = min(max(candidate.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+        self.setPosition(x, y)
+        self._custom_position = self.position()
+
+    def _end_drag(self) -> None:
+        if self._drag_offset is None:
+            return
+        self._drag_offset = None
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        pos = self.position()
+        x = pos.x()
+        y = pos.y()
+
+        left_snap = available.left() + self._snap_margin
+        right_snap = available.right() - self.width() - self._snap_margin
+        x = left_snap if abs(x - left_snap) <= abs(x - right_snap) else right_snap
+
+        if abs(y - (available.top() + self._snap_margin)) <= self._snap_threshold:
+            y = available.top() + self._snap_margin
+        if abs((available.bottom() - self.height() - self._snap_margin) - y) <= self._snap_threshold:
+            y = available.bottom() - self.height() - self._snap_margin
+
+        self.setPosition(x, y)
+        self._custom_position = self.position()

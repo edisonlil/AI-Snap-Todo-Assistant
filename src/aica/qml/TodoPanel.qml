@@ -16,11 +16,6 @@ Rectangle {
         border.color: "transparent"
         antialiasing: true
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: todoPanelBridge.toggleExpanded()
-        }
-
         Column {
             anchors.fill: parent
             anchors.margins: 12
@@ -29,6 +24,13 @@ Rectangle {
             Item {
                 width: parent.width
                 height: 26
+
+                MouseArea {
+                    anchors.fill: parent
+                    onPressed: todoPanelBridge.startDrag()
+                    onPositionChanged: todoPanelBridge.moveDrag()
+                    onReleased: todoPanelBridge.endDrag()
+                }
 
                 Text {
                     anchors.left: parent.left
@@ -49,13 +51,50 @@ Rectangle {
                 }
 
                 Text {
-                    anchors.right: clearButton.visible ? clearButton.left : parent.right
-                    anchors.rightMargin: clearButton.visible ? 8 : 0
+                    id: expandLabel
+                    anchors.right: minimizeButton.left
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: todoPanelBridge.canExpand
+                    visible: todoPanelBridge.canExpand && !todoPanelBridge.minimized
                     text: todoPanelBridge.expandLabel
                     font.pixelSize: 10
                     color: "#9B9B9B"
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            mouse.accepted = true
+                            todoPanelBridge.toggleExpanded()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: minimizeButton
+                    anchors.right: clearButton.visible ? clearButton.left : parent.right
+                    anchors.rightMargin: clearButton.visible ? 8 : 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 999
+                    color: "#FFFDFC"
+                    border.width: 1
+                    border.color: "#ECE7DE"
+                    width: 24
+                    height: 24
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: todoPanelBridge.minimized ? "+" : "−"
+                        font.pixelSize: 14
+                        color: "#5D5D5D"
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            mouse.accepted = true
+                            todoPanelBridge.toggleMinimized()
+                        }
+                    }
                 }
 
                 Rectangle {
