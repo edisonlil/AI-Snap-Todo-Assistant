@@ -27,6 +27,16 @@ def _format_ts(value: str) -> str:
         return value
 
 
+def _build_detail_excerpt(detail: str, summary: str, limit: int = 220) -> str:
+    normalized_detail = detail.strip()
+    normalized_summary = summary.strip()
+    if not normalized_detail or normalized_detail == normalized_summary:
+        return ""
+    if len(normalized_detail) <= limit:
+        return normalized_detail
+    return normalized_detail[:limit].rstrip() + "..."
+
+
 class _TimelineCard(QFrame):
     def __init__(self, label: str, summary: str, detail: str, parent=None):
         super().__init__(parent)
@@ -43,13 +53,17 @@ class _TimelineCard(QFrame):
         summary_label = QLabel(summary or "无摘要")
         summary_label.setObjectName("summaryLabel")
         summary_label.setWordWrap(True)
+        summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(summary_label)
 
-        detail_label = QLabel(detail or "")
-        detail_label.setObjectName("detailLabel")
-        detail_label.setWordWrap(True)
-        detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(detail_label)
+        detail_excerpt = _build_detail_excerpt(detail, summary)
+        if detail_excerpt:
+            detail_label = QLabel(detail_excerpt)
+            detail_label.setObjectName("detailLabel")
+            detail_label.setWordWrap(True)
+            detail_label.setToolTip(detail)
+            detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            layout.addWidget(detail_label)
 
 
 class TodoDetailPanel(QWidget):

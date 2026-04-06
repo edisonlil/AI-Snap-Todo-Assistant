@@ -1,64 +1,118 @@
-"""Top-right floating panel for active todos."""
+"""QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from pathlib import Path
+
+from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
+from PyQt6.QtQuick import QQuickView
+from PyQt6.QtWidgets import QApplication
 
 from .todo_store import TodoItem
 
 
-class _TodoCard(QFrame):
-    clicked = pyqtSignal(str)
-    completed = pyqtSignal(str)
-    detail_requested = pyqtSignal(str)
+class _TodoPanelBridge(QObject):
+    todosChanged = pyqtSignal()
+    selectedTodoIdChanged = pyqtSignal()
+    todoCountChanged = pyqtSignal()
+    hasSelectedChanged = pyqtSignal()
+    expandedChanged = pyqtSignal()
+    canExpandChanged = pyqtSignal()
 
-    def __init__(self, todo: TodoItem, selected: bool, parent=None):
-        super().__init__(parent)
-        self._todo_id = todo.id
-        self.setObjectName("todoCardSelected" if selected else "todoCard")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+    todoSelected = pyqtSignal(str)
+    todoCompleted = pyqtSignal(str)
+    detailRequested = pyqtSignal(str)
+    selectionCleared = pyqtSignal()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+    def __init__(self, visible_limit: int = 3):
+        super().__init__()
+        self._todos: list[dict[str, str | bool]] = []
+        self._selected_id: str | None = None
+        self._expanded = False
+        self._visible_limit = visible_limit
 
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(8)
+    @pyqtProperty("QVariantList", notify=todosChanged)
+    def todos(self):  # noqa: ANN201
+        return self._todos if self._expanded else self._todos[: self._visible_limit]
 
-        title = QLabel(todo.title)
-        title.setObjectName("todoTitle")
-        title.setWordWrap(True)
-        header.addWidget(title, 1)
+    @pyqtProperty(int, notify=todosChanged)
+    def visibleCount(self) -> int:
+        return len(self.todos)
 
-        complete_button = QPushButton("完成")
-        complete_button.setObjectName("completeButton")
-        complete_button.clicked.connect(lambda: self.completed.emit(self._todo_id))
-        header.addWidget(complete_button)
+    @pyqtProperty(str, notify=selectedTodoIdChanged)
+    def selectedTodoId(self) -> str:
+        return self._selected_id or ""
 
-        detail_button = QPushButton("详情")
-        detail_button.setObjectName("clearButton")
-        detail_button.clicked.connect(lambda: self.detail_requested.emit(self._todo_id))
-        header.addWidget(detail_button)
+    @pyqtProperty(int, notify=todoCountChanged)
+    def todoCount(self) -> int:
+        return len(self._todos)
 
-        layout.addLayout(header)
+    @pyqtProperty(bool, notify=hasSelectedChanged)
+    def hasSelected(self) -> bool:
+        return bool(self._selected_id)
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._todo_id)
-        super().mousePressEvent(event)
+    @pyqtProperty(bool, notify=expandedChanged)
+    def expanded(self) -> bool:
+        return self._expanded
+
+    @pyqtProperty(bool, notify=canExpandChanged)
+    def canExpand(self) -> bool:
+        return len(self._todos) > self._visible_limit
+
+    @pyqtProperty(str, notify=expandedChanged)
+    def expandLabel(self) -> str:
+        if not self.canExpand:
+            return ""
+        return "收起" if self._expanded else "展开"
+
+    def set_state(self, todos: list[TodoItem], selected_id: str | None) -> None:
+        self._todos = [
+            {
+                "id": todo.id,
+                "title": todo.title,
+                "selected": todo.id == selected_id,
+            }
+            for todo in todos
+        ]
+        self._selected_id = selected_id
+        if len(self._todos) <= self._visible_limit:
+            self._expanded = False
+        self._emit_all()
+
+    def _emit_all(self) -> None:
+        self.todosChanged.emit()
+        self.selectedTodoIdChanged.emit()
+        self.todoCountChanged.emit()
+        self.hasSelectedChanged.emit()
+        self.expandedChanged.emit()
+        self.canExpandChanged.emit()
+
+    @pyqtSlot()
+    def toggleExpanded(self) -> None:
+        if not self.canExpand:
+            return
+        self._expanded = not self._expanded
+        self.todosChanged.emit()
+        self.expandedChanged.emit()
+
+    @pyqtSlot(str)
+    def selectTodo(self, todo_id: str) -> None:
+        self.todoSelected.emit(todo_id)
+
+    @pyqtSlot(str)
+    def completeTodo(self, todo_id: str) -> None:
+        self.todoCompleted.emit(todo_id)
+
+    @pyqtSlot(str)
+    def requestDetail(self, todo_id: str) -> None:
+        self.detailRequested.emit(todo_id)
+
+    @pyqtSlot()
+    def clearSelection(self) -> None:
+        self.selectionCleared.emit()
 
 
-class TodoPanel(QWidget):
+class TodoPanel(QQuickView):
     todo_selected = pyqtSignal(str)
     todo_completed = pyqtSignal(str)
     selection_cleared = pyqtSignal()
@@ -66,83 +120,33 @@ class TodoPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._selected_id: str | None = None
+        self._bridge = _TodoPanelBridge()
+        self._base_height = 62
+        self._row_height = 40
+        self._bottom_padding = 12
+        self._panel_width = 286
 
-        self.setWindowFlags(
+        self.setFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
+        self.setSource(QUrl.fromLocalFile(str(Path(__file__).with_name("qml").joinpath("TodoPanel.qml"))))
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
+        self._bridge.todoSelected.connect(self.todo_selected)
+        self._bridge.todoCompleted.connect(self.todo_completed)
+        self._bridge.detailRequested.connect(self.detail_requested)
+        self._bridge.selectionCleared.connect(self.selection_cleared)
 
-        surface = QFrame()
-        surface.setObjectName("panelSurface")
-        surface_layout = QVBoxLayout(surface)
-        surface_layout.setContentsMargins(10, 10, 10, 10)
-        surface_layout.setSpacing(8)
-
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(8)
-
-        title = QLabel("待办")
-        title.setObjectName("panelTitle")
-        header.addWidget(title)
-
-        self._count_label = QLabel("")
-        self._count_label.setObjectName("countLabel")
-        header.addWidget(self._count_label)
-
-        header.addStretch()
-
-        self._clear_button = QPushButton("清除选中")
-        self._clear_button.setObjectName("clearButton")
-        self._clear_button.clicked.connect(self._on_clear_selection)
-        header.addWidget(self._clear_button)
-
-        surface_layout.addLayout(header)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setObjectName("todoScroll")
-
-        self._container = QWidget()
-        self._list_layout = QVBoxLayout(self._container)
-        self._list_layout.setContentsMargins(0, 0, 0, 0)
-        self._list_layout.setSpacing(8)
-        self._list_layout.addStretch()
-        scroll.setWidget(self._container)
-        surface_layout.addWidget(scroll, 1)
-
-        root_layout.addWidget(surface)
-        self.setMinimumWidth(272)
-        self.setMaximumWidth(304)
-        self.resize(288, 380)
-        self._apply_style()
+        self.resize(self._panel_width, 194)
         self.hide()
 
     def set_todos(self, todos: list[TodoItem], selected_id: str | None) -> None:
-        self._selected_id = selected_id
-        self._count_label.setText(f"{len(todos)} 个进行中")
-        self._clear_button.setVisible(bool(selected_id))
-
-        while self._list_layout.count() > 1:
-            item = self._list_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        for todo in todos:
-            card = _TodoCard(todo, todo.id == selected_id, self._container)
-            card.clicked.connect(self.todo_selected.emit)
-            card.completed.connect(self.todo_completed.emit)
-            card.detail_requested.connect(self.detail_requested.emit)
-            self._list_layout.insertWidget(self._list_layout.count() - 1, card)
+        self._bridge.set_state(todos, selected_id)
+        self._update_panel_size()
 
         if todos:
             self._reposition()
@@ -151,8 +155,12 @@ class TodoPanel(QWidget):
         else:
             self.hide()
 
+    def _update_panel_size(self) -> None:
+        visible_count = max(1, self._bridge.visibleCount)
+        height = self._base_height + visible_count * self._row_height + self._bottom_padding
+        self.resize(self._panel_width, height)
+
     def _reposition(self) -> None:
-        self.adjustSize()
         screen = QApplication.primaryScreen()
         if screen is None:
             return
@@ -160,70 +168,7 @@ class TodoPanel(QWidget):
         margin = 18
         x = available.right() - self.width() - margin
         y = available.top() + margin
-        self.move(x, y)
+        self.setPosition(x, y)
 
-    def _on_clear_selection(self) -> None:
-        self.selection_cleared.emit()
-
-    def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QWidget {
-                background: transparent;
-                color: #e5eefb;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
-            }
-            QFrame#panelSurface {
-                background-color: rgba(9, 14, 24, 148);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 18px;
-            }
-            QLabel#panelTitle {
-                font-size: 15px;
-                font-weight: 700;
-                color: #f8fbff;
-            }
-            QLabel#countLabel {
-                font-size: 11px;
-                color: rgba(229, 238, 251, 0.72);
-            }
-            QScrollArea#todoScroll {
-                background: transparent;
-            }
-            QFrame#todoCard, QFrame#todoCardSelected {
-                border-radius: 14px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-            }
-            QFrame#todoCard {
-                background-color: rgba(255, 255, 255, 0.05);
-            }
-            QFrame#todoCardSelected {
-                background-color: rgba(78, 168, 255, 0.18);
-                border: 1px solid rgba(120, 192, 255, 0.48);
-            }
-            QLabel#todoTitle {
-                font-size: 13px;
-                font-weight: 700;
-                color: #ffffff;
-            }
-            QPushButton#completeButton, QPushButton#clearButton {
-                border-radius: 8px;
-                padding: 4px 8px;
-                font-size: 10px;
-                font-weight: 600;
-            }
-            QPushButton#completeButton {
-                color: #0f172a;
-                background-color: rgba(230, 244, 255, 0.92);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-            }
-            QPushButton#completeButton:hover, QPushButton#clearButton:hover {
-                background-color: rgba(255, 255, 255, 0.96);
-            }
-            QPushButton#clearButton {
-                color: #f8fbff;
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-            }
-            """
-        )
+    def frameGeometry(self):  # noqa: N802, ANN201
+        return self.geometry()
