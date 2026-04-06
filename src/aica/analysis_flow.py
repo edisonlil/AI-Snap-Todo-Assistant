@@ -14,6 +14,7 @@ class AnalysisFlowCoordinator:
         toolbar,
         prompt_manager,
         get_scenario: Callable[[], str],
+        get_analysis_context: Callable[[], str] | None,
         ensure_api_key_configured: Callable[[], Any | None],
         hide_overlays: Callable[..., None],
         restore_toolbar_for_current_capture: Callable[[], None],
@@ -28,6 +29,7 @@ class AnalysisFlowCoordinator:
         self._toolbar = toolbar
         self._prompt_manager = prompt_manager
         self._get_scenario = get_scenario
+        self._get_analysis_context = get_analysis_context
         self._ensure_api_key_configured = ensure_api_key_configured
         self._hide_overlays = hide_overlays
         self._restore_toolbar_for_current_capture = restore_toolbar_for_current_capture
@@ -56,6 +58,7 @@ class AnalysisFlowCoordinator:
             self._multi_worker_factory = MultiCaptureAIWorker
 
         scenario = self._get_scenario()
+        context_text = self._get_analysis_context() if self._get_analysis_context is not None else ""
         worker_kwargs = dict(
             api_key=config.api_key,
             model=config.model,
@@ -63,6 +66,7 @@ class AnalysisFlowCoordinator:
             timeout=config.timeout_seconds,
             prompt_manager=self._prompt_manager,
             scenario=scenario,
+            context_text=context_text,
         )
         if len(images) == 1:
             return self._single_worker_factory(images[0], **worker_kwargs)

@@ -18,6 +18,7 @@ from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
 from aica.feedback import FeedbackData
 from aica.hotkey import HotkeyManager
+from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.prompts import PromptManager
 from aica.result_flow import ResultFlowCoordinator
@@ -51,6 +52,13 @@ def _setup_exception_handler() -> None:
     sys.excepthook = exception_hook
 
 
+def _format_ts(value: str) -> str:
+    try:
+        return datetime.fromisoformat(value).strftime("%m-%d %H:%M")
+    except ValueError:
+        return value
+
+
 def main() -> None:
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
@@ -78,6 +86,7 @@ def main() -> None:
 
     toolbar.set_scenarios(prompt_mgr.list_scenarios())
     toolbar.set_current_scenario(prompt_mgr.get_current_scenario_name())
+    toolbar.set_scenario_selector_visible(False)
 
     capture_session = CaptureSession()
     feedback_workers: list[FeedbackOptimizeWorker] = []
@@ -100,9 +109,30 @@ def main() -> None:
             return
         todo_detail_panel.show_todo(todo, todo_panel.frameGeometry())
 
-    def _save_analysis_to_todo(result_text: str) -> tuple[str, str]:
+    def _build_selected_todo_context() -> str:
+        todo = todo_controller.get_selected_todo()
+        if todo is None:
+            return ""
+        timeline_lines = [
+            f"- {_format_ts(event.timestamp)} {event.content}"
+            for event in todo.timeline[-5:]
+            if event.content.strip()
+        ]
+        return (
+            "当前正在追加到一个已有待办，请结合已有上下文生成本次跟进记录。\n"
+            f"待办标题: {todo.title}\n"
+            f"群聊名称: {todo.summary_fields.group_name}\n"
+            f"环境: {todo.summary_fields.environment}\n"
+            f"产品线: {todo.summary_fields.product_line}\n"
+            f"工单类型: {todo.summary_fields.ticket_type}\n"
+            f"当前摘要: {todo.current_summary}\n"
+            "最近时间线:\n"
+            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
+        )
+
+    def _save_analysis_to_todo(snapshot) -> tuple[str, str]:
         save_result = todo_controller.save_analysis_result(
-            result_text,
+            snapshot,
             toolbar.get_current_scenario(),
         )
         _refresh_todo_panel()
@@ -237,6 +267,7 @@ def main() -> None:
         toolbar=toolbar,
         prompt_manager=prompt_mgr,
         get_scenario=toolbar.get_current_scenario,
+        get_analysis_context=_build_selected_todo_context,
         ensure_api_key_configured=_ensure_api_key_configured,
         hide_overlays=_hide_overlays,
         restore_toolbar_for_current_capture=_restore_toolbar_for_current_capture,
@@ -312,8 +343,18 @@ def main() -> None:
     def _on_todo_detail_requested(todo_id: str) -> None:
         _show_todo_detail(todo_id)
 
-    def _on_todo_detail_saved(todo_id: str, title: str, summary: str) -> None:
-        updated = todo_controller.update_todo(todo_id, title=title, summary=summary)
+    def _on_todo_detail_saved(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
+        timeline_payload = payload.get("timeline", [])
+        updated = todo_controller.update_todo(
+            todo_id,
+            title=str(payload.get("title", "")),
+            current_summary=str(payload.get("current_summary", "")),
+            summary_fields=summary_fields,
+            timeline=timeline_payload,
+        )
         if updated is None:
             return
         _refresh_todo_panel()
@@ -321,6 +362,16 @@ def main() -> None:
 
     def _on_todo_detail_closed() -> None:
         todo_controller.close_detail()
+        _refresh_todo_panel()
+
+    def _on_todo_detail_completed(todo_id: str) -> None:
+        if todo_controller.complete_todo(todo_id):
+            todo_detail_panel.hide()
+        _refresh_todo_panel()
+
+    def _on_todo_detail_deleted(todo_id: str) -> None:
+        if todo_controller.delete_todo(todo_id):
+            todo_detail_panel.hide()
         _refresh_todo_panel()
 
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
@@ -338,6 +389,8 @@ def main() -> None:
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
+    todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
+    todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
 
     try:
         _refresh_todo_panel()

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from aica.feedback import FeedbackData
+from aica.models import TicketSnapshot
 
 
 @dataclass(frozen=True)
@@ -21,7 +22,7 @@ class ResultFlowCoordinator:
         *,
         get_scenario: Callable[[], str],
         get_model: Callable[[], str],
-        save_result_to_todo: Callable[[str], tuple[str, str]],
+        save_result_to_todo: Callable[[TicketSnapshot], tuple[str, str]],
         clear_capture_state: Callable[[], None],
         start_feedback_optimization: Callable[[FeedbackData], None],
     ):
@@ -40,19 +41,19 @@ class ResultFlowCoordinator:
     @staticmethod
     def populate_feedback_data(
         *,
-        result,
-        edited_result: str,
+        result: TicketSnapshot,
+        edited_result: TicketSnapshot,
         feedback_data: FeedbackData,
         feedback_image_base64: str,
     ) -> FeedbackData:
         feedback_data.original_result = str(result)
-        feedback_data.edited_result = edited_result
-        feedback_data.user_edited = str(result) != edited_result
+        feedback_data.edited_result = str(edited_result)
+        feedback_data.user_edited = result.to_dict() != edited_result.to_dict()
         feedback_data.image_base64 = feedback_image_base64
-        feedback_data.correction = {"raw": edited_result}
+        feedback_data.correction = edited_result.to_dict()
         return feedback_data
 
-    def handle_ai_finished(self, result, *, feedback_image_base64: str = "") -> None:
+    def handle_ai_finished(self, result: TicketSnapshot, *, feedback_image_base64: str = "") -> None:
         import pyperclip
         from PyQt6.QtWidgets import QMessageBox
 
@@ -63,9 +64,9 @@ class ResultFlowCoordinator:
         model = self._get_model()
         result_dialog: ResultDialog | None = None
 
-        def on_save_result(result_str: str) -> None:
-            pyperclip.copy(result_str)
-            action, todo_title = self._save_result_to_todo(result_str)
+        def on_save_result(snapshot: TicketSnapshot) -> None:
+            pyperclip.copy(str(snapshot))
+            action, todo_title = self._save_result_to_todo(snapshot)
             QMessageBox.information(
                 None,
                 "完成",
@@ -73,14 +74,14 @@ class ResultFlowCoordinator:
             )
             self._clear_capture_state()
 
-        def on_feedback(result_str: str, feedback_data: FeedbackData) -> None:
+        def on_feedback(snapshot: TicketSnapshot, feedback_data: FeedbackData) -> None:
             nonlocal result_dialog
             if result_dialog is not None:
                 result_dialog.close()
 
             populated = self.populate_feedback_data(
                 result=result,
-                edited_result=result_str,
+                edited_result=snapshot,
                 feedback_data=feedback_data,
                 feedback_image_base64=feedback_image_base64,
             )
@@ -98,7 +99,7 @@ class ResultFlowCoordinator:
                 self._clear_capture_state()
 
             feedback_panel = FeedbackPanel(
-                result_str,
+                str(snapshot),
                 populated,
                 scenario,
                 model,

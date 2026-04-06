@@ -63,7 +63,8 @@ def test_build_worker_uses_single_factory_for_one_image():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "existing context",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
@@ -76,7 +77,8 @@ def test_build_worker_uses_single_factory_for_one_image():
 
     assert isinstance(worker, _Worker)
     assert worker.payload == "img-1"
-    assert worker.kwargs["scenario"] == "工单提取"
+    assert worker.kwargs["scenario"] == "工单待办助手"
+    assert worker.kwargs["context_text"] == "existing context"
 
 
 def test_build_worker_uses_multi_factory_for_multiple_images():
@@ -84,7 +86,8 @@ def test_build_worker_uses_multi_factory_for_multiple_images():
         capture_session=_CaptureSession(images=["img-1", "img-2"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
@@ -106,7 +109,8 @@ def test_start_analysis_restores_toolbar_when_api_key_missing():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "",
         ensure_api_key_configured=lambda: None,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),
@@ -129,7 +133,8 @@ def test_start_analysis_wires_and_starts_worker():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: hidden.__setitem__("count", hidden["count"] + 1),
         restore_toolbar_for_current_capture=lambda: None,
@@ -155,7 +160,8 @@ def test_handle_finished_unlocks_and_forwards_result():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
@@ -180,7 +186,8 @@ def test_handle_parse_error_copies_and_restores_toolbar():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单提取",
+        get_scenario=lambda: "工单待办助手",
+        get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),

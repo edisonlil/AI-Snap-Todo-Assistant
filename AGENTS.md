@@ -22,7 +22,3 @@ Use short, imperative Chinese commit summaries with one theme per commit, such a
 
 ## Security & Configuration Tips
 Do not commit real API keys. Runtime configuration belongs in `~/.aica/config.json`; keep the default `api_key` empty in code. Document any new config fields in `README.md`. Prompt and feedback data are stored under `~/.aica/`, so changes to those formats should preserve backward compatibility where possible.
-
-# 环境信息
-
-程序启动需要conda activate aica 后再运行

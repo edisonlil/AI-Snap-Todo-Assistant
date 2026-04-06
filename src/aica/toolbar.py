@@ -384,6 +384,9 @@ class FloatingToolbar(QWidget):
             self._scenario_combo.setCurrentIndex(index)
         self._updating_combo = False
 
+    def set_scenario_selector_visible(self, visible: bool) -> None:
+        self._scenario_combo.setVisible(visible)
+
     def get_current_scenario(self) -> str:
         return self._scenario_combo.currentText()
 

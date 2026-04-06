@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .todo_store import TodoItem, TodoStore
+from .models import TicketSnapshot, TicketSummaryFields
+from .todo_store import TimelineEvent, TodoItem, TodoStore
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,11 @@ class TodoController:
             self._detail_todo_id = todo_id
         return todo
 
+    def get_selected_todo(self) -> TodoItem | None:
+        if self._selected_todo_id is None:
+            return None
+        return self._store.get_todo(self._selected_todo_id)
+
     def close_detail(self) -> None:
         self._detail_todo_id = None
 
@@ -47,18 +53,18 @@ class TodoController:
     def clear_selected_todo(self) -> None:
         self._selected_todo_id = None
 
-    def save_analysis_result(self, result_text: str, scenario: str) -> SaveAnalysisResult:
+    def save_analysis_result(self, snapshot: TicketSnapshot, scenario: str) -> SaveAnalysisResult:
         if self._selected_todo_id:
             todo = self._store.append_analysis_to_todo(
                 self._selected_todo_id,
-                result_text,
+                snapshot,
                 scenario,
             )
             if todo is not None:
                 self._selected_todo_id = None
                 return SaveAnalysisResult(action="append", todo=todo)
 
-        todo = self._store.create_todo_from_analysis(result_text, scenario)
+        todo = self._store.create_todo_from_analysis(snapshot, scenario)
         return SaveAnalysisResult(action="create", todo=todo)
 
     def complete_todo(self, todo_id: str) -> bool:
@@ -72,11 +78,29 @@ class TodoController:
             self._detail_todo_id = None
         return True
 
+    def delete_todo(self, todo_id: str) -> bool:
+        deleted = self._store.delete_todo(todo_id)
+        if not deleted:
+            return False
+        if self._selected_todo_id == todo_id:
+            self._selected_todo_id = None
+        if self._detail_todo_id == todo_id:
+            self._detail_todo_id = None
+        return True
+
     def update_todo(
         self,
         todo_id: str,
         *,
         title: str | None = None,
-        summary: str | None = None,
+        current_summary: str | None = None,
+        summary_fields: TicketSummaryFields | None = None,
+        timeline: list[TimelineEvent] | None = None,
     ) -> TodoItem | None:
-        return self._store.update_todo(todo_id, title=title, summary=summary)
+        return self._store.update_todo(
+            todo_id,
+            title=title,
+            current_summary=current_summary,
+            summary_fields=summary_fields,
+            timeline=timeline,
+        )

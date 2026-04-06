@@ -1,20 +1,44 @@
-# AI Capture Assistant
+# AI Snap Todo Assistant
 
-面向 Windows 的截图增强与 AI 分析工具。通过全局快捷键 `Alt+A` 唤起截图，支持截图后直接编辑选区，再将截图交给大模型分析，最后对结果进行人工修正和反馈沉淀。
+面向 Windows 的工单待办助手。  
+它不再是一个单纯的截图分析工具，而是一个围绕“收集信息、生成待办、持续跟进”的轻量工作台。
+
+截图只是入口：通过 `Alt+A` 快速截取群聊、报错、工单上下文，再由 AI 生成结构化工单字段、当前摘要和时间线跟进记录，最终沉淀到待办中持续跟踪。
+
+## 核心流程
+
+1. 按 `Alt+A` 唤起截图。
+2. 选择并标注截图内容。
+3. AI 将截图整理为：
+   - 待办标题
+   - 群聊名称
+   - 环境
+   - 产品线
+   - 工单类型
+   - 当前摘要
+   - 本次时间线记录
+4. 保存后：
+   - 未选中待办时，创建新待办
+   - 已选中待办时，更新当前摘要并追加时间线
+5. 在待办栏和详情页中持续查看、编辑和完成任务。
 
 ## 当前功能
 
-- 全局快捷键 `Alt+A` 唤起截图
-- 多屏截图遮罩与 DPI 感知
-- 截图后直接进入编辑态
-- 支持拖拽移动选区
-- 支持方框、箭头、文字标注
-- 文字标注为原位输入，不弹额外对话框
-- 支持连续多张截图后统一分析
-- 支持场景切换，提示词持久化到 `~/.aica/prompts.json`
-- 支持识别结果二次编辑
-- 支持反馈保存与基于反馈的提示词优化
-- 单实例运行，重复启动会直接拦截
+- 全局快捷键截图：`Alt+A`
+- 截图后直接框选、移动、矩形、箭头、文字标注
+- 连续多张截图后统一分析
+- 待办栏支持：
+  - 选中待办
+  - 展开 / 收起
+  - 拖拽移动与边缘吸附
+  - 最小化
+- 详情页支持：
+  - 编辑标题
+  - 编辑固定字段摘要
+  - 编辑当前摘要
+  - 直接编辑时间线文本
+- 单实例运行
+- 反馈保存与提示词优化
 
 ## 运行环境
 
@@ -30,7 +54,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-开发和测试依赖：
+开发与测试依赖：
 
 ```powershell
 python -m pip install -r requirements-dev.txt
@@ -58,18 +82,15 @@ python -m pip install -r requirements-build.txt
 
 说明：
 
-- `api_key` 默认为空，代码中不再内置密钥
+- `api_key` 默认留空，程序不会内置真实密钥
 - `api_base_url` 需要兼容 OpenAI Chat Completions
-- `max_image_bytes` 当前用于图片压缩阈值，默认 `4MB`
-- 如果执行智能总结时未配置 `api_key`，程序会弹出内置表单引导填写并保存
+- `max_image_bytes` 用于图片压缩阈值，默认 `4MB`
 
-提示词配置会保存在：
+本地数据目录：
 
+- `~/.aica/config.json`
 - `~/.aica/prompts.json`
-- `~/.aica/prompt_history/`
-
-反馈数据会保存在：
-
+- `~/.aica/todos.json`
 - `~/.aica/feedback/feedback.jsonl`
 - `~/.aica/feedback/images/`
 
@@ -81,159 +102,77 @@ python -m pip install -r requirements-build.txt
 python .\run_aica.py
 ```
 
-如果你已经把 `src` 加到 `PYTHONPATH`，也可以：
+如果你使用 conda 环境，例如：
 
 ```powershell
-$env:PYTHONPATH = "src"
-python -m aica
+conda activate aica
+python .\run_aica.py
 ```
-
-## 使用流程
-
-1. 按 `Alt+A` 唤起截图。
-2. 鼠标框选截图区域。
-3. 截图完成后直接进入编辑态，可继续：
-   - 拖动移动选区
-   - 画方框
-   - 画箭头
-   - 输入文字标注
-4. 在浮动工具栏中选择场景。
-5. 根据需要执行：
-   - `智能总结`
-   - `继续截图`
-   - `复制截图`
-   - `撤销`
-   - `清空`
-   - `取消`
-6. AI 返回结果后，可在结果窗口中继续编辑。
-7. 如果结果不理想，可进入反馈面板保存修正，并可触发提示词优化。
-
-## 默认场景
-
-程序内置 4 个默认场景：
-
-- `工单提取`
-- `代码审查`
-- `数据提取`
-- `界面审计`
-
-这些场景在首次启动或提示词配置缺失时会自动提供。
 
 ## 项目结构
 
 ```text
 .
-├─ run_aica.py               # 本地启动入口
-├─ aica.spec                 # PyInstaller 打包配置
-├─ requirements.txt          # 运行依赖
-├─ requirements-dev.txt      # 测试依赖
-├─ requirements-build.txt    # 打包依赖
-├─ scripts/
-│  └─ build_exe.ps1          # Windows 打包脚本
-├─ src/
-│  └─ aica/
-│     ├─ main.py             # 应用主流程
-│     ├─ overlay.py          # 截图与编辑态交互
-│     ├─ toolbar.py          # 浮动工具栏
-│     ├─ worker.py           # AI 调用线程
-│     ├─ prompts.py          # 提示词管理
-│     ├─ feedback.py         # 反馈存储与分析
-│     ├─ feedback_panel.py   # 反馈面板
-│     ├─ result_dialog.py    # 结果编辑窗口
-│     ├─ config.py           # 配置管理
-│     └─ image_utils.py      # 图片压缩
-└─ tests/
-   ├─ conftest.py
-   ├─ test_compress.py
-   └─ test_overlay.py
+├── run_aica.py
+├── README.md
+├── requirements.txt
+├── requirements-dev.txt
+├── requirements-build.txt
+├── scripts/
+├── src/
+│   └── aica/
+│       ├── main.py
+│       ├── overlay.py
+│       ├── toolbar.py
+│       ├── worker.py
+│       ├── parser.py
+│       ├── models.py
+│       ├── prompts.py
+│       ├── todo_store.py
+│       ├── todo_controller.py
+│       ├── todo_panel.py
+│       ├── todo_detail_panel.py
+│       ├── result_dialog.py
+│       ├── result_flow.py
+│       └── qml/
+└── tests/
 ```
 
-## 打包为 EXE
+## 测试
 
-当前仓库已接入两种 Windows 打包方案：
+当前建议的快速回归命令：
 
-```text
-one-dir:  dist\AICA\AICA.exe
-onefile:  dist\AICA.exe
+```powershell
+pytest tests\test_prompts.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_result_flow.py -q
 ```
 
-### 方式一：使用脚本
+PyQt 相关回归：
+
+```powershell
+pytest tests\test_overlay.py tests\test_compress.py tests\test_single_instance.py -q
+```
+
+## 打包
+
+Windows `onedir`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 ```
 
-如果当前环境已安装依赖，可跳过安装阶段：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1 -SkipInstall
-```
-
-构建单文件版本：
+Windows `onefile`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ```
 
-如果当前环境已安装依赖：
+## 当前产品定位
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1 -SkipInstall
-```
+AI Snap Todo Assistant 的核心不是“提取截图文本”，而是：
 
-### 方式二：直接执行 PyInstaller
+- 快速采集工单上下文
+- 自动归纳成结构化待办
+- 把每次截图分析沉淀为可追踪的时间线
+- 帮助支持、售后、实施、交付场景中的任务跟进
 
-```powershell
-python -m pip install -r requirements-build.txt
-python -m PyInstaller --noconfirm --clean .\aica.spec
-python -m PyInstaller --noconfirm --clean .\aica_onefile.spec
-```
-
-### 打包说明
-
-- 入口脚本是 `run_aica.py`
-- `aica.spec` 已包含 `src` 路径
-- `aica_onefile.spec` 用于生成单文件 `exe`
-- 已额外收集 `pynput` 和 `pyperclip` 的子模块，降低 Windows 打包后缺依赖的概率
-- 已配置应用图标 `assets/aica_icon.ico`
-- 已配置 Windows 版本信息，`CompanyName = edison`
-- `one-dir` 启动更稳，`onefile` 分发更方便
-
-## 测试
-
-当前已验证的回归命令：
-
-```powershell
-pytest tests\test_overlay.py tests\test_compress.py tests\test_prompts.py -q
-```
-
-## 常见问题
-
-### 1. 按 `Alt+A` 没反应
-
-- 确认当前系统允许全局热键监听
-- 确认没有被其他程序占用相同快捷键
-- 尝试以同等权限重新启动程序
-
-### 2. 截图后点选区还是操作到底层窗口
-
-当前实现已经避免“透明挖空导致点击穿透”的模式。如果仍出现，优先检查是否运行的是旧版本可执行文件。
-
-### 3. 工具栏看不到
-
-当前工具栏会挂载到当前 overlay 上并自动限制在屏幕范围内。如果仍不可见，通常是旧构建产物未更新。
-
-### 4. AI 调用失败
-
-优先检查：
-
-- `api_key` 是否配置
-- `api_base_url` 是否正确
-- 模型是否支持图像输入
-- 网络是否可访问对应接口
-
-## 说明
-
-- 当前结果解析逻辑会优先保留模型原始文本内容，适合结果展示和人工二次编辑
-- 如果你需要更强的结构化解析，可以继续扩展 `parser.py` 与对应场景提示词
-- `annotation_dialog.py` 仍在仓库中，但当前主流程已经切到 overlay 内直接编辑
+后续演进重点也将围绕待办、摘要、时间线和协作效率，而不是继续做通用型截图分析器。

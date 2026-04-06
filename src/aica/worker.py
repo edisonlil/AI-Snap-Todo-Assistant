@@ -58,6 +58,7 @@ class AIWorker(_BaseVisionWorker):
                  api_url: str, timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "工单提取",
+                 context_text: str = "",
                  parent=None):
         super().__init__(parent)
         self._image = image
@@ -68,6 +69,7 @@ class AIWorker(_BaseVisionWorker):
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
+        self._context_text = context_text.strip()
 
     def run(self) -> None:
         try:
@@ -98,7 +100,14 @@ class AIWorker(_BaseVisionWorker):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt.user},
+                        {
+                            "type": "text",
+                            "text": (
+                                f"{self._context_text}\n\n{prompt.user}"
+                                if self._context_text
+                                else prompt.user
+                            ),
+                        },
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}},
                     ],
                 },
@@ -122,6 +131,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
                  api_url: str, timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "工单提取",
+                 context_text: str = "",
                  parent=None):
         super().__init__(parent)
         self._images = images
@@ -132,6 +142,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
+        self._context_text = context_text.strip()
 
     def run(self) -> None:
         try:
@@ -161,7 +172,8 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             "请把它们视为一个整体进行理解，按截图顺序整合信息，"
             "自动忽略相邻截图中的重复内容，并输出符合当前场景要求的最终总结。"
         )
-        content = [{"type": "text", "text": f"{multi_intro}\n\n{prompt.user}"}]
+        context_intro = f"{self._context_text}\n\n" if self._context_text else ""
+        content = [{"type": "text", "text": f"{context_intro}{multi_intro}\n\n{prompt.user}"}]
         for index, pixmap in enumerate(self._images, 1):
             content.append({"type": "text", "text": f"第 {index} 张截图"})
             content.append(

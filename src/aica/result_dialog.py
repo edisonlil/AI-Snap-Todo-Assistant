@@ -1,12 +1,16 @@
-"""Result dialog for reviewing and copying extracted AI content."""
+"""Structured confirmation dialog for ticket snapshots."""
+from __future__ import annotations
+
 from typing import Callable, Optional
 
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -14,14 +18,15 @@ from PyQt6.QtWidgets import (
 )
 
 from aica.feedback import FeedbackData
+from aica.models import TicketSnapshot, TicketSummaryFields
 
 
 class ResultDialog(QDialog):
-    """Displays extracted content and allows light editing before copy."""
+    """Displays a structured ticket snapshot for review before saving."""
 
     def __init__(
         self,
-        result,
+        result: TicketSnapshot,
         scenario: str,
         model: str,
         feedback_callback: Optional[Callable] = None,
@@ -30,7 +35,6 @@ class ResultDialog(QDialog):
     ):
         super().__init__(parent)
         self._original_result = result
-        self._original_result_str = str(result)
         self._scenario = scenario
         self._model = model
         self._feedback_callback = feedback_callback
@@ -40,9 +44,9 @@ class ResultDialog(QDialog):
         self._setup_ui()
         self._apply_style()
 
-        self.setWindowTitle(f"内容提取结果 - {scenario}")
-        self.resize(760, 560)
-        self.setMinimumSize(600, 420)
+        self.setWindowTitle(f"工单待办确认 - {scenario}")
+        self.resize(760, 620)
+        self.setMinimumSize(660, 520)
         self.setSizeGripEnabled(True)
         self._positioned = False
 
@@ -59,75 +63,81 @@ class ResultDialog(QDialog):
         root_layout.addWidget(surface)
 
         header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(12)
-
         header_left = QVBoxLayout()
-        header_left.setContentsMargins(0, 0, 0, 0)
-        header_left.setSpacing(6)
-
-        title = QLabel("内容提取结果")
+        title = QLabel("工单待办确认")
         title.setObjectName("titleLabel")
         header_left.addWidget(title)
 
         meta_row = QHBoxLayout()
-        meta_row.setContentsMargins(0, 0, 0, 0)
-        meta_row.setSpacing(6)
         meta_row.addWidget(self._build_meta_chip(self._scenario))
         meta_row.addWidget(self._build_meta_chip(self._model))
         meta_row.addStretch()
         header_left.addLayout(meta_row)
-
-        desc = QLabel("可直接修正提取内容。复制后会自动写入剪贴板并结束本次截图流程。")
-        desc.setObjectName("descLabel")
-        desc.setWordWrap(True)
-        header_left.addWidget(desc)
-
+        surface_layout.addLayout(header)
         header.addLayout(header_left, 1)
 
-        self._btn_close = QPushButton("关闭")
-        self._btn_close.setObjectName("secondaryAction")
-        self._btn_close.setMinimumWidth(72)
-        self._btn_close.clicked.connect(self.reject)
-        header.addWidget(self._btn_close)
+        close_button = QPushButton("关闭")
+        close_button.setObjectName("secondaryAction")
+        close_button.clicked.connect(self.reject)
+        header.addWidget(close_button)
 
-        surface_layout.addLayout(header)
+        fields_card = self._build_section_card("工单字段", "确认当前任务的固定字段。")
+        fields_body = fields_card.layout().itemAt(2).widget().layout()
+        fields_form = QFormLayout()
+        fields_form.setContentsMargins(0, 0, 0, 0)
+        fields_form.setSpacing(8)
 
-        result_card = self._build_section_card(
-            "提取内容",
-            "适合处理结构化结果、摘要内容、工单信息或界面文案提取结果。",
-        )
-        result_body = result_card.layout().itemAt(2).widget().layout()
-        self._result_edit = QTextEdit()
-        self._result_edit.setObjectName("resultEditor")
-        self._result_edit.setPlainText(self._original_result_str)
-        self._result_edit.setMinimumHeight(320)
-        result_body.addWidget(self._result_edit)
-        surface_layout.addWidget(result_card, 1)
+        self._title_edit = QLineEdit(self._original_result.title)
+        self._group_name_edit = QLineEdit(self._original_result.fields.group_name)
+        self._environment_edit = QLineEdit(self._original_result.fields.environment)
+        self._product_line_edit = QLineEdit(self._original_result.fields.product_line)
+        self._ticket_type_edit = QLineEdit(self._original_result.fields.ticket_type)
+
+        fields_form.addRow("标题", self._title_edit)
+        fields_form.addRow("群聊名称", self._group_name_edit)
+        fields_form.addRow("环境", self._environment_edit)
+        fields_form.addRow("产品线", self._product_line_edit)
+        fields_form.addRow("工单类型", self._ticket_type_edit)
+        fields_body.addLayout(fields_form)
+        surface_layout.addWidget(fields_card)
+
+        summary_card = self._build_section_card("当前摘要", "用自然语言描述当前结论或状态。")
+        summary_body = summary_card.layout().itemAt(2).widget().layout()
+        self._summary_edit = QTextEdit()
+        self._summary_edit.setObjectName("contentEditor")
+        self._summary_edit.setPlainText(self._original_result.current_summary)
+        self._summary_edit.setMinimumHeight(120)
+        summary_body.addWidget(self._summary_edit)
+        surface_layout.addWidget(summary_card)
+
+        timeline_card = self._build_section_card("本次时间线记录", "本次截图分析要追加的一条跟进文本。")
+        timeline_body = timeline_card.layout().itemAt(2).widget().layout()
+        self._timeline_edit = QTextEdit()
+        self._timeline_edit.setObjectName("contentEditor")
+        self._timeline_edit.setPlainText(self._original_result.timeline_entry)
+        self._timeline_edit.setMinimumHeight(140)
+        timeline_body.addWidget(self._timeline_edit)
+        surface_layout.addWidget(timeline_card, 1)
 
         footer = QFrame()
         footer.setObjectName("footerBar")
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(12, 10, 12, 10)
-        footer_layout.setSpacing(8)
 
-        footer_hint = QLabel("不准确时可进入反馈修正，帮助后续提示词优化。")
+        footer_hint = QLabel("保存后会创建待办或追加到当前选中的待办。")
         footer_hint.setObjectName("footerHint")
         footer_layout.addWidget(footer_hint)
         footer_layout.addStretch()
 
-        self._btn_feedback = QPushButton("反馈修正")
-        self._btn_feedback.setObjectName("secondaryAction")
-        self._btn_feedback.setMinimumWidth(88)
-        self._btn_feedback.clicked.connect(self._on_feedback)
-        footer_layout.addWidget(self._btn_feedback)
+        feedback_button = QPushButton("反馈修正")
+        feedback_button.setObjectName("secondaryAction")
+        feedback_button.clicked.connect(self._on_feedback)
+        footer_layout.addWidget(feedback_button)
 
-        self._btn_copy = QPushButton("复制并关闭")
-        self._btn_copy.setObjectName("primaryAction")
-        self._btn_copy.setMinimumWidth(98)
-        self._btn_copy.clicked.connect(self._on_save)
-        footer_layout.addWidget(self._btn_copy)
-
+        save_button = QPushButton("保存并关闭")
+        save_button.setObjectName("primaryAction")
+        save_button.clicked.connect(self._on_save)
+        footer_layout.addWidget(save_button)
         surface_layout.addWidget(footer)
 
     def _build_meta_chip(self, text: str) -> QLabel:
@@ -141,16 +151,13 @@ class ResultDialog(QDialog):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(6)
-
         title_label = QLabel(title)
         title_label.setObjectName("sectionTitle")
         card_layout.addWidget(title_label)
-
         desc_label = QLabel(description)
         desc_label.setObjectName("sectionDesc")
         desc_label.setWordWrap(True)
         card_layout.addWidget(desc_label)
-
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -158,104 +165,83 @@ class ResultDialog(QDialog):
         card_layout.addWidget(body)
         return card
 
+    def _build_snapshot(self) -> TicketSnapshot:
+        return TicketSnapshot(
+            title=self._title_edit.text().strip() or "未分类任务",
+            fields=TicketSummaryFields(
+                group_name=self._group_name_edit.text().strip() or "未知",
+                environment=self._environment_edit.text().strip() or "未知",
+                product_line=self._product_line_edit.text().strip() or "未知",
+                ticket_type=self._ticket_type_edit.text().strip() or "未知",
+            ),
+            current_summary=self._summary_edit.toPlainText().strip() or "待补充",
+            timeline_entry=self._timeline_edit.toPlainText().strip() or "待补充跟进记录",
+        )
+
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
             QDialog#resultDialog {
-                background-color: #ffffff;
+                background-color: #f7f6f2;
                 color: #111827;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                font-family: 'SF Pro Text', 'Segoe UI Variable Text', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
             }
             QFrame#surface {
-                background-color: #ffffff;
+                background-color: #f7f6f2;
                 border: none;
-                border-radius: 0;
             }
             QLabel#titleLabel {
-                color: #111827;
+                color: #171717;
                 font-size: 18px;
                 font-weight: 700;
             }
-            QLabel#descLabel {
-                color: #667085;
-                font-size: 12px;
-                line-height: 1.5;
-            }
             QLabel#metaChip {
-                color: #344054;
-                background-color: #f8fafc;
-                border: 1px solid #e5e7eb;
-                border-radius: 7px;
+                color: #374151;
+                background-color: #fffdfc;
+                border: 1px solid #ece7de;
+                border-radius: 999px;
                 padding: 3px 8px;
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 500;
             }
-            QFrame#sectionCard {
-                background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 10px;
+            QFrame#sectionCard, QFrame#footerBar {
+                background-color: rgba(255, 255, 255, 0.80);
+                border: 1px solid rgba(17, 24, 39, 0.06);
+                border-radius: 18px;
             }
             QLabel#sectionTitle {
                 color: #111827;
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QLabel#sectionDesc, QLabel#footerHint {
-                color: #667085;
+                color: #6b7280;
                 font-size: 11px;
-                line-height: 1.5;
             }
-            QTextEdit#resultEditor {
-                background-color: #ffffff;
+            QLineEdit, QTextEdit {
+                background-color: #fffdfc;
                 color: #111827;
-                border: 1px solid #d7dce2;
-                border-radius: 10px;
-                padding: 12px 14px;
-                selection-background-color: #dbeafe;
-                font-family: 'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace;
+                border: 1px solid rgba(17, 24, 39, 0.08);
+                border-radius: 14px;
+                padding: 10px 12px;
+                selection-background-color: rgba(147, 197, 253, 0.42);
                 font-size: 12px;
-                line-height: 1.55;
-            }
-            QTextEdit#resultEditor:focus {
-                border: 1px solid #1677ff;
-                background-color: #ffffff;
-            }
-            QFrame#footerBar {
-                background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 10px;
             }
             QPushButton {
-                border-radius: 9px;
+                border-radius: 999px;
                 padding: 6px 12px;
                 font-size: 11px;
-                font-weight: 600;
-                min-height: 18px;
+                font-weight: 500;
             }
             QPushButton#primaryAction {
-                color: #ffffff;
-                background-color: #1677ff;
-                border: 1px solid #1677ff;
-            }
-            QPushButton#primaryAction:hover {
-                background-color: #2b85ff;
-                border: 1px solid #2b85ff;
-            }
-            QPushButton#primaryAction:pressed {
-                background-color: #0e63d6;
-                border: 1px solid #0e63d6;
+                color: #1d4ed8;
+                background-color: #eef4ff;
+                border: 1px solid #d6e4fb;
             }
             QPushButton#secondaryAction {
-                color: #111827;
-                background-color: #ffffff;
-                border: 1px solid #d1d5db;
-            }
-            QPushButton#secondaryAction:hover {
-                background-color: #f9fafb;
-                border: 1px solid #9ca3af;
-            }
-            QPushButton#secondaryAction:pressed {
-                background-color: #f3f4f6;
+                color: #4b5563;
+                background-color: #fffdfc;
+                border: 1px solid #ece7de;
             }
             """
         )
@@ -267,46 +253,36 @@ class ResultDialog(QDialog):
             self._positioned = True
 
     def _fit_within_screen(self) -> None:
-        screen = QApplication.screenAt(self.pos()) or QApplication.screenAt(self.mapToGlobal(self.rect().center()))
-        if screen is None:
-            screen = QApplication.primaryScreen()
+        screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
         if screen is None:
             return
-
         available = screen.availableGeometry()
         margin = 16
-        max_width = max(560, available.width() - margin * 2)
-        max_height = max(420, available.height() - margin * 2)
-
-        self.setMaximumSize(max_width, max_height)
         self.resize(
-            min(self.width(), max_width),
-            min(self.height(), max_height),
+            min(self.width(), available.width() - margin * 2),
+            min(self.height(), available.height() - margin * 2),
         )
-
         frame = self.frameGeometry()
         frame.moveCenter(available.center())
-        x = max(available.left() + margin, min(frame.left(), available.right() - frame.width() - margin + 1))
-        y = max(available.top() + margin, min(frame.top(), available.bottom() - frame.height() - margin + 1))
-        self.move(x, y)
+        self.move(frame.topLeft())
 
     def _on_save(self) -> None:
-        edited_result = self._result_edit.toPlainText()
+        snapshot = self._build_snapshot()
         if self._save_callback:
-            self._save_callback(edited_result)
+            self._save_callback(snapshot)
         self.accept()
 
     def _on_feedback(self) -> None:
-        edited_result = self._result_edit.toPlainText()
+        snapshot = self._build_snapshot()
         feedback_data = FeedbackData(
             scenario=self._scenario,
             model=self._model,
-            ai_output={"raw": self._original_result_str},
-            user_edited=(edited_result != self._original_result_str),
-            original_result=self._original_result_str,
-            edited_result=edited_result,
+            ai_output=self._original_result.to_dict(),
+            user_edited=(snapshot.to_dict() != self._original_result.to_dict()),
+            original_result=str(self._original_result),
+            edited_result=str(snapshot),
             feedback_status="incorrect",
         )
         if self._feedback_callback:
-            self._feedback_callback(edited_result, feedback_data)
+            self._feedback_callback(snapshot, feedback_data)
         self.reject()

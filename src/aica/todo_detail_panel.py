@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -17,7 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .todo_store import TodoItem
+from .models import TicketSummaryFields
+from .todo_store import TimelineEvent, TodoItem
 
 
 def _format_ts(value: str) -> str:
@@ -27,52 +29,47 @@ def _format_ts(value: str) -> str:
         return value
 
 
-def _build_detail_excerpt(detail: str, summary: str, limit: int = 220) -> str:
-    normalized_detail = detail.strip()
-    normalized_summary = summary.strip()
-    if not normalized_detail or normalized_detail == normalized_summary:
-        return ""
-    if len(normalized_detail) <= limit:
-        return normalized_detail
-    return normalized_detail[:limit].rstrip() + "..."
-
-
-class _TimelineCard(QFrame):
-    def __init__(self, label: str, summary: str, detail: str, parent=None):
+class _TimelineEditorCard(QFrame):
+    def __init__(self, event: TimelineEvent, parent=None):
         super().__init__(parent)
+        self._event_id = event.id
+        self._timestamp = event.timestamp
+        self._scenario = event.scenario
         self.setObjectName("timelineCard")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(5)
+        layout.setSpacing(6)
 
-        time_label = QLabel(label)
-        time_label.setObjectName("timeLabel")
-        layout.addWidget(time_label)
+        meta = QLabel(f"{_format_ts(event.timestamp)} · {event.scenario or '分析'}")
+        meta.setObjectName("timeLabel")
+        layout.addWidget(meta)
 
-        summary_label = QLabel(summary or "无摘要")
-        summary_label.setObjectName("summaryLabel")
-        summary_label.setWordWrap(True)
-        summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(summary_label)
+        self._content_edit = QTextEdit()
+        self._content_edit.setObjectName("timelineEdit")
+        self._content_edit.setPlainText(event.content)
+        self._content_edit.setMinimumHeight(72)
+        layout.addWidget(self._content_edit)
 
-        detail_excerpt = _build_detail_excerpt(detail, summary)
-        if detail_excerpt:
-            detail_label = QLabel(detail_excerpt)
-            detail_label.setObjectName("detailLabel")
-            detail_label.setWordWrap(True)
-            detail_label.setToolTip(detail)
-            detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            layout.addWidget(detail_label)
+    def build_event(self) -> TimelineEvent:
+        return TimelineEvent(
+            id=self._event_id,
+            timestamp=self._timestamp,
+            scenario=self._scenario,
+            content=self._content_edit.toPlainText().strip(),
+        )
 
 
 class TodoDetailPanel(QWidget):
-    save_requested = pyqtSignal(str, str, str)
+    save_requested = pyqtSignal(str, object)
     closed = pyqtSignal()
+    complete_requested = pyqtSignal(str)
+    delete_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._todo_id: str | None = None
+        self._timeline_cards: list[_TimelineEditorCard] = []
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -91,57 +88,64 @@ class TodoDetailPanel(QWidget):
         layout.setSpacing(10)
 
         header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(8)
-
         title = QLabel("任务详情")
         title.setObjectName("headerTitle")
         header.addWidget(title)
-
         header.addStretch()
-
         close_button = QPushButton("关闭")
         close_button.setObjectName("ghostButton")
         close_button.clicked.connect(self._close_panel)
         header.addWidget(close_button)
         layout.addLayout(header)
 
-        summary_card = QFrame()
-        summary_card.setObjectName("editorCard")
-        summary_card_layout = QVBoxLayout(summary_card)
-        summary_card_layout.setContentsMargins(12, 12, 12, 12)
-        summary_card_layout.setSpacing(8)
-
-        title_hint = QLabel("标题")
-        title_hint.setObjectName("fieldLabel")
-        summary_card_layout.addWidget(title_hint)
+        fields_card = QFrame()
+        fields_card.setObjectName("editorCard")
+        fields_layout = QVBoxLayout(fields_card)
+        fields_layout.setContentsMargins(12, 12, 12, 12)
+        fields_layout.setSpacing(8)
 
         self._title_edit = QLineEdit()
         self._title_edit.setObjectName("titleEdit")
         self._title_edit.setPlaceholderText("任务标题")
-        summary_card_layout.addWidget(self._title_edit)
+        fields_layout.addWidget(self._title_edit)
 
-        summary_hint = QLabel("当前摘要")
-        summary_hint.setObjectName("fieldLabel")
-        summary_card_layout.addWidget(summary_hint)
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(8)
+        self._group_name_edit = QLineEdit()
+        self._environment_edit = QLineEdit()
+        self._product_line_edit = QLineEdit()
+        self._ticket_type_edit = QLineEdit()
+        form.addRow("群聊名称", self._group_name_edit)
+        form.addRow("环境", self._environment_edit)
+        form.addRow("产品线", self._product_line_edit)
+        form.addRow("工单类型", self._ticket_type_edit)
+        fields_layout.addLayout(form)
+
+        summary_label = QLabel("当前摘要")
+        summary_label.setObjectName("fieldLabel")
+        fields_layout.addWidget(summary_label)
 
         self._summary_edit = QTextEdit()
         self._summary_edit.setObjectName("summaryEdit")
         self._summary_edit.setPlaceholderText("一句话记录当前结论或处理状态")
         self._summary_edit.setMinimumHeight(84)
-        summary_card_layout.addWidget(self._summary_edit)
-
-        layout.addWidget(summary_card)
+        fields_layout.addWidget(self._summary_edit)
+        layout.addWidget(fields_card)
 
         actions = QHBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-
         self._meta_label = QLabel("")
         self._meta_label.setObjectName("metaLabel")
         actions.addWidget(self._meta_label)
-
         actions.addStretch()
-
+        complete_button = QPushButton("完成待办")
+        complete_button.setObjectName("ghostButton")
+        complete_button.clicked.connect(self._complete)
+        actions.addWidget(complete_button)
+        delete_button = QPushButton("删除待办")
+        delete_button.setObjectName("dangerButton")
+        delete_button.clicked.connect(self._delete)
+        actions.addWidget(delete_button)
         save_button = QPushButton("保存")
         save_button.setObjectName("primaryButton")
         save_button.clicked.connect(self._save)
@@ -155,7 +159,6 @@ class TodoDetailPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setObjectName("timelineScroll")
 
         self._timeline_container = QWidget()
@@ -167,18 +170,23 @@ class TodoDetailPanel(QWidget):
         layout.addWidget(scroll, 1)
 
         root_layout.addWidget(surface)
-        self.resize(420, 540)
-        self.setMinimumWidth(392)
-        self.setMaximumWidth(460)
+        self.resize(440, 560)
+        self.setMinimumWidth(408)
+        self.setMaximumWidth(480)
         self._apply_style()
         self.hide()
 
     def show_todo(self, todo: TodoItem, anchor_rect=None) -> None:
         self._todo_id = todo.id
         self._title_edit.setText(todo.title)
-        self._summary_edit.setPlainText(todo.summary)
+        self._group_name_edit.setText(todo.summary_fields.group_name)
+        self._environment_edit.setText(todo.summary_fields.environment)
+        self._product_line_edit.setText(todo.summary_fields.product_line)
+        self._ticket_type_edit.setText(todo.summary_fields.ticket_type)
+        self._summary_edit.setPlainText(todo.current_summary)
         self._meta_label.setText(f"{todo.timeline_count} 条记录 · 更新于 {_format_ts(todo.updated_at)}")
 
+        self._timeline_cards = []
         while self._timeline_layout.count() > 1:
             item = self._timeline_layout.takeAt(0)
             widget = item.widget()
@@ -186,12 +194,8 @@ class TodoDetailPanel(QWidget):
                 widget.deleteLater()
 
         for event in reversed(todo.timeline):
-            card = _TimelineCard(
-                f"{_format_ts(event.timestamp)} · {event.scenario or '分析'}",
-                event.summary,
-                event.detail,
-                self._timeline_container,
-            )
+            card = _TimelineEditorCard(event, self._timeline_container)
+            self._timeline_cards.append(card)
             self._timeline_layout.insertWidget(self._timeline_layout.count() - 1, card)
 
         self._reposition(anchor_rect)
@@ -220,15 +224,32 @@ class TodoDetailPanel(QWidget):
     def _save(self) -> None:
         if self._todo_id is None:
             return
-        self.save_requested.emit(
-            self._todo_id,
-            self._title_edit.text(),
-            self._summary_edit.toPlainText(),
-        )
+        payload = {
+            "title": self._title_edit.text().strip(),
+            "current_summary": self._summary_edit.toPlainText().strip(),
+            "summary_fields": TicketSummaryFields(
+                group_name=self._group_name_edit.text().strip() or "未知",
+                environment=self._environment_edit.text().strip() or "未知",
+                product_line=self._product_line_edit.text().strip() or "未知",
+                ticket_type=self._ticket_type_edit.text().strip() or "未知",
+            ).to_dict(),
+            "timeline": [card.build_event() for card in self._timeline_cards],
+        }
+        self.save_requested.emit(self._todo_id, payload)
 
     def _close_panel(self) -> None:
         self.hide()
         self.closed.emit()
+
+    def _complete(self) -> None:
+        if self._todo_id is None:
+            return
+        self.complete_requested.emit(self._todo_id)
+
+    def _delete(self) -> None:
+        if self._todo_id is None:
+            return
+        self.delete_requested.emit(self._todo_id)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -257,39 +278,24 @@ class TodoDetailPanel(QWidget):
                 font-size: 10px;
                 font-weight: 600;
             }
-            QLabel#summaryLabel {
-                color: #161616;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QLabel#detailLabel {
-                color: rgba(23, 23, 23, 0.58);
-                font-size: 10px;
-                line-height: 1.45;
-            }
-            QScrollArea#timelineScroll {
-                background: transparent;
-                border: none;
-            }
-            QFrame#timelineCard {
-                background-color: rgba(255, 255, 255, 0.72);
+            QFrame#editorCard, QFrame#timelineCard {
+                background-color: rgba(255, 255, 255, 0.78);
                 border: 1px solid rgba(17, 24, 39, 0.05);
                 border-radius: 18px;
             }
-            QFrame#editorCard {
-                background-color: rgba(255, 255, 255, 0.72);
-                border: 1px solid rgba(17, 24, 39, 0.05);
-                border-radius: 20px;
-            }
-            QLineEdit#titleEdit, QTextEdit#summaryEdit {
-                background-color: rgba(255, 255, 255, 0.92);
+            QLineEdit, QTextEdit {
+                background-color: #fffdfc;
                 color: #111827;
                 border: 1px solid rgba(17, 24, 39, 0.08);
                 border-radius: 14px;
                 padding: 9px 11px;
                 selection-background-color: rgba(147, 197, 253, 0.42);
+                font-size: 12px;
             }
-            QPushButton#primaryButton, QPushButton#ghostButton {
+            QTextEdit#timelineEdit {
+                min-height: 72px;
+            }
+            QPushButton#primaryButton, QPushButton#ghostButton, QPushButton#dangerButton {
                 border-radius: 999px;
                 padding: 5px 12px;
                 font-size: 10px;
@@ -304,6 +310,11 @@ class TodoDetailPanel(QWidget):
                 color: rgba(17, 24, 39, 0.70);
                 background-color: rgba(255, 253, 252, 0.96);
                 border: 1px solid rgba(236, 231, 222, 0.96);
+            }
+            QPushButton#dangerButton {
+                color: #b42318;
+                background-color: rgba(254, 242, 242, 0.98);
+                border: 1px solid rgba(254, 205, 211, 0.98);
             }
             """
         )
