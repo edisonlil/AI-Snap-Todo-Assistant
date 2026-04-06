@@ -44,7 +44,7 @@ class _TimelineCard(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
+        layout.setSpacing(5)
 
         time_label = QLabel(label)
         time_label.setObjectName("timeLabel")
@@ -87,11 +87,12 @@ class TodoDetailPanel(QWidget):
         surface = QFrame()
         surface.setObjectName("detailSurface")
         layout = QVBoxLayout(surface)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
 
         title = QLabel("任务详情")
         title.setObjectName("headerTitle")
@@ -105,16 +106,32 @@ class TodoDetailPanel(QWidget):
         header.addWidget(close_button)
         layout.addLayout(header)
 
+        summary_card = QFrame()
+        summary_card.setObjectName("editorCard")
+        summary_card_layout = QVBoxLayout(summary_card)
+        summary_card_layout.setContentsMargins(12, 12, 12, 12)
+        summary_card_layout.setSpacing(8)
+
+        title_hint = QLabel("标题")
+        title_hint.setObjectName("fieldLabel")
+        summary_card_layout.addWidget(title_hint)
+
         self._title_edit = QLineEdit()
         self._title_edit.setObjectName("titleEdit")
         self._title_edit.setPlaceholderText("任务标题")
-        layout.addWidget(self._title_edit)
+        summary_card_layout.addWidget(self._title_edit)
+
+        summary_hint = QLabel("当前摘要")
+        summary_hint.setObjectName("fieldLabel")
+        summary_card_layout.addWidget(summary_hint)
 
         self._summary_edit = QTextEdit()
         self._summary_edit.setObjectName("summaryEdit")
-        self._summary_edit.setPlaceholderText("一句话现状摘要")
-        self._summary_edit.setMinimumHeight(100)
-        layout.addWidget(self._summary_edit)
+        self._summary_edit.setPlaceholderText("一句话记录当前结论或处理状态")
+        self._summary_edit.setMinimumHeight(84)
+        summary_card_layout.addWidget(self._summary_edit)
+
+        layout.addWidget(summary_card)
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
@@ -138,18 +155,20 @@ class TodoDetailPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setObjectName("timelineScroll")
 
         self._timeline_container = QWidget()
         self._timeline_layout = QVBoxLayout(self._timeline_container)
         self._timeline_layout.setContentsMargins(0, 0, 0, 0)
-        self._timeline_layout.setSpacing(8)
+        self._timeline_layout.setSpacing(6)
         self._timeline_layout.addStretch()
         scroll.setWidget(self._timeline_container)
         layout.addWidget(scroll, 1)
 
         root_layout.addWidget(surface)
-        self.resize(420, 560)
-        self.setMinimumWidth(380)
+        self.resize(420, 540)
+        self.setMinimumWidth(392)
         self.setMaximumWidth(460)
         self._apply_style()
         self.hide()
@@ -158,7 +177,7 @@ class TodoDetailPanel(QWidget):
         self._todo_id = todo.id
         self._title_edit.setText(todo.title)
         self._summary_edit.setPlainText(todo.summary)
-        self._meta_label.setText(f"{todo.timeline_count} 条记录  ·  更新于 {_format_ts(todo.updated_at)}")
+        self._meta_label.setText(f"{todo.timeline_count} 条记录 · 更新于 {_format_ts(todo.updated_at)}")
 
         while self._timeline_layout.count() > 1:
             item = self._timeline_layout.takeAt(0)
@@ -168,7 +187,7 @@ class TodoDetailPanel(QWidget):
 
         for event in reversed(todo.timeline):
             card = _TimelineCard(
-                f"{_format_ts(event.timestamp)}  ·  {event.scenario or '分析'}",
+                f"{_format_ts(event.timestamp)} · {event.scenario or '分析'}",
                 event.summary,
                 event.detail,
                 self._timeline_container,
@@ -216,60 +235,75 @@ class TodoDetailPanel(QWidget):
             """
             QWidget {
                 background: transparent;
-                color: #e8eef8;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                color: #1f2937;
+                font-family: 'SF Pro Text', 'Segoe UI Variable Text', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
             }
             QFrame#detailSurface {
-                background-color: rgba(11, 17, 29, 224);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 18px;
+                background-color: rgba(247, 246, 242, 242);
+                border: 1px solid rgba(255, 255, 255, 0.70);
+                border-radius: 28px;
             }
             QLabel#headerTitle, QLabel#sectionTitle {
-                color: #ffffff;
-                font-size: 15px;
-                font-weight: 700;
+                color: #171717;
+                font-size: 14px;
+                font-weight: 600;
             }
             QLabel#metaLabel, QLabel#timeLabel {
-                color: rgba(232, 238, 248, 0.66);
+                color: rgba(23, 23, 23, 0.46);
                 font-size: 11px;
             }
+            QLabel#fieldLabel {
+                color: rgba(23, 23, 23, 0.52);
+                font-size: 10px;
+                font-weight: 600;
+            }
             QLabel#summaryLabel {
-                color: #ffffff;
-                font-size: 12px;
+                color: #161616;
+                font-size: 11px;
                 font-weight: 600;
             }
             QLabel#detailLabel {
-                color: rgba(232, 238, 248, 0.86);
-                font-size: 11px;
+                color: rgba(23, 23, 23, 0.58);
+                font-size: 10px;
+                line-height: 1.45;
+            }
+            QScrollArea#timelineScroll {
+                background: transparent;
+                border: none;
             }
             QFrame#timelineCard {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 14px;
+                background-color: rgba(255, 255, 255, 0.72);
+                border: 1px solid rgba(17, 24, 39, 0.05);
+                border-radius: 18px;
+            }
+            QFrame#editorCard {
+                background-color: rgba(255, 255, 255, 0.72);
+                border: 1px solid rgba(17, 24, 39, 0.05);
+                border-radius: 20px;
             }
             QLineEdit#titleEdit, QTextEdit#summaryEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 12px;
-                padding: 10px 12px;
-                selection-background-color: rgba(120, 192, 255, 0.40);
+                background-color: rgba(255, 255, 255, 0.92);
+                color: #111827;
+                border: 1px solid rgba(17, 24, 39, 0.08);
+                border-radius: 14px;
+                padding: 9px 11px;
+                selection-background-color: rgba(147, 197, 253, 0.42);
             }
             QPushButton#primaryButton, QPushButton#ghostButton {
-                border-radius: 10px;
+                border-radius: 999px;
                 padding: 5px 12px;
-                font-size: 11px;
-                font-weight: 600;
+                font-size: 10px;
+                font-weight: 500;
             }
             QPushButton#primaryButton {
-                color: #0f172a;
-                background-color: rgba(230, 244, 255, 0.96);
-                border: 1px solid rgba(255, 255, 255, 0.14);
+                color: #1d4ed8;
+                background-color: rgba(238, 244, 255, 0.96);
+                border: 1px solid rgba(214, 228, 251, 0.92);
             }
             QPushButton#ghostButton {
-                color: #ffffff;
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: rgba(17, 24, 39, 0.70);
+                background-color: rgba(255, 253, 252, 0.96);
+                border: 1px solid rgba(236, 231, 222, 0.96);
             }
             """
         )
