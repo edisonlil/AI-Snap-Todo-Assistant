@@ -32,9 +32,10 @@ def _default_prompt() -> PromptTemplate:
             "要求："
             "1. title 是待办标题，简洁明确；"
             "2. group_name/environment/product_line/ticket_type 缺失时填“未知”；"
-            "3. current_summary 是当前结论或现状摘要，用自然语言；"
-            "4. timeline_entry 是适合写入时间线的一条跟进记录，用自然语言，不要输出 JSON 串到文本字段；"
-            "5. 不要输出 JSON 以外的解释。"
+            "3. 如果输入中带有已有待办上下文，它只用于理解背景，不要直接照抄旧摘要；"
+            "4. current_summary 是当前结论或现状摘要，用自然语言；"
+            "5. timeline_entry 必须聚焦当前截图新增的跟进内容、观察结论或待处理点，用自然语言，不要输出 JSON 串到文本字段；"
+            "6. 不要输出 JSON 以外的解释。"
         ),
     )
 

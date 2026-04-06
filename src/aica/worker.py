@@ -103,7 +103,7 @@ class AIWorker(_BaseVisionWorker):
                         {
                             "type": "text",
                             "text": (
-                                f"{self._context_text}\n\n{prompt.user}"
+                                f"【已有待办上下文】\n{self._context_text}\n\n【当前截图分析要求】\n{prompt.user}"
                                 if self._context_text
                                 else prompt.user
                             ),
@@ -172,7 +172,11 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             "请把它们视为一个整体进行理解，按截图顺序整合信息，"
             "自动忽略相邻截图中的重复内容，并输出符合当前场景要求的最终总结。"
         )
-        context_intro = f"{self._context_text}\n\n" if self._context_text else ""
+        context_intro = (
+            f"【已有待办上下文】\n{self._context_text}\n\n【当前截图分析要求】\n"
+            if self._context_text
+            else ""
+        )
         content = [{"type": "text", "text": f"{context_intro}{multi_intro}\n\n{prompt.user}"}]
         for index, pixmap in enumerate(self._images, 1):
             content.append({"type": "text", "text": f"第 {index} 张截图"})

@@ -119,7 +119,10 @@ def main() -> None:
             if event.content.strip()
         ]
         return (
-            "当前正在追加到一个已有待办，请结合已有上下文生成本次跟进记录。\n"
+            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
+            "请重点根据当前这张新截图提炼新增信息。\n"
+            "如果新截图没有带来明确变化，current_summary 可以保持接近原状态；"
+            "但 timeline_entry 必须描述本次截图新增的跟进内容、观察结论或待处理点。\n\n"
             f"待办标题: {todo.title}\n"
             f"群聊名称: {todo.summary_fields.group_name}\n"
             f"环境: {todo.summary_fields.environment}\n"
