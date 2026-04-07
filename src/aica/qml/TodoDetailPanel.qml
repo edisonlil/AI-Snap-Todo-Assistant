@@ -97,17 +97,18 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
+                    spacing: 20
 
                     Rectangle {
-                        width: 52
-                        height: 30
-                        radius: 15
-                        color: "#FFFFFF"
+                        width: closeText.implicitWidth
+                        height: closeText.implicitHeight
+                        radius: 0
+                        color: "transparent"
                         border.width: 0
                         border.color: root.fieldLine
 
                         Text {
+                            id: closeText
                             anchors.centerIn: parent
                             text: "关闭"
                             color: "#707A89"
@@ -118,19 +119,21 @@ Rectangle {
 
                         MouseArea {
                             anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: todoDetailBridge.closePanel()
                         }
                     }
 
                     Rectangle {
-                        width: 52
-                        height: 30
-                        radius: 15
-                        color: "#F7F9FD"
+                        width: saveText.implicitWidth
+                        height: saveText.implicitHeight
+                        radius: 0
+                        color: "transparent"
                         border.width: 0
                         border.color: root.fieldLine
 
                         Text {
+                            id: saveText
                             anchors.centerIn: parent
                             text: "保存"
                             color: "#586375"
@@ -141,6 +144,7 @@ Rectangle {
 
                         MouseArea {
                             anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: todoDetailBridge.saveTodo()
                         }
                     }
@@ -501,7 +505,7 @@ Rectangle {
 
                             Text {
                                 anchors.left: parent.left
-                                anchors.leftMargin: 72
+                                anchors.leftMargin: 86
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: todoDetailBridge.timelineCount > 0 ? todoDetailBridge.timelineCount + " 条" : ""
                                 color: root.mutedInk
@@ -521,6 +525,7 @@ Rectangle {
 
                                 MouseArea {
                                     anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
                                     onClicked: todoDetailBridge.toggleTimeline()
                                 }
                             }
@@ -536,7 +541,7 @@ Rectangle {
 
                                 delegate: Rectangle {
                                     width: contentColumn.width
-                                    height: Math.max(108, timelineContent.contentHeight + 58)
+                                    height: Math.max(84, timelineContent.contentHeight + 54)
                                     radius: 18
                                     color: root.timelineBg
                                     border.width: 0
