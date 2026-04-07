@@ -140,9 +140,7 @@ Rectangle {
                     border.color: "transparent"
                     antialiasing: true
                     property real contentOffset: 0
-                    property real actionWidth: 72
-                    property real pressX: 0
-                    property bool dragging: false
+                    property real actionWidth: 0
 
                         Rectangle {
                             id: completeReveal
@@ -154,7 +152,7 @@ Rectangle {
                         color: "#EEF4FF"
                         border.width: 1
                         border.color: "#D6E4FB"
-                        visible: rowItem.contentOffset < 0
+                        visible: false
 
                         Text {
                             anchors.centerIn: parent
@@ -173,10 +171,10 @@ Rectangle {
                         }
                     }
 
-                    Item {
-                        id: contentLayer
-                        anchors.fill: parent
-                        x: rowItem.contentOffset
+                        Item {
+                            id: contentLayer
+                            anchors.fill: parent
+                        x: 0
 
                         Rectangle {
                             id: radioButton
@@ -237,20 +235,7 @@ Rectangle {
                             acceptedButtons: Qt.LeftButton
                             propagateComposedEvents: true
                             onPressed: mouse => {
-                                rowItem.pressX = mouse.x
-                                rowItem.dragging = false
-                            }
-                            onPositionChanged: mouse => {
-                                var delta = mouse.x - rowItem.pressX
-                                if (delta < -6 || rowItem.contentOffset < 0) {
-                                    rowItem.dragging = true
-                                    rowItem.contentOffset = Math.max(-rowItem.actionWidth, Math.min(0, delta))
-                                }
-                            }
-                            onReleased: {
-                                if (rowItem.dragging) {
-                                    rowItem.contentOffset = rowItem.contentOffset < -(rowItem.actionWidth / 2) ? -rowItem.actionWidth : 0
-                                }
+                                mouse.accepted = false
                             }
                         }
                     }
