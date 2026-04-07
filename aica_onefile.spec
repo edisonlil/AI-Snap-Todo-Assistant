@@ -8,13 +8,16 @@ project_root = Path(SPEC).resolve().parent
 hiddenimports = collect_submodules("pynput") + collect_submodules("pyperclip")
 icon_path = project_root / "assets" / "aica_icon.ico"
 version_file = project_root / "aica_version_info.txt"
+datas = [
+    (str(project_root / "src" / "aica" / "qml"), "aica/qml"),
+]
 
 
 a = Analysis(
     ["run_aica.py"],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
