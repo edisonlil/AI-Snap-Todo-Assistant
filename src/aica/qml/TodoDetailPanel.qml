@@ -20,13 +20,16 @@ Rectangle {
     readonly property color accent: "#3D7CFF"
     readonly property color accentTint: "#EEF4FF"
     readonly property string uiFont: "Microsoft YaHei UI"
-    readonly property int outerPadding: 22
-    readonly property int sectionGap: 10
+    readonly property int outerPadding: 24
+    readonly property int contentTopPadding: 16
+    readonly property int sectionGap: 16
     readonly property int cardRadius: 24
     readonly property int contentWidth: width - outerPadding * 2
-    readonly property int fieldInset: 14
     readonly property int fieldGap: 12
-    readonly property int fieldWidth: (contentWidth - fieldGap - fieldInset * 2) / 2
+    readonly property int fieldWidth: (contentWidth - fieldGap) / 2
+    readonly property int fieldCardHeight: 64
+    readonly property int fieldTextInset: 16
+    readonly property int labelGap: 8
     readonly property int titleWeight: 600
     readonly property int sectionWeight: 600
     readonly property int labelWeight: 500
@@ -81,7 +84,7 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: 50
+                height: 54
 
                 Text {
                     x: root.outerPadding
@@ -167,19 +170,19 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 clip: true
                 contentWidth: width
-                contentHeight: contentColumn.implicitHeight + 20
+                contentHeight: contentColumn.implicitHeight + 24
                 boundsBehavior: Flickable.StopAtBounds
 
                 Column {
                     id: contentColumn
                     x: root.outerPadding
-                    y: 12
+                    y: root.contentTopPadding
                     width: root.contentWidth
                     spacing: root.sectionGap
 
                     Item {
                         width: parent.width
-                        height: Math.max(38, titleEdit.contentHeight + 4)
+                        height: Math.max(42, titleEdit.contentHeight + 6)
 
                         TextEdit {
                             id: titleEdit
@@ -198,7 +201,7 @@ Rectangle {
 
                     Item {
                         width: parent.width
-                        height: 132
+                        height: root.fieldCardHeight * 2 + root.fieldGap
 
                         Column {
                             anchors.left: parent.left
@@ -208,15 +211,15 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: root.fieldCardHeight
                                 radius: 16
                                 color: root.fieldBg
                                 border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
-                                    x: 14
-                                    y: 12
+                                    x: root.fieldTextInset
+                                    y: 13
                                     text: "群聊名称"
                                     color: root.labelInk
                                     font.family: root.uiFont
@@ -226,9 +229,9 @@ Rectangle {
 
                                 TextInput {
                                     id: groupNameEdit
-                                    x: 14
-                                    y: 29
-                                    width: parent.width - 28
+                                    x: root.fieldTextInset
+                                    y: 35
+                                    width: parent.width - root.fieldTextInset * 2
                                     height: 22
                                     clip: true
                                     selectByMouse: true
@@ -242,15 +245,15 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: root.fieldCardHeight
                                 radius: 16
                                 color: root.fieldBg
                                 border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
-                                    x: 14
-                                    y: 12
+                                    x: root.fieldTextInset
+                                    y: 13
                                     text: "产品线"
                                     color: root.labelInk
                                     font.family: root.uiFont
@@ -260,9 +263,9 @@ Rectangle {
 
                                 TextInput {
                                     id: productLineEdit
-                                    x: 14
-                                    y: 29
-                                    width: parent.width - 28
+                                    x: root.fieldTextInset
+                                    y: 35
+                                    width: parent.width - root.fieldTextInset * 2
                                     height: 22
                                     clip: true
                                     selectByMouse: true
@@ -283,15 +286,15 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: root.fieldCardHeight
                                 radius: 16
                                 color: root.fieldBg
                                 border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
-                                    x: 14
-                                    y: 12
+                                    x: root.fieldTextInset
+                                    y: 13
                                     text: "环境"
                                     color: root.labelInk
                                     font.family: root.uiFont
@@ -301,9 +304,9 @@ Rectangle {
 
                                 TextInput {
                                     id: environmentEdit
-                                    x: 14
-                                    y: 29
-                                    width: parent.width - 28
+                                    x: root.fieldTextInset
+                                    y: 35
+                                    width: parent.width - root.fieldTextInset * 2
                                     height: 22
                                     clip: true
                                     selectByMouse: true
@@ -317,15 +320,15 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: root.fieldCardHeight
                                 radius: 16
                                 color: root.fieldBg
                                 border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
-                                    x: 14
-                                    y: 12
+                                    x: root.fieldTextInset
+                                    y: 13
                                     text: "工单类型"
                                     color: root.labelInk
                                     font.family: root.uiFont
@@ -335,9 +338,9 @@ Rectangle {
 
                                 TextInput {
                                     id: ticketTypeEdit
-                                    x: 14
-                                    y: 29
-                                    width: parent.width - 28
+                                    x: root.fieldTextInset
+                                    y: 35
+                                    width: parent.width - root.fieldTextInset * 2
                                     height: 22
                                     clip: true
                                     selectByMouse: true
@@ -353,7 +356,7 @@ Rectangle {
 
                     Column {
                         width: parent.width
-                        spacing: 6
+                        spacing: root.labelGap
 
                         Text {
                             text: "当前描述"
@@ -365,7 +368,7 @@ Rectangle {
 
                         Rectangle {
                             width: parent.width
-                            height: 96
+                            height: 120
                             radius: 18
                             color: "#FFFFFF"
                             border.width: 0
@@ -374,10 +377,10 @@ Rectangle {
                             Flickable {
                                 id: summaryFlick
                                 anchors.fill: parent
-                                anchors.margins: 10
+                                anchors.margins: 14
                                 clip: true
                                 contentWidth: width
-                                contentHeight: Math.max(height, summaryEdit.contentHeight + 2)
+                                contentHeight: Math.max(height, summaryEdit.contentHeight + 4)
                                 boundsBehavior: Flickable.StopAtBounds
 
                                 TextEdit {
@@ -396,10 +399,10 @@ Rectangle {
 
                             Rectangle {
                                 anchors.right: parent.right
-                                anchors.rightMargin: 6
-                                y: 8 + (summaryFlick.contentY / Math.max(1, summaryFlick.contentHeight - summaryFlick.height)) * (parent.height - height - 16)
+                                anchors.rightMargin: 8
+                                y: 10 + (summaryFlick.contentY / Math.max(1, summaryFlick.contentHeight - summaryFlick.height)) * (parent.height - height - 20)
                                 width: 4
-                                height: Math.max(28, (summaryFlick.height / Math.max(summaryFlick.contentHeight, 1)) * (parent.height - 16))
+                                height: Math.max(28, (summaryFlick.height / Math.max(summaryFlick.contentHeight, 1)) * (parent.height - 20))
                                 radius: 2
                                 color: "#C3CAD6"
                                 visible: summaryFlick.contentHeight > summaryFlick.height + 2
@@ -417,7 +420,7 @@ Rectangle {
 
                         Text {
                             x: 14
-                            y: 16
+                            anchors.verticalCenter: parent.verticalCenter
                             text: "今天创建: " + todoDetailBridge.createdAtLabel
                             color: root.mutedInk
                             font.family: root.uiFont
@@ -427,7 +430,7 @@ Rectangle {
 
                         Text {
                             x: 136
-                            y: 16
+                            anchors.verticalCenter: parent.verticalCenter
                             text: "更新于: " + todoDetailBridge.updatedAtLabel
                             color: root.mutedInk
                             font.family: root.uiFont
@@ -435,7 +438,40 @@ Rectangle {
                             font.weight: root.bodyWeight
                         }
 
+                        Item {
+                            visible: false
+                            anchors.left: parent.left
+                            anchors.right: deleteText.left
+                            anchors.rightMargin: 18
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: 16
+
+                            Column {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+
+                                Text {
+                                    text: "今天创建: " + todoDetailBridge.createdAtLabel
+                                    color: root.mutedInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.bodyWeight
+                                }
+
+                                Text {
+                                    text: "更新于: " + todoDetailBridge.updatedAtLabel
+                                    color: root.mutedInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.bodyWeight
+                                }
+                            }
+                        }
+
                         Text {
+                            id: deleteText
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.right: completeButton.left
                             anchors.rightMargin: 12
@@ -487,11 +523,11 @@ Rectangle {
 
                     Column {
                         width: parent.width
-                        spacing: 10
+                        spacing: 12
 
                         Item {
                             width: parent.width
-                            height: 24
+                            height: 26
 
                             Text {
                                 anchors.left: parent.left
@@ -533,7 +569,7 @@ Rectangle {
 
                         Column {
                             width: parent.width
-                            spacing: 8
+                            spacing: 10
                             visible: todoDetailBridge.timelineExpanded
 
                             Repeater {
@@ -541,15 +577,15 @@ Rectangle {
 
                                 delegate: Rectangle {
                                     width: contentColumn.width
-                                    height: Math.max(84, timelineContent.contentHeight + 54)
+                                    height: Math.max(96, timelineContent.contentHeight + 70)
                                     radius: 18
                                     color: root.timelineBg
                                     border.width: 0
                                     border.color: root.fieldLine
 
                                     Rectangle {
-                                        x: 14
-                                        y: 16
+                                        x: 16
+                                        y: 18
                                         width: 8
                                         height: 8
                                         radius: 4
@@ -557,8 +593,8 @@ Rectangle {
                                     }
 
                                     Text {
-                                        x: 28
-                                        y: 12
+                                        x: 32
+                                        y: 14
                                         text: modelData.timeLabel
                                         color: root.mutedInk
                                         font.family: root.uiFont
@@ -567,8 +603,8 @@ Rectangle {
                                     }
 
                                     Text {
-                                        x: 28
-                                        y: 30
+                                        x: 32
+                                        y: 34
                                         text: modelData.scenario
                                         color: root.labelInk
                                         font.family: root.uiFont
@@ -578,9 +614,9 @@ Rectangle {
 
                                     TextEdit {
                                         id: timelineContent
-                                        x: 14
-                                        y: 52
-                                        width: parent.width - 28
+                                        x: 16
+                                        y: 60
+                                        width: parent.width - 32
                                         wrapMode: TextEdit.Wrap
                                         selectByMouse: true
                                         textFormat: TextEdit.PlainText
