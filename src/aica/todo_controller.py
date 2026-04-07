@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from .models import TicketSnapshot, TicketSummaryFields
 from .todo_store import TimelineEvent, TodoItem, TodoStore
@@ -53,8 +54,73 @@ class TodoController:
     def clear_selected_todo(self) -> None:
         self._selected_todo_id = None
 
+    @staticmethod
+    def _normalize_timeline_text(text: str) -> str:
+        return re.sub(r"[\s\u3000，。；：、,.!?！？“”\"'‘’（）()【】\[\]<>《》]+", "", str(text or ""))
+
+    @classmethod
+    def _extract_incremental_timeline_entry(cls, todo: TodoItem, timeline_entry: str) -> str:
+        original = str(timeline_entry or "").strip()
+        if not original:
+            return original
+
+        existing_sources = [todo.current_summary] + [event.content for event in todo.timeline[-5:]]
+        existing_text = "".join(
+            cls._normalize_timeline_text(source)
+            for source in existing_sources
+            if str(source or "").strip()
+        )
+        clauses = [
+            clause.strip(" ，。；：、,.!?！？")
+            for clause in re.split(r"[，。；：、,.!?！？\n]+", original)
+            if clause.strip(" ，。；：、,.!?！？")
+        ]
+
+        first_new_index: int | None = None
+        for index, clause in enumerate(clauses):
+            normalized_clause = cls._normalize_timeline_text(clause)
+            if len(normalized_clause) < 2:
+                continue
+            if not existing_text or normalized_clause not in existing_text:
+                first_new_index = index
+                break
+
+        incremental_clauses: list[str] = []
+        seen: set[str] = set()
+        start_index = first_new_index if first_new_index is not None else 0
+        for clause in clauses[start_index:]:
+            normalized_clause = cls._normalize_timeline_text(clause)
+            if len(normalized_clause) < 2 or normalized_clause in seen:
+                continue
+            seen.add(normalized_clause)
+            if first_new_index is not None and normalized_clause in existing_text:
+                continue
+            incremental_clauses.append(clause)
+
+        if incremental_clauses and first_new_index is not None:
+            return "，".join(incremental_clauses)
+
+        trimmed = original
+        for source in existing_sources:
+            source_text = str(source or "").strip()
+            if source_text and trimmed.startswith(source_text):
+                trimmed = trimmed[len(source_text):].strip(" ，。；：、,.!?！？")
+        return trimmed or original
+
+    @classmethod
+    def _normalize_snapshot_for_append(cls, todo: TodoItem, snapshot: TicketSnapshot) -> TicketSnapshot:
+        return TicketSnapshot(
+            title=snapshot.title,
+            fields=snapshot.fields,
+            current_summary=snapshot.current_summary,
+            timeline_entry=cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry),
+        )
+
     def save_analysis_result(self, snapshot: TicketSnapshot, scenario: str) -> SaveAnalysisResult:
         if self._selected_todo_id:
+            selected_todo = self.get_selected_todo()
+            if selected_todo is not None:
+                snapshot = self._normalize_snapshot_for_append(selected_todo, snapshot)
             todo = self._store.append_analysis_to_todo(
                 self._selected_todo_id,
                 snapshot,

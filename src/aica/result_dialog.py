@@ -41,6 +41,7 @@ class _ResultDialogBridge(QObject):
         self._product_line = _clean_text(result.fields.product_line)
         self._ticket_type = _clean_text(result.fields.ticket_type)
         self._current_summary = result.current_summary.strip()
+        self._timeline_entry = result.timeline_entry.strip()
 
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
@@ -117,8 +118,8 @@ class _ResultDialogBridge(QObject):
                 ticket_type=_clean_text(self._ticket_type),
             ),
             current_summary=normalized_summary,
-            # Confirmation dialog no longer exposes a separate timeline field.
-            timeline_entry=normalized_summary,
+            # Confirmation dialog hides timeline editing, so preserve the AI-generated follow-up entry.
+            timeline_entry=self._timeline_entry or normalized_summary,
         )
 
     @pyqtSlot()
