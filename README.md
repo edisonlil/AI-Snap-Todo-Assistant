@@ -1,44 +1,115 @@
 # AI Snap Todo Assistant
 
-面向 Windows 的工单待办助手。  
-它不再是一个单纯的截图分析工具，而是一个围绕“收集信息、生成待办、持续跟进”的轻量工作台。
+面向 Windows 的 AI 工单待办助手。
 
-截图只是入口：通过 `Alt+A` 快速截取群聊、报错、工单上下文，再由 AI 生成结构化工单字段、当前摘要和时间线跟进记录，最终沉淀到待办中持续跟踪。
+围绕“截图采集上下文 -> AI 结构化提取 -> 创建/追加待办 -> 在时间线中持续跟进”设计的轻量工作台，适合技术支持、售后、实施、交付等需要高频处理工单上下文的场景。
+
+## 产品定位
+
+AI Snap Todo Assistant 的核心目标是把零散的截图信息沉淀成可持续跟进的待办：
+
+- 用 `Alt+A` 快速截取群聊、报错、工单上下文
+- 由 AI 提炼结构化工单字段和本次跟进内容
+- 未选中待办时创建新待办
+- 已选中待办时追加到已有待办，并对时间线做增量去重
+- 在浮动待办栏和详情侧栏中持续查看、编辑和完成任务
 
 ## 核心流程
 
 1. 按 `Alt+A` 唤起截图。
-2. 选择并标注截图内容。
-3. AI 将截图整理为：
-   - 待办标题
-   - 群聊名称
-   - 环境
-   - 产品线
-   - 工单类型
-   - 当前摘要
-   - 本次时间线记录
-4. 保存后：
-   - 未选中待办时，创建新待办
-   - 已选中待办时，更新当前摘要并追加时间线
-5. 在待办栏和详情页中持续查看、编辑和完成任务。
+2. 在覆盖层中框选区域，并按需进行标注。
+3. 支持单张截图直接分析，也支持连续多张截图后统一分析。
+4. AI 会输出结构化结果，核心字段包括：
+   - `title`
+   - `group_name`
+   - `environment`
+   - `product_line`
+   - `ticket_type`
+   - `current_summary`
+   - `timeline_entry`
+5. 结果确认后：
+   - 如果当前没有选中待办，则创建新的待办项
+   - 如果当前已选中待办，则更新当前摘要并向该待办追加一条新的时间线记录
+6. 追加到已有待办时，程序会尽量从累计描述中提取“本次新增跟进”，避免把已有时间线重复写入。
+7. 保存后的待办会显示在右上角浮动面板中，可继续跟进、编辑、完成或删除。
 
-## 当前功能
+## 当前已实现功能
 
-- 全局快捷键截图：`Alt+A`
-- 截图后直接框选、移动、矩形、箭头、文字标注
-- 连续多张截图后统一分析
-- 待办栏支持：
-  - 选中待办
+- 全局热键截图：`Alt+A`
+- 截图覆盖层支持框选与标注
+  - 移动
+  - 矩形
+  - 箭头
+  - 文本
+- 连续截图与多图统一分析
+- AI 结构化提取工单信息
+- AI 二次生成更适合展示与保存的工单标题
+- 结果确认对话框
+- 待办浮动面板（QML）
+  - 展示进行中的待办
+  - 选中待办，供后续截图追加
+  - 标记完成
   - 展开 / 收起
-  - 拖拽移动与边缘吸附
   - 最小化
-- 详情页支持：
+  - 拖拽移动与边缘吸附
+- 待办详情侧栏（QML）
   - 编辑标题
-  - 编辑固定字段摘要
+  - 编辑群聊名称、环境、产品线、工单类型
   - 编辑当前摘要
+  - 查看时间线历史
   - 直接编辑时间线文本
-- 单实例运行
-- 反馈保存与提示词优化
+  - 完成待办
+  - 删除待办
+- 工单类型归一化
+  - 统一归一为“排查类 / 咨询类 / 操作类”
+- 产品线归一化
+  - 当前走固定归一逻辑，避免自由输入导致的数据分散
+- 本地待办持久化
+- 反馈保存
+- 基于反馈的后台 prompt 优化
+- 单实例运行保护
+
+## 数据模型
+
+### TicketSnapshot
+
+AI 分析和结果确认流程中的核心结构化对象，包含：
+
+- `title`：待办标题
+- `fields.group_name`：群聊名称
+- `fields.environment`：环境信息
+- `fields.product_line`：产品线
+- `fields.ticket_type`：工单类型
+- `current_summary`：当前问题摘要
+- `timeline_entry`：本次新增跟进记录
+
+用途：
+
+- 作为 AI 识别结果的标准承载结构
+- 作为结果确认对话框的输入
+- 作为创建待办或追加时间线时的标准输入
+
+### TodoItem
+
+待办领域对象，代表一个持续跟进中的工单任务，包含：
+
+- `title`：待办标题
+- `summary_fields`：结构化工单字段
+- `current_summary`：当前摘要
+- `timeline`：时间线历史
+- `status`：待办状态
+- `created_at / updated_at`：创建与更新时间
+
+### TimelineEvent
+
+待办时间线中的单条事件，关键字段包括：
+
+- `timestamp`：记录时间
+- `scenario`：事件来源场景
+- `kind`：事件类型
+- `content`：时间线正文
+
+当前 UI 已展示 `scenario` 和 `content`，并允许在详情页中直接编辑时间线内容。
 
 ## 运行环境
 
@@ -68,7 +139,9 @@ python -m pip install -r requirements-build.txt
 
 ## 配置
 
-首次运行前建议创建 `~/.aica/config.json`：
+运行配置保存在 `~/.aica/config.json`。
+
+示例：
 
 ```json
 {
@@ -80,13 +153,23 @@ python -m pip install -r requirements-build.txt
 }
 ```
 
-说明：
+字段说明：
 
-- `api_key` 默认留空，程序不会内置真实密钥
-- `api_base_url` 需要兼容 OpenAI Chat Completions
-- `max_image_bytes` 用于图片压缩阈值，默认 `4MB`
+- `api_key`：模型服务密钥，代码中默认留空，不应提交真实密钥
+- `model`：分析使用的模型名称
+- `api_base_url`：兼容 OpenAI Chat Completions 的接口地址
+- `timeout_seconds`：接口请求超时时间
+- `max_image_bytes`：图片压缩阈值，默认 `4MB`
 
-本地数据目录：
+补充说明：
+
+- 如果首次运行时未配置 `api_key`，程序会弹窗引导配置
+- 当前默认场景只有 `工单待办助手`
+- 场景切换入口已预留，但当前并未开放多场景工作流
+
+## 本地数据目录
+
+程序默认使用 `~/.aica/` 目录保存本地数据：
 
 - `~/.aica/config.json`
 - `~/.aica/prompts.json`
@@ -96,13 +179,13 @@ python -m pip install -r requirements-build.txt
 
 ## 启动
 
-推荐直接运行：
+推荐直接从源码运行：
 
 ```powershell
 python .\run_aica.py
 ```
 
-如果你使用 conda 环境，例如：
+如果使用 conda 环境，例如：
 
 ```powershell
 conda activate aica
@@ -122,34 +205,50 @@ python .\run_aica.py
 ├── src/
 │   └── aica/
 │       ├── main.py
+│       ├── analysis_flow.py
+│       ├── capture_ui_flow.py
+│       ├── capture_session.py
 │       ├── overlay.py
 │       ├── toolbar.py
 │       ├── worker.py
 │       ├── parser.py
 │       ├── models.py
 │       ├── prompts.py
+│       ├── ticket_field_resolver.py
+│       ├── result_dialog.py
+│       ├── result_flow.py
 │       ├── todo_store.py
 │       ├── todo_controller.py
 │       ├── todo_panel.py
 │       ├── todo_detail_panel.py
-│       ├── result_dialog.py
-│       ├── result_flow.py
+│       ├── feedback.py
+│       ├── feedback_panel.py
+│       ├── single_instance.py
 │       └── qml/
+│           ├── TodoPanel.qml
+│           ├── TodoDetailPanel.qml
+│           └── ResultDialog.qml
 └── tests/
 ```
 
 ## 测试
 
-当前建议的快速回归命令：
+当前推荐的快速回归命令：
 
 ```powershell
-pytest tests\test_prompts.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_result_flow.py -q
+pytest tests\test_overlay.py tests\test_compress.py tests\test_prompts.py tests\test_single_instance.py tests\test_analysis_flow.py tests\test_result_flow.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_timeline_entry_dedup.py tests\test_ticket_field_resolver.py -q
 ```
 
-PyQt 相关回归：
+运行完整测试：
 
 ```powershell
-pytest tests\test_overlay.py tests\test_compress.py tests\test_single_instance.py -q
+pytest -q
+```
+
+快速语法与导入检查：
+
+```powershell
+python -m compileall src\aica run_aica.py
 ```
 
 ## 打包
@@ -166,13 +265,16 @@ Windows `onefile`：
 powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ```
 
-## 当前产品定位
+## 当前边界与未实现项
 
-AI Snap Todo Assistant 的核心不是“提取截图文本”，而是：
+为避免 README 与当前实现脱节，下面这些内容明确不视为“已支持”：
 
-- 快速采集工单上下文
-- 自动归纳成结构化待办
-- 把每次截图分析沉淀为可追踪的时间线
-- 帮助支持、售后、实施、交付场景中的任务跟进
+- 当前主要面向 Windows，尚未完成 macOS 适配
+- 当前只有单场景工作流，虽然 UI 中已预留场景切换能力
+- 知识库联动检索尚未集成到现有工单处理链路
+- 附件管理能力尚未落地
+- 与外部工单系统的同步能力尚未落地
 
-后续演进重点也将围绕待办、摘要、时间线和协作效率，而不是继续做通用型截图分析器。
+## 说明
+
+这个项目当前的重点不是做一个通用截图分析器，而是把每次截图分析沉淀成可追踪、可编辑、可持续推进的工单待办与时间线，帮助一线支持和交付团队降低上下文切换成本。
