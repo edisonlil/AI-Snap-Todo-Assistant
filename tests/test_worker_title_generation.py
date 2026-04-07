@@ -40,5 +40,6 @@ def test_build_title_generation_messages_contains_required_context():
     assert TITLE_GENERATION_MODEL == "Qwen/Qwen3-8B"
     assert messages[0]["role"] == "system"
     assert "最终用户可见的异常现象" in messages[1]["content"]
-    assert "产品线: 企业微信" in messages[1]["content"]
+    assert "产品线: 文档中台" in messages[1]["content"]
+    assert "工单类型: 排查类" in messages[1]["content"]
     assert "当前摘要:" in messages[1]["content"]

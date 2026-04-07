@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE
 from aica.todo_controller import TodoController
 from aica.todo_store import TimelineEvent, TodoStore
 
@@ -81,6 +82,8 @@ def test_update_todo_updates_fields_and_timeline(tmp_path: Path):
     assert updated.title == "新标题"
     assert updated.current_summary == "新摘要"
     assert updated.summary_fields.group_name == "新群聊"
+    assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert updated.summary_fields.ticket_type == "咨询类"
 
 
 def test_delete_todo_clears_selection_and_removes_item(tmp_path: Path):

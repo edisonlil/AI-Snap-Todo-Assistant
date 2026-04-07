@@ -66,3 +66,5 @@ def test_prompt_manager_injects_title_focus_rules_for_loaded_prompt(temp_config_
     prompt = manager.get_current_prompt().user
     assert "最终用户可见的异常现象" in prompt
     assert "不要概括成“上传时未勾选”" in prompt
+    assert "当前固定返回“文档中台”" in prompt
+    assert "排查类" in prompt and "咨询类" in prompt and "操作类" in prompt

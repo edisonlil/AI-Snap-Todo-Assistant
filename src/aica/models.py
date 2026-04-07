@@ -5,6 +5,11 @@ from dataclasses import asdict, dataclass
 import re
 from typing import Any
 
+from .ticket_field_resolver import (
+    normalize_ticket_type,
+    resolve_product_line,
+)
+
 
 UNKNOWN_TEXT = "未知"
 UNCLASSIFIED_TASK = "未分类任务"
@@ -244,6 +249,12 @@ class TicketSummaryFields:
     product_line: str = UNKNOWN_TEXT
     ticket_type: str = UNKNOWN_TEXT
 
+    def __post_init__(self) -> None:
+        self.group_name = _clean(self.group_name)
+        self.environment = _clean(self.environment)
+        self.product_line = resolve_product_line(raw_value=self.product_line)
+        self.ticket_type = normalize_ticket_type(self.ticket_type)
+
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
 
@@ -253,8 +264,8 @@ class TicketSummaryFields:
         return cls(
             group_name=_clean(payload.get("group_name")),
             environment=_clean(payload.get("environment")),
-            product_line=_clean(payload.get("product_line")),
-            ticket_type=_clean(payload.get("ticket_type")),
+            product_line=payload.get("product_line"),
+            ticket_type=payload.get("ticket_type"),
         )
 
 
@@ -290,12 +301,25 @@ class TicketSnapshot:
             payload.get("timeline_entry") or payload.get("follow_up") or current_summary,
             fallback=current_summary,
         )
+        ticket_context = "\n".join(
+            str(part).strip()
+            for part in (
+                raw_title,
+                raw_summary,
+                payload.get("timeline_entry"),
+                payload.get("follow_up"),
+            )
+            if str(part or "").strip()
+        )
         fields = TicketSummaryFields.from_dict(
             {
                 "group_name": payload.get("group_name"),
                 "environment": payload.get("environment"),
                 "product_line": payload.get("product_line") or payload.get("platform"),
-                "ticket_type": payload.get("ticket_type"),
+                "ticket_type": normalize_ticket_type(
+                    payload.get("ticket_type"),
+                    summary_text=ticket_context,
+                ),
             }
         )
         return cls(
@@ -312,7 +336,7 @@ class TicketSnapshot:
         title = summarize_issue_title(summary, fallback=UNCLASSIFIED_TASK)
         return cls(
             title=title,
-            fields=TicketSummaryFields(),
+            fields=TicketSummaryFields(ticket_type=normalize_ticket_type("", summary_text=summary)),
             current_summary=summary[:400],
             timeline_entry=summary[:600],
         )

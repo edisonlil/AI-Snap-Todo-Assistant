@@ -316,12 +316,12 @@ Rectangle {
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
+                                    readOnly: true
                                     selectByMouse: true
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("product_line", text)
                                 }
                             }
                         }
@@ -387,12 +387,12 @@ Rectangle {
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
+                                    readOnly: true
                                     selectByMouse: true
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("ticket_type", text)
                                 }
                             }
                         }

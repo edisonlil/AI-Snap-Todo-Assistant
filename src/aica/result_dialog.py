@@ -11,6 +11,11 @@ from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.ticket_field_resolver import (
+    TICKET_TYPE_OPTIONS,
+    normalize_ticket_type,
+    resolve_product_line,
+)
 
 _UNKNOWN_TEXT = "\u672a\u77e5"
 _UNCLASSIFIED_TASK = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -39,8 +44,8 @@ class _ResultDialogBridge(QObject):
         self._title = result.title.strip()
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
-        self._product_line = _clean_text(result.fields.product_line)
-        self._ticket_type = _clean_text(result.fields.ticket_type)
+        self._product_line = resolve_product_line(raw_value=result.fields.product_line)
+        self._ticket_type = normalize_ticket_type(result.fields.ticket_type, summary_text=result.current_summary)
         self._current_summary = result.current_summary.strip()
         self._timeline_entry = result.timeline_entry.strip()
 
@@ -72,6 +77,10 @@ class _ResultDialogBridge(QObject):
     def ticketType(self) -> str:
         return self._ticket_type
 
+    @pyqtProperty("QVariantList", constant=True)
+    def ticketTypeOptions(self):  # noqa: ANN201
+        return list(TICKET_TYPE_OPTIONS)
+
     @pyqtProperty(str, notify=dataChanged)
     def currentSummary(self) -> str:
         return self._current_summary
@@ -94,9 +103,9 @@ class _ResultDialogBridge(QObject):
         elif name == "environment":
             self._environment = text
         elif name == "product_line":
-            self._product_line = text
+            self._product_line = resolve_product_line(raw_value=text)
         elif name == "ticket_type":
-            self._ticket_type = text
+            self._ticket_type = normalize_ticket_type(text, summary_text=self._current_summary)
         elif name == "current_summary":
             self._current_summary = text
         else:
@@ -111,8 +120,19 @@ class _ResultDialogBridge(QObject):
             fields=TicketSummaryFields(
                 group_name=_clean_text(self._group_name),
                 environment=_clean_text(self._environment),
-                product_line=_clean_text(self._product_line),
-                ticket_type=_clean_text(self._ticket_type),
+                product_line=resolve_product_line(raw_value=self._product_line),
+                ticket_type=normalize_ticket_type(
+                    self._ticket_type,
+                    summary_text="\n".join(
+                        part
+                        for part in (
+                            normalized_title,
+                            normalized_summary,
+                            self._timeline_entry,
+                        )
+                        if part
+                    ),
+                ),
             ),
             current_summary=normalized_summary,
             # Confirmation dialog hides timeline editing, so preserve the AI-generated follow-up entry.

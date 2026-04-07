@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE
 from aica.todo_store import TimelineEvent, TodoStore
 
 
@@ -80,7 +81,8 @@ def test_update_todo_persists_fields_and_timeline(tmp_path: Path):
     assert reloaded is not None
     assert reloaded.title == "新标题"
     assert reloaded.current_summary == "新摘要"
-    assert reloaded.summary_fields.product_line == "新产品线"
+    assert reloaded.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert reloaded.summary_fields.ticket_type == "咨询类"
     assert reloaded.timeline[0].content == "人工编辑后的时间线"
 
 
@@ -111,5 +113,7 @@ def test_legacy_summary_json_is_migrated(tmp_path: Path):
 
     assert todo is not None
     assert todo.summary_fields.group_name == "老群聊"
+    assert todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert todo.summary_fields.ticket_type == "排查类"
     assert todo.current_summary == "旧摘要"
     assert todo.timeline[0].content == "旧时间线"

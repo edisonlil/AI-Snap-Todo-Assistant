@@ -15,7 +15,7 @@ DEFAULT_SCENARIO_NAME = "工单待办助手"
 class PromptTemplate:
     system: str
     user: str
-    version: str = "v2.2"
+    version: str = "v2.3"
     last_improved_feedback_count: int = 0
 
 
@@ -24,6 +24,15 @@ _TITLE_FOCUS_RULES = (
     "标题必须优先保留最终用户可见的异常现象，不要把“上传时未勾选”“正在确认字体”“排查服务器字体”这类背景或排查动作写成标题主体。"
     "f. 例如“上传时未勾选，但线上勾选后重新打开变成字符Q”，"
     "标题应优先概括为“文档勾选框线上勾选后重新打开变成字符Q”，不要概括成“上传时未勾选”。"
+)
+
+_FIELD_RULES = (
+    "2. product_line 为预埋字段，当前固定返回“文档中台”，不要输出其他产品线值。"
+    "3. ticket_type 只能从“排查类”“咨询类”“操作类”中选择一个，必须结合描述智能判断："
+    "出现报错、异常、失败、无法使用等现象归为“排查类”；"
+    "询问规则、能力、使用方式、是否支持等归为“咨询类”；"
+    "请求开通、配置、修改、加白、导入导出等人工执行动作归为“操作类”。"
+    "4. group_name/environment 缺失时填“未知”。"
 )
 
 
@@ -37,6 +46,23 @@ def _apply_title_focus_rules(user_prompt: str) -> str:
     if marker in prompt:
         return prompt.replace(marker, f"{_TITLE_FOCUS_RULES}{marker}")
     return f"{prompt}{_TITLE_FOCUS_RULES}"
+
+
+def _apply_field_rules(user_prompt: str) -> str:
+    prompt = str(user_prompt or "").strip()
+    if not prompt:
+        return prompt
+    if "当前固定返回“文档中台”" in prompt and "排查类" in prompt and "咨询类" in prompt and "操作类" in prompt:
+        return prompt
+
+    legacy_marker = "2. group_name/environment/product_line/ticket_type 缺失时填“未知”。"
+    if legacy_marker in prompt:
+        return prompt.replace(legacy_marker, _FIELD_RULES)
+    return f"{prompt}{_FIELD_RULES}"
+
+
+def _apply_prompt_upgrades(user_prompt: str) -> str:
+    return _apply_field_rules(_apply_title_focus_rules(user_prompt))
 
 
 def _default_prompt() -> PromptTemplate:
@@ -59,11 +85,11 @@ def _default_prompt() -> PromptTemplate:
             "c. 精简准确：标题需直击痛点，让人一眼看清现象，建议控制在 50 字以内。"
             "d. 如果信息不足以明确关联产品，可结合 product_line、截图上下文或业务对象补全；仍无法判断时再使用中性产品名。"
             f"{_TITLE_FOCUS_RULES}"
-            "2. group_name/environment/product_line/ticket_type 缺失时填“未知”。"
-            "3. 如果输入中带有已有待办上下文，它只用于理解背景，不要直接复述旧摘要。"
-            "4. current_summary 是当前结论或现状摘要，用自然语言描述当前问题和进展。"
-            "5. timeline_entry 必须聚焦当前截图新增的跟进信息、观察结论或待处理点，用自然语言描述。"
-            "6. 不要输出 JSON 以外的解释，不要输出 markdown。"
+            f"{_FIELD_RULES}"
+            "5. 如果输入中带有已有待办上下文，它只用于理解背景，不要直接复述旧摘要。"
+            "6. current_summary 是当前结论或现状摘要，用自然语言描述当前问题和进展。"
+            "7. timeline_entry 必须聚焦当前截图新增的跟进信息、观察结论或待处理点，用自然语言描述。"
+            "8. 不要输出 JSON 以外的解释，不要输出 markdown。"
         ),
     )
 
@@ -116,7 +142,7 @@ class PromptManager:
             active = scenarios.get(DEFAULT_SCENARIO_NAME) or next(iter(scenarios.values()), {})
             template = PromptTemplate(
                 system=active.get("system", default.system),
-                user=_apply_title_focus_rules(active.get("user", default.user)),
+                user=_apply_prompt_upgrades(active.get("user", default.user)),
                 version=active.get("version", default.version),
                 last_improved_feedback_count=active.get("last_improved_feedback_count", 0),
             )

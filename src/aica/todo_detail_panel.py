@@ -10,6 +10,11 @@ from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
 from .models import TicketSummaryFields
+from .ticket_field_resolver import (
+    TICKET_TYPE_OPTIONS,
+    normalize_ticket_type,
+    resolve_product_line,
+)
 from .todo_store import TimelineEvent, TodoItem
 
 _EMPTY_TEXT = "未填写"
@@ -75,6 +80,10 @@ class _TodoDetailBridge(QObject):
     def ticketType(self) -> str:
         return self._ticket_type
 
+    @pyqtProperty("QVariantList", constant=True)
+    def ticketTypeOptions(self):  # noqa: ANN201
+        return list(TICKET_TYPE_OPTIONS)
+
     @pyqtProperty(str, notify=dataChanged)
     def currentSummary(self) -> str:
         return self._current_summary
@@ -103,8 +112,11 @@ class _TodoDetailBridge(QObject):
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
-        self._product_line = _clean_text(todo.summary_fields.product_line)
-        self._ticket_type = _clean_text(todo.summary_fields.ticket_type)
+        self._product_line = resolve_product_line(raw_value=todo.summary_fields.product_line)
+        self._ticket_type = normalize_ticket_type(
+            todo.summary_fields.ticket_type,
+            summary_text=todo.current_summary,
+        )
         self._current_summary = todo.current_summary.strip()
         self._title = todo.title.strip() or "未分类任务"
         self._overview = self._title
@@ -140,9 +152,9 @@ class _TodoDetailBridge(QObject):
         elif name == "environment":
             self._environment = text
         elif name == "product_line":
-            self._product_line = text
+            self._product_line = resolve_product_line(raw_value=text)
         elif name == "ticket_type":
-            self._ticket_type = text
+            self._ticket_type = normalize_ticket_type(text, summary_text=self._current_summary)
         elif name == "current_summary":
             self._current_summary = text
         else:
@@ -174,8 +186,19 @@ class _TodoDetailBridge(QObject):
             "summary_fields": TicketSummaryFields(
                 group_name=_clean_text(self._group_name),
                 environment=_clean_text(self._environment),
-                product_line=_clean_text(self._product_line),
-                ticket_type=_clean_text(self._ticket_type),
+                product_line=resolve_product_line(raw_value=self._product_line),
+                ticket_type=normalize_ticket_type(
+                    self._ticket_type,
+                    summary_text="\n".join(
+                        part
+                        for part in (
+                            normalized_title,
+                            normalized_summary,
+                            *(item.get("content", "").strip() for item in self._timeline),
+                        )
+                        if part
+                    ),
+                ),
             ).to_dict(),
             "timeline": [
                 TimelineEvent(
