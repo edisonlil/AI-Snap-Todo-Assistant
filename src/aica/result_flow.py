@@ -35,8 +35,8 @@ class ResultFlowCoordinator:
     @staticmethod
     def build_saved_todo_message(saved: SavedTodoResult) -> str:
         if saved.action == "append":
-            return f"结果已复制到剪贴板，并已追加到待办：\n{saved.todo_title}"
-        return f"结果已复制到剪贴板，并已创建待办：\n{saved.todo_title}"
+            return f"\u7ed3\u679c\u5df2\u590d\u5236\u5230\u526a\u8d34\u677f\uff0c\u5e76\u5df2\u8ffd\u52a0\u5230\u5f85\u529e\uff1a\n{saved.todo_title}"
+        return f"\u7ed3\u679c\u5df2\u590d\u5236\u5230\u526a\u8d34\u677f\uff0c\u5e76\u5df2\u521b\u5efa\u5f85\u529e\uff1a\n{saved.todo_title}"
 
     @staticmethod
     def populate_feedback_data(
@@ -66,12 +66,7 @@ class ResultFlowCoordinator:
 
         def on_save_result(snapshot: TicketSnapshot) -> None:
             pyperclip.copy(str(snapshot))
-            action, todo_title = self._save_result_to_todo(snapshot)
-            QMessageBox.information(
-                None,
-                "完成",
-                self.build_saved_todo_message(SavedTodoResult(action=action, todo_title=todo_title)),
-            )
+            self._save_result_to_todo(snapshot)
             self._clear_capture_state()
 
         def on_feedback(snapshot: TicketSnapshot, feedback_data: FeedbackData) -> None:

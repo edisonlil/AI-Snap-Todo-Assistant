@@ -167,8 +167,8 @@ class ResultDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(760, 620)
-        self.setMinimumSize(680, 520)
+        self.resize(740, 560)
+        self.setMinimumSize(660, 500)
 
         self._setup_ui()
 

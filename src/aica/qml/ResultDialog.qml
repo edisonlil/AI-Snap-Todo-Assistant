@@ -3,7 +3,7 @@ import QtQuick
 Rectangle {
     id: root
     width: 760
-    height: 620
+    height: 560
     color: "transparent"
 
     readonly property color shellBg: "#F1F0EC"
@@ -15,9 +15,9 @@ Rectangle {
     readonly property color fieldBg: "#F7F7F4"
     readonly property color fieldLine: "#E7E4DD"
     readonly property string uiFont: "Microsoft YaHei UI"
-    readonly property int outerPadding: 26
+    readonly property int outerPadding: 22
     readonly property int cardRadius: 28
-    readonly property int sectionGap: 14
+    readonly property int sectionGap: 10
     readonly property int contentWidth: width - outerPadding * 2
     readonly property int fieldGap: 14
     readonly property int fieldWidth: (contentWidth - fieldGap) / 2
@@ -72,7 +72,7 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: 58
+                height: 52
 
                 Text {
                     x: root.outerPadding
@@ -135,16 +135,16 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: root.outerPadding
                 anchors.rightMargin: root.outerPadding
-                anchors.bottomMargin: 20
-                height: 50
+                anchors.bottomMargin: 16
+                height: 46
                 radius: 18
                 color: root.fieldBg
 
                 Text {
                     anchors.left: parent.left
-                    anchors.leftMargin: 16
+                    anchors.leftMargin: 14
                     anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 160
+                    width: parent.width - 148
                     elide: Text.ElideRight
                     text: resultDialogBridge.saveHint
                     color: root.mutedInk
@@ -155,7 +155,7 @@ Rectangle {
 
                 Text {
                     anchors.right: parent.right
-                    anchors.rightMargin: 16
+                    anchors.rightMargin: 14
                     anchors.verticalCenter: parent.verticalCenter
                     visible: resultDialogBridge.showFeedbackAction
                     text: "\u53cd\u9988\u4fee\u6b63"
@@ -178,25 +178,25 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.top: header.bottom
                 anchors.bottom: footerBar.top
-                anchors.bottomMargin: 14
+                anchors.bottomMargin: 10
                 clip: true
                 contentWidth: width
-                contentHeight: contentColumn.implicitHeight + 18
+                contentHeight: contentColumn.implicitHeight + 12
                 boundsBehavior: Flickable.StopAtBounds
 
                 Column {
                     id: contentColumn
                     x: root.outerPadding
-                    y: 18
+                    y: 12
                     width: root.contentWidth
                     spacing: root.sectionGap
 
                     Row {
-                        spacing: 8
+                        spacing: 6
 
                         Rectangle {
-                            height: 26
-                            width: scenarioText.implicitWidth + 18
+                            height: 24
+                            width: scenarioText.implicitWidth + 16
                             radius: 13
                             color: "#FCFBF8"
 
@@ -212,8 +212,8 @@ Rectangle {
                         }
 
                         Rectangle {
-                            height: 26
-                            width: Math.min(contentColumn.width - 120, modelText.implicitWidth + 18)
+                            height: 24
+                            width: Math.min(contentColumn.width - 110, modelText.implicitWidth + 16)
                             radius: 13
                             color: "#FCFBF8"
 
@@ -234,7 +234,7 @@ Rectangle {
 
                     Item {
                         width: parent.width
-                        height: Math.max(42, titleEdit.contentHeight + 6)
+                        height: Math.max(38, titleEdit.contentHeight + 4)
 
                         TextEdit {
                             id: titleEdit
@@ -244,7 +244,7 @@ Rectangle {
                             textFormat: TextEdit.PlainText
                             color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 17
+                            font.pixelSize: 16
                             font.weight: root.titleWeight
                             verticalAlignment: TextEdit.AlignTop
                             onTextChanged: root.pushField("title", text)
@@ -253,7 +253,7 @@ Rectangle {
 
                     Item {
                         width: parent.width
-                        height: 132
+                        height: 120
 
                         Column {
                             anchors.left: parent.left
@@ -263,7 +263,7 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: 52
                                 radius: 16
                                 color: root.fieldBg
 
@@ -280,7 +280,7 @@ Rectangle {
                                 TextInput {
                                     id: groupNameEdit
                                     x: 14
-                                    y: 29
+                                    y: 27
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
@@ -295,7 +295,7 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: 52
                                 radius: 16
                                 color: root.fieldBg
 
@@ -312,7 +312,7 @@ Rectangle {
                                 TextInput {
                                     id: productLineEdit
                                     x: 14
-                                    y: 29
+                                    y: 27
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
@@ -334,7 +334,7 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: 52
                                 radius: 16
                                 color: root.fieldBg
 
@@ -351,7 +351,7 @@ Rectangle {
                                 TextInput {
                                     id: environmentEdit
                                     x: 14
-                                    y: 29
+                                    y: 27
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
@@ -366,7 +366,7 @@ Rectangle {
 
                             Rectangle {
                                 width: parent.width
-                                height: 56
+                                height: 52
                                 radius: 16
                                 color: root.fieldBg
 
@@ -383,7 +383,7 @@ Rectangle {
                                 TextInput {
                                     id: ticketTypeEdit
                                     x: 14
-                                    y: 29
+                                    y: 27
                                     width: parent.width - 28
                                     height: 22
                                     clip: true
@@ -400,7 +400,7 @@ Rectangle {
 
                     Column {
                         width: parent.width
-                        spacing: 8
+                        spacing: 6
 
                         Text {
                             text: "\u5f53\u524d\u6458\u8981"
@@ -412,14 +412,14 @@ Rectangle {
 
                         Rectangle {
                             width: parent.width
-                            height: 210
+                            height: 176
                             radius: 20
                             color: "#FCFBF8"
 
                             Flickable {
                                 id: summaryFlick
                                 anchors.fill: parent
-                                anchors.margins: 14
+                                anchors.margins: 12
                                 clip: true
                                 contentWidth: width
                                 contentHeight: Math.max(height, summaryEdit.contentHeight + 2)
