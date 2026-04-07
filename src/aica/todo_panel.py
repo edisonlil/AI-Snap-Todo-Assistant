@@ -151,10 +151,11 @@ class TodoPanel(QQuickView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bridge = _TodoPanelBridge()
-        self._base_height = 62
+        self._panel_chrome_height = 58
         self._row_height = 32
-        self._bottom_padding = 2
-        self._minimized_height = 46
+        self._row_gap = 2
+        self._max_expanded_rows = 6
+        self._minimized_height = 50
         self._panel_width = 286
         self._drag_offset = None
         self._custom_position = None
@@ -175,6 +176,7 @@ class TodoPanel(QQuickView):
         self._bridge.todoCompleted.connect(self.todo_completed)
         self._bridge.detailRequested.connect(self.detail_requested)
         self._bridge.selectionCleared.connect(self.selection_cleared)
+        self._bridge.expandedChanged.connect(self._update_panel_size)
         self._bridge.minimizedChanged.connect(self._update_panel_size)
         self._bridge.dragStarted.connect(self._start_drag)
         self._bridge.dragMoved.connect(self._move_drag)
@@ -199,7 +201,13 @@ class TodoPanel(QQuickView):
             height = self._minimized_height
         else:
             visible_count = max(1, self._bridge.visibleCount)
-            height = self._base_height + visible_count * self._row_height + self._bottom_padding
+            if self._bridge.expanded:
+                visible_count = min(visible_count, self._max_expanded_rows)
+            height = (
+                self._panel_chrome_height
+                + visible_count * self._row_height
+                + max(0, visible_count - 1) * self._row_gap
+            )
         self.resize(self._panel_width, height)
         if self.isVisible():
             self._reposition()

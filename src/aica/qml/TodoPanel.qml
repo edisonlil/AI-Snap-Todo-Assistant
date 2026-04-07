@@ -6,6 +6,17 @@ Rectangle {
     height: 194
     color: "transparent"
 
+    readonly property int outerPadding: 12
+    readonly property int headerHeight: 26
+    readonly property int sectionGap: 6
+    readonly property int rowHeight: 30
+    readonly property int rowSpacing: 2
+    readonly property int listBottomInset: 2
+    readonly property int listViewportHeight: Math.max(
+        0,
+        height - outerPadding * 2 - headerHeight - (todoPanelBridge.minimized ? 0 : sectionGap) - listBottomInset
+    )
+
     Rectangle {
         id: surface
         anchors.fill: parent
@@ -18,12 +29,12 @@ Rectangle {
 
         Column {
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 4
+            anchors.margins: root.outerPadding
+            spacing: todoPanelBridge.minimized ? 0 : root.sectionGap
 
             Item {
                 width: parent.width
-                height: 26
+                height: root.headerHeight
 
                 MouseArea {
                     anchors.fill: parent
@@ -127,118 +138,105 @@ Rectangle {
                 }
             }
 
-            Repeater {
-                model: todoPanelBridge.todos
+            Item {
+                id: listViewport
+                width: parent.width
+                height: todoPanelBridge.minimized ? 0 : root.listViewportHeight
+                clip: true
+                visible: !todoPanelBridge.minimized
 
-                delegate: Rectangle {
-                    id: rowItem
-                    width: surface.width - 24
-                    height: 30
-                    radius: 15
-                    color: modelData.selected ? "#FFFEFC" : "transparent"
-                    border.width: 0
-                    border.color: "transparent"
-                    antialiasing: true
-                    property real contentOffset: 0
-                    property real actionWidth: 0
+                Flickable {
+                    id: listFlick
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: width
+                    contentHeight: listColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
 
-                        Rectangle {
-                            id: completeReveal
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.right: parent.right
-                            width: rowItem.actionWidth
-                            radius: 15
-                        color: "#EEF4FF"
-                        border.width: 1
-                        border.color: "#D6E4FB"
-                        visible: false
+                    Column {
+                        id: listColumn
+                        width: Math.max(0, listFlick.width - 6)
+                        spacing: root.rowSpacing
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: "完成"
-                            font.pixelSize: 10
-                            color: "#275ED8"
-                        }
+                        Repeater {
+                            model: todoPanelBridge.todos
 
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                mouse.accepted = true
-                                todoPanelBridge.completeTodo(modelData.id)
-                                rowItem.contentOffset = 0
-                            }
-                        }
-                    }
+                            delegate: Rectangle {
+                                width: listColumn.width
+                                height: root.rowHeight
+                                radius: 15
+                                color: modelData.selected ? "#FFFEFC" : "transparent"
+                                border.width: 0
+                                border.color: "transparent"
+                                antialiasing: true
 
-                        Item {
-                            id: contentLayer
-                            anchors.fill: parent
-                        x: 0
+                                Rectangle {
+                                    id: radioButton
+                                    x: 4
+                                    width: 18
+                                    height: 18
+                                    radius: 9
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    color: "#FFFFFF"
+                                    border.width: 1.5
+                                    border.color: modelData.selected ? "#5E8CFF" : "#C8C8C8"
 
-                        Rectangle {
-                            id: radioButton
-                            x: 4
-                            width: 18
-                            height: 18
-                            radius: 9
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: "#FFFFFF"
-                            border.width: modelData.selected ? 1.5 : 1.5
-                            border.color: modelData.selected ? "#5E8CFF" : "#C8C8C8"
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: modelData.selected ? 8 : 0
+                                        height: modelData.selected ? 8 : 0
+                                        radius: 4
+                                        color: "#5E8CFF"
+                                        visible: modelData.selected
+                                    }
 
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: modelData.selected ? 8 : 0
-                                height: modelData.selected ? 8 : 0
-                                radius: 4
-                                color: "#5E8CFF"
-                                visible: modelData.selected
-                            }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: function(mouse) {
+                                            mouse.accepted = true
+                                            todoPanelBridge.selectTodo(modelData.id)
+                                        }
+                                    }
+                                }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: function(mouse) {
-                                    mouse.accepted = true
-                                    todoPanelBridge.selectTodo(modelData.id)
+                                Text {
+                                    id: titleText
+                                    x: 32
+                                    width: parent.width - x - 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.title
+                                    elide: Text.ElideRight
+                                    wrapMode: Text.NoWrap
+                                    maximumLineCount: 1
+                                    font.pixelSize: 10
+                                    font.weight: modelData.selected ? 600 : 500
+                                    color: "#141414"
+                                }
+
+                                MouseArea {
+                                    anchors.verticalCenter: titleText.verticalCenter
+                                    x: titleText.x
+                                    width: titleText.width
+                                    height: parent.height
+                                    onClicked: function(mouse) {
+                                        mouse.accepted = true
+                                        todoPanelBridge.requestDetail(modelData.id)
+                                    }
                                 }
                             }
                         }
-
-                        Text {
-                            id: titleText
-                            x: 32
-                            width: parent.width - x - 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.title
-                            elide: Text.ElideRight
-                            wrapMode: Text.NoWrap
-                            maximumLineCount: 1
-                            font.pixelSize: 10
-                            font.weight: modelData.selected ? 600 : 500
-                            color: "#141414"
-                        }
-
-                        MouseArea {
-                            anchors.verticalCenter: titleText.verticalCenter
-                            x: titleText.x
-                            width: titleText.width
-                            height: parent.height
-                            onClicked: function(mouse) {
-                                mouse.accepted = true
-                                todoPanelBridge.requestDetail(modelData.id)
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.LeftButton
-                            propagateComposedEvents: true
-                            onPressed: mouse => {
-                                mouse.accepted = false
-                            }
-                        }
                     }
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 0
+                    y: 4 + (listFlick.contentY / Math.max(1, listFlick.contentHeight - listFlick.height)) * (parent.height - height - 8)
+                    width: 3
+                    height: Math.max(24, (listFlick.height / Math.max(listFlick.contentHeight, 1)) * (parent.height - 8))
+                    radius: 1.5
+                    color: "#D4D0C8"
+                    visible: listFlick.contentHeight > listFlick.height + 2
                 }
             }
         }
