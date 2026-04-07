@@ -14,9 +14,9 @@ Rectangle {
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#9AA4B3"
     readonly property color mutedInk: "#B3BBC8"
-    readonly property color fieldBg: "#FBFCFE"
-    readonly property color fieldLine: "#EDF1F6"
-    readonly property color timelineBg: "#F8FAFD"
+    readonly property color fieldBg: "#F7F9FC"
+    readonly property color fieldLine: "#E7EDF5"
+    readonly property color timelineBg: "#F6F8FC"
     readonly property color accent: "#3D7CFF"
     readonly property color accentTint: "#EEF4FF"
     readonly property string uiFont: "Microsoft YaHei UI"
@@ -24,8 +24,13 @@ Rectangle {
     readonly property int sectionGap: 18
     readonly property int cardRadius: 24
     readonly property int contentWidth: width - outerPadding * 2
+    readonly property int fieldInset: 14
     readonly property int fieldGap: 12
-    readonly property int fieldWidth: (contentWidth - fieldGap) / 2
+    readonly property int fieldWidth: (contentWidth - fieldGap - fieldInset * 2) / 2
+    readonly property int titleWeight: 600
+    readonly property int sectionWeight: 600
+    readonly property int labelWeight: 500
+    readonly property int bodyWeight: 400
     property bool syncingFields: false
 
     function syncFields() {
@@ -85,7 +90,7 @@ Rectangle {
                     color: root.titleInk
                     font.family: root.uiFont
                     font.pixelSize: 20
-                    font.weight: 700
+                    font.weight: root.titleWeight
                 }
 
                 Row {
@@ -99,7 +104,7 @@ Rectangle {
                         height: 30
                         radius: 15
                         color: "#FFFFFF"
-                        border.width: 1
+                        border.width: 0
                         border.color: root.fieldLine
 
                         Text {
@@ -108,7 +113,7 @@ Rectangle {
                             color: "#707A89"
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: 600
+                            font.weight: root.labelWeight
                         }
 
                         MouseArea {
@@ -122,7 +127,7 @@ Rectangle {
                         height: 30
                         radius: 15
                         color: "#F7F9FD"
-                        border.width: 1
+                        border.width: 0
                         border.color: root.fieldLine
 
                         Text {
@@ -131,7 +136,7 @@ Rectangle {
                             color: "#586375"
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: 700
+                            font.weight: root.labelWeight
                         }
 
                         MouseArea {
@@ -181,7 +186,7 @@ Rectangle {
                             color: root.titleInk
                             font.family: root.uiFont
                             font.pixelSize: 18
-                            font.weight: 700
+                            font.weight: root.titleWeight
                             verticalAlignment: TextEdit.AlignTop
                             onTextChanged: root.pushField("title", text)
                         }
@@ -202,7 +207,7 @@ Rectangle {
                                 height: 62
                                 radius: 16
                                 color: root.fieldBg
-                                border.width: 1
+                                border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
@@ -212,7 +217,7 @@ Rectangle {
                                     color: root.labelInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
-                                    font.weight: 600
+                                    font.weight: root.labelWeight
                                 }
 
                                 TextInput {
@@ -226,7 +231,7 @@ Rectangle {
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                     onTextChanged: root.pushField("group_name", text)
                                 }
                             }
@@ -236,7 +241,7 @@ Rectangle {
                                 height: 62
                                 radius: 16
                                 color: root.fieldBg
-                                border.width: 1
+                                border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
@@ -246,7 +251,7 @@ Rectangle {
                                     color: root.labelInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
-                                    font.weight: 600
+                                    font.weight: root.labelWeight
                                 }
 
                                 TextInput {
@@ -260,7 +265,7 @@ Rectangle {
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                     onTextChanged: root.pushField("product_line", text)
                                 }
                             }
@@ -277,7 +282,7 @@ Rectangle {
                                 height: 62
                                 radius: 16
                                 color: root.fieldBg
-                                border.width: 1
+                                border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
@@ -287,7 +292,7 @@ Rectangle {
                                     color: root.labelInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
-                                    font.weight: 600
+                                    font.weight: root.labelWeight
                                 }
 
                                 TextInput {
@@ -301,7 +306,7 @@ Rectangle {
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                     onTextChanged: root.pushField("environment", text)
                                 }
                             }
@@ -311,7 +316,7 @@ Rectangle {
                                 height: 62
                                 radius: 16
                                 color: root.fieldBg
-                                border.width: 1
+                                border.width: 0
                                 border.color: root.fieldLine
 
                                 Text {
@@ -321,7 +326,7 @@ Rectangle {
                                     color: root.labelInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
-                                    font.weight: 600
+                                    font.weight: root.labelWeight
                                 }
 
                                 TextInput {
@@ -335,7 +340,7 @@ Rectangle {
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                     onTextChanged: root.pushField("ticket_type", text)
                                 }
                             }
@@ -351,7 +356,7 @@ Rectangle {
                             color: root.labelInk
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: 700
+                            font.weight: root.sectionWeight
                         }
 
                         Rectangle {
@@ -359,7 +364,7 @@ Rectangle {
                             height: 126
                             radius: 18
                             color: "#FFFFFF"
-                            border.width: 1
+                            border.width: 0
                             border.color: root.fieldLine
 
                             Flickable {
@@ -380,7 +385,7 @@ Rectangle {
                                     color: root.bodyInk
                                     font.family: root.uiFont
                                     font.pixelSize: 14
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                     onTextChanged: root.pushField("current_summary", text)
                                 }
                             }
@@ -402,8 +407,8 @@ Rectangle {
                         width: parent.width
                         height: 56
                         radius: 18
-                        color: "#FFFFFF"
-                        border.width: 1
+                        color: root.fieldBg
+                        border.width: 0
                         border.color: root.fieldLine
 
                         Text {
@@ -413,7 +418,7 @@ Rectangle {
                             color: root.mutedInk
                             font.family: root.uiFont
                             font.pixelSize: 11
-                            font.weight: 600
+                            font.weight: root.bodyWeight
                         }
 
                         Text {
@@ -423,7 +428,7 @@ Rectangle {
                             color: root.mutedInk
                             font.family: root.uiFont
                             font.pixelSize: 11
-                            font.weight: 600
+                            font.weight: root.bodyWeight
                         }
 
                         Text {
@@ -434,7 +439,7 @@ Rectangle {
                             color: "#B0B8C4"
                             font.family: root.uiFont
                             font.pixelSize: 11
-                            font.weight: 600
+                                font.weight: root.labelWeight
 
                             MouseArea {
                                 anchors.fill: parent
@@ -460,7 +465,7 @@ Rectangle {
                                 color: root.accent
                                 font.family: root.uiFont
                                 font.pixelSize: 12
-                                font.weight: 700
+                                font.weight: root.labelWeight
                             }
 
                             MouseArea {
@@ -491,7 +496,7 @@ Rectangle {
                                 color: root.titleInk
                                 font.family: root.uiFont
                                 font.pixelSize: 15
-                                font.weight: 700
+                                font.weight: root.sectionWeight
                             }
 
                             Text {
@@ -502,7 +507,7 @@ Rectangle {
                                 color: root.mutedInk
                                 font.family: root.uiFont
                                 font.pixelSize: 11
-                                font.weight: 600
+                                font.weight: root.bodyWeight
                             }
 
                             Text {
@@ -512,7 +517,7 @@ Rectangle {
                                 color: "#98A2B2"
                                 font.family: root.uiFont
                                 font.pixelSize: 11
-                                font.weight: 600
+                                font.weight: root.labelWeight
 
                                 MouseArea {
                                     anchors.fill: parent
@@ -534,7 +539,7 @@ Rectangle {
                                     height: Math.max(108, timelineContent.contentHeight + 58)
                                     radius: 18
                                     color: root.timelineBg
-                                    border.width: 1
+                                    border.width: 0
                                     border.color: root.fieldLine
 
                                     Rectangle {
@@ -553,7 +558,7 @@ Rectangle {
                                         color: root.mutedInk
                                         font.family: root.uiFont
                                         font.pixelSize: 11
-                                        font.weight: 600
+                                        font.weight: root.bodyWeight
                                     }
 
                                     Text {
@@ -563,7 +568,7 @@ Rectangle {
                                         color: root.labelInk
                                         font.family: root.uiFont
                                         font.pixelSize: 11
-                                        font.weight: 600
+                                        font.weight: root.labelWeight
                                     }
 
                                     TextEdit {
@@ -577,7 +582,7 @@ Rectangle {
                                         color: root.bodyInk
                                         font.family: root.uiFont
                                         font.pixelSize: 13
-                                        font.weight: 600
+                                        font.weight: root.bodyWeight
                                         text: modelData.content
                                         onTextChanged: {
                                             if (!root.syncingFields) {
@@ -593,7 +598,7 @@ Rectangle {
                                 height: 78
                                 radius: 18
                                 color: root.timelineBg
-                                border.width: 1
+                                border.width: 0
                                 border.color: root.fieldLine
                                 visible: todoDetailBridge.timelineCount === 0
 
@@ -603,7 +608,7 @@ Rectangle {
                                     color: root.mutedInk
                                     font.family: root.uiFont
                                     font.pixelSize: 12
-                                    font.weight: 600
+                                    font.weight: root.bodyWeight
                                 }
                             }
                         }
