@@ -44,3 +44,25 @@ def test_prompt_manager_persists_single_template(temp_config_file):
     assert payload["current_scenario"] == DEFAULT_SCENARIO_NAME
     assert list(payload["scenarios"].keys()) == [DEFAULT_SCENARIO_NAME]
     assert payload["scenarios"][DEFAULT_SCENARIO_NAME]["system"] == "系统提示"
+
+
+def test_prompt_manager_injects_title_focus_rules_for_loaded_prompt(temp_config_file):
+    payload = {
+        "current_scenario": DEFAULT_SCENARIO_NAME,
+        "scenarios": {
+            DEFAULT_SCENARIO_NAME: {
+                "system": "系统提示",
+                "user": "请仅输出 JSON。2. group_name/environment/product_line/ticket_type 缺失时填“未知”。",
+                "version": "v2.1",
+                "last_improved_feedback_count": 0,
+            }
+        },
+    }
+    with open(temp_config_file, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+    manager = PromptManager(config_path=temp_config_file)
+
+    prompt = manager.get_current_prompt().user
+    assert "最终用户可见的异常现象" in prompt
+    assert "不要概括成“上传时未勾选”" in prompt

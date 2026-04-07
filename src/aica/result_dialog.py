@@ -10,7 +10,7 @@ from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from aica.feedback import FeedbackData
-from aica.models import TicketSnapshot, TicketSummaryFields, summarize_issue_title
+from aica.models import TicketSnapshot, TicketSummaryFields
 
 _UNKNOWN_TEXT = "\u672a\u77e5"
 _UNCLASSIFIED_TASK = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -35,6 +35,7 @@ class _ResultDialogBridge(QObject):
         self._scenario = scenario
         self._model = model
         self._show_feedback = show_feedback
+        self._fallback_title = result.title.strip() or _UNCLASSIFIED_TASK
         self._title = result.title.strip()
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
@@ -104,11 +105,7 @@ class _ResultDialogBridge(QObject):
 
     def build_snapshot(self) -> TicketSnapshot:
         normalized_summary = self._current_summary.strip() or _PENDING_TEXT
-        normalized_title = self._title.strip() or summarize_issue_title(
-            normalized_summary,
-            fallback=_UNCLASSIFIED_TASK,
-            max_length=50,
-        )
+        normalized_title = self._title.strip() or self._fallback_title
         return TicketSnapshot(
             title=normalized_title,
             fields=TicketSummaryFields(

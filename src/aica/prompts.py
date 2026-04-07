@@ -15,8 +15,28 @@ DEFAULT_SCENARIO_NAME = "工单待办助手"
 class PromptTemplate:
     system: str
     user: str
-    version: str = "v2.1"
+    version: str = "v2.2"
     last_improved_feedback_count: int = 0
+
+
+_TITLE_FOCUS_RULES = (
+    "e. 如果原始信息同时包含前置条件、复现步骤、排查动作和最终异常现象，"
+    "标题必须优先保留最终用户可见的异常现象，不要把“上传时未勾选”“正在确认字体”“排查服务器字体”这类背景或排查动作写成标题主体。"
+    "f. 例如“上传时未勾选，但线上勾选后重新打开变成字符Q”，"
+    "标题应优先概括为“文档勾选框线上勾选后重新打开变成字符Q”，不要概括成“上传时未勾选”。"
+)
+
+
+def _apply_title_focus_rules(user_prompt: str) -> str:
+    prompt = str(user_prompt or "").strip()
+    if not prompt:
+        return prompt
+    if "最终用户可见的异常现象" in prompt:
+        return prompt
+    marker = "2. group_name/environment/product_line/ticket_type 缺失时填“未知”。"
+    if marker in prompt:
+        return prompt.replace(marker, f"{_TITLE_FOCUS_RULES}{marker}")
+    return f"{prompt}{_TITLE_FOCUS_RULES}"
 
 
 def _default_prompt() -> PromptTemplate:
@@ -38,6 +58,7 @@ def _default_prompt() -> PromptTemplate:
             "b. 技术化表述：必须优先使用“接口超时”、“API返回500”、“样张跑版”、“鉴权失败”等专业词汇。"
             "c. 精简准确：标题需直击痛点，让人一眼看清现象，建议控制在 50 字以内。"
             "d. 如果信息不足以明确关联产品，可结合 product_line、截图上下文或业务对象补全；仍无法判断时再使用中性产品名。"
+            f"{_TITLE_FOCUS_RULES}"
             "2. group_name/environment/product_line/ticket_type 缺失时填“未知”。"
             "3. 如果输入中带有已有待办上下文，它只用于理解背景，不要直接复述旧摘要。"
             "4. current_summary 是当前结论或现状摘要，用自然语言描述当前问题和进展。"
@@ -95,7 +116,7 @@ class PromptManager:
             active = scenarios.get(DEFAULT_SCENARIO_NAME) or next(iter(scenarios.values()), {})
             template = PromptTemplate(
                 system=active.get("system", default.system),
-                user=active.get("user", default.user),
+                user=_apply_title_focus_rules(active.get("user", default.user)),
                 version=active.get("version", default.version),
                 last_improved_feedback_count=active.get("last_improved_feedback_count", 0),
             )

@@ -39,13 +39,19 @@ _STRONG_ISSUE_KEYWORDS = (
     "中断",
     "无法",
     "不能",
-    "未",
     "不生效",
     "不显示",
     "不通过",
     "丢失",
     "缺失",
     "失效",
+    "变成",
+    "变为",
+    "显示为",
+    "显示成",
+    "乱码",
+    "错位",
+    "变q",
 )
 
 _WEAK_ISSUE_KEYWORDS = (
@@ -65,35 +71,73 @@ _WEAK_ISSUE_KEYWORDS = (
     "实现",
 )
 
+_FOLLOW_UP_PREFIXES = (
+    "需要",
+    "需",
+    "待",
+    "排查",
+    "确认",
+    "检查",
+    "查看",
+    "分析",
+    "定位",
+    "截图显示",
+    "当前截图",
+    "当前使用",
+)
+
+_OBJECT_HINTS = (
+    "勾选框",
+    "复选框",
+    "登录",
+    "接口",
+    "按钮",
+    "二维码",
+    "字体",
+    "样张",
+    "文件",
+    "附件",
+    "字段",
+    "列表",
+    "表单",
+    "文档",
+    "页面",
+)
+
+_TRIGGER_HINTS = (
+    "重新打开",
+    "打开后",
+    "提交后",
+    "保存后",
+    "上传后",
+    "勾选后",
+    "点击后",
+    "刷新后",
+    "切换后",
+    "线上",
+)
+
+_SINGLE_CHAR_CHANGE_RE = re.compile(r"变(?:为|成)?([A-Za-z0-9])(?:了)?")
+_DISPLAY_CHAR_RE = re.compile(r"显示(?:为|成)?([A-Za-z0-9])")
+
 
 def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
     text = str(value or "").strip()
     return text or fallback
 
 
-def summarize_issue_title(text: Any, fallback: str = UNCLASSIFIED_TASK, max_length: int = 20) -> str:
-    cleaned = re.sub(r"\s+", "", str(text or ""))
-    if not cleaned:
-        return fallback[:max_length]
-
-    clauses = [clause for clause in re.split(r"[^\u4e00-\u9fffA-Za-z0-9]+", cleaned) if clause]
-
-    candidate = next(
-        (clause for clause in clauses if any(keyword in clause for keyword in _STRONG_ISSUE_KEYWORDS)),
-        "",
-    )
+def _normalize_title_candidate(text: str) -> str:
+    candidate = str(text or "").strip()
     if not candidate:
-        weak_matches = [
-            clause for clause in clauses if any(keyword in clause for keyword in _WEAK_ISSUE_KEYWORDS)
-        ]
-        candidate = weak_matches[-1] if weak_matches else (clauses[0] if clauses else cleaned)
+        return ""
 
-    for prefix in _TITLE_PREFIXES:
-        if candidate.startswith(prefix):
-            candidate = candidate[len(prefix):]
-            break
-
+    candidate = re.sub(r"^(?:但|并且|且|并|然后|目前|当前|现象为?)", "", candidate)
+    candidate = re.sub(r"^(?:用户|客户)(?:反馈|表示|反映|提到)?", "", candidate)
+    candidate = re.sub(r"^在", "", candidate)
+    candidate = re.sub(r"^遇到", "", candidate)
+    candidate = re.sub(r"(?:的问题|问题现象|异常现象|的异常|问题)$", "", candidate)
     candidate = candidate.strip("：:，,。.；; ")
+
     if candidate.startswith("需要"):
         candidate = candidate[2:]
     elif candidate.startswith("需"):
@@ -102,6 +146,92 @@ def summarize_issue_title(text: Any, fallback: str = UNCLASSIFIED_TASK, max_leng
         candidate = candidate[3:]
     if candidate.startswith(("对", "将", "把")) and len(candidate) > 1:
         candidate = candidate[1:]
+
+    candidate = _SINGLE_CHAR_CHANGE_RE.sub(r"变成字符\1", candidate)
+    candidate = _DISPLAY_CHAR_RE.sub(r"显示为字符\1", candidate)
+    candidate = candidate.replace("就变成字符", "变成字符")
+    candidate = candidate.replace("就变", "变")
+    candidate = candidate.rstrip("了")
+    return candidate.strip("：:，,。.；; ")
+
+
+def _score_title_fragment(fragment: str) -> int:
+    candidate = _normalize_title_candidate(fragment)
+    if not candidate:
+        return -10**6
+
+    lowered = candidate.lower()
+    score = min(len(candidate), 30)
+    score += sum(12 for keyword in _STRONG_ISSUE_KEYWORDS if keyword in lowered or keyword in candidate)
+    score += sum(4 for keyword in _WEAK_ISSUE_KEYWORDS if keyword in candidate)
+    score += sum(5 for keyword in _OBJECT_HINTS if keyword in candidate)
+    score += sum(6 for keyword in _TRIGGER_HINTS if keyword in candidate)
+
+    if any(candidate.startswith(prefix) for prefix in _FOLLOW_UP_PREFIXES):
+        score -= 18
+    if "未勾选" in candidate and not any(keyword in candidate for keyword in ("变成", "变为", "显示为", "异常", "报错", "错误")):
+        score -= 14
+    if any(keyword in candidate for keyword in ("服务器", "字体可用性", "可用性")) and "异常" not in candidate:
+        score -= 8
+    return score
+
+
+def _extract_object_hint(text: str) -> str:
+    matches = [hint for hint in _OBJECT_HINTS if hint in text]
+    if "文档" in text and "勾选框" in text:
+        return "文档勾选框"
+    if "页面" in text and "按钮" in text:
+        return "页面按钮"
+    return matches[0] if matches else ""
+
+
+def summarize_issue_title(text: Any, fallback: str = UNCLASSIFIED_TASK, max_length: int = 20) -> str:
+    cleaned = re.sub(r"\s+", "", str(text or ""))
+    if not cleaned:
+        return fallback[:max_length]
+
+    sentences = [part.strip() for part in re.split(r"[。！？；;\n]+", cleaned) if part.strip()]
+    if not sentences:
+        sentences = [cleaned]
+
+    sentence = max(sentences, key=_score_title_fragment)
+    fragments = [part.strip() for part in re.split(r"[，,、]+", sentence) if part.strip()]
+    if not fragments:
+        fragments = [sentence]
+
+    candidate = max(fragments, key=_score_title_fragment)
+    normalized_candidate = _normalize_title_candidate(candidate)
+    object_hint = _extract_object_hint(sentence)
+
+    if (
+        object_hint
+        and object_hint not in normalized_candidate
+        and any(keyword in normalized_candidate for keyword in _TRIGGER_HINTS + ("变成", "变为", "显示为", "异常", "报错", "错误"))
+    ):
+        normalized_candidate = f"{object_hint}{normalized_candidate}"
+
+    if len(fragments) > 1:
+        richer_fragment = max(
+            (
+                fragment
+                for fragment in fragments
+                if any(keyword in fragment for keyword in _TRIGGER_HINTS + ("变成", "变为", "显示为", "异常", "报错", "错误"))
+            ),
+            key=_score_title_fragment,
+            default="",
+        )
+        normalized_richer = _normalize_title_candidate(richer_fragment)
+        if object_hint and normalized_richer and object_hint not in normalized_richer:
+            combined = f"{object_hint}{normalized_richer}"
+            if _score_title_fragment(combined) >= _score_title_fragment(normalized_candidate):
+                normalized_candidate = combined
+
+    candidate = normalized_candidate
+
+    for prefix in _TITLE_PREFIXES:
+        if candidate.startswith(prefix):
+            candidate = candidate[len(prefix):]
+            break
 
     candidate = candidate or cleaned
     return candidate[:max_length]
@@ -149,8 +279,12 @@ class TicketSnapshot:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TicketSnapshot":
         raw_summary = payload.get("current_summary") or payload.get("summary") or payload.get("task_desc")
-        title_source = raw_summary or payload.get("title")
-        title = summarize_issue_title(title_source, fallback=UNCLASSIFIED_TASK)
+        raw_title = str(payload.get("title") or "").strip()
+        if raw_title:
+            title = raw_title
+        else:
+            title_source = raw_summary or raw_title
+            title = summarize_issue_title(title_source, fallback=UNCLASSIFIED_TASK)
         current_summary = _clean(raw_summary, fallback=PENDING_TEXT)
         timeline_entry = _clean(
             payload.get("timeline_entry") or payload.get("follow_up") or current_summary,
@@ -165,7 +299,7 @@ class TicketSnapshot:
             }
         )
         return cls(
-            title=title[:80],
+            title=title,
             fields=fields,
             current_summary=current_summary[:400],
             timeline_entry=timeline_entry[:600],
@@ -177,7 +311,7 @@ class TicketSnapshot:
         summary = cleaned or PENDING_TEXT
         title = summarize_issue_title(summary, fallback=UNCLASSIFIED_TASK)
         return cls(
-            title=title[:80],
+            title=title,
             fields=TicketSummaryFields(),
             current_summary=summary[:400],
             timeline_entry=summary[:600],
