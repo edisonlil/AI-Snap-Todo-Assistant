@@ -2,20 +2,117 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import re
 from typing import Any
 
 
-def _clean(value: Any, fallback: str = "未知") -> str:
+UNKNOWN_TEXT = "未知"
+UNCLASSIFIED_TASK = "未分类任务"
+PENDING_TEXT = "待补充"
+
+_TITLE_PREFIXES = (
+    "客户反馈",
+    "客户表示",
+    "客户反映",
+    "客户需要",
+    "客户要求",
+    "用户反馈",
+    "用户表示",
+    "用户反映",
+    "用户需要",
+    "用户要求",
+    "目前",
+    "当前",
+    "现象",
+    "问题",
+    "出现",
+    "现需",
+)
+
+_STRONG_ISSUE_KEYWORDS = (
+    "失败",
+    "异常",
+    "报错",
+    "错误",
+    "卡顿",
+    "超时",
+    "中断",
+    "无法",
+    "不能",
+    "未",
+    "不生效",
+    "不显示",
+    "不通过",
+    "丢失",
+    "缺失",
+    "失效",
+)
+
+_WEAK_ISSUE_KEYWORDS = (
+    "定制",
+    "适配",
+    "整改",
+    "优化",
+    "补充",
+    "新增",
+    "处理",
+    "排查",
+    "修复",
+    "完善",
+    "支持",
+    "同步",
+    "搭建",
+    "实现",
+)
+
+
+def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
     text = str(value or "").strip()
     return text or fallback
 
 
+def summarize_issue_title(text: Any, fallback: str = UNCLASSIFIED_TASK, max_length: int = 20) -> str:
+    cleaned = re.sub(r"\s+", "", str(text or ""))
+    if not cleaned:
+        return fallback[:max_length]
+
+    clauses = [clause for clause in re.split(r"[^\u4e00-\u9fffA-Za-z0-9]+", cleaned) if clause]
+
+    candidate = next(
+        (clause for clause in clauses if any(keyword in clause for keyword in _STRONG_ISSUE_KEYWORDS)),
+        "",
+    )
+    if not candidate:
+        weak_matches = [
+            clause for clause in clauses if any(keyword in clause for keyword in _WEAK_ISSUE_KEYWORDS)
+        ]
+        candidate = weak_matches[-1] if weak_matches else (clauses[0] if clauses else cleaned)
+
+    for prefix in _TITLE_PREFIXES:
+        if candidate.startswith(prefix):
+            candidate = candidate[len(prefix):]
+            break
+
+    candidate = candidate.strip("：:，,。.；; ")
+    if candidate.startswith("需要"):
+        candidate = candidate[2:]
+    elif candidate.startswith("需"):
+        candidate = candidate[1:]
+    if candidate.startswith("进一步") and len(candidate) > 3:
+        candidate = candidate[3:]
+    if candidate.startswith(("对", "将", "把")) and len(candidate) > 1:
+        candidate = candidate[1:]
+
+    candidate = candidate or cleaned
+    return candidate[:max_length]
+
+
 @dataclass
 class TicketSummaryFields:
-    group_name: str = "未知"
-    environment: str = "未知"
-    product_line: str = "未知"
-    ticket_type: str = "未知"
+    group_name: str = UNKNOWN_TEXT
+    environment: str = UNKNOWN_TEXT
+    product_line: str = UNKNOWN_TEXT
+    ticket_type: str = UNKNOWN_TEXT
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -51,14 +148,10 @@ class TicketSnapshot:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TicketSnapshot":
-        title = _clean(
-            payload.get("title") or payload.get("task_desc") or payload.get("summary"),
-            fallback="未分类任务",
-        )
-        current_summary = _clean(
-            payload.get("current_summary") or payload.get("summary") or payload.get("task_desc"),
-            fallback="待补充",
-        )
+        raw_summary = payload.get("current_summary") or payload.get("summary") or payload.get("task_desc")
+        title_source = raw_summary or payload.get("title")
+        title = summarize_issue_title(title_source, fallback=UNCLASSIFIED_TASK)
+        current_summary = _clean(raw_summary, fallback=PENDING_TEXT)
         timeline_entry = _clean(
             payload.get("timeline_entry") or payload.get("follow_up") or current_summary,
             fallback=current_summary,
@@ -81,9 +174,8 @@ class TicketSnapshot:
     @classmethod
     def from_text(cls, text: str) -> "TicketSnapshot":
         cleaned = text.strip()
-        lines = [line.strip("-• \t") for line in cleaned.splitlines() if line.strip()]
-        title = lines[0] if lines else "未分类任务"
-        summary = cleaned or "待补充"
+        summary = cleaned or PENDING_TEXT
+        title = summarize_issue_title(summary, fallback=UNCLASSIFIED_TASK)
         return cls(
             title=title[:80],
             fields=TicketSummaryFields(),

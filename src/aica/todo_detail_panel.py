@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
-from .models import TicketSummaryFields
+from .models import TicketSummaryFields, summarize_issue_title
 from .todo_store import TimelineEvent, TodoItem
 
 _EMPTY_TEXT = "未填写"
@@ -99,15 +99,18 @@ class _TodoDetailBridge(QObject):
     def timelineExpanded(self) -> bool:
         return self._timeline_expanded
 
+    def _build_title(self, summary: str, fallback: str = "") -> str:
+        return summarize_issue_title(summary, fallback=fallback or "未分类任务")
+
     def set_todo(self, todo: TodoItem) -> None:
         self._todo_id = todo.id
-        self._title = todo.title.strip()
-        self._overview = todo.title.strip()
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
         self._product_line = _clean_text(todo.summary_fields.product_line)
         self._ticket_type = _clean_text(todo.summary_fields.ticket_type)
         self._current_summary = todo.current_summary.strip()
+        self._title = self._build_title(self._current_summary, fallback=todo.title.strip())
+        self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
         self._updated_at = _format_ts(todo.updated_at)
         self._timeline = [
@@ -123,6 +126,8 @@ class _TodoDetailBridge(QObject):
         ]
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
+            self._title = self._build_title(self._current_summary, fallback=todo.title.strip())
+            self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
         self.dataChanged.emit()
         self.timelineExpandedChanged.emit()
@@ -131,8 +136,8 @@ class _TodoDetailBridge(QObject):
     def updateField(self, name: str, value: str) -> None:
         text = str(value)
         if name == "title":
-            self._title = text
-            self._overview = text.strip()
+            self._title = self._build_title(text, fallback=self._title)
+            self._overview = self._title
         elif name == "group_name":
             self._group_name = text
         elif name == "environment":
@@ -143,6 +148,8 @@ class _TodoDetailBridge(QObject):
             self._ticket_type = text
         elif name == "current_summary":
             self._current_summary = text
+            self._title = self._build_title(text, fallback=self._title)
+            self._overview = self._title
         else:
             return
         self.dataChanged.emit()
@@ -164,9 +171,11 @@ class _TodoDetailBridge(QObject):
     def saveTodo(self) -> None:
         if self._todo_id is None:
             return
+        normalized_summary = self._current_summary.strip()
+        normalized_title = self._build_title(normalized_summary, fallback=self._title.strip())
         payload = {
-            "title": self._title.strip(),
-            "current_summary": self._current_summary.strip(),
+            "title": normalized_title,
+            "current_summary": normalized_summary,
             "summary_fields": TicketSummaryFields(
                 group_name=_clean_text(self._group_name),
                 environment=_clean_text(self._environment),
@@ -213,7 +222,7 @@ class TodoDetailPanel(QQuickView):
         super().__init__(parent)
         self._bridge = _TodoDetailBridge()
         self._panel_width = 396
-        self._panel_height = 760
+        self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
 
