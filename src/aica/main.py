@@ -9,7 +9,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import QRect, QTimer
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from aica.api_key_dialog import ApiKeyDialog
 from aica.analysis_flow import AnalysisFlowCoordinator
@@ -28,7 +28,13 @@ from aica.todo_detail_panel import TodoDetailPanel
 from aica.todo_panel import TodoPanel
 from aica.todo_store import TodoStore
 from aica.toolbar import FloatingToolbar
-from aica.worker import AIWorker, FeedbackOptimizeWorker, MultiCaptureAIWorker
+from aica.worker import (
+    AIWorker,
+    FeedbackOptimizeWorker,
+    MultiCaptureAIWorker,
+    PlanExportWorker,
+    build_plan_export_filename,
+)
 
 
 def _setup_exception_handler() -> None:
@@ -90,6 +96,7 @@ def main() -> None:
 
     capture_session = CaptureSession()
     feedback_workers: list[FeedbackOptimizeWorker] = []
+    plan_export_workers: list[PlanExportWorker] = []
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -171,6 +178,11 @@ def main() -> None:
             feedback_workers.remove(worker)
         worker.deleteLater()
 
+    def _cleanup_plan_export_worker(worker: PlanExportWorker) -> None:
+        if worker in plan_export_workers:
+            plan_export_workers.remove(worker)
+        worker.deleteLater()
+
     def _on_feedback_optimization_finished(summary: dict) -> None:
         nonlocal prompt_mgr
 
@@ -215,6 +227,49 @@ def main() -> None:
         feedback_workers.append(worker)
         worker.finished.connect(_on_feedback_optimization_finished)
         worker.error.connect(_on_feedback_optimization_error)
+        worker.start()
+
+    def _on_plan_export_finished(export_path: str) -> None:
+        sender = app.sender()
+        if isinstance(sender, PlanExportWorker):
+            _cleanup_plan_export_worker(sender)
+        QMessageBox.information(None, "导出成功", f"方案已导出到:\n{export_path}")
+
+    def _on_plan_export_error(message: str) -> None:
+        sender = app.sender()
+        if isinstance(sender, PlanExportWorker):
+            _cleanup_plan_export_worker(sender)
+        QMessageBox.warning(None, "导出失败", message)
+
+    def _on_todo_export_plan_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        config = _ensure_api_key_configured()
+        if config is None:
+            return
+
+        default_name = build_plan_export_filename(str(payload.get("title", "")))
+        export_path, _ = QFileDialog.getSaveFileName(
+            None,
+            "导出方案",
+            default_name,
+            "Markdown 文件 (*.md)",
+        )
+        if not export_path:
+            return
+        if not export_path.lower().endswith(".md"):
+            export_path = f"{export_path}.md"
+
+        worker = PlanExportWorker(
+            config.api_key,
+            config.api_base_url,
+            config.timeout_seconds,
+            payload,
+            export_path,
+        )
+        plan_export_workers.append(worker)
+        worker.finished.connect(_on_plan_export_finished)
+        worker.error.connect(_on_plan_export_error)
         worker.start()
 
     result_flow = ResultFlowCoordinator(
@@ -394,6 +449,7 @@ def main() -> None:
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
+    todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
 
     try:
         _refresh_todo_panel()

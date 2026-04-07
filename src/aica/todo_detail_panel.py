@@ -40,6 +40,7 @@ class _TodoDetailBridge(QObject):
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
+    exportPlanRequested = pyqtSignal(str, object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -229,12 +230,50 @@ class _TodoDetailBridge(QObject):
             return
         self.deleteRequested.emit(self._todo_id)
 
+    @pyqtSlot()
+    def exportPlan(self) -> None:
+        if self._todo_id is None:
+            return
+        payload = {
+            "title": self._title.strip(),
+            "current_summary": self._current_summary.strip(),
+            "summary_fields": TicketSummaryFields(
+                group_name=_clean_text(self._group_name),
+                environment=_clean_text(self._environment),
+                product_line=resolve_product_line(raw_value=self._product_line),
+                ticket_type=normalize_ticket_type(
+                    self._ticket_type,
+                    summary_text="\n".join(
+                        part
+                        for part in (
+                            self._title.strip(),
+                            self._current_summary.strip(),
+                            *(item.get("content", "").strip() for item in self._timeline),
+                        )
+                        if part
+                    ),
+                ),
+            ).to_dict(),
+            "timeline": [
+                {
+                    "id": item["id"],
+                    "timestamp": item["timestamp"],
+                    "kind": item.get("kind", "analysis"),
+                    "scenario": item.get("scenario", ""),
+                    "content": item.get("content", "").strip(),
+                }
+                for item in reversed(self._timeline)
+            ],
+        }
+        self.exportPlanRequested.emit(self._todo_id, payload)
+
 
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
     delete_requested = pyqtSignal(str)
+    export_plan_requested = pyqtSignal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -263,6 +302,7 @@ class TodoDetailPanel(QQuickView):
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
+        self._bridge.exportPlanRequested.connect(self.export_plan_requested)
 
         self.resize(self._panel_width, self._panel_height)
         self.hide()

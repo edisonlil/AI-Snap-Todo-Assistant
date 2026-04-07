@@ -103,6 +103,31 @@ Rectangle {
                     spacing: 20
 
                     Rectangle {
+                        width: exportText.implicitWidth
+                        height: exportText.implicitHeight
+                        radius: 0
+                        color: "transparent"
+                        border.width: 0
+                        border.color: root.fieldLine
+
+                        Text {
+                            id: exportText
+                            anchors.centerIn: parent
+                            text: "导出方案"
+                            color: root.accent
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            font.weight: root.labelWeight
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: todoDetailBridge.exportPlan()
+                        }
+                    }
+
+                    Rectangle {
                         width: closeText.implicitWidth
                         height: closeText.implicitHeight
                         radius: 0
