@@ -597,16 +597,99 @@ Rectangle {
                             spacing: 10
                             visible: todoDetailBridge.timelineExpanded
 
+                            Rectangle {
+                                width: parent.width
+                                height: Math.max(112, addTimelineEdit.contentHeight + 58)
+                                radius: 18
+                                color: "#FFFFFF"
+                                border.width: 0
+                                border.color: root.fieldLine
+
+                                Text {
+                                    x: 16
+                                    y: 14
+                                    text: "手动跟进"
+                                    color: root.labelInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+                                }
+
+                                TextEdit {
+                                    id: addTimelineEdit
+                                    x: 16
+                                    y: 36
+                                    width: parent.width - 96
+                                    wrapMode: TextEdit.Wrap
+                                    selectByMouse: true
+                                    textFormat: TextEdit.PlainText
+                                    color: root.bodyInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    font.weight: root.bodyWeight
+                                }
+
+                                Text {
+                                    x: 16
+                                    y: 36
+                                    width: parent.width - 96
+                                    visible: addTimelineEdit.text.length === 0 && !addTimelineEdit.activeFocus
+                                    text: "输入最新跟进、结论或待办，点击后可添加到时间线"
+                                    wrapMode: Text.Wrap
+                                    color: root.mutedInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                }
+
+                                Rectangle {
+                                    width: 64
+                                    height: 30
+                                    radius: 15
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 14
+                                    anchors.bottom: parent.bottom
+                                    anchors.bottomMargin: 14
+                                    color: addTimelineEdit.text.trim().length > 0 ? root.accentTint : root.fieldBg
+                                    border.width: 0
+                                    border.color: "transparent"
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "添加"
+                                        color: addTimelineEdit.text.trim().length > 0 ? root.accent : root.mutedInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 12
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        enabled: addTimelineEdit.text.trim().length > 0
+                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        onClicked: {
+                                            todoDetailBridge.addTimelineEntry(addTimelineEdit.text)
+                                            addTimelineEdit.text = ""
+                                        }
+                                    }
+                                }
+                            }
+
                             Repeater {
                                 model: todoDetailBridge.timeline
 
                                 delegate: Rectangle {
+                                    property bool editing: false
+
                                     width: contentColumn.width
-                                    height: Math.max(96, timelineContent.contentHeight + 70)
+                                    height: Math.max(
+                                        104,
+                                        (editing ? timelineEditor.contentHeight : timelinePreview.contentHeight) + 84
+                                    )
                                     radius: 18
                                     color: root.timelineBg
-                                    border.width: 0
-                                    border.color: root.fieldLine
+                                    border.width: editing ? 1 : 0
+                                    border.color: editing ? "#D7E5FF" : root.fieldLine
 
                                     Rectangle {
                                         x: 16
@@ -614,7 +697,7 @@ Rectangle {
                                         width: 8
                                         height: 8
                                         radius: 4
-                                        color: "#D7DDE8"
+                                        color: modelData.kind === "manual" ? root.accent : "#D7DDE8"
                                     }
 
                                     Text {
@@ -637,8 +720,52 @@ Rectangle {
                                         font.weight: root.labelWeight
                                     }
 
+                                    Row {
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 16
+                                        y: 14
+                                        spacing: 12
+
+                                        Text {
+                                            text: editing ? "编辑中" : "点击编辑"
+                                            color: editing ? root.accent : root.mutedInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: root.labelWeight
+                                        }
+
+                                        Text {
+                                            text: "删除"
+                                            color: "#E35B66"
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: root.labelWeight
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: todoDetailBridge.deleteTimelineEntry(modelData.id)
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        id: timelinePreview
+                                        visible: !parent.editing
+                                        x: 16
+                                        y: 60
+                                        width: parent.width - 32
+                                        wrapMode: Text.Wrap
+                                        text: modelData.content
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: root.bodyWeight
+                                    }
+
                                     TextEdit {
-                                        id: timelineContent
+                                        id: timelineEditor
+                                        visible: parent.editing
                                         x: 16
                                         y: 60
                                         width: parent.width - 32
@@ -650,11 +777,26 @@ Rectangle {
                                         font.pixelSize: 13
                                         font.weight: root.bodyWeight
                                         text: modelData.content
-                                        onTextChanged: {
-                                            if (!root.syncingFields) {
-                                                todoDetailBridge.updateTimelineContent(modelData.id, text)
+                                        onVisibleChanged: {
+                                            if (visible) {
+                                                forceActiveFocus()
+                                                cursorPosition = length
                                             }
                                         }
+                                        onTextChanged: todoDetailBridge.updateTimelineContent(modelData.id, text)
+                                        onActiveFocusChanged: {
+                                            if (!activeFocus) {
+                                                todoDetailBridge.commitTimelineContent(modelData.id, text)
+                                                parent.editing = false
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        enabled: !parent.editing
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: parent.editing = true
                                     }
                                 }
                             }

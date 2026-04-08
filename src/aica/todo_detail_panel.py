@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import uuid
 
 from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor
@@ -32,8 +33,15 @@ def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
     return text or fallback
 
 
+def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
+    if kind == "manual":
+        return "手动跟进"
+    return str(scenario or "系统记录").strip() or "系统记录"
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
+    timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
 
     saveRequested = pyqtSignal(str, object)
@@ -97,11 +105,11 @@ class _TodoDetailBridge(QObject):
     def updatedAtLabel(self) -> str:
         return self._updated_at
 
-    @pyqtProperty(int, notify=dataChanged)
+    @pyqtProperty(int, notify=timelineChanged)
     def timelineCount(self) -> int:
         return len(self._timeline)
 
-    @pyqtProperty("QVariantList", notify=dataChanged)
+    @pyqtProperty("QVariantList", notify=timelineChanged)
     def timeline(self):  # noqa: ANN201
         return self._timeline
 
@@ -128,7 +136,7 @@ class _TodoDetailBridge(QObject):
                 "id": event.id,
                 "timestamp": event.timestamp,
                 "timeLabel": _format_ts(event.timestamp),
-                "scenario": (event.scenario or "系统记录").strip() or "系统记录",
+                "scenario": _normalize_timeline_scenario(event.kind, event.scenario),
                 "content": event.content.strip(),
                 "kind": event.kind,
             }
@@ -140,6 +148,7 @@ class _TodoDetailBridge(QObject):
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
         self.dataChanged.emit()
+        self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
 
     @pyqtSlot(str, str)
@@ -167,8 +176,44 @@ class _TodoDetailBridge(QObject):
         for item in self._timeline:
             if item["id"] == event_id:
                 item["content"] = str(value)
-                self.dataChanged.emit()
                 return
+
+    @pyqtSlot(str, str)
+    def commitTimelineContent(self, event_id: str, value: str) -> None:
+        self.updateTimelineContent(event_id, value)
+        self._emit_save_request()
+
+    @pyqtSlot(str)
+    def addTimelineEntry(self, value: str) -> None:
+        content = str(value or "").strip()
+        if not content:
+            return
+        timestamp = datetime.now().isoformat()
+        self._timeline.insert(
+            0,
+            {
+                "id": str(uuid.uuid4()),
+                "timestamp": timestamp,
+                "timeLabel": _format_ts(timestamp),
+                "scenario": "鎵嬪姩璺熻繘",
+                "content": content,
+                "kind": "manual",
+            },
+        )
+        if not self._timeline_expanded:
+            self._timeline_expanded = True
+            self.timelineExpandedChanged.emit()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+
+    @pyqtSlot(str)
+    def deleteTimelineEntry(self, event_id: str) -> None:
+        remaining = [item for item in self._timeline if item["id"] != event_id]
+        if len(remaining) == len(self._timeline):
+            return
+        self._timeline = remaining
+        self.timelineChanged.emit()
+        self._emit_save_request()
 
     @pyqtSlot()
     def toggleTimeline(self) -> None:
@@ -177,11 +222,14 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot()
     def saveTodo(self) -> None:
+        self._emit_save_request()
+
+    def _build_payload(self) -> dict[str, object] | None:
         if self._todo_id is None:
-            return
+            return None
         normalized_summary = self._current_summary.strip()
         normalized_title = self._title.strip() or "未分类任务"
-        payload = {
+        return {
             "title": normalized_title,
             "current_summary": normalized_summary,
             "summary_fields": TicketSummaryFields(
@@ -212,6 +260,11 @@ class _TodoDetailBridge(QObject):
                 for item in reversed(self._timeline)
             ],
         }
+
+    def _emit_save_request(self) -> None:
+        payload = self._build_payload()
+        if self._todo_id is None or payload is None:
+            return
         self.saveRequested.emit(self._todo_id, payload)
 
     @pyqtSlot()

@@ -416,7 +416,6 @@ def main() -> None:
         if updated is None:
             return
         _refresh_todo_panel()
-        _show_todo_detail(todo_id)
 
     def _on_todo_detail_closed() -> None:
         todo_controller.close_detail()
