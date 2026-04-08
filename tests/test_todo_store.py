@@ -3,7 +3,7 @@ from pathlib import Path
 
 from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
-from aica.todo_store import TimelineEvent, TodoStore
+from aica.todo_store import TimelineAttachment, TimelineEvent, TodoStore
 
 
 def _snapshot(
@@ -168,6 +168,36 @@ def test_update_todo_persists_fields_and_timeline(tmp_path: Path):
     assert reloaded.summary_fields.product_line == DEFAULT_PRODUCT_LINE
     assert reloaded.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[1]
     assert reloaded.timeline[0].content == "edited timeline"
+
+
+def test_update_todo_persists_timeline_attachments(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("original title", "original summary", "original timeline"),
+        "todo assistant",
+    )
+
+    updated = store.update_todo(
+        todo.id,
+        timeline=[
+            TimelineEvent(
+                content="edited timeline",
+                attachments=[
+                    TimelineAttachment(
+                        name="evidence.txt",
+                        path=str(tmp_path / "copied" / "evidence.txt"),
+                        size_bytes=128,
+                    )
+                ],
+            )
+        ],
+    )
+
+    assert updated is not None
+    reloaded = store.get_todo(todo.id)
+    assert reloaded is not None
+    assert reloaded.timeline[0].attachments[0].name == "evidence.txt"
+    assert reloaded.timeline[0].attachments[0].size_bytes == 128
 
 
 def test_legacy_summary_json_is_migrated(tmp_path: Path):

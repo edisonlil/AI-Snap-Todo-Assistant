@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import os
 from pathlib import Path
+import shutil
 import sys
 import uuid
 
@@ -15,7 +16,7 @@ try:
     from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor
     from PyQt6.QtQuick import QQuickView
-    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtWidgets import QApplication, QFileDialog
 except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
     class QObject:  # type: ignore[no-redef]
         def __init__(self, *args, **kwargs):
@@ -134,15 +135,23 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def primaryScreen():
             return None
 
+    class QFileDialog:  # type: ignore[no-redef]
+        @staticmethod
+        def getOpenFileNames(*_args, **_kwargs):
+            return [], ""
+
 from .models import TicketSummaryFields
 from .ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
     resolve_product_line,
 )
-from .todo_store import TimelineEvent, TodoItem
+from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
 
 _EMPTY_TEXT = "未填写"
+_DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
+_MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
+_SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
 
 
 def _format_ts(value: str) -> str:
@@ -159,8 +168,8 @@ def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
 
 def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
     if kind == "manual":
-        return "手动跟进"
-    return str(scenario or "系统记录").strip() or "系统记录"
+        return _MANUAL_SCENARIO
+    return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
 
 
 class _TodoDetailBridge(QObject):
@@ -169,12 +178,13 @@ class _TodoDetailBridge(QObject):
     timelineExpandedChanged = pyqtSignal()
 
     saveRequested = pyqtSignal(str, object)
+    attachmentSelectionRequested = pyqtSignal(str)
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
     exportPlanRequested = pyqtSignal(str, object)
 
-    def __init__(self) -> None:
+    def __init__(self, attachment_root: Path | None = None) -> None:
         super().__init__()
         self._todo_id: str | None = None
         self._title = ""
@@ -188,6 +198,7 @@ class _TodoDetailBridge(QObject):
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
+        self._attachment_root = Path(attachment_root) if attachment_root is not None else Path.home() / ".aica" / "todo_attachments"
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -251,7 +262,7 @@ class _TodoDetailBridge(QObject):
             summary_text=todo.current_summary,
         )
         self._current_summary = todo.current_summary.strip()
-        self._title = todo.title.strip() or "未分类任务"
+        self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
         self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
         self._updated_at = _format_ts(todo.updated_at)
@@ -263,12 +274,14 @@ class _TodoDetailBridge(QObject):
                 "scenario": _normalize_timeline_scenario(event.kind, event.scenario),
                 "content": event.content.strip(),
                 "kind": event.kind,
+                "attachments": [self._attachment_to_dict(item) for item in event.attachments],
+                "attachmentCount": len(event.attachments),
             }
             for event in reversed(todo.timeline)
         ]
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
-            self._title = todo.title.strip() or "未分类任务"
+            self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
         self.dataChanged.emit()
@@ -297,15 +310,21 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str, str)
     def updateTimelineContent(self, event_id: str, value: str) -> None:
-        for item in self._timeline:
-            if item["id"] == event_id:
-                item["content"] = str(value)
-                return
+        item = self._find_timeline_item(event_id)
+        if item is not None:
+            item["content"] = str(value)
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
         self.updateTimelineContent(event_id, value)
+        self.timelineChanged.emit()
         self._emit_save_request()
+
+    @pyqtSlot(str)
+    def requestAttachmentSelection(self, event_id: str) -> None:
+        if self._find_timeline_item(event_id) is None:
+            return
+        self.attachmentSelectionRequested.emit(event_id)
 
     @pyqtSlot(str)
     def addTimelineEntry(self, value: str) -> None:
@@ -322,6 +341,8 @@ class _TodoDetailBridge(QObject):
                 "scenario": "鎵嬪姩璺熻繘",
                 "content": content,
                 "kind": "manual",
+                "attachments": [],
+                "attachmentCount": 0,
             },
         )
         if not self._timeline_expanded:
@@ -332,10 +353,39 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def deleteTimelineEntry(self, event_id: str) -> None:
+        removed = [item for item in self._timeline if item["id"] == event_id]
         remaining = [item for item in self._timeline if item["id"] != event_id]
         if len(remaining) == len(self._timeline):
             return
+        for item in removed:
+            self._delete_attachments_for_item(item)
         self._timeline = remaining
+        self.timelineChanged.emit()
+        self._emit_save_request()
+
+    @pyqtSlot(str, str)
+    def removeTimelineAttachment(self, event_id: str, attachment_id: str) -> None:
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        attachments = item.get("attachments", [])
+        if not isinstance(attachments, list):
+            return
+        remaining: list[dict[str, object]] = []
+        removed_path = ""
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("id") == attachment_id:
+                removed_path = str(attachment.get("path", ""))
+                continue
+            remaining.append(attachment)
+        if len(remaining) == len(attachments):
+            return
+        item["attachments"] = remaining
+        item["attachmentCount"] = len(remaining)
+        if removed_path:
+            self._remove_attachment_file(removed_path)
         self.timelineChanged.emit()
         self._emit_save_request()
 
@@ -346,13 +396,14 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot()
     def saveTodo(self) -> None:
+        self.timelineChanged.emit()
         self._emit_save_request()
 
     def _build_payload(self) -> dict[str, object] | None:
         if self._todo_id is None:
             return None
         normalized_summary = self._current_summary.strip()
-        normalized_title = self._title.strip() or "未分类任务"
+        normalized_title = self._title.strip() or _DEFAULT_TODO_TITLE
         return {
             "title": normalized_title,
             "current_summary": normalized_summary,
@@ -380,16 +431,109 @@ class _TodoDetailBridge(QObject):
                     kind=item.get("kind", "analysis"),
                     scenario=item.get("scenario", ""),
                     content=item.get("content", "").strip(),
+                    attachments=[
+                        TimelineAttachment(
+                            id=str(attachment.get("id", str(uuid.uuid4()))),
+                            name=str(attachment.get("name", "")).strip(),
+                            path=str(attachment.get("path", "")).strip(),
+                            size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        )
+                        for attachment in item.get("attachments", [])
+                        if isinstance(attachment, dict)
+                    ],
                 )
                 for item in reversed(self._timeline)
             ],
         }
+
+    def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
+        item = self._find_timeline_item(event_id)
+        if item is None or self._todo_id is None:
+            return
+        attachments = item.setdefault("attachments", [])
+        if not isinstance(attachments, list):
+            attachments = []
+            item["attachments"] = attachments
+        added = False
+        for file_path in file_paths:
+            attachment = self._copy_attachment(file_path, event_id)
+            if attachment is None:
+                continue
+            attachments.append(attachment)
+            added = True
+        if not added:
+            return
+        item["attachmentCount"] = len(attachments)
+        self.timelineChanged.emit()
+        self._emit_save_request()
 
     def _emit_save_request(self) -> None:
         payload = self._build_payload()
         if self._todo_id is None or payload is None:
             return
         self.saveRequested.emit(self._todo_id, payload)
+
+    def _find_timeline_item(self, event_id: str) -> dict[str, object] | None:
+        for item in self._timeline:
+            if item.get("id") == event_id:
+                return item
+        return None
+
+    @staticmethod
+    def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
+        return {
+            "id": attachment.id,
+            "name": attachment.name,
+            "path": attachment.path,
+            "sizeBytes": attachment.size_bytes,
+        }
+
+    def _copy_attachment(self, file_path: str, event_id: str) -> dict[str, object] | None:
+        source = Path(str(file_path or "")).expanduser()
+        if not source.is_file() or self._todo_id is None:
+            return None
+        target_dir = self._attachment_root / self._todo_id / event_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / source.name
+        counter = 1
+        while target.exists():
+            target = target_dir / f"{source.stem}_{counter}{source.suffix}"
+            counter += 1
+        shutil.copy2(source, target)
+        return {
+            "id": str(uuid.uuid4()),
+            "name": target.name,
+            "path": str(target),
+            "sizeBytes": target.stat().st_size,
+        }
+
+    def _delete_attachments_for_item(self, item: dict[str, object]) -> None:
+        attachments = item.get("attachments", [])
+        if not isinstance(attachments, list):
+            return
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            self._remove_attachment_file(str(attachment.get("path", "")))
+
+    def _remove_attachment_file(self, file_path: str) -> None:
+        if not file_path:
+            return
+        try:
+            target = Path(file_path).resolve()
+            root = self._attachment_root.resolve()
+            if root != target and root not in target.parents:
+                return
+            if target.exists():
+                target.unlink()
+            parent = target.parent
+            while parent != root and parent.exists():
+                if any(parent.iterdir()):
+                    break
+                parent.rmdir()
+                parent = parent.parent
+        except OSError:
+            return
 
     @pyqtSlot()
     def closePanel(self) -> None:
@@ -438,6 +582,16 @@ class _TodoDetailBridge(QObject):
                     "kind": item.get("kind", "analysis"),
                     "scenario": item.get("scenario", ""),
                     "content": item.get("content", "").strip(),
+                    "attachments": [
+                        {
+                            "id": str(attachment.get("id", "")),
+                            "name": str(attachment.get("name", "")).strip(),
+                            "path": str(attachment.get("path", "")).strip(),
+                            "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        }
+                        for attachment in item.get("attachments", [])
+                        if isinstance(attachment, dict)
+                    ],
                 }
                 for item in reversed(self._timeline)
             ],
@@ -476,6 +630,7 @@ class TodoDetailPanel(QQuickView):
         self._ensure_qml_loaded()
 
         self._bridge.saveRequested.connect(self.save_requested)
+        self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
@@ -489,6 +644,17 @@ class TodoDetailPanel(QQuickView):
             return
         errors = "\n".join(error.toString() for error in self.errors())
         raise RuntimeError(f"Failed to load TodoDetailPanel.qml:\n{errors}")
+
+    def _select_attachments(self, event_id: str) -> None:
+        files, _ = QFileDialog.getOpenFileNames(
+            None,
+            "\u9009\u62e9\u9644\u4ef6",
+            "",
+            "\u6240\u6709\u6587\u4ef6 (*.*)",
+        )
+        if not files:
+            return
+        self._bridge.attach_files_to_event(event_id, list(files))
 
     def show_todo(self, todo: TodoItem, anchor_rect=None) -> None:
         self._bridge.set_todo(todo)

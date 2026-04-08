@@ -29,12 +29,29 @@ def _now_iso() -> str:
 
 
 @dataclass
+class TimelineAttachment:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    path: str = ""
+    size_bytes: int = 0
+
+    def __post_init__(self) -> None:
+        self.name = str(self.name or "").strip()
+        self.path = str(self.path or "").strip()
+        try:
+            self.size_bytes = max(0, int(self.size_bytes))
+        except (TypeError, ValueError):
+            self.size_bytes = 0
+
+
+@dataclass
 class TimelineEvent:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: str = field(default_factory=_now_iso)
     kind: str = "analysis"
     scenario: str = ""
     content: str = ""
+    attachments: list[TimelineAttachment] = field(default_factory=list)
 
 
 @dataclass
@@ -217,13 +234,32 @@ class TodoStore:
             or ""
         ).strip()
         evidence_items = self._deserialize_evidence_items(payload.get("evidence_items", []))
+        attachments = self._deserialize_timeline_attachments(payload.get("attachments", []))
         return TimelineEvent(
             id=str(payload.get("id", str(uuid.uuid4()))),
             timestamp=str(payload.get("timestamp", _now_iso())),
             kind=str(payload.get("kind", "analysis")),
             scenario=str(payload.get("scenario", "")),
             content=merge_timeline_with_evidence(content, evidence_items),
+            attachments=attachments,
         )
+
+    def _deserialize_timeline_attachments(self, payload: Any) -> list[TimelineAttachment]:
+        if not isinstance(payload, list):
+            return []
+        attachments: list[TimelineAttachment] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            attachment = TimelineAttachment(
+                id=str(item.get("id", str(uuid.uuid4()))),
+                name=item.get("name", ""),
+                path=item.get("path", ""),
+                size_bytes=item.get("size_bytes", item.get("sizeBytes", 0)),
+            )
+            if attachment.name and attachment.path:
+                attachments.append(attachment)
+        return attachments
 
     def _deserialize_evidence_items(self, payload: Any) -> list[EvidenceItem]:
         if not isinstance(payload, list):

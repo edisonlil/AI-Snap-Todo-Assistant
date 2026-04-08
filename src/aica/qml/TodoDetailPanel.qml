@@ -53,6 +53,20 @@ Rectangle {
         }
     }
 
+    function formatFileSize(sizeBytes) {
+        var value = Number(sizeBytes || 0)
+        if (value <= 0) {
+            return ""
+        }
+        if (value < 1024) {
+            return value + " B"
+        }
+        if (value < 1024 * 1024) {
+            return (value / 1024).toFixed(1) + " KB"
+        }
+        return (value / (1024 * 1024)).toFixed(1) + " MB"
+    }
+
     Connections {
         target: todoDetailBridge
         function onDataChanged() {
@@ -746,125 +760,254 @@ Rectangle {
                                 model: todoDetailBridge.timeline
 
                                 delegate: Rectangle {
+                                    id: timelineCard
                                     property bool editing: false
+                                    property string eventId: modelData.id
+                                    property string originalContent: modelData.content
 
                                     width: contentColumn.width
-                                    height: Math.max(
-                                        104,
-                                        (editing ? timelineEditor.contentHeight : timelinePreview.contentHeight) + 84
-                                    )
+                                    height: Math.max(124, entryColumn.implicitHeight + 28)
                                     radius: 18
                                     color: root.timelineBg
                                     border.width: editing ? 1 : 0
                                     border.color: editing ? "#D7E5FF" : root.fieldLine
 
-                                    Rectangle {
+                                    Column {
+                                        id: entryColumn
                                         x: 16
-                                        y: 18
-                                        width: 8
-                                        height: 8
-                                        radius: 4
-                                        color: modelData.kind === "manual" ? root.accent : "#D7DDE8"
-                                    }
-
-                                    Text {
-                                        x: 32
                                         y: 14
-                                        text: modelData.timeLabel
-                                        color: root.mutedInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.bodyWeight
-                                    }
+                                        width: parent.width - 32
+                                        spacing: 10
 
-                                    Text {
-                                        x: 32
-                                        y: 34
-                                        text: modelData.scenario
-                                        color: root.labelInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.labelWeight
-                                    }
+                                        Item {
+                                            width: parent.width
+                                            height: 40
 
-                                    Row {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 16
-                                        y: 14
-                                        spacing: 12
+                                            Rectangle {
+                                                x: 0
+                                                y: 4
+                                                width: 8
+                                                height: 8
+                                                radius: 4
+                                                color: modelData.kind === "manual" ? root.accent : "#D7DDE8"
+                                            }
 
-                                        Text {
-                                            text: editing ? "编辑中" : "点击编辑"
-                                            color: editing ? root.accent : root.mutedInk
-                                            font.family: root.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: root.labelWeight
+                                            Column {
+                                                x: 16
+                                                y: 0
+                                                spacing: 4
+
+                                                Text {
+                                                    text: modelData.timeLabel
+                                                    color: root.mutedInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.bodyWeight
+                                                }
+
+                                                Text {
+                                                    text: modelData.scenario
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+                                                }
+                                            }
+
+                                            Row {
+                                                anchors.right: parent.right
+                                                anchors.top: parent.top
+                                                spacing: 12
+
+                                                Text {
+                                                    text: editing ? "编辑中" : "点击编辑"
+                                                    color: editing ? root.accent : root.mutedInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+                                                }
+
+                                                Text {
+                                                    visible: editing
+                                                    text: "保存"
+                                                    color: root.accent
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            todoDetailBridge.commitTimelineContent(timelineCard.eventId, timelineEditor.text)
+                                                            timelineCard.originalContent = timelineEditor.text
+                                                            timelineCard.editing = false
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    visible: editing
+                                                    text: "取消"
+                                                    color: root.mutedInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            timelineEditor.text = timelineCard.originalContent
+                                                            todoDetailBridge.updateTimelineContent(timelineCard.eventId, timelineCard.originalContent)
+                                                            timelineCard.editing = false
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "上传附件"
+                                                    color: root.accent
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: todoDetailBridge.requestAttachmentSelection(timelineCard.eventId)
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "删除"
+                                                    color: "#E35B66"
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: todoDetailBridge.deleteTimelineEntry(timelineCard.eventId)
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         Text {
-                                            text: "删除"
-                                            color: "#E35B66"
+                                            id: timelinePreview
+                                            visible: !editing
+                                            width: parent.width
+                                            wrapMode: Text.Wrap
+                                            text: modelData.content
+                                            color: root.bodyInk
                                             font.family: root.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: root.labelWeight
+                                            font.pixelSize: 13
+                                            font.weight: root.bodyWeight
 
                                             MouseArea {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: todoDetailBridge.deleteTimelineEntry(modelData.id)
+                                                onClicked: {
+                                                    timelineCard.originalContent = modelData.content
+                                                    timelineCard.editing = true
+                                                }
+                                            }
+                                        }
+
+                                        TextEdit {
+                                            id: timelineEditor
+                                            visible: editing
+                                            width: parent.width
+                                            height: Math.max(60, contentHeight + 4)
+                                            wrapMode: TextEdit.Wrap
+                                            selectByMouse: true
+                                            textFormat: TextEdit.PlainText
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: root.bodyWeight
+                                            text: modelData.content
+                                            onVisibleChanged: {
+                                                if (visible) {
+                                                    timelineCard.originalContent = modelData.content
+                                                    forceActiveFocus()
+                                                    cursorPosition = length
+                                                }
+                                            }
+                                            onTextChanged: todoDetailBridge.updateTimelineContent(timelineCard.eventId, text)
+                                        }
+
+                                        Column {
+                                            width: parent.width
+                                            spacing: 8
+                                            visible: modelData.attachmentCount > 0
+
+                                            Text {
+                                                text: "附件 " + modelData.attachmentCount
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: root.labelWeight
+                                            }
+
+                                            Repeater {
+                                                model: modelData.attachments
+
+                                                delegate: Rectangle {
+                                                    width: entryColumn.width
+                                                    height: 34
+                                                    radius: 12
+                                                    color: "#FFFFFF"
+                                                    border.width: 0
+                                                    border.color: root.fieldLine
+
+                                                    Text {
+                                                        x: 12
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        width: parent.width - 108
+                                                        elide: Text.ElideMiddle
+                                                        text: modelData.name
+                                                        color: root.bodyInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        font.weight: root.bodyWeight
+                                                    }
+
+                                                    Text {
+                                                        anchors.right: removeAttachment.left
+                                                        anchors.rightMargin: 10
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        text: root.formatFileSize(modelData.sizeBytes)
+                                                        color: root.mutedInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 10
+                                                        font.weight: root.bodyWeight
+                                                    }
+
+                                                    Text {
+                                                        id: removeAttachment
+                                                        anchors.right: parent.right
+                                                        anchors.rightMargin: 12
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        text: "移除"
+                                                        color: "#E35B66"
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 10
+                                                        font.weight: root.labelWeight
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: todoDetailBridge.removeTimelineAttachment(timelineCard.eventId, modelData.id)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
 
-                                    Text {
-                                        id: timelinePreview
-                                        visible: !parent.editing
-                                        x: 16
-                                        y: 60
-                                        width: parent.width - 32
-                                        wrapMode: Text.Wrap
-                                        text: modelData.content
-                                        color: root.bodyInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: root.bodyWeight
-                                    }
-
-                                    TextEdit {
-                                        id: timelineEditor
-                                        visible: parent.editing
-                                        x: 16
-                                        y: 60
-                                        width: parent.width - 32
-                                        wrapMode: TextEdit.Wrap
-                                        selectByMouse: true
-                                        textFormat: TextEdit.PlainText
-                                        color: root.bodyInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: root.bodyWeight
-                                        text: modelData.content
-                                        onVisibleChanged: {
-                                            if (visible) {
-                                                forceActiveFocus()
-                                                cursorPosition = length
-                                            }
-                                        }
-                                        onTextChanged: todoDetailBridge.updateTimelineContent(modelData.id, text)
-                                        onActiveFocusChanged: {
-                                            if (!activeFocus) {
-                                                todoDetailBridge.commitTimelineContent(modelData.id, text)
-                                                parent.editing = false
-                                            }
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        enabled: !parent.editing
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: parent.editing = true
-                                    }
                                 }
                             }
 
