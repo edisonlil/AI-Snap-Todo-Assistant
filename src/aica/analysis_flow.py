@@ -62,11 +62,12 @@ class AnalysisFlowCoordinator:
         scenario = self._get_scenario()
         analysis_intent = self._get_analysis_intent(len(images)) if self._get_analysis_intent is not None else None
         context_text = self._get_analysis_context() if self._get_analysis_context is not None else ""
+        analysis_model_label = config.llm_service.describe_task_model("analysis")
+        title_model_label = config.llm_service.describe_task_model("title_generation")
         worker_kwargs = dict(
-            api_key=config.api_key,
-            model=config.model,
-            title_generation_model=config.title_generation_model,
-            api_url=config.api_base_url,
+            llm_service=config.llm_service,
+            model_label=analysis_model_label,
+            title_generation_model=title_model_label,
             timeout=config.timeout_seconds,
             prompt_manager=self._prompt_manager,
             scenario=scenario,

@@ -49,13 +49,13 @@ def test_build_plan_export_messages_contains_required_context():
     messages = build_plan_export_messages(_payload())
 
     assert TITLE_GENERATION_MODEL == "Qwen/Qwen3-8B"
-    assert messages[0]["role"] == "system"
-    assert "Markdown 处理方案" in messages[1]["content"]
-    assert "待办标题: 企业微信导出报表失败" in messages[1]["content"]
-    assert "环境: 生产" in messages[1]["content"]
-    assert "1. [2026-04-07T10:00:00] 工单待办助手: 客户反馈点击导出后页面报错。" in messages[1]["content"]
-    assert "附件: 1. export-error.png" in messages[1]["content"]
-    assert "必须包含“时间线回顾”" in messages[1]["content"]
+    assert messages[0].role == "system"
+    assert "Markdown 处理方案" in messages[1].content
+    assert "待办标题: 企业微信导出报表失败" in messages[1].content
+    assert "环境: 生产" in messages[1].content
+    assert "1. [2026-04-07T10:00:00] 工单待办助手: 客户反馈点击导出后页面报错。" in messages[1].content
+    assert "附件: 1. export-error.png" in messages[1].content
+    assert "必须包含“时间线回顾”" in messages[1].content
 
 
 def test_normalize_markdown_content_strips_code_fence():

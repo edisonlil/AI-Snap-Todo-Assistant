@@ -8,8 +8,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import requests
-
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 
 try:
@@ -72,6 +70,8 @@ from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_strategy import build_analysis_system_prompt, build_analysis_text_prompt
 from .feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
 from .image_utils import compress_if_needed
+from .llm.service import LLMService, LLMServiceError
+from .llm.types import ContentPart, Message
 from .parser import ResultParser
 from .prompt_optimizer import PromptOptimizer
 from .prompts import PromptManager
@@ -275,34 +275,6 @@ class _BaseVisionWorker(QThread):
         painter.end()
         return combined
 
-    def _post_chat_completion(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, object]],
-        temperature: float = 0.3,
-        timeout: int | None = None,
-    ) -> str:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        }
-        response = requests.post(
-            self._api_url,
-            json=payload,
-            headers=headers,
-            timeout=timeout or self._timeout,
-        )
-        if response.status_code != 200:
-            raise requests.RequestException(f"HTTP {response.status_code}")
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-
     @staticmethod
     def _normalize_generated_title(text: str) -> str:
         raw = str(text or "").strip()
@@ -329,7 +301,7 @@ class _BaseVisionWorker(QThread):
         return raw.strip("`\"'“”‘’ ")
 
     @staticmethod
-    def _build_title_generation_messages(result) -> list[dict[str, str]]:  # noqa: ANN001
+    def _build_title_generation_messages(result) -> list[Message]:  # noqa: ANN001
         fields = result.fields
         user_prompt = (
             "请根据以下结构化工单信息，生成最终展示和保存使用的工单标题。\n"
@@ -347,32 +319,51 @@ class _BaseVisionWorker(QThread):
             f"本次跟进: {result.timeline_entry}"
         )
         return [
-            {"role": "system", "content": _TITLE_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            Message(role="system", content=_TITLE_SYSTEM_PROMPT),
+            Message(role="user", content=user_prompt),
         ]
 
     def _resolve_title_generation_model(self) -> str:
-        return str(getattr(self, "_title_generation_model", TITLE_GENERATION_MODEL) or TITLE_GENERATION_MODEL)
+        return (
+            getattr(self, "_title_generation_model_display", "")
+            or getattr(self, "_title_generation_model", "")
+            or TITLE_GENERATION_MODEL
+        )
+
+    def _run_llm_task(
+        self,
+        task_name: str,
+        *,
+        messages: list[Message],
+        temperature: float,
+        timeout: int | None = None,
+    ) -> str:
+        return self._llm_service.run_task(
+            task_name,
+            messages=messages,
+            temperature=temperature,
+            timeout=timeout,
+        )
 
     def _generate_title(self, result) -> str:  # noqa: ANN001
         if not (result.current_summary.strip() or result.timeline_entry.strip()):
             return result.title.strip()
 
         try:
-            raw_title = self._post_chat_completion(
-                model=self._resolve_title_generation_model(),
+            raw_title = self._run_llm_task(
+                "title_generation",
                 messages=self._build_title_generation_messages(result),
                 temperature=0.1,
                 timeout=min(self._timeout, 20),
             )
-        except (requests.RequestException, KeyError, TypeError, ValueError):
+        except (LLMServiceError, KeyError, TypeError, ValueError):
             return result.title.strip()
 
         normalized_title = self._normalize_generated_title(raw_title)
         return normalized_title or result.title.strip()
 
 
-def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str, object]]:
+def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]:
     summary_fields = todo_payload.get("summary_fields")
     if isinstance(summary_fields, dict):
         group_name = str(summary_fields.get("group_name", "")).strip()
@@ -406,35 +397,35 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str
         f"当前摘要: {str(todo_payload.get('current_summary', '')).strip()}\n"
         f"时间线:\n{timeline_text}"
     )
-    user_content: str | list[dict[str, object]] = user_prompt
+    user_content: str | list[ContentPart] = user_prompt
     image_entries = [
         entry
         for entry in _iter_plan_export_attachment_entries(todo_payload)
         if entry.get("kind") == "image" and entry.get("path")
     ]
-    image_content: list[dict[str, object]] = []
+    image_content: list[ContentPart] = []
     for entry in image_entries[:_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS]:
         data_url = _encode_local_image_to_data_url(entry.get("path", ""))
         if not data_url:
             continue
         image_content.append(
-            {
-                "type": "text",
-                "text": (
+            ContentPart(
+                type="text",
+                text=(
                     f"附件图片，时间节点 [{entry['timestamp']}]，"
                     f"场景 {entry['scenario']}，文件名 {entry['name']}。"
                     f"{(' 关联说明：' + entry['content']) if entry['content'] else ''}"
                 ),
-            }
+            )
         )
-        image_content.append({"type": "image_url", "image_url": {"url": data_url}})
+        image_content.append(ContentPart(type="image_data_url", data_url=data_url))
 
     if image_content:
-        user_content = [{"type": "text", "text": user_prompt}, *image_content]
+        user_content = [ContentPart(type="text", text=user_prompt), *image_content]
 
     return [
-        {"role": "system", "content": _PLAN_EXPORT_SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
+        Message(role="system", content=_PLAN_EXPORT_SYSTEM_PROMPT),
+        Message(role="user", content=user_content),
     ]
 
 
@@ -581,26 +572,24 @@ class PlanExportWorker(_BaseVisionWorker):
 
     def __init__(
         self,
-        api_key: str,
-        model: str,
-        api_url: str,
+        llm_service: LLMService,
+        model_label: str,
         timeout: int,
         todo_payload: dict[str, object],
         export_path: str,
         parent=None,
     ):
         super().__init__(parent)
-        self._api_key = api_key
-        self._model = model
-        self._api_url = api_url
+        self._llm_service = llm_service
+        self._model = model_label
         self._timeout = timeout
         self._todo_payload = todo_payload
         self._export_path = export_path
 
     def run(self) -> None:
         try:
-            raw_markdown = self._post_chat_completion(
-                model=self._model,
+            raw_markdown = self._run_llm_task(
+                "plan_export",
                 messages=build_plan_export_messages(self._todo_payload),
                 temperature=0.2,
                 timeout=min(self._timeout, 30),
@@ -625,18 +614,15 @@ class PlanExportWorker(_BaseVisionWorker):
             )
             export_file.write_text(markdown, encoding="utf-8")
             self.finished.emit(str(export_file))
-        except requests.Timeout:
-            self.error.emit("导出方案超时，请检查网络后重试")
-        except requests.RequestException as exc:
-            self.error.emit(f"导出方案失败，网络错误: {exc}")
+        except LLMServiceError as exc:
+            self.error.emit(f"导出方案失败，模型调用错误: {exc}")
         except Exception as exc:
             self.error.emit(f"导出方案失败: {exc}")
 
 
 class AIWorker(_BaseVisionWorker):
-    def __init__(self, image: QPixmap, api_key: str, model: str,
-                 api_url: str, timeout: int = 30,
-                 title_generation_model: str = TITLE_GENERATION_MODEL,
+    def __init__(self, image: QPixmap, llm_service: LLMService, model_label: str,
+                 title_generation_model: str = TITLE_GENERATION_MODEL, timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
@@ -645,10 +631,9 @@ class AIWorker(_BaseVisionWorker):
         super().__init__(parent)
         self._image = image
         self._feedback_image_base64 = self._pixmap_to_base64(image)
-        self._api_key = api_key
-        self._model = model
-        self._title_generation_model = title_generation_model
-        self._api_url = api_url
+        self._llm_service = llm_service
+        self._model = model_label
+        self._title_generation_model_display = title_generation_model
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
@@ -665,33 +650,31 @@ class AIWorker(_BaseVisionWorker):
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
                 self.parse_error.emit(raw_text)
-        except requests.Timeout:
-            self.error.emit("请求超时，请检查网络后重试")
-        except requests.RequestException as exc:
-            self.error.emit(f"网络错误: {exc}")
+        except LLMServiceError as exc:
+            self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
             self.error.emit(f"未知错误: {exc}")
 
     def _call_api(self, b64_image: str) -> str:
         messages = [
-            {"role": "system", "content": build_analysis_system_prompt()},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": build_analysis_text_prompt(
+            Message(role="system", content=build_analysis_system_prompt()),
+            Message(
+                role="user",
+                content=[
+                    ContentPart(
+                        type="text",
+                        text=build_analysis_text_prompt(
                             self._analysis_intent,
                             context_text=self._context_text,
                             image_count=1,
                         ),
-                    },
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}},
+                    ),
+                    ContentPart(type="image_data_url", data_url=f"data:image/png;base64,{b64_image}"),
                 ],
-            },
+            ),
         ]
-        return self._post_chat_completion(
-            model=self._model,
+        return self._run_llm_task(
+            "analysis",
             messages=messages,
             temperature=0.3,
             timeout=self._timeout,
@@ -699,9 +682,8 @@ class AIWorker(_BaseVisionWorker):
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
-    def __init__(self, images: list[QPixmap], api_key: str, model: str,
-                 api_url: str, timeout: int = 30,
-                 title_generation_model: str = TITLE_GENERATION_MODEL,
+    def __init__(self, images: list[QPixmap], llm_service: LLMService, model_label: str,
+                 title_generation_model: str = TITLE_GENERATION_MODEL, timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
@@ -710,10 +692,9 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         super().__init__(parent)
         self._images = images
         self._feedback_image_base64 = self._pixmap_to_base64(self._build_combined_preview(images))
-        self._api_key = api_key
-        self._model = model
-        self._title_generation_model = title_generation_model
-        self._api_url = api_url
+        self._llm_service = llm_service
+        self._model = model_label
+        self._title_generation_model_display = title_generation_model
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
@@ -730,38 +711,33 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
                 self.parse_error.emit(raw_text)
-        except requests.Timeout:
-            self.error.emit("请求超时，请检查网络后重试")
-        except requests.RequestException as exc:
-            self.error.emit(f"网络错误: {exc}")
+        except LLMServiceError as exc:
+            self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
             self.error.emit(f"未知错误: {exc}")
 
     def _call_api(self) -> str:
-        content = [
-            {
-                "type": "text",
-                "text": build_analysis_text_prompt(
+        content: list[ContentPart] = [
+            ContentPart(
+                type="text",
+                text=build_analysis_text_prompt(
                     self._analysis_intent,
                     context_text=self._context_text,
                     image_count=len(self._images),
                 ),
-            }
+            )
         ]
         for index, pixmap in enumerate(self._images, 1):
-            content.append({"type": "text", "text": f"第 {index} 张截图"})
+            content.append(ContentPart(type="text", text=f"第 {index} 张截图"))
             content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{self._encode_for_api(pixmap)}"},
-                }
+                ContentPart(type="image_data_url", data_url=f"data:image/png;base64,{self._encode_for_api(pixmap)}")
             )
 
-        return self._post_chat_completion(
-            model=self._model,
+        return self._run_llm_task(
+            "analysis",
             messages=[
-                {"role": "system", "content": build_analysis_system_prompt()},
-                {"role": "user", "content": content},
+                Message(role="system", content=build_analysis_system_prompt()),
+                Message(role="user", content=content),
             ],
             temperature=0.3,
             timeout=self._timeout,
@@ -772,12 +748,9 @@ class FeedbackOptimizeWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, api_key: str, model: str, api_url: str,
-                 timeout: int, feedback: FeedbackData, parent=None):
+    def __init__(self, llm_service: LLMService, timeout: int, feedback: FeedbackData, parent=None):
         super().__init__(parent)
-        self._api_key = api_key
-        self._model = model
-        self._api_url = api_url
+        self._llm_service = llm_service
         self._timeout = timeout
         self._feedback = feedback
 
@@ -794,9 +767,7 @@ class FeedbackOptimizeWorker(QThread):
             collector = FeedbackCollector()
             analyzer = FeedbackAnalyzer(collector)
             optimizer = PromptOptimizer(
-                self._api_key,
-                self._model,
-                self._api_url,
+                self._llm_service,
                 collector,
                 analyzer,
             )

@@ -1,9 +1,9 @@
 import json
 from typing import Dict, List, Optional
 
-import requests
-
 from aica.feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
+from aica.llm.service import LLMService
+from aica.llm.types import ContentPart, Message
 
 
 class PromptOptimizer:
@@ -11,11 +11,8 @@ class PromptOptimizer:
 
     FEEDBACK_THRESHOLD = 5
 
-    def __init__(self, api_key: str, model: str, api_url: str,
-                 collector: FeedbackCollector, analyzer: FeedbackAnalyzer):
-        self._api_key = api_key
-        self._model = model
-        self._api_url = api_url
+    def __init__(self, llm_service: LLMService, collector: FeedbackCollector, analyzer: FeedbackAnalyzer):
+        self._llm_service = llm_service
         self._collector = collector
         self._analyzer = analyzer
 
@@ -323,36 +320,17 @@ AI 输出:
 
     def _call_analysis_api(self, prompt: str, feedback: Optional[FeedbackData] = None,
                            timeout: int = 30) -> str:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-
-        content = [{"type": "text", "text": prompt}]
+        content = [ContentPart(type="text", text=prompt)]
         image_base64 = self._collector.get_feedback_image_base64(feedback) if feedback else ""
         if image_base64:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{image_base64}"},
-            })
+            content.append(ContentPart(type="image_data_url", data_url=f"data:image/png;base64,{image_base64}"))
 
-        payload = {
-            "model": self._model,
-            "messages": [{"role": "user", "content": content}],
-            "temperature": 0.3,
-        }
-
-        response = requests.post(
-            self._api_url,
-            json=payload,
-            headers=headers,
+        return self._llm_service.run_task(
+            "prompt_optimization",
+            messages=[Message(role="user", content=content)],
+            temperature=0.3,
             timeout=timeout,
         )
-        if response.status_code != 200:
-            raise requests.RequestException(f"HTTP {response.status_code}")
-
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
 
     def _call_json_api(self, prompt: str, feedback: Optional[FeedbackData] = None,
                        timeout: int = 30) -> Dict[str, str]:

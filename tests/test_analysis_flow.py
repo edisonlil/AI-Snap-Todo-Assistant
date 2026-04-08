@@ -51,10 +51,12 @@ class _CaptureSession:
 
 
 def _config():
+    class _LLMService:
+        def describe_task_model(self, task_name):
+            return f"provider/{task_name}"
+
     return SimpleNamespace(
-        api_key="k",
-        model="m",
-        api_base_url="u",
+        llm_service=_LLMService(),
         timeout_seconds=30,
     )
 
@@ -81,6 +83,8 @@ def test_build_worker_uses_single_factory_for_one_image():
     assert worker.payload == "img-1"
     assert worker.kwargs["scenario"] == "工单跟进"
     assert worker.kwargs["context_text"] == "existing context"
+    assert worker.kwargs["model_label"] == "provider/analysis"
+    assert worker.kwargs["title_generation_model"] == "provider/title_generation"
     assert worker.kwargs["analysis_intent"].scene_type == "chat_feedback"
 
 

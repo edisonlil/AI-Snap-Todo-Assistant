@@ -3,18 +3,292 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+
+
+@dataclass
+class ProviderModelConfig:
+    id: str
+    name: str
+    capabilities: list[str]
+
+    @classmethod
+    def from_dict(cls, data: object) -> "ProviderModelConfig | None":
+        if not isinstance(data, dict):
+            return None
+        model_id = str(data.get("id", "")).strip()
+        name = str(data.get("name", "")).strip()
+        raw_capabilities = data.get("capabilities", [])
+        capabilities = [str(item).strip() for item in raw_capabilities if str(item).strip()] if isinstance(raw_capabilities, list) else []
+        if not model_id or not name:
+            return None
+        return cls(id=model_id, name=name, capabilities=capabilities)
+
+
+@dataclass
+class ProviderConfig:
+    id: str
+    kind: str
+    name: str
+    api_key: str = ""
+    base_url: str = ""
+    timeout_seconds: int = 30
+    models: list[ProviderModelConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: object) -> "ProviderConfig | None":
+        if not isinstance(data, dict):
+            return None
+        provider_id = str(data.get("id", "")).strip()
+        kind = str(data.get("kind", "")).strip()
+        name = str(data.get("name", "")).strip()
+        if not provider_id or not kind or not name:
+            return None
+        raw_models = data.get("models", [])
+        models = []
+        if isinstance(raw_models, list):
+            for item in raw_models:
+                model = ProviderModelConfig.from_dict(item)
+                if model is not None:
+                    models.append(model)
+        return cls(
+            id=provider_id,
+            kind=kind,
+            name=name,
+            api_key=str(data.get("api_key", "")).strip(),
+            base_url=str(data.get("base_url", "")).strip(),
+            timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 30),
+            models=models,
+        )
+
+
+@dataclass
+class TaskModelBinding:
+    provider_id: str = ""
+    model_id: str = ""
+
+    @classmethod
+    def from_dict(cls, data: object) -> "TaskModelBinding":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            provider_id=str(data.get("provider_id", "")).strip(),
+            model_id=str(data.get("model_id", "")).strip(),
+        )
+
+
+@dataclass
+class TaskModelBindings:
+    analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
+    title_generation: TaskModelBinding = field(default_factory=TaskModelBinding)
+    plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
+    prompt_optimization: TaskModelBinding = field(default_factory=TaskModelBinding)
+
+    @classmethod
+    def from_dict(cls, data: object) -> "TaskModelBindings":
+        if not isinstance(data, dict):
+            return default_task_model_bindings()
+        return cls(
+            analysis=TaskModelBinding.from_dict(data.get("analysis")),
+            title_generation=TaskModelBinding.from_dict(data.get("title_generation")),
+            plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
+            prompt_optimization=TaskModelBinding.from_dict(data.get("prompt_optimization")),
+        )
 
 
 @dataclass
 class AppConfig:
-    api_key: str = ""
-    model: str = "Qwen/Qwen2.5-VL-72B-Instruct"
-    title_generation_model: str = "Qwen/Qwen3-8B"
-    plan_export_model: str = "Qwen/Qwen2.5-VL-72B-Instruct"
-    api_base_url: str = "https://api.siliconflow.cn/v1/chat/completions"
-    timeout_seconds: int = 30
+    default_provider_id: str = "siliconflow"
+    providers: list[ProviderConfig] = field(default_factory=list)
+    task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
     max_image_bytes: int = 4 * 1024 * 1024
+
+
+def default_provider_configs() -> list[ProviderConfig]:
+    return [
+        ProviderConfig(
+            id="siliconflow",
+            kind="openai_compatible",
+            name="SiliconFlow",
+            base_url="https://api.siliconflow.cn/v1/chat/completions",
+            timeout_seconds=30,
+            models=[
+                ProviderModelConfig(
+                    id="qwen25-vl-72b",
+                    name="Qwen/Qwen2.5-VL-72B-Instruct",
+                    capabilities=["vision_chat", "text_chat"],
+                ),
+                ProviderModelConfig(
+                    id="qwen3-8b",
+                    name="Qwen/Qwen3-8B",
+                    capabilities=["text_chat"],
+                ),
+            ],
+        ),
+        ProviderConfig(
+            id="gemini",
+            kind="gemini",
+            name="Google Gemini",
+            timeout_seconds=30,
+            models=[
+                ProviderModelConfig(
+                    id="gemini-2.5-flash",
+                    name="gemini-2.5-flash",
+                    capabilities=["vision_chat", "text_chat"],
+                ),
+            ],
+        ),
+    ]
+
+
+def default_task_model_bindings(default_provider_id: str = "siliconflow") -> TaskModelBindings:
+    if default_provider_id == "gemini":
+        analysis_model = "gemini-2.5-flash"
+        title_model = "gemini-2.5-flash"
+    else:
+        analysis_model = "qwen25-vl-72b"
+        title_model = "qwen3-8b"
+
+    return TaskModelBindings(
+        analysis=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
+        title_generation=TaskModelBinding(provider_id=default_provider_id, model_id=title_model),
+        plan_export=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
+        prompt_optimization=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
+    )
+
+
+def build_default_config() -> AppConfig:
+    return AppConfig(
+        default_provider_id="siliconflow",
+        providers=default_provider_configs(),
+        task_model_bindings=default_task_model_bindings("siliconflow"),
+        max_image_bytes=4 * 1024 * 1024,
+    )
+
+
+def _coerce_positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _normalize_provider_configs(providers: list[ProviderConfig], default_provider_id: str) -> list[ProviderConfig]:
+    defaults_by_id = {provider.id: provider for provider in default_provider_configs()}
+    normalized: list[ProviderConfig] = []
+    seen_ids: set[str] = set()
+
+    for provider in providers:
+        if not provider.id or provider.id in seen_ids:
+            continue
+        seen_ids.add(provider.id)
+        default_provider = defaults_by_id.get(provider.id)
+        if provider.kind == "openai_compatible" and not provider.base_url and default_provider is not None:
+            provider.base_url = default_provider.base_url
+        if not provider.models and default_provider is not None:
+            provider.models = default_provider.models
+        if provider.timeout_seconds <= 0:
+            provider.timeout_seconds = default_provider.timeout_seconds if default_provider is not None else 30
+        normalized.append(provider)
+
+    if default_provider_id not in seen_ids:
+        fallback = defaults_by_id.get(default_provider_id)
+        if fallback is not None:
+            normalized.append(fallback)
+            seen_ids.add(default_provider_id)
+
+    for provider_id, provider in defaults_by_id.items():
+        if provider_id not in seen_ids:
+            normalized.append(provider)
+
+    return normalized
+
+
+def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[ProviderConfig], default_provider_id: str) -> TaskModelBindings:
+    provider_map = {provider.id: provider for provider in providers}
+    defaults = default_task_model_bindings(default_provider_id)
+
+    def normalize(binding: TaskModelBinding, fallback: TaskModelBinding, capability: str) -> TaskModelBinding:
+        provider = provider_map.get(binding.provider_id)
+        model = None
+        if provider is not None:
+            model = next((item for item in provider.models if item.id == binding.model_id), None)
+        if provider is None or model is None or capability not in model.capabilities:
+            return fallback
+        return binding
+
+    return TaskModelBindings(
+        analysis=normalize(bindings.analysis, defaults.analysis, "vision_chat"),
+        title_generation=normalize(bindings.title_generation, defaults.title_generation, "text_chat"),
+        plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
+        prompt_optimization=normalize(bindings.prompt_optimization, defaults.prompt_optimization, "vision_chat"),
+    )
+
+
+def _app_config_from_dict(data: object) -> AppConfig:
+    defaults = build_default_config()
+    if not isinstance(data, dict):
+        return defaults
+
+    raw_providers = data.get("providers", [])
+    providers = []
+    if isinstance(raw_providers, list):
+        for item in raw_providers:
+            provider = ProviderConfig.from_dict(item)
+            if provider is not None:
+                providers.append(provider)
+
+    default_provider_id = str(data.get("default_provider_id", defaults.default_provider_id)).strip() or defaults.default_provider_id
+    providers = _normalize_provider_configs(providers, default_provider_id)
+    bindings = _normalize_task_bindings(
+        TaskModelBindings.from_dict(data.get("task_model_bindings")),
+        providers,
+        default_provider_id,
+    )
+    return AppConfig(
+        default_provider_id=default_provider_id,
+        providers=providers,
+        task_model_bindings=bindings,
+        max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
+    )
+
+
+def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
+    defaults = build_default_config()
+    api_key = str(data.get("api_key", "")).strip()
+    model_name = str(data.get("model", "")).strip() or defaults.providers[0].models[0].name
+    title_model_name = str(data.get("title_generation_model", "")).strip() or defaults.providers[0].models[1].name
+    plan_export_model_name = str(data.get("plan_export_model", "")).strip() or model_name
+    api_base_url = str(data.get("api_base_url", "")).strip() or defaults.providers[0].base_url
+    timeout_seconds = _coerce_positive_int(data.get("timeout_seconds"), 30)
+
+    migrated = build_default_config()
+    migrated.providers[0].api_key = api_key
+    migrated.providers[0].base_url = api_base_url
+    migrated.providers[0].timeout_seconds = timeout_seconds
+    migrated.providers[0].models = [
+        ProviderModelConfig(id="analysis-model", name=model_name, capabilities=["vision_chat", "text_chat"]),
+        ProviderModelConfig(id="title-model", name=title_model_name, capabilities=["text_chat"]),
+        ProviderModelConfig(id="plan-export-model", name=plan_export_model_name, capabilities=["vision_chat", "text_chat"]),
+    ]
+    migrated.task_model_bindings = TaskModelBindings(
+        analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
+        title_generation=TaskModelBinding(provider_id="siliconflow", model_id="title-model"),
+        plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
+        prompt_optimization=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
+    )
+    migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
+    return migrated
+
+
+def _needs_legacy_migration(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return "providers" not in data and any(
+        key in data
+        for key in ("api_key", "model", "title_generation_model", "plan_export_model", "api_base_url")
+    )
 
 
 _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".aica")
@@ -31,29 +305,23 @@ class ConfigManager:
 
     def load(self) -> AppConfig:
         if not os.path.exists(self._path):
-            return AppConfig()
+            return build_default_config()
 
         try:
             with open(self._path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
-            known = {key: value for key, value in data.items() if key in AppConfig.__dataclass_fields__}
-            return AppConfig(**known)
         except Exception:
-            return AppConfig()
+            return build_default_config()
+
+        if _needs_legacy_migration(data):
+            migrated = _migrate_legacy_config(data)
+            self.save(migrated)
+            return migrated
+
+        return _app_config_from_dict(data)
 
     def save(self, config: AppConfig) -> None:
+        normalized = _app_config_from_dict(asdict(config))
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
         with open(self._path, "w", encoding="utf-8") as handle:
-            json.dump(asdict(config), handle, ensure_ascii=False, indent=2)
-
-    def get_api_key(self) -> str:
-        return self.load().api_key
-
-    def get_model(self) -> str:
-        return self.load().model
-
-    def get_title_generation_model(self) -> str:
-        return self.load().title_generation_model
-
-    def get_plan_export_model(self) -> str:
-        return self.load().plan_export_model
+            json.dump(asdict(normalized), handle, ensure_ascii=False, indent=2)

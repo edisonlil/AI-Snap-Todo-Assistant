@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from datetime import datetime
+from types import SimpleNamespace
 
 from PyQt6.QtCore import QRect, QTimer
 from PyQt6.QtGui import QPixmap
@@ -18,6 +19,7 @@ from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
 from aica.feedback import FeedbackData
 from aica.hotkey import HotkeyManager
+from aica.llm.service import LLMService, ModelResolutionError
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.prompts import PromptManager
@@ -207,6 +209,22 @@ def main() -> None:
             plan_export_workers.remove(worker)
         worker.deleteLater()
 
+    def _build_runtime_config(config):
+        llm_service = LLMService(config)
+        analysis_ref = llm_service.resolve_task_model("analysis").reference
+        plan_export_ref = llm_service.resolve_task_model("plan_export").reference
+        prompt_ref = llm_service.resolve_task_model("prompt_optimization").reference
+        timeout_seconds = max(
+            analysis_ref.timeout_seconds,
+            plan_export_ref.timeout_seconds,
+            prompt_ref.timeout_seconds,
+        )
+        return SimpleNamespace(
+            app_config=config,
+            llm_service=llm_service,
+            timeout_seconds=timeout_seconds,
+        )
+
     def _on_feedback_optimization_finished(summary: dict) -> None:
         nonlocal prompt_mgr
 
@@ -235,15 +253,14 @@ def main() -> None:
         print(f"Feedback background optimization failed: {message}")
 
     def _start_feedback_optimization(feedback: FeedbackData) -> None:
-        config = config_mgr.load()
-        if not config.api_key:
+        try:
+            runtime_config = _build_runtime_config(config_mgr.load())
+        except ModelResolutionError:
             return
 
         worker = FeedbackOptimizeWorker(
-            config.api_key,
-            config.model,
-            config.api_base_url,
-            config.timeout_seconds,
+            runtime_config.llm_service,
+            runtime_config.timeout_seconds,
             feedback,
         )
         feedback_workers.append(worker)
@@ -283,9 +300,8 @@ def main() -> None:
             export_path = f"{export_path}.md"
 
         worker = PlanExportWorker(
-            config.api_key,
-            config.plan_export_model,
-            config.api_base_url,
+            config.llm_service,
+            config.llm_service.describe_task_model("plan_export"),
             config.timeout_seconds,
             payload,
             export_path,
@@ -297,7 +313,7 @@ def main() -> None:
 
     result_flow = ResultFlowCoordinator(
         get_scenario=toolbar.get_current_scenario,
-        get_model=lambda: config_mgr.load().model,
+        get_model=lambda: _build_runtime_config(config_mgr.load()).llm_service.describe_task_model("analysis"),
         save_result_to_todo=_save_analysis_to_todo,
         clear_capture_state=_clear_capture_state,
         start_feedback_optimization=_start_feedback_optimization,
@@ -327,14 +343,19 @@ def main() -> None:
 
     def _ensure_api_key_configured():
         config = config_mgr.load()
-        if config.api_key:
-            return config
+        try:
+            return _build_runtime_config(config)
+        except ModelResolutionError:
+            pass
 
         dialog = ApiKeyDialog(config_mgr)
         if dialog.exec():
             saved_config = dialog.get_saved_config()
-            if saved_config is not None and saved_config.api_key:
-                return saved_config
+            if saved_config is not None:
+                try:
+                    return _build_runtime_config(saved_config)
+                except ModelResolutionError:
+                    return None
         return None
 
     def _handle_analysis_finished(result, feedback_image_base64: str) -> None:
