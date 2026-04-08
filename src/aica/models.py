@@ -1,7 +1,7 @@
 """Domain models for ticket-oriented Todo workflows."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import re
 from typing import Any
 
@@ -129,6 +129,10 @@ _DISPLAY_CHAR_RE = re.compile(r"显示(?:为|成)?([A-Za-z0-9])")
 def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
     text = str(value or "").strip()
     return text or fallback
+
+
+def _clean_free_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def is_unknown_text(value: Any) -> bool:
@@ -273,6 +277,88 @@ class TicketSummaryFields:
         )
 
 
+@dataclass(frozen=True)
+class EvidenceItem:
+    type: str
+    label: str
+    value: str
+    source_image_index: int = 1
+    scene_type: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "type", _clean_free_text(self.type))
+        object.__setattr__(self, "label", _clean_free_text(self.label))
+        object.__setattr__(self, "value", _clean_free_text(self.value))
+        try:
+            index = int(self.source_image_index)
+        except (TypeError, ValueError):
+            index = 1
+        object.__setattr__(self, "source_image_index", max(1, index))
+        object.__setattr__(self, "scene_type", _clean_free_text(self.scene_type))
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "EvidenceItem | None":
+        if not isinstance(payload, dict):
+            return None
+        evidence = cls(
+            type=payload.get("type", ""),
+            label=payload.get("label", ""),
+            value=payload.get("value", ""),
+            source_image_index=payload.get("source_image_index", 1),
+            scene_type=payload.get("scene_type", ""),
+        )
+        if not (evidence.type and evidence.value):
+            return None
+        if not evidence.label:
+            object.__setattr__(evidence, "label", evidence.type)
+        return evidence
+
+
+def _evidence_key(item: EvidenceItem) -> tuple[str, str, str]:
+    return (
+        item.type.strip().lower(),
+        item.label.strip().lower(),
+        re.sub(r"\s+", " ", item.value.strip()).lower(),
+    )
+
+
+def merge_evidence_items(*groups: list[EvidenceItem]) -> list[EvidenceItem]:
+    merged: list[EvidenceItem] = []
+    seen: set[tuple[str, str, str]] = set()
+    for group in groups:
+        for item in group:
+            key = _evidence_key(item)
+            if not item.value or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+def format_evidence_items_for_timeline(items: list[EvidenceItem]) -> str:
+    merged_items = merge_evidence_items(items)
+    if not merged_items:
+        return ""
+    return "\n".join(
+        f"- {item.label or item.type}: {item.value}"
+        for item in merged_items
+        if item.value.strip()
+    )
+
+
+def merge_timeline_with_evidence(timeline_entry: str, evidence_items: list[EvidenceItem]) -> str:
+    base_text = str(timeline_entry or "").strip()
+    evidence_text = format_evidence_items_for_timeline(evidence_items)
+    if not evidence_text:
+        return base_text[:600]
+    if not base_text:
+        return evidence_text[:600]
+    return f"{base_text}\n补充信息:\n{evidence_text}"[:600]
+
+
 def merge_summary_fields_for_append(
     existing: TicketSummaryFields,
     incoming: TicketSummaryFields,
@@ -294,6 +380,7 @@ class TicketSnapshot:
     fields: TicketSummaryFields
     current_summary: str
     timeline_entry: str
+    evidence_items: list[EvidenceItem] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -341,11 +428,20 @@ class TicketSnapshot:
                 ),
             }
         )
+        evidence_payload = payload.get("evidence_items", [])
+        evidence_items = []
+        if isinstance(evidence_payload, list):
+            for item in evidence_payload:
+                evidence = EvidenceItem.from_dict(item)
+                if evidence is not None:
+                    evidence_items.append(evidence)
+        merged_evidence_items = merge_evidence_items(evidence_items)
         return cls(
             title=title,
             fields=fields,
             current_summary=current_summary[:400],
-            timeline_entry=timeline_entry[:600],
+            timeline_entry=merge_timeline_with_evidence(timeline_entry, merged_evidence_items),
+            evidence_items=[],
         )
 
     @classmethod
@@ -358,9 +454,15 @@ class TicketSnapshot:
             fields=TicketSummaryFields(ticket_type=normalize_ticket_type("", summary_text=summary)),
             current_summary=summary[:400],
             timeline_entry=summary[:600],
+            evidence_items=[],
         )
 
     def __str__(self) -> str:
+        evidence_lines = "\n".join(
+            f"{index}. [{item.type}] {item.label}: {item.value}"
+            for index, item in enumerate(self.evidence_items, 1)
+        )
+        evidence_text = evidence_lines or "无"
         return (
             f"标题: {self.title}\n"
             f"群聊名称: {self.fields.group_name}\n"
@@ -368,5 +470,6 @@ class TicketSnapshot:
             f"产品线: {self.fields.product_line}\n"
             f"工单类型: {self.fields.ticket_type}\n"
             f"当前摘要: {self.current_summary}\n"
-            f"跟进记录: {self.timeline_entry}"
+            f"跟进记录: {self.timeline_entry}\n"
+            f"关键证据:\n{evidence_text}"
         )

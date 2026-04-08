@@ -34,7 +34,7 @@ Rectangle {
         environmentEdit.text = resultDialogBridge.environment
         productLineEdit.text = resultDialogBridge.productLine
         ticketTypeEdit.text = resultDialogBridge.ticketType
-        summaryEdit.text = resultDialogBridge.currentSummary
+        summaryEdit.text = resultDialogBridge.recognitionConclusion
         syncingFields = false
     }
 
@@ -403,7 +403,7 @@ Rectangle {
                         spacing: 6
 
                         Text {
-                            text: "\u5f53\u524d\u6458\u8981"
+                            text: "\u672c\u6b21\u8bc6\u522b\u7ed3\u8bba"
                             color: root.labelInk
                             font.family: root.uiFont
                             font.pixelSize: 12
@@ -435,7 +435,7 @@ Rectangle {
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("current_summary", text)
+                                    onTextChanged: root.pushField("timeline_entry", text)
                                 }
                             }
 
@@ -448,6 +448,71 @@ Rectangle {
                                 radius: 2
                                 color: "#C7CDD7"
                                 visible: summaryFlick.contentHeight > summaryFlick.height + 2
+                            }
+                        }
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: 8
+                        visible: false
+
+                        Text {
+                            text: "关键证据"
+                            color: root.labelInk
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            font.weight: root.sectionWeight
+                        }
+
+                        Repeater {
+                            model: []
+
+                            delegate: Rectangle {
+                                width: contentColumn.width
+                                height: Math.max(64, evidenceValue.contentHeight + 36)
+                                radius: 16
+                                color: "#FCFBF8"
+
+                                Text {
+                                    x: 14
+                                    y: 12
+                                    text: (modelData.label || modelData.type) + " · " + modelData.type
+                                    color: root.labelInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+                                }
+
+                                Text {
+                                    id: evidenceValue
+                                    x: 14
+                                    y: 30
+                                    width: parent.width - 84
+                                    wrapMode: Text.Wrap
+                                    text: modelData.value
+                                    color: root.bodyInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                }
+
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 14
+                                    y: 12
+                                    text: "移除"
+                                    color: "#C77B48"
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {}
+                                    }
+                                }
                             }
                         }
                     }

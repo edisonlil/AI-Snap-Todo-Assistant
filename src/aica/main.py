@@ -89,10 +89,7 @@ def main() -> None:
     todo_controller = TodoController(todo_store)
     todo_panel = TodoPanel()
     todo_detail_panel = TodoDetailPanel()
-
-    toolbar.set_scenarios(prompt_mgr.list_scenarios())
-    toolbar.set_current_scenario(prompt_mgr.get_current_scenario_name())
-    toolbar.set_scenario_selector_visible(False)
+    toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
     feedback_workers: list[FeedbackOptimizeWorker] = []
@@ -125,11 +122,38 @@ def main() -> None:
             for event in todo.timeline[-5:]
             if event.content.strip()
         ]
+        evidence_lines = []
         return (
             "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
             "请重点根据当前这张新截图提炼新增信息。\n"
-            "如果新截图没有带来明确变化，current_summary 可以保持接近原状态；"
-            "但 timeline_entry 必须描述本次截图新增的跟进内容、观察结论或待处理点。\n\n"
+            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
+            "请把本次新增进展写入 timeline_entry，把参数、日志、TraceId、URL 等排查依据写入 evidence_items。\n\n"
+            f"待办标题: {todo.title}\n"
+            f"群聊名称: {todo.summary_fields.group_name}\n"
+            f"环境: {todo.summary_fields.environment}\n"
+            f"产品线: {todo.summary_fields.product_line}\n"
+            f"工单类型: {todo.summary_fields.ticket_type}\n"
+            f"当前摘要: {todo.current_summary}\n"
+            "最近时间线:\n"
+            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
+            + "\n关键证据:\n"
+            + ("\n".join(evidence_lines) if evidence_lines else "- 暂无")
+        )
+
+    def _build_selected_todo_context() -> str:
+        todo = todo_controller.get_selected_todo()
+        if todo is None:
+            return ""
+        timeline_lines = [
+            f"- {_format_ts(event.timestamp)} {event.content}"
+            for event in todo.timeline[-5:]
+            if event.content.strip()
+        ]
+        return (
+            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
+            "请重点根据当前这张新截图提炼新增信息。\n"
+            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
+            "请把本次新增进展写入 timeline_entry，如果有参数、日志、TraceId、URL 等细节，也直接写在 timeline_entry 里。\n\n"
             f"待办标题: {todo.title}\n"
             f"群聊名称: {todo.summary_fields.group_name}\n"
             f"环境: {todo.summary_fields.environment}\n"
@@ -198,8 +222,6 @@ def main() -> None:
 
         if updated_parts:
             prompt_mgr = PromptManager()
-            toolbar.set_scenarios(prompt_mgr.list_scenarios())
-            toolbar.set_current_scenario(prompt_mgr.get_current_scenario_name())
             QMessageBox.information(
                 None,
                 "Prompt Updated",
@@ -325,6 +347,7 @@ def main() -> None:
         toolbar=toolbar,
         prompt_manager=prompt_mgr,
         get_scenario=toolbar.get_current_scenario,
+        get_analysis_intent=toolbar.build_analysis_intent,
         get_analysis_context=_build_selected_todo_context,
         ensure_api_key_configured=_ensure_api_key_configured,
         hide_overlays=_hide_overlays,
@@ -332,6 +355,7 @@ def main() -> None:
         on_finished=_handle_analysis_finished,
         single_worker_factory=AIWorker,
         multi_worker_factory=MultiCaptureAIWorker,
+        show_warning=lambda title, message: QMessageBox.warning(None, title, message),
     )
 
     def _on_summarize() -> None:
@@ -377,8 +401,7 @@ def main() -> None:
         _sync_capture_from_active_overlay()
 
     def _on_scenario_changed(scenario_name: str) -> None:
-        if prompt_mgr.set_current_scenario(scenario_name):
-            toolbar.set_current_scenario(scenario_name)
+        _ = scenario_name
 
     def _on_todo_selected(todo_id: str) -> None:
         todo_controller.toggle_selected_todo(todo_id)

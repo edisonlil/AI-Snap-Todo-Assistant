@@ -45,9 +45,11 @@ class _ResultDialogBridge(QObject):
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
         self._product_line = resolve_product_line(raw_value=result.fields.product_line)
-        self._ticket_type = normalize_ticket_type(result.fields.ticket_type, summary_text=result.current_summary)
-        self._current_summary = result.current_summary.strip()
-        self._timeline_entry = result.timeline_entry.strip()
+        self._recognition_conclusion = result.timeline_entry.strip() or result.current_summary.strip()
+        self._ticket_type = normalize_ticket_type(
+            result.fields.ticket_type,
+            summary_text=self._recognition_conclusion,
+        )
 
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
@@ -82,8 +84,8 @@ class _ResultDialogBridge(QObject):
         return list(TICKET_TYPE_OPTIONS)
 
     @pyqtProperty(str, notify=dataChanged)
-    def currentSummary(self) -> str:
-        return self._current_summary
+    def recognitionConclusion(self) -> str:
+        return self._recognition_conclusion
 
     @pyqtProperty(bool, notify=dataChanged)
     def showFeedbackAction(self) -> bool:
@@ -105,15 +107,15 @@ class _ResultDialogBridge(QObject):
         elif name == "product_line":
             self._product_line = resolve_product_line(raw_value=text)
         elif name == "ticket_type":
-            self._ticket_type = normalize_ticket_type(text, summary_text=self._current_summary)
-        elif name == "current_summary":
-            self._current_summary = text
+            self._ticket_type = normalize_ticket_type(text, summary_text=self._recognition_conclusion)
+        elif name == "timeline_entry":
+            self._recognition_conclusion = text
         else:
             return
         self.dataChanged.emit()
 
     def build_snapshot(self) -> TicketSnapshot:
-        normalized_summary = self._current_summary.strip() or _PENDING_TEXT
+        normalized_conclusion = self._recognition_conclusion.strip() or _PENDING_TEXT
         normalized_title = self._title.strip() or self._fallback_title
         return TicketSnapshot(
             title=normalized_title,
@@ -127,16 +129,15 @@ class _ResultDialogBridge(QObject):
                         part
                         for part in (
                             normalized_title,
-                            normalized_summary,
-                            self._timeline_entry,
+                            normalized_conclusion,
                         )
                         if part
                     ),
                 ),
             ),
-            current_summary=normalized_summary,
-            # Confirmation dialog hides timeline editing, so preserve the AI-generated follow-up entry.
-            timeline_entry=self._timeline_entry or normalized_summary,
+            current_summary=normalized_conclusion,
+            timeline_entry=normalized_conclusion,
+            evidence_items=[],
         )
 
     @pyqtSlot()

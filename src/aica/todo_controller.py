@@ -4,7 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from .models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
+from .models import (
+    TicketSnapshot,
+    TicketSummaryFields,
+    merge_summary_fields_for_append,
+)
 from .todo_store import TimelineEvent, TodoItem, TodoStore
 
 
@@ -114,6 +118,7 @@ class TodoController:
             fields=merge_summary_fields_for_append(todo.summary_fields, snapshot.fields),
             current_summary=todo.current_summary,
             timeline_entry=cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry),
+            evidence_items=[],
         )
 
     def save_analysis_result(self, snapshot: TicketSnapshot, scenario: str) -> SaveAnalysisResult:

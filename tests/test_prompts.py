@@ -68,3 +68,25 @@ def test_prompt_manager_injects_title_focus_rules_for_loaded_prompt(temp_config_
     assert "不要概括成“上传时未勾选”" in prompt
     assert "当前固定返回“文档中台”" in prompt
     assert "排查类" in prompt and "咨询类" in prompt and "操作类" in prompt
+
+
+def test_prompt_manager_falls_back_to_default_when_default_scenario_missing(temp_config_file):
+    payload = {
+        "current_scenario": "工单提取",
+        "scenarios": {
+            "工单提取": {
+                "system": "旧系统提示",
+                "user": "旧用户提示",
+                "version": "v1.0",
+                "last_improved_feedback_count": 0,
+            }
+        },
+    }
+    with open(temp_config_file, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+    manager = PromptManager(config_path=temp_config_file)
+
+    prompt = manager.get_current_prompt()
+    assert prompt.system != "旧系统提示"
+    assert "evidence_items" not in prompt.user

@@ -12,6 +12,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .analysis_intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
+from .focus_hint_dialog import FocusHintDialog
+
 
 class FloatingToolbar(QWidget):
     summarize_clicked = pyqtSignal()
@@ -42,6 +45,7 @@ class FloatingToolbar(QWidget):
         self._updating_combo = False
         self._updating_edit_mode = False
         self._edit_buttons: dict[str, QPushButton] = {}
+        self._focus_hint = ""
 
         self._setup_ui()
         self._apply_style()
@@ -72,10 +76,16 @@ class FloatingToolbar(QWidget):
         self._scenario_combo = QComboBox()
         self._scenario_combo.setObjectName("scenarioCombo")
         self._scenario_combo.setMinimumWidth(110)
-        self._scenario_combo.setMaximumWidth(126)
+        self._scenario_combo.setMaximumWidth(144)
         self._scenario_combo.currentTextChanged.connect(self._on_scenario_changed)
         self._scenario_combo.setToolTip("选择分析场景")
         surface_layout.addWidget(self._scenario_combo)
+
+        self._btn_focus = QPushButton("重点")
+        self._btn_focus.setObjectName("ghostButton")
+        self._btn_focus.setToolTip("补充本次提取重点")
+        self._btn_focus.clicked.connect(self._edit_focus_hint)
+        surface_layout.addWidget(self._btn_focus)
 
         self._btn_summarize = QPushButton("分析")
         self._btn_summarize.setObjectName("primaryButton")
@@ -142,6 +152,8 @@ class FloatingToolbar(QWidget):
         shadow.setColor(QColor(15, 23, 42, 42))
         self._surface.setGraphicsEffect(shadow)
 
+        self.set_scenarios(dict(SCENE_OPTIONS))
+        self.reset_analysis_inputs()
         self.set_edit_mode("move")
 
     def _create_separator(self) -> QFrame:
@@ -374,12 +386,14 @@ class FloatingToolbar(QWidget):
     def set_scenarios(self, scenarios: dict) -> None:
         self._updating_combo = True
         self._scenario_combo.clear()
-        self._scenario_combo.addItems(scenarios.keys())
+        for label in scenarios.keys():
+            self._scenario_combo.addItem(label)
         self._updating_combo = False
 
     def set_current_scenario(self, scenario_name: str) -> None:
         self._updating_combo = True
-        index = self._scenario_combo.findText(scenario_name)
+        target = scenario_name or next(iter(dict(SCENE_OPTIONS).keys()), "")
+        index = self._scenario_combo.findText(target)
         if index >= 0:
             self._scenario_combo.setCurrentIndex(index)
         self._updating_combo = False
@@ -389,6 +403,27 @@ class FloatingToolbar(QWidget):
 
     def get_current_scenario(self) -> str:
         return self._scenario_combo.currentText()
+
+    def get_current_scene_type(self) -> str:
+        return scene_type_from_label(self.get_current_scenario())
+
+    def get_focus_hint(self) -> str:
+        return self._focus_hint
+
+    def reset_analysis_inputs(self) -> None:
+        self._focus_hint = ""
+        self.set_current_scenario(next(iter(dict(SCENE_OPTIONS).keys()), ""))
+        self._refresh_focus_button()
+
+    def build_analysis_intent(self, capture_count: int):
+        scene_type = self.get_current_scene_type()
+        if not scene_type:
+            return None
+        return build_analysis_intent(
+            scene_type,
+            focus_hint=self._focus_hint,
+            capture_count=capture_count,
+        )
 
     def set_edit_mode(self, mode: str) -> None:
         button = self._edit_buttons.get(mode)
@@ -436,3 +471,15 @@ class FloatingToolbar(QWidget):
     def _tick_loading(self) -> None:
         self._loading_frame = (self._loading_frame + 1) % len(self._LOADING_FRAMES)
         self._btn_summarize.setText(self._LOADING_FRAMES[self._loading_frame])
+
+    def _edit_focus_hint(self) -> None:
+        dialog = FocusHintDialog(self._focus_hint, parent=self.window())
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        self._focus_hint = dialog.hint_text
+        self._refresh_focus_button()
+
+    def _refresh_focus_button(self) -> None:
+        has_focus = bool(self._focus_hint)
+        self._btn_focus.setText("重点*" if has_focus else "重点")
+        self._btn_focus.setToolTip(self._focus_hint or "补充本次提取重点")

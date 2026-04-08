@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
+from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
 from aica.todo_store import TimelineEvent, TodoStore
 
@@ -15,6 +15,7 @@ def _snapshot(
     environment: str = "prod",
     product_line: str = "line-a",
     ticket_type: str = TICKET_TYPE_OPTIONS[0],
+    evidence_items: list[EvidenceItem] | None = None,
 ) -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
@@ -26,6 +27,7 @@ def _snapshot(
         ),
         current_summary=summary,
         timeline_entry=timeline,
+        evidence_items=evidence_items or [],
     )
 
 
@@ -103,6 +105,39 @@ def test_append_analysis_backfills_unknown_fields_only(tmp_path: Path):
     assert updated.summary_fields.group_name == "recognized-group"
     assert updated.summary_fields.environment == "staging"
     assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+
+
+def test_legacy_evidence_is_folded_into_timeline_when_loading(tmp_path: Path):
+    path = tmp_path / "todos.json"
+    payload = [
+        {
+            "id": "1",
+            "title": "接口异常",
+            "current_summary": "已有摘要",
+            "status": "open",
+            "timeline": [
+                {
+                    "content": "客户补充接口详情",
+                    "evidence_items": [
+                        {
+                            "type": "request_param",
+                            "label": "task_id",
+                            "value": "abc123",
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    store = TodoStore(str(path))
+    todo = store.get_todo("1")
+
+    assert todo is not None
+    assert "客户补充接口详情" in todo.timeline[0].content
+    assert "task_id" in todo.timeline[0].content
+    assert "abc123" in todo.timeline[0].content
 
 
 def test_update_todo_persists_fields_and_timeline(tmp_path: Path):

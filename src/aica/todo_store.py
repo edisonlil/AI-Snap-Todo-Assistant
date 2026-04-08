@@ -9,7 +9,14 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from .models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
+from .models import (
+    EvidenceItem,
+    TicketSnapshot,
+    TicketSummaryFields,
+    merge_evidence_items,
+    merge_timeline_with_evidence,
+    merge_summary_fields_for_append,
+)
 
 
 class TodoStatus(StrEnum):
@@ -209,13 +216,24 @@ class TodoStore:
             or payload.get("detail")
             or ""
         ).strip()
+        evidence_items = self._deserialize_evidence_items(payload.get("evidence_items", []))
         return TimelineEvent(
             id=str(payload.get("id", str(uuid.uuid4()))),
             timestamp=str(payload.get("timestamp", _now_iso())),
             kind=str(payload.get("kind", "analysis")),
             scenario=str(payload.get("scenario", "")),
-            content=content,
+            content=merge_timeline_with_evidence(content, evidence_items),
         )
+
+    def _deserialize_evidence_items(self, payload: Any) -> list[EvidenceItem]:
+        if not isinstance(payload, list):
+            return []
+        evidence_items: list[EvidenceItem] = []
+        for item in payload:
+            evidence = EvidenceItem.from_dict(item)
+            if evidence is not None:
+                evidence_items.append(evidence)
+        return merge_evidence_items(evidence_items)
 
     def _migrate_legacy_summary(
         self,

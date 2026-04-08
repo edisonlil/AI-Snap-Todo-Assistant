@@ -139,7 +139,7 @@ class PromptManager:
             with open(self._path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
             scenarios = data.get("scenarios", {})
-            active = scenarios.get(DEFAULT_SCENARIO_NAME) or next(iter(scenarios.values()), {})
+            active = scenarios.get(DEFAULT_SCENARIO_NAME) or {}
             template = PromptTemplate(
                 system=active.get("system", default.system),
                 user=_apply_prompt_upgrades(active.get("user", default.user)),

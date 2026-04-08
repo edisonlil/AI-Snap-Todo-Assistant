@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from aica.analysis_flow import AnalysisFlowCoordinator
+from aica.analysis_intent import build_analysis_intent
 
 
 class _Signal:
@@ -63,7 +64,8 @@ def test_build_worker_uses_single_factory_for_one_image():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "工单跟进",
+        get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "existing context",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
@@ -77,8 +79,9 @@ def test_build_worker_uses_single_factory_for_one_image():
 
     assert isinstance(worker, _Worker)
     assert worker.payload == "img-1"
-    assert worker.kwargs["scenario"] == "工单待办助手"
+    assert worker.kwargs["scenario"] == "工单跟进"
     assert worker.kwargs["context_text"] == "existing context"
+    assert worker.kwargs["analysis_intent"].scene_type == "chat_feedback"
 
 
 def test_build_worker_uses_multi_factory_for_multiple_images():
@@ -86,7 +89,8 @@ def test_build_worker_uses_multi_factory_for_multiple_images():
         capture_session=_CaptureSession(images=["img-1", "img-2"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "连续步骤截图",
+        get_analysis_intent=lambda count: build_analysis_intent("step_sequence", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
@@ -100,6 +104,7 @@ def test_build_worker_uses_multi_factory_for_multiple_images():
 
     assert isinstance(worker, _Worker)
     assert worker.payload == ["img-1", "img-2"]
+    assert worker.kwargs["analysis_intent"].capture_group_mode == "sequence"
 
 
 def test_start_analysis_restores_toolbar_when_api_key_missing():
@@ -109,7 +114,8 @@ def test_start_analysis_restores_toolbar_when_api_key_missing():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "工单跟进",
+        get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=lambda: None,
         hide_overlays=lambda **kwargs: None,
@@ -126,6 +132,30 @@ def test_start_analysis_restores_toolbar_when_api_key_missing():
     assert restored["count"] == 1
 
 
+def test_start_analysis_requires_selected_intent():
+    warnings = []
+    coordinator = AnalysisFlowCoordinator(
+        capture_session=_CaptureSession(images=["img-1"]),
+        toolbar=_Toolbar(),
+        prompt_manager="prompt-manager",
+        get_scenario=lambda: "",
+        get_analysis_intent=lambda count: None,
+        get_analysis_context=lambda: "",
+        ensure_api_key_configured=_config,
+        hide_overlays=lambda **kwargs: (_ for _ in ()).throw(AssertionError()),
+        restore_toolbar_for_current_capture=lambda: None,
+        on_finished=lambda result, feedback: None,
+        single_worker_factory=_Worker,
+        multi_worker_factory=_Worker,
+        show_warning=lambda title, message: warnings.append((title, message)),
+    )
+
+    started = coordinator.start_analysis()
+
+    assert not started
+    assert warnings == [("缺少场景", "请先选择本次截图的分析场景")]
+
+
 def test_start_analysis_wires_and_starts_worker():
     toolbar = _Toolbar()
     hidden = {"count": 0}
@@ -133,7 +163,8 @@ def test_start_analysis_wires_and_starts_worker():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "工单跟进",
+        get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: hidden.__setitem__("count", hidden["count"] + 1),
@@ -160,7 +191,8 @@ def test_handle_finished_unlocks_and_forwards_result():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "工单跟进",
+        get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
@@ -186,7 +218,8 @@ def test_handle_parse_error_copies_and_restores_toolbar():
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
         prompt_manager="prompt-manager",
-        get_scenario=lambda: "工单待办助手",
+        get_scenario=lambda: "工单跟进",
+        get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,

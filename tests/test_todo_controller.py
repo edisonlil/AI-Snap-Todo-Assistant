@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
+from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
 from aica.todo_controller import TodoController
 from aica.todo_store import TimelineEvent, TodoStore
@@ -20,6 +20,7 @@ def _snapshot(
     environment: str = "prod",
     product_line: str = "line-a",
     ticket_type: str = TICKET_TYPE_OPTIONS[0],
+    evidence_items: list[EvidenceItem] | None = None,
 ) -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
@@ -31,6 +32,7 @@ def _snapshot(
         ),
         current_summary=summary,
         timeline_entry=timeline,
+        evidence_items=evidence_items or [],
     )
 
 
@@ -109,6 +111,38 @@ def test_save_analysis_append_backfills_unknown_fields_only(tmp_path: Path):
     assert result.todo.summary_fields.group_name == "recognized-group"
     assert result.todo.summary_fields.environment == "staging"
     assert result.todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+
+
+def test_save_analysis_append_keeps_details_in_timeline_only(tmp_path: Path):
+    controller = _build_controller(tmp_path)
+    created = controller.save_analysis_result(
+        _snapshot("upload failed", "initial summary", "first follow-up"),
+        "工单跟进",
+    )
+    controller.toggle_selected_todo(created.todo.id)
+
+    result = controller.save_analysis_result(
+        _snapshot(
+            "new title from screenshot",
+            "new summary from screenshot",
+            "客户补充了接口参数",
+            evidence_items=[
+                EvidenceItem(
+                    type="request_param",
+                    label="task_id",
+                    value="abc123",
+                    source_image_index=2,
+                    scene_type="api_detail",
+                )
+            ],
+        ),
+        "参数与接口详情",
+    )
+
+    assert result.action == "append"
+    assert result.todo.current_summary == "initial summary"
+    assert "task_id" not in result.todo.current_summary
+    assert "task_id" in result.todo.timeline[-1].content
 
 
 def test_update_todo_updates_fields_and_timeline(tmp_path: Path):

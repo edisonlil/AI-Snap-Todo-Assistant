@@ -1,14 +1,21 @@
 ﻿"""AI workers: screenshot analysis and feedback optimization."""
 import base64
 import json
+import os
 import re
+import sys
 from pathlib import Path
 
 import requests
+
+_SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+
 try:
+    if _SKIP_QT_IMPORT:
+        raise RuntimeError("Skip Qt import while running tests")
     from PyQt6.QtCore import QBuffer, QByteArray, QThread, pyqtSignal
     from PyQt6.QtGui import QPainter, QPixmap
-except ImportError:  # pragma: no cover - fallback for test environments without Qt runtime
+except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
     class QThread:  # type: ignore[no-redef]
         def __init__(self, parent=None):
             self._parent = parent
@@ -59,6 +66,8 @@ except ImportError:  # pragma: no cover - fallback for test environments without
         def end(self):
             return None
 
+from .analysis_intent import AnalysisIntent, build_analysis_intent
+from .analysis_strategy import build_analysis_system_prompt, build_analysis_text_prompt
 from .feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
 from .image_utils import compress_if_needed
 from .parser import ResultParser
@@ -325,7 +334,8 @@ class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, api_key: str, model: str,
                  api_url: str, timeout: int = 30,
                  prompt_manager: PromptManager = None,
-                 scenario: str = "工单提取",
+                 scenario: str = "工单跟进",
+                 analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
                  parent=None):
         super().__init__(parent)
@@ -337,6 +347,7 @@ class AIWorker(_BaseVisionWorker):
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
+        self._analysis_intent = analysis_intent or build_analysis_intent("chat_feedback")
         self._context_text = context_text.strip()
 
     def run(self) -> None:
@@ -357,18 +368,17 @@ class AIWorker(_BaseVisionWorker):
             self.error.emit(f"未知错误: {exc}")
 
     def _call_api(self, b64_image: str) -> str:
-        prompt = self._prompt_manager.get_current_prompt()
         messages = [
-            {"role": "system", "content": prompt.system},
+            {"role": "system", "content": build_analysis_system_prompt()},
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": (
-                            f"【已有待办上下文】\n{self._context_text}\n\n【当前截图分析要求】\n{prompt.user}"
-                            if self._context_text
-                            else prompt.user
+                        "text": build_analysis_text_prompt(
+                            self._analysis_intent,
+                            context_text=self._context_text,
+                            image_count=1,
                         ),
                     },
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}},
@@ -387,7 +397,8 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
     def __init__(self, images: list[QPixmap], api_key: str, model: str,
                  api_url: str, timeout: int = 30,
                  prompt_manager: PromptManager = None,
-                 scenario: str = "工单提取",
+                 scenario: str = "连续步骤截图",
+                 analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
                  parent=None):
         super().__init__(parent)
@@ -399,6 +410,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
+        self._analysis_intent = analysis_intent or build_analysis_intent("step_sequence", capture_count=len(images))
         self._context_text = context_text.strip()
 
     def run(self) -> None:
@@ -419,18 +431,16 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             self.error.emit(f"未知错误: {exc}")
 
     def _call_api(self) -> str:
-        prompt = self._prompt_manager.get_current_prompt()
-        multi_intro = (
-            "以下是同一问题场景下按时间顺序截取的多张连续聊天截图。"
-            "请把它们视为一个整体进行理解，按截图顺序整合信息，"
-            "自动忽略相邻截图中的重复内容，并输出符合当前场景要求的最终总结。"
-        )
-        context_intro = (
-            f"【已有待办上下文】\n{self._context_text}\n\n【当前截图分析要求】\n"
-            if self._context_text
-            else ""
-        )
-        content = [{"type": "text", "text": f"{context_intro}{multi_intro}\n\n{prompt.user}"}]
+        content = [
+            {
+                "type": "text",
+                "text": build_analysis_text_prompt(
+                    self._analysis_intent,
+                    context_text=self._context_text,
+                    image_count=len(self._images),
+                ),
+            }
+        ]
         for index, pixmap in enumerate(self._images, 1):
             content.append({"type": "text", "text": f"第 {index} 张截图"})
             content.append(
@@ -443,7 +453,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         return self._post_chat_completion(
             model=self._model,
             messages=[
-                {"role": "system", "content": prompt.system},
+                {"role": "system", "content": build_analysis_system_prompt()},
                 {"role": "user", "content": content},
             ],
             temperature=0.3,

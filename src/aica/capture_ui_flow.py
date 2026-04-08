@@ -59,6 +59,7 @@ class CaptureUiFlow:
         self.hide_overlays(reset=True)
         self._capture_session.clear()
         self._toolbar.attach_to_overlay(None)
+        self._toolbar.reset_analysis_inputs()
         self._toolbar.set_single_capture_mode()
         self._toolbar.hide()
         refresh_todo_panel()

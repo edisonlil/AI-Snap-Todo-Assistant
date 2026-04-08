@@ -14,6 +14,7 @@ class AnalysisFlowCoordinator:
         toolbar,
         prompt_manager,
         get_scenario: Callable[[], str],
+        get_analysis_intent: Callable[[int], Any | None] | None,
         get_analysis_context: Callable[[], str] | None,
         ensure_api_key_configured: Callable[[], Any | None],
         hide_overlays: Callable[..., None],
@@ -29,6 +30,7 @@ class AnalysisFlowCoordinator:
         self._toolbar = toolbar
         self._prompt_manager = prompt_manager
         self._get_scenario = get_scenario
+        self._get_analysis_intent = get_analysis_intent
         self._get_analysis_context = get_analysis_context
         self._ensure_api_key_configured = ensure_api_key_configured
         self._hide_overlays = hide_overlays
@@ -58,6 +60,7 @@ class AnalysisFlowCoordinator:
             self._multi_worker_factory = MultiCaptureAIWorker
 
         scenario = self._get_scenario()
+        analysis_intent = self._get_analysis_intent(len(images)) if self._get_analysis_intent is not None else None
         context_text = self._get_analysis_context() if self._get_analysis_context is not None else ""
         worker_kwargs = dict(
             api_key=config.api_key,
@@ -66,6 +69,7 @@ class AnalysisFlowCoordinator:
             timeout=config.timeout_seconds,
             prompt_manager=self._prompt_manager,
             scenario=scenario,
+            analysis_intent=analysis_intent,
             context_text=context_text,
         )
         if len(images) == 1:
@@ -78,6 +82,12 @@ class AnalysisFlowCoordinator:
 
         images_to_analyze = self._capture_session.images_for_analysis()
         if not images_to_analyze:
+            return False
+
+        analysis_intent = self._get_analysis_intent(len(images_to_analyze)) if self._get_analysis_intent is not None else None
+        if analysis_intent is None:
+            if self._show_warning is not None:
+                self._show_warning("缺少场景", "请先选择本次截图的分析场景")
             return False
 
         self._capture_locked = True

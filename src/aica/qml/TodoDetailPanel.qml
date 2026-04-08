@@ -435,6 +435,73 @@ Rectangle {
                         }
                     }
 
+                    Column {
+                        width: parent.width
+                        spacing: 10
+                        visible: false
+
+                        Text {
+                            text: "关键证据"
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 14
+                            font.weight: root.sectionWeight
+                        }
+
+                        Repeater {
+                            model: []
+
+                            delegate: Rectangle {
+                                width: contentColumn.width
+                                height: Math.max(72, evidenceValue.contentHeight + 40)
+                                radius: 16
+                                color: "#FFFFFF"
+                                border.width: 0
+                                border.color: root.fieldLine
+
+                                Text {
+                                    x: 14
+                                    y: 12
+                                    text: (modelData.label || modelData.type) + " · " + modelData.type
+                                    color: root.labelInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+                                }
+
+                                Text {
+                                    id: evidenceValue
+                                    x: 14
+                                    y: 30
+                                    width: parent.width - 84
+                                    wrapMode: Text.Wrap
+                                    text: modelData.value
+                                    color: root.bodyInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                }
+
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 14
+                                    y: 12
+                                    text: "删除"
+                                    color: "#E35B66"
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Rectangle {
                         width: parent.width
                         height: 48
