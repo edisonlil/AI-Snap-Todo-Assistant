@@ -65,6 +65,7 @@ class AnalysisFlowCoordinator:
         worker_kwargs = dict(
             api_key=config.api_key,
             model=config.model,
+            title_generation_model=config.title_generation_model,
             api_url=config.api_base_url,
             timeout=config.timeout_seconds,
             prompt_manager=self._prompt_manager,

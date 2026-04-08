@@ -149,6 +149,52 @@ def _iter_plan_export_attachment_entries(todo_payload: dict[str, object]) -> lis
     return entries
 
 
+def _group_plan_export_attachment_entries(
+    todo_payload: dict[str, object],
+) -> list[dict[str, object]]:
+    timeline_payload = todo_payload.get("timeline", [])
+    grouped_entries: list[dict[str, object]] = []
+    if not isinstance(timeline_payload, list):
+        return grouped_entries
+
+    for item in timeline_payload:
+        if not isinstance(item, dict):
+            continue
+        attachments = item.get("attachments", [])
+        if not isinstance(attachments, list) or not attachments:
+            continue
+        timestamp = str(item.get("timestamp", "")).strip() or "未知时间"
+        scenario = str(item.get("scenario", "")).strip() or "系统记录"
+        content = str(item.get("content", "")).strip()
+        normalized_attachments: list[dict[str, str]] = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            name = str(attachment.get("name", "")).strip()
+            path = str(attachment.get("path", "")).strip()
+            kind = str(attachment.get("kind", "")).strip()
+            if not name:
+                continue
+            normalized_attachments.append(
+                {
+                    "name": name,
+                    "path": path,
+                    "kind": kind,
+                }
+            )
+        if not normalized_attachments:
+            continue
+        grouped_entries.append(
+            {
+                "timestamp": timestamp,
+                "scenario": scenario,
+                "content": content,
+                "attachments": normalized_attachments,
+            }
+        )
+    return grouped_entries
+
+
 def _encode_local_image_to_data_url(path: str) -> str:
     source = Path(str(path or "")).expanduser()
     if not source.is_file():
@@ -305,13 +351,16 @@ class _BaseVisionWorker(QThread):
             {"role": "user", "content": user_prompt},
         ]
 
+    def _resolve_title_generation_model(self) -> str:
+        return str(getattr(self, "_title_generation_model", TITLE_GENERATION_MODEL) or TITLE_GENERATION_MODEL)
+
     def _generate_title(self, result) -> str:  # noqa: ANN001
         if not (result.current_summary.strip() or result.timeline_entry.strip()):
             return result.title.strip()
 
         try:
             raw_title = self._post_chat_completion(
-                model=TITLE_GENERATION_MODEL,
+                model=self._resolve_title_generation_model(),
                 messages=self._build_title_generation_messages(result),
                 temperature=0.1,
                 timeout=min(self._timeout, 20),
@@ -427,6 +476,63 @@ def _copy_plan_export_attachment(path: str, asset_dir: Path) -> Path | None:
     return target
 
 
+def _build_plan_export_attachment_markdown_item(entry: dict[str, str], relative_path: str) -> str:
+    if entry.get("kind") == "image":
+        return f"![{entry['name']}]({relative_path})"
+    if entry.get("kind") == "video":
+        return f"- 视频附件: [{entry['name']}]({relative_path})"
+    return f"- 附件文件: [{entry['name']}]({relative_path})"
+
+
+def append_plan_export_timeline_visual_section(
+    markdown: str,
+    todo_payload: dict[str, object],
+    export_path: Path,
+) -> str:
+    grouped_entries = _group_plan_export_attachment_entries(todo_payload)
+    if not grouped_entries:
+        return markdown
+
+    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    section_lines = ["## 时间线图示", ""]
+    has_content = False
+
+    for group in grouped_entries:
+        rendered_items: list[str] = []
+        for attachment in group["attachments"]:
+            copied = _copy_plan_export_attachment(attachment.get("path", ""), asset_dir)
+            if copied is None:
+                continue
+            relative_path = copied.relative_to(export_path.parent).as_posix()
+            rendered_items.append(_build_plan_export_attachment_markdown_item(attachment, relative_path))
+        if not rendered_items:
+            continue
+
+        section_lines.append(f"### [{group['timestamp']}] {group['scenario']}")
+        if group.get("content"):
+            section_lines.append(f"> {group['content']}")
+        section_lines.extend(rendered_items)
+        section_lines.append("")
+        has_content = True
+
+    if not has_content:
+        return markdown
+
+    normalized = str(markdown or "").strip()
+    visual_markdown = "\n".join(section_lines).strip()
+    if "## 时间线图示" in normalized:
+        return normalized
+
+    timeline_match = re.search(r"^##\s*时间线回顾\s*$", normalized, re.MULTILINE)
+    if not timeline_match:
+        return f"{normalized}\n\n{visual_markdown}".strip()
+
+    insertion_index = normalized.find("\n## ", timeline_match.end())
+    if insertion_index == -1:
+        return f"{normalized}\n\n{visual_markdown}".strip()
+    return f"{normalized[:insertion_index].rstrip()}\n\n{visual_markdown}\n\n{normalized[insertion_index + 1:].lstrip()}".strip()
+
+
 def append_plan_export_attachment_section(
     markdown: str,
     todo_payload: dict[str, object],
@@ -449,12 +555,7 @@ def append_plan_export_attachment_section(
         section_lines.append(heading)
         if entry.get("content"):
             section_lines.append(f"> {entry['content']}")
-        if entry.get("kind") == "image":
-            section_lines.append(f"![{entry['name']}]({relative_path})")
-        elif entry.get("kind") == "video":
-            section_lines.append(f"- 视频附件: [{entry['name']}]({relative_path})")
-        else:
-            section_lines.append(f"- 附件文件: [{entry['name']}]({relative_path})")
+        section_lines.append(_build_plan_export_attachment_markdown_item(entry, relative_path))
         section_lines.append("")
         has_content = True
 
@@ -481,6 +582,7 @@ class PlanExportWorker(_BaseVisionWorker):
     def __init__(
         self,
         api_key: str,
+        model: str,
         api_url: str,
         timeout: int,
         todo_payload: dict[str, object],
@@ -489,6 +591,7 @@ class PlanExportWorker(_BaseVisionWorker):
     ):
         super().__init__(parent)
         self._api_key = api_key
+        self._model = model
         self._api_url = api_url
         self._timeout = timeout
         self._todo_payload = todo_payload
@@ -497,7 +600,7 @@ class PlanExportWorker(_BaseVisionWorker):
     def run(self) -> None:
         try:
             raw_markdown = self._post_chat_completion(
-                model=PLAN_EXPORT_MODEL,
+                model=self._model,
                 messages=build_plan_export_messages(self._todo_payload),
                 temperature=0.2,
                 timeout=min(self._timeout, 30),
@@ -510,6 +613,11 @@ class PlanExportWorker(_BaseVisionWorker):
                 raise ValueError("生成的方案内容为空")
             export_file = Path(self._export_path)
             export_file.parent.mkdir(parents=True, exist_ok=True)
+            markdown = append_plan_export_timeline_visual_section(
+                markdown,
+                self._todo_payload,
+                export_file,
+            )
             markdown = append_plan_export_attachment_section(
                 markdown,
                 self._todo_payload,
@@ -528,6 +636,7 @@ class PlanExportWorker(_BaseVisionWorker):
 class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, api_key: str, model: str,
                  api_url: str, timeout: int = 30,
+                 title_generation_model: str = TITLE_GENERATION_MODEL,
                  prompt_manager: PromptManager = None,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
@@ -538,6 +647,7 @@ class AIWorker(_BaseVisionWorker):
         self._feedback_image_base64 = self._pixmap_to_base64(image)
         self._api_key = api_key
         self._model = model
+        self._title_generation_model = title_generation_model
         self._api_url = api_url
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()
@@ -591,6 +701,7 @@ class AIWorker(_BaseVisionWorker):
 class MultiCaptureAIWorker(_BaseVisionWorker):
     def __init__(self, images: list[QPixmap], api_key: str, model: str,
                  api_url: str, timeout: int = 30,
+                 title_generation_model: str = TITLE_GENERATION_MODEL,
                  prompt_manager: PromptManager = None,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
@@ -601,6 +712,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._feedback_image_base64 = self._pixmap_to_base64(self._build_combined_preview(images))
         self._api_key = api_key
         self._model = model
+        self._title_generation_model = title_generation_model
         self._api_url = api_url
         self._timeout = timeout
         self._prompt_manager = prompt_manager or PromptManager()

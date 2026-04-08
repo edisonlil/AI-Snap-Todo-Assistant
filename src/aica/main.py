@@ -284,6 +284,7 @@ def main() -> None:
 
         worker = PlanExportWorker(
             config.api_key,
+            config.plan_export_model,
             config.api_base_url,
             config.timeout_seconds,
             payload,

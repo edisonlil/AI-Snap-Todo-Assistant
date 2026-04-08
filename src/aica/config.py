@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 class AppConfig:
     api_key: str = ""
     model: str = "Qwen/Qwen2.5-VL-72B-Instruct"
+    title_generation_model: str = "Qwen/Qwen3-8B"
+    plan_export_model: str = "Qwen/Qwen2.5-VL-72B-Instruct"
     api_base_url: str = "https://api.siliconflow.cn/v1/chat/completions"
     timeout_seconds: int = 30
     max_image_bytes: int = 4 * 1024 * 1024
@@ -49,3 +51,9 @@ class ConfigManager:
 
     def get_model(self) -> str:
         return self.load().model
+
+    def get_title_generation_model(self) -> str:
+        return self.load().title_generation_model
+
+    def get_plan_export_model(self) -> str:
+        return self.load().plan_export_model

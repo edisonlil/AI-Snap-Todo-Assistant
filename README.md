@@ -147,6 +147,8 @@ python -m pip install -r requirements-build.txt
 {
   "api_key": "",
   "model": "Qwen/Qwen2.5-VL-72B-Instruct",
+  "title_generation_model": "Qwen/Qwen3-8B",
+  "plan_export_model": "Qwen/Qwen2.5-VL-72B-Instruct",
   "api_base_url": "https://api.siliconflow.cn/v1/chat/completions",
   "timeout_seconds": 30,
   "max_image_bytes": 4194304
@@ -156,7 +158,9 @@ python -m pip install -r requirements-build.txt
 字段说明：
 
 - `api_key`：模型服务密钥，代码中默认留空，不应提交真实密钥
-- `model`：分析使用的模型名称
+- `model`：截图识别 / 截图分析使用的模型名称
+- `title_generation_model`：标题生成使用的模型名称；旧版 `config.json` 没有这个字段时会自动回退到默认值 `Qwen/Qwen3-8B`
+- `plan_export_model`：导出方案使用的模型名称；旧版 `config.json` 没有这个字段时会自动回退到默认值 `Qwen/Qwen2.5-VL-72B-Instruct`
 - `api_base_url`：兼容 OpenAI Chat Completions 的接口地址
 - `timeout_seconds`：接口请求超时时间
 - `max_image_bytes`：图片压缩阈值，默认 `4MB`
@@ -166,6 +170,33 @@ python -m pip install -r requirements-build.txt
 - 如果首次运行时未配置 `api_key`，程序会弹窗引导配置
 - 当前默认场景只有 `工单待办助手`
 - 场景切换入口已预留，但当前并未开放多场景工作流
+
+## Changelog
+
+### 2026-04-08
+
+- 待办详情时间线编辑保存修复：
+  - 时间线编辑不再依赖失焦提交
+  - 显式提供保存 / 取消，顶部保存也会带上当前时间线编辑内容
+- 时间线附件能力上线：
+  - 支持给时间线上传任意类型附件
+  - 支持把文件直接拖拽到时间线卡片上传
+  - 支持把剪贴板中的截图图片直接粘贴到当前时间线卡片
+  - 附件区改为卡片内收起 / 展开，避免附件过多时卡片过高
+- 附件预览体验增强：
+  - 图片附件显示缩略图并可预览
+  - 视频附件显示预览入口并可直接打开
+  - 其他附件以文件项方式展示并支持移除
+- 导出方案增强为图文版：
+  - 时间线附件会进入导出方案上下文
+  - 图片附件会作为多模态输入提供给方案生成模型
+  - 导出的 Markdown 会自动追加“附件图示”区并嵌入图片
+  - 视频与其他附件会在导出文档中追加可点击链接
+  - 导出方案会强制补足“时间线回顾”章节，并保留明确时间节点
+- 模型配置增强：
+  - `config.json` 现支持三处模型分别配置：截图识别、标题生成、方案生成
+  - 新增 `title_generation_model` 与 `plan_export_model`
+  - 保持向后兼容：旧版 `config.json` 缺少新字段时仍可正常运行
 
 ## 本地数据目录
 
@@ -272,7 +303,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 - 当前主要面向 Windows，尚未完成 macOS 适配
 - 当前只有单场景工作流，虽然 UI 中已预留场景切换能力
 - 知识库联动检索尚未集成到现有工单处理链路
-- 附件管理能力尚未落地
 - 与外部工单系统的同步能力尚未落地
 
 ## 说明
