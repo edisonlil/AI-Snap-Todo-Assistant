@@ -104,6 +104,10 @@ class AppConfig:
     max_image_bytes: int = 4 * 1024 * 1024
 
 
+def _binding(provider_id: str, model_id: str) -> TaskModelBinding:
+    return TaskModelBinding(provider_id=provider_id, model_id=model_id)
+
+
 def default_provider_configs() -> list[ProviderConfig]:
     return [
         ProviderConfig(
@@ -126,6 +130,25 @@ def default_provider_configs() -> list[ProviderConfig]:
             ],
         ),
         ProviderConfig(
+            id="minmax",
+            kind="openai_compatible",
+            name="MiniMax",
+            base_url="https://api.minimax.io/v1/chat/completions",
+            timeout_seconds=30,
+            models=[
+                ProviderModelConfig(
+                    id="minimax-m2-5",
+                    name="MiniMax-M2.5",
+                    capabilities=["text_chat"],
+                ),
+                ProviderModelConfig(
+                    id="minimax-m2-5-highspeed",
+                    name="MiniMax-M2.5-highspeed",
+                    capabilities=["text_chat"],
+                ),
+            ],
+        ),
+        ProviderConfig(
             id="gemini",
             kind="gemini",
             name="Google Gemini",
@@ -143,17 +166,24 @@ def default_provider_configs() -> list[ProviderConfig]:
 
 def default_task_model_bindings(default_provider_id: str = "siliconflow") -> TaskModelBindings:
     if default_provider_id == "gemini":
-        analysis_model = "gemini-2.5-flash"
-        title_model = "gemini-2.5-flash"
-    else:
-        analysis_model = "qwen25-vl-72b"
-        title_model = "qwen3-8b"
-
+        return TaskModelBindings(
+            analysis=_binding("gemini", "gemini-2.5-flash"),
+            title_generation=_binding("gemini", "gemini-2.5-flash"),
+            plan_export=_binding("gemini", "gemini-2.5-flash"),
+            prompt_optimization=_binding("gemini", "gemini-2.5-flash"),
+        )
+    if default_provider_id == "minmax":
+        return TaskModelBindings(
+            analysis=_binding("siliconflow", "qwen25-vl-72b"),
+            title_generation=_binding("minmax", "minimax-m2-5"),
+            plan_export=_binding("siliconflow", "qwen25-vl-72b"),
+            prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
+        )
     return TaskModelBindings(
-        analysis=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
-        title_generation=TaskModelBinding(provider_id=default_provider_id, model_id=title_model),
-        plan_export=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
-        prompt_optimization=TaskModelBinding(provider_id=default_provider_id, model_id=analysis_model),
+        analysis=_binding("siliconflow", "qwen25-vl-72b"),
+        title_generation=_binding("siliconflow", "qwen3-8b"),
+        plan_export=_binding("siliconflow", "qwen25-vl-72b"),
+        prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
     )
 
 

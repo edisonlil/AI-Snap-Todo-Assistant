@@ -84,6 +84,26 @@ python -m pip install -r requirements-build.txt
       ]
     },
     {
+      "id": "minmax",
+      "kind": "openai_compatible",
+      "name": "MiniMax",
+      "api_key": "",
+      "base_url": "https://api.minimax.io/v1/chat/completions",
+      "timeout_seconds": 30,
+      "models": [
+        {
+          "id": "minimax-m2-5",
+          "name": "MiniMax-M2.5",
+          "capabilities": ["text_chat"]
+        },
+        {
+          "id": "minimax-m2-5-highspeed",
+          "name": "MiniMax-M2.5-highspeed",
+          "capabilities": ["text_chat"]
+        }
+      ]
+    },
+    {
       "id": "gemini",
       "kind": "gemini",
       "name": "Google Gemini",
