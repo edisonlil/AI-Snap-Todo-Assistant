@@ -131,6 +131,10 @@ def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
     return text or fallback
 
 
+def is_unknown_text(value: Any) -> bool:
+    return not str(value or "").strip() or str(value).strip() == UNKNOWN_TEXT
+
+
 def _normalize_title_candidate(text: str) -> str:
     candidate = str(text or "").strip()
     if not candidate:
@@ -267,6 +271,21 @@ class TicketSummaryFields:
             product_line=payload.get("product_line"),
             ticket_type=payload.get("ticket_type"),
         )
+
+
+def merge_summary_fields_for_append(
+    existing: TicketSummaryFields,
+    incoming: TicketSummaryFields,
+) -> TicketSummaryFields:
+    def _merge_value(current: str, candidate: str) -> str:
+        return candidate if is_unknown_text(current) and not is_unknown_text(candidate) else current
+
+    return TicketSummaryFields(
+        group_name=_merge_value(existing.group_name, incoming.group_name),
+        environment=_merge_value(existing.environment, incoming.environment),
+        product_line=_merge_value(existing.product_line, incoming.product_line),
+        ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
+    )
 
 
 @dataclass

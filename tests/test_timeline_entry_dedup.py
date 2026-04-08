@@ -1,44 +1,54 @@
-from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.todo_controller import TodoController
 from aica.todo_store import TimelineEvent, TodoItem
 
 
 def test_extract_incremental_timeline_entry_keeps_only_new_follow_up() -> None:
     todo = TodoItem(
-        title="勾选框变Q",
+        title="checkbox issue",
         summary_fields=TicketSummaryFields(),
-        current_summary="用户在金山文档中遇到勾选框变Q的问题，上传时未勾选，线上勾选后重新打开变为字符Q，需要排查此问题，确认是否为线上勾选导致。",
+        current_summary="initial issue observed in upload flow",
         timeline=[
-            TimelineEvent(content="用户在金山文档中遇到勾选框变Q的问题，上传时未勾选，线上勾选后重新打开变为字符Q，需要排查此问题，确认是否为线上勾选导致。"),
-            TimelineEvent(content="当前跟进内容为确认字体类型，并检查服务器是否缺少该字体。"),
+            TimelineEvent(content="initial issue observed in upload flow"),
+            TimelineEvent(content="checking gateway layer"),
         ],
     )
 
     cumulative_timeline = (
-        "用户在金山文档中遇到勾选框变Q的问题，上传时未勾选，线上勾选后重新打开变为字符Q。"
-        "当前截图显示勾选框使用的字体为Wingdings 2，需要进一步确认该字体在服务器上的可用性，以排查是否因字体缺失导致问题。"
+        "initial issue observed in upload flow. "
+        "checking gateway layer. "
+        "latest follow-up confirms http 500 is returned by gateway"
     )
 
     incremental = TodoController._extract_incremental_timeline_entry(todo, cumulative_timeline)
 
-    assert incremental == "当前截图显示勾选框使用的字体为Wingdings 2，需要进一步确认该字体在服务器上的可用性，以排查是否因字体缺失导致问题"
+    assert incremental == "latest follow-up confirms http 500 is returned by gateway"
 
 
-def test_normalize_snapshot_for_append_preserves_summary_but_dedups_timeline() -> None:
+def test_normalize_snapshot_for_append_preserves_existing_summary_and_backfills_unknown_fields() -> None:
     todo = TodoItem(
-        title="勾选框变Q",
-        summary_fields=TicketSummaryFields(),
-        current_summary="已有摘要",
-        timeline=[TimelineEvent(content="第一条跟进")],
+        title="existing title",
+        summary_fields=TicketSummaryFields(
+            group_name=UNKNOWN_TEXT,
+            environment=UNKNOWN_TEXT,
+        ),
+        current_summary="existing summary",
+        timeline=[TimelineEvent(content="first follow-up")],
     )
     snapshot = TicketSnapshot(
-        title="新标题",
-        fields=TicketSummaryFields(product_line="企业微信"),
-        current_summary="已有摘要 + 新观察",
-        timeline_entry="第一条跟进，当前跟进内容为确认字体类型，并检查服务器是否缺少该字体。",
+        title="new title",
+        fields=TicketSummaryFields(
+            group_name="recognized-group",
+            environment="staging",
+        ),
+        current_summary="new summary",
+        timeline_entry="first follow-up. latest follow-up confirms font package missing",
     )
 
     normalized = TodoController._normalize_snapshot_for_append(todo, snapshot)
 
-    assert normalized.current_summary == "已有摘要 + 新观察"
-    assert normalized.timeline_entry == "当前跟进内容为确认字体类型，并检查服务器是否缺少该字体"
+    assert normalized.title == "existing title"
+    assert normalized.current_summary == "existing summary"
+    assert normalized.fields.group_name == "recognized-group"
+    assert normalized.fields.environment == "staging"
+    assert normalized.timeline_entry == "latest follow-up confirms font package missing"

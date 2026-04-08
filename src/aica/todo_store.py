@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from .models import TicketSnapshot, TicketSummaryFields
+from .models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 
 
 class TodoStatus(StrEnum):
@@ -102,9 +102,7 @@ class TodoStore:
                     content=snapshot.timeline_entry,
                 )
             )
-            item.title = snapshot.title or item.title
-            item.summary_fields = snapshot.fields
-            item.current_summary = snapshot.current_summary
+            item.summary_fields = merge_summary_fields_for_append(item.summary_fields, snapshot.fields)
             item.updated_at = _now_iso()
             self._save_items(items)
             return item

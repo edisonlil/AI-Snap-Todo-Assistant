@@ -1,19 +1,28 @@
 import json
 from pathlib import Path
 
-from aica.models import TicketSnapshot, TicketSummaryFields
-from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE
+from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
+from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
 from aica.todo_store import TimelineEvent, TodoStore
 
 
-def _snapshot(title: str, summary: str, timeline: str) -> TicketSnapshot:
+def _snapshot(
+    title: str,
+    summary: str,
+    timeline: str,
+    *,
+    group_name: str = "group-a",
+    environment: str = "prod",
+    product_line: str = "line-a",
+    ticket_type: str = TICKET_TYPE_OPTIONS[0],
+) -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
         fields=TicketSummaryFields(
-            group_name="客户群",
-            environment="生产",
-            product_line="AI-SNAP",
-            ticket_type="问题排查",
+            group_name=group_name,
+            environment=environment,
+            product_line=product_line,
+            ticket_type=ticket_type,
         ),
         current_summary=summary,
         timeline_entry=timeline,
@@ -24,66 +33,106 @@ def test_create_todo_from_analysis_persists_structured_item(tmp_path: Path):
     store = TodoStore(str(tmp_path / "todos.json"))
 
     todo = store.create_todo_from_analysis(
-        _snapshot("上传失败", "确认上传实体文件是否仍存在", "客户反馈上传实体文件失败，需要排查"),
-        "工单待办助手",
+        _snapshot("upload failed", "check whether file still exists", "customer reported upload failed"),
+        "todo assistant",
     )
 
     todos = store.list_active_todos()
     assert len(todos) == 1
     assert todos[0].id == todo.id
-    assert todos[0].title == "上传失败"
-    assert todos[0].summary_fields.group_name == "客户群"
-    assert todos[0].current_summary == "确认上传实体文件是否仍存在"
-    assert todos[0].timeline[0].content == "客户反馈上传实体文件失败，需要排查"
+    assert todos[0].title == "upload failed"
+    assert todos[0].summary_fields.group_name == "group-a"
+    assert todos[0].current_summary == "check whether file still exists"
+    assert todos[0].timeline[0].content == "customer reported upload failed"
 
 
-def test_append_analysis_updates_existing_todo(tmp_path: Path):
+def test_append_analysis_preserves_existing_title_and_summary(tmp_path: Path):
     store = TodoStore(str(tmp_path / "todos.json"))
     todo = store.create_todo_from_analysis(
-        _snapshot("上传失败", "初始摘要", "首条记录"),
-        "工单待办助手",
+        _snapshot("upload failed", "initial summary", "first record"),
+        "todo assistant",
     )
 
     updated = store.append_analysis_to_todo(
         todo.id,
-        _snapshot("上传失败", "已定位到网关层", "新增跟进：观察到 500 错误"),
-        "工单待办助手",
+        _snapshot(
+            "new title from screenshot",
+            "new summary from screenshot",
+            "new follow-up: observed http 500",
+            group_name="new-group",
+            environment="staging",
+        ),
+        "todo assistant",
     )
 
     assert updated is not None
     assert updated.timeline_count == 2
-    assert updated.current_summary == "已定位到网关层"
-    assert updated.timeline[-1].content == "新增跟进：观察到 500 错误"
+    assert updated.title == "upload failed"
+    assert updated.current_summary == "initial summary"
+    assert updated.summary_fields.group_name == "group-a"
+    assert updated.summary_fields.environment == "prod"
+    assert updated.timeline[-1].content == "new follow-up: observed http 500"
+
+
+def test_append_analysis_backfills_unknown_fields_only(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot(
+            "upload failed",
+            "initial summary",
+            "first record",
+            group_name=UNKNOWN_TEXT,
+            environment=UNKNOWN_TEXT,
+        ),
+        "todo assistant",
+    )
+
+    updated = store.append_analysis_to_todo(
+        todo.id,
+        _snapshot(
+            "new title from screenshot",
+            "new summary from screenshot",
+            "new follow-up: observed http 500",
+            group_name="recognized-group",
+            environment="staging",
+        ),
+        "todo assistant",
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.group_name == "recognized-group"
+    assert updated.summary_fields.environment == "staging"
+    assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
 
 
 def test_update_todo_persists_fields_and_timeline(tmp_path: Path):
     store = TodoStore(str(tmp_path / "todos.json"))
     todo = store.create_todo_from_analysis(
-        _snapshot("原始标题", "原始摘要", "原始时间线"),
-        "工单待办助手",
+        _snapshot("original title", "original summary", "original timeline"),
+        "todo assistant",
     )
 
     updated = store.update_todo(
         todo.id,
-        title="新标题",
-        current_summary="新摘要",
+        title="new title",
+        current_summary="new summary",
         summary_fields=TicketSummaryFields(
-            group_name="新群聊",
-            environment="测试",
-            product_line="新产品线",
-            ticket_type="配置咨询",
+            group_name="new-group",
+            environment="test",
+            product_line="new-line",
+            ticket_type=TICKET_TYPE_OPTIONS[1],
         ),
-        timeline=[TimelineEvent(content="人工编辑后的时间线")],
+        timeline=[TimelineEvent(content="edited timeline")],
     )
 
     assert updated is not None
     reloaded = store.get_todo(todo.id)
     assert reloaded is not None
-    assert reloaded.title == "新标题"
-    assert reloaded.current_summary == "新摘要"
+    assert reloaded.title == "new title"
+    assert reloaded.current_summary == "new summary"
     assert reloaded.summary_fields.product_line == DEFAULT_PRODUCT_LINE
-    assert reloaded.summary_fields.ticket_type == "咨询类"
-    assert reloaded.timeline[0].content == "人工编辑后的时间线"
+    assert reloaded.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[1]
+    assert reloaded.timeline[0].content == "edited timeline"
 
 
 def test_legacy_summary_json_is_migrated(tmp_path: Path):
@@ -91,19 +140,19 @@ def test_legacy_summary_json_is_migrated(tmp_path: Path):
     legacy_payload = [
         {
             "id": "1",
-            "title": "旧任务",
+            "title": "legacy todo",
             "summary": json.dumps(
                 {
-                    "group_name": "老群聊",
-                    "environment": "生产",
-                    "product_line": "老产品",
-                    "ticket_type": "问题排查",
-                    "current_summary": "旧摘要",
+                    "group_name": "legacy-group",
+                    "environment": "prod",
+                    "product_line": "legacy-line",
+                    "ticket_type": TICKET_TYPE_OPTIONS[0],
+                    "current_summary": "legacy summary",
                 },
                 ensure_ascii=False,
             ),
             "status": "open",
-            "timeline": [{"summary": "旧时间线"}],
+            "timeline": [{"summary": "legacy timeline"}],
         }
     ]
     path.write_text(json.dumps(legacy_payload, ensure_ascii=False), encoding="utf-8")
@@ -112,8 +161,8 @@ def test_legacy_summary_json_is_migrated(tmp_path: Path):
     todo = store.get_todo("1")
 
     assert todo is not None
-    assert todo.summary_fields.group_name == "老群聊"
+    assert todo.summary_fields.group_name == "legacy-group"
     assert todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
-    assert todo.summary_fields.ticket_type == "排查类"
-    assert todo.current_summary == "旧摘要"
-    assert todo.timeline[0].content == "旧时间线"
+    assert todo.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[0]
+    assert todo.current_summary == "legacy summary"
+    assert todo.timeline[0].content == "legacy timeline"

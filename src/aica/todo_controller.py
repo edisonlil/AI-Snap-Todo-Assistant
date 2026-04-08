@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from .models import TicketSnapshot, TicketSummaryFields
+from .models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from .todo_store import TimelineEvent, TodoItem, TodoStore
 
 
@@ -110,9 +110,9 @@ class TodoController:
     @classmethod
     def _normalize_snapshot_for_append(cls, todo: TodoItem, snapshot: TicketSnapshot) -> TicketSnapshot:
         return TicketSnapshot(
-            title=snapshot.title,
-            fields=snapshot.fields,
-            current_summary=snapshot.current_summary,
+            title=todo.title,
+            fields=merge_summary_fields_for_append(todo.summary_fields, snapshot.fields),
+            current_summary=todo.current_summary,
             timeline_entry=cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry),
         )
 
