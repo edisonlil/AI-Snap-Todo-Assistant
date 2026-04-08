@@ -1,8 +1,10 @@
 ﻿"""AI workers: screenshot analysis and feedback optimization."""
 import base64
 import json
+import mimetypes
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -75,6 +77,7 @@ from .prompt_optimizer import PromptOptimizer
 from .prompts import PromptManager
 
 TITLE_GENERATION_MODEL = "Qwen/Qwen3-8B"
+PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _TITLE_SYSTEM_PROMPT = (
     "你是一位资深的B端技术支持专家，负责生成最终展示和保存使用的工单标题。"
     "你的输出会直接进入界面和待办存储，因此必须准确、简洁、专业。"
@@ -83,6 +86,107 @@ _PLAN_EXPORT_SYSTEM_PROMPT = (
     "你是一位资深的B端技术支持与实施专家，负责基于待办上下文输出可执行的处理方案。"
     "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
 )
+_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
+
+
+def _format_plan_export_attachment_text(attachments_payload: object) -> str:
+    if not isinstance(attachments_payload, list):
+        return ""
+
+    attachment_lines: list[str] = []
+    for index, item in enumerate(attachments_payload, 1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        kind = str(item.get("kind", "")).strip()
+        size_bytes = item.get("sizeBytes", item.get("size_bytes", 0))
+        try:
+            normalized_size = max(0, int(size_bytes))
+        except (TypeError, ValueError):
+            normalized_size = 0
+        size_label = f"{normalized_size}B" if normalized_size else ""
+        detail_parts = [part for part in (kind, size_label) if part]
+        detail_text = f"（{'，'.join(detail_parts)}）" if detail_parts else ""
+        attachment_lines.append(f"{index}. {name}{detail_text}")
+    return "；".join(attachment_lines)
+
+
+def _iter_plan_export_attachment_entries(todo_payload: dict[str, object]) -> list[dict[str, str]]:
+    timeline_payload = todo_payload.get("timeline", [])
+    entries: list[dict[str, str]] = []
+    if not isinstance(timeline_payload, list):
+        return entries
+
+    for item in timeline_payload:
+        if not isinstance(item, dict):
+            continue
+        timestamp = str(item.get("timestamp", "")).strip() or "未知时间"
+        scenario = str(item.get("scenario", "")).strip() or "系统记录"
+        content = str(item.get("content", "")).strip()
+        attachments = item.get("attachments", [])
+        if not isinstance(attachments, list):
+            continue
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            name = str(attachment.get("name", "")).strip()
+            path = str(attachment.get("path", "")).strip()
+            kind = str(attachment.get("kind", "")).strip()
+            if not name:
+                continue
+            entries.append(
+                {
+                    "timestamp": timestamp,
+                    "scenario": scenario,
+                    "content": content,
+                    "name": name,
+                    "path": path,
+                    "kind": kind,
+                }
+            )
+    return entries
+
+
+def _encode_local_image_to_data_url(path: str) -> str:
+    source = Path(str(path or "")).expanduser()
+    if not source.is_file():
+        return ""
+    mime_type, _ = mimetypes.guess_type(str(source))
+    if not mime_type or not mime_type.startswith("image/"):
+        return ""
+    encoded = base64.b64encode(source.read_bytes()).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _build_plan_export_timeline_lines(todo_payload: dict[str, object]) -> list[str]:
+    timeline_payload = todo_payload.get("timeline", [])
+    timeline_lines: list[str] = []
+    if not isinstance(timeline_payload, list):
+        return timeline_lines
+
+    for index, item in enumerate(timeline_payload, 1):
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        timestamp = str(item.get("timestamp", "")).strip() or "未知时间"
+        scenario = str(item.get("scenario", "")).strip() or "系统记录"
+        line = f"{index}. [{timestamp}] {scenario}: {content}"
+        attachment_text = _format_plan_export_attachment_text(item.get("attachments", []))
+        if attachment_text:
+            line = f"{line}\n   附件: {attachment_text}"
+        timeline_lines.append(line)
+    return timeline_lines
+
+
+def build_plan_export_timeline_markdown(todo_payload: dict[str, object]) -> str:
+    timeline_lines = _build_plan_export_timeline_lines(todo_payload)
+    if not timeline_lines:
+        return "## 时间线回顾\n\n- 暂无时间线记录"
+    return "## 时间线回顾\n\n" + "\n".join(f"- {line}" for line in timeline_lines)
 
 
 class _BaseVisionWorker(QThread):
@@ -219,7 +323,7 @@ class _BaseVisionWorker(QThread):
         return normalized_title or result.title.strip()
 
 
-def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str, str]]:
+def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str, object]]:
     summary_fields = todo_payload.get("summary_fields")
     if isinstance(summary_fields, dict):
         group_name = str(summary_fields.get("group_name", "")).strip()
@@ -232,19 +336,7 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str
         product_line = ""
         ticket_type = ""
 
-    timeline_payload = todo_payload.get("timeline", [])
-    timeline_lines: list[str] = []
-    if isinstance(timeline_payload, list):
-        for index, item in enumerate(timeline_payload, 1):
-            if not isinstance(item, dict):
-                continue
-            content = str(item.get("content", "")).strip()
-            if not content:
-                continue
-            timestamp = str(item.get("timestamp", "")).strip()
-            scenario = str(item.get("scenario", "")).strip() or "系统记录"
-            timeline_lines.append(f"{index}. [{timestamp}] {scenario}: {content}")
-
+    timeline_lines = _build_plan_export_timeline_lines(todo_payload)
     timeline_text = "\n".join(timeline_lines) if timeline_lines else "暂无时间线记录"
     user_prompt = (
         "请基于以下待办信息，编写一份可直接导出的 Markdown 处理方案。\n"
@@ -255,6 +347,8 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str
         "3. 如果关键信息不足，要明确写出待确认项，不要编造事实。\n"
         "4. 方案偏向企业内部协作场景，兼顾排查、执行、沟通和交付。\n"
         "5. 使用简体中文，表达专业、可执行，适合保存归档。\n\n"
+        "6. 必须包含“时间线回顾”或等价小节，并且每个时间线节点都要保留明确时间点，格式优先使用 `[YYYY-MM-DDTHH:MM:SS]`。\n"
+        "7. 如果时间线里带有附件，要把附件内容纳入现状分析、处理方案或执行步骤，不要忽略附件提供的信息。\n\n"
         f"待办标题: {str(todo_payload.get('title', '')).strip()}\n"
         f"群聊名称: {group_name}\n"
         f"环境: {environment}\n"
@@ -263,9 +357,35 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[dict[str
         f"当前摘要: {str(todo_payload.get('current_summary', '')).strip()}\n"
         f"时间线:\n{timeline_text}"
     )
+    user_content: str | list[dict[str, object]] = user_prompt
+    image_entries = [
+        entry
+        for entry in _iter_plan_export_attachment_entries(todo_payload)
+        if entry.get("kind") == "image" and entry.get("path")
+    ]
+    image_content: list[dict[str, object]] = []
+    for entry in image_entries[:_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS]:
+        data_url = _encode_local_image_to_data_url(entry.get("path", ""))
+        if not data_url:
+            continue
+        image_content.append(
+            {
+                "type": "text",
+                "text": (
+                    f"附件图片，时间节点 [{entry['timestamp']}]，"
+                    f"场景 {entry['scenario']}，文件名 {entry['name']}。"
+                    f"{(' 关联说明：' + entry['content']) if entry['content'] else ''}"
+                ),
+            }
+        )
+        image_content.append({"type": "image_url", "image_url": {"url": data_url}})
+
+    if image_content:
+        user_content = [{"type": "text", "text": user_prompt}, *image_content]
+
     return [
         {"role": "system", "content": _PLAN_EXPORT_SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
+        {"role": "user", "content": user_content},
     ]
 
 
@@ -279,6 +399,73 @@ def normalize_markdown_content(text: str) -> str:
         raw = md_match.group(1).strip()
 
     return raw.strip()
+
+
+def ensure_plan_export_timeline_section(markdown: str, todo_payload: dict[str, object]) -> str:
+    normalized = str(markdown or "").strip()
+    timeline_markdown = build_plan_export_timeline_markdown(todo_payload).strip()
+    if not normalized:
+        return timeline_markdown
+
+    if re.search(r"^##\s*时间线回顾\s*$", normalized, re.MULTILINE):
+        return normalized
+
+    return f"{normalized}\n\n{timeline_markdown}".strip()
+
+
+def _copy_plan_export_attachment(path: str, asset_dir: Path) -> Path | None:
+    source = Path(str(path or "")).expanduser()
+    if not source.is_file():
+        return None
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    target = asset_dir / source.name
+    counter = 1
+    while target.exists():
+        target = asset_dir / f"{source.stem}_{counter}{source.suffix}"
+        counter += 1
+    shutil.copy2(source, target)
+    return target
+
+
+def append_plan_export_attachment_section(
+    markdown: str,
+    todo_payload: dict[str, object],
+    export_path: Path,
+) -> str:
+    attachment_entries = _iter_plan_export_attachment_entries(todo_payload)
+    if not attachment_entries:
+        return markdown
+
+    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    section_lines = ["## 附件图示", ""]
+    has_content = False
+
+    for entry in attachment_entries:
+        copied = _copy_plan_export_attachment(entry.get("path", ""), asset_dir)
+        if copied is None:
+            continue
+        relative_path = copied.relative_to(export_path.parent).as_posix()
+        heading = f"### [{entry['timestamp']}] {entry['scenario']} - {entry['name']}"
+        section_lines.append(heading)
+        if entry.get("content"):
+            section_lines.append(f"> {entry['content']}")
+        if entry.get("kind") == "image":
+            section_lines.append(f"![{entry['name']}]({relative_path})")
+        elif entry.get("kind") == "video":
+            section_lines.append(f"- 视频附件: [{entry['name']}]({relative_path})")
+        else:
+            section_lines.append(f"- 附件文件: [{entry['name']}]({relative_path})")
+        section_lines.append("")
+        has_content = True
+
+    if not has_content:
+        return markdown
+
+    normalized = str(markdown or "").strip()
+    attachment_markdown = "\n".join(section_lines).strip()
+    if "## 附件图示" in normalized:
+        return normalized
+    return f"{normalized}\n\n{attachment_markdown}".strip()
 
 
 def build_plan_export_filename(title: str) -> str:
@@ -310,16 +497,24 @@ class PlanExportWorker(_BaseVisionWorker):
     def run(self) -> None:
         try:
             raw_markdown = self._post_chat_completion(
-                model=TITLE_GENERATION_MODEL,
+                model=PLAN_EXPORT_MODEL,
                 messages=build_plan_export_messages(self._todo_payload),
                 temperature=0.2,
                 timeout=min(self._timeout, 30),
             )
-            markdown = normalize_markdown_content(raw_markdown)
+            markdown = ensure_plan_export_timeline_section(
+                normalize_markdown_content(raw_markdown),
+                self._todo_payload,
+            )
             if not markdown:
                 raise ValueError("生成的方案内容为空")
             export_file = Path(self._export_path)
             export_file.parent.mkdir(parents=True, exist_ok=True)
+            markdown = append_plan_export_attachment_section(
+                markdown,
+                self._todo_payload,
+                export_file,
+            )
             export_file.write_text(markdown, encoding="utf-8")
             self.finished.emit(str(export_file))
         except requests.Timeout:
