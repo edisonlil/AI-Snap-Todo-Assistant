@@ -45,7 +45,9 @@ class LLMService:
                 timeout=request_timeout,
             )
         except Exception as exc:  # noqa: BLE001
-            raise LLMServiceError(str(exc)) from exc
+            raise LLMServiceError(
+                f"{resolved.reference.provider_name} / {resolved.reference.model_name}: {exc}"
+            ) from exc
 
     def resolve_task_model(self, task_name: TaskName) -> ResolvedTaskModel:
         binding = getattr(self._config.task_model_bindings, task_name, None)

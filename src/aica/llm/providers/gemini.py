@@ -1,6 +1,8 @@
 """Gemini provider implementation."""
 from __future__ import annotations
 
+import time
+
 import requests
 
 from aica.llm.types import ContentPart, Message, ModelReference
@@ -8,6 +10,7 @@ from aica.llm.types import ContentPart, Message, ModelReference
 
 class GeminiProvider:
     _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
     def generate(
         self,
@@ -20,13 +23,30 @@ class GeminiProvider:
         url = self._BASE_URL.format(model=model.model_name)
         params = {"key": model.api_key}
         payload = {
-            "systemInstruction": self._build_system_instruction(messages),
             "contents": [self._message_to_payload(message) for message in messages if message.role != "system"],
             "generationConfig": {"temperature": temperature},
         }
-        response = requests.post(url, json=payload, params=params, timeout=timeout)
+        system_instruction = self._build_system_instruction(messages)
+        if system_instruction is not None:
+            payload["systemInstruction"] = system_instruction
+
+        response = None
+        for attempt in range(3):
+            response = requests.post(url, json=payload, params=params, timeout=timeout)
+            if response.status_code == 200:
+                break
+            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == 2:
+                break
+            time.sleep(1.2 * (attempt + 1))
+
+        if response is None:
+            raise requests.RequestException("HTTP unknown")
         if response.status_code != 200:
-            raise requests.RequestException(f"HTTP {response.status_code}")
+            response_text = response.text.strip()
+            detail = f"HTTP {response.status_code}"
+            if response_text:
+                detail = f"{detail}: {response_text[:400]}"
+            raise requests.RequestException(detail)
         data = response.json()
         candidates = data.get("candidates", [])
         if not candidates:

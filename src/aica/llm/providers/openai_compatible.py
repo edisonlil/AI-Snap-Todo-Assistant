@@ -1,12 +1,16 @@
 """OpenAI-compatible provider implementation."""
 from __future__ import annotations
 
+import time
+
 import requests
 
 from aica.llm.types import ContentPart, Message, ModelReference
 
 
 class OpenAICompatibleProvider:
+    _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
     def generate(
         self,
         *,
@@ -24,16 +28,28 @@ class OpenAICompatibleProvider:
             "messages": [self._message_to_payload(message) for message in messages],
             "temperature": temperature,
         }
-        response = requests.post(
-            model.base_url,
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-        )
-        if response.status_code != 200:
-            raise requests.RequestException(f"HTTP {response.status_code}")
-        data = response.json()
-        return str(data["choices"][0]["message"]["content"])
+        response = None
+        for attempt in range(3):
+            response = requests.post(
+                model.base_url,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return str(data["choices"][0]["message"]["content"])
+            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == 2:
+                break
+            time.sleep(1.2 * (attempt + 1))
+
+        response_text = ""
+        if response is not None:
+            response_text = response.text.strip()
+        detail = f"HTTP {response.status_code}" if response is not None else "HTTP unknown"
+        if response_text:
+            detail = f"{detail}: {response_text[:400]}"
+        raise requests.RequestException(detail)
 
     def _message_to_payload(self, message: Message) -> dict[str, object]:
         if isinstance(message.content, str):
