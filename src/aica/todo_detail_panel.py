@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from urllib.parse import unquote, urlparse
 import uuid
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -14,7 +15,7 @@ try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
     from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-    from PyQt6.QtGui import QColor
+    from PyQt6.QtGui import QColor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
 except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
@@ -76,6 +77,27 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
             pass
+
+    class QImage:  # type: ignore[no-redef]
+        def isNull(self):
+            return True
+
+        def save(self, *_args, **_kwargs):
+            return False
+
+    class QDesktopServices:  # type: ignore[no-redef]
+        @staticmethod
+        def openUrl(*_args, **_kwargs):
+            return False
+
+    class _Clipboard:  # type: ignore[no-redef]
+        def image(self):
+            return QImage()
+
+    class QGuiApplication:  # type: ignore[no-redef]
+        @staticmethod
+        def clipboard():
+            return _Clipboard()
 
     class _Context:  # type: ignore[no-redef]
         def setContextProperty(self, *_args, **_kwargs):
@@ -152,6 +174,8 @@ _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
 _MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
 def _format_ts(value: str) -> str:
@@ -172,6 +196,46 @@ def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
     return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
 
 
+def _coerce_dropped_file_paths(urls: object) -> list[str]:
+    if not isinstance(urls, (list, tuple)):
+        return []
+
+    resolved_paths: list[str] = []
+    seen: set[str] = set()
+    for item in urls:
+        candidate = ""
+        if hasattr(item, "toLocalFile"):
+            try:
+                candidate = str(item.toLocalFile() or "")
+            except Exception:
+                candidate = ""
+        if not candidate:
+            raw = str(item or "").strip()
+            if raw.startswith("file://"):
+                parsed = urlparse(raw)
+                candidate = unquote(parsed.path or "")
+                if os.name == "nt" and candidate.startswith("/") and len(candidate) > 2 and candidate[2] == ":":
+                    candidate = candidate[1:]
+            else:
+                candidate = raw
+
+        normalized = os.path.normcase(os.path.normpath(candidate.strip()))
+        if not candidate or normalized in seen:
+            continue
+        seen.add(normalized)
+        resolved_paths.append(candidate)
+    return resolved_paths
+
+
+def _attachment_kind(path: str, name: str = "") -> str:
+    suffix = Path(name or path).suffix.lower()
+    if suffix in _IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in _VIDEO_EXTENSIONS:
+        return "video"
+    return "file"
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
@@ -179,6 +243,7 @@ class _TodoDetailBridge(QObject):
 
     saveRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
+    clipboardImagePasteRequested = pyqtSignal(str)
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
@@ -325,6 +390,26 @@ class _TodoDetailBridge(QObject):
         if self._find_timeline_item(event_id) is None:
             return
         self.attachmentSelectionRequested.emit(event_id)
+
+    @pyqtSlot(str)
+    def requestClipboardImagePaste(self, event_id: str) -> None:
+        if self._find_timeline_item(event_id) is None:
+            return
+        self.clipboardImagePasteRequested.emit(event_id)
+
+    @pyqtSlot(str, "QVariantList")
+    def addTimelineAttachmentsFromUrls(self, event_id: str, urls: object) -> None:
+        file_paths = _coerce_dropped_file_paths(urls)
+        if not file_paths:
+            return
+        self.attach_files_to_event(event_id, file_paths)
+
+    @pyqtSlot(str)
+    def previewAttachment(self, file_path: str) -> None:
+        path = str(file_path or "").strip()
+        if not path:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     @pyqtSlot(str)
     def addTimelineEntry(self, value: str) -> None:
@@ -481,11 +566,17 @@ class _TodoDetailBridge(QObject):
 
     @staticmethod
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
+        kind = _attachment_kind(attachment.path, attachment.name)
         return {
             "id": attachment.id,
             "name": attachment.name,
             "path": attachment.path,
             "sizeBytes": attachment.size_bytes,
+            "kind": kind,
+            "isImage": kind == "image",
+            "isVideo": kind == "video",
+            "isPreviewable": kind in {"image", "video"},
+            "fileUrl": QUrl.fromLocalFile(attachment.path).toString() if attachment.path else "",
         }
 
     def _copy_attachment(self, file_path: str, event_id: str) -> dict[str, object] | None:
@@ -500,12 +591,40 @@ class _TodoDetailBridge(QObject):
             target = target_dir / f"{source.stem}_{counter}{source.suffix}"
             counter += 1
         shutil.copy2(source, target)
-        return {
-            "id": str(uuid.uuid4()),
-            "name": target.name,
-            "path": str(target),
-            "sizeBytes": target.stat().st_size,
-        }
+        return self._build_attachment_payload(target)
+
+    def attach_clipboard_image_to_event(self, event_id: str, image: QImage) -> bool:
+        item = self._find_timeline_item(event_id)
+        if item is None or self._todo_id is None or image.isNull():
+            return False
+        target_dir = self._attachment_root / self._todo_id / event_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target = target_dir / f"clipboard_{stamp}.png"
+        counter = 1
+        while target.exists():
+            target = target_dir / f"clipboard_{stamp}_{counter}.png"
+            counter += 1
+        if not image.save(str(target), "PNG"):
+            return False
+        attachments = item.setdefault("attachments", [])
+        if not isinstance(attachments, list):
+            attachments = []
+            item["attachments"] = attachments
+        attachments.append(self._build_attachment_payload(target))
+        item["attachmentCount"] = len(attachments)
+        self.timelineChanged.emit()
+        self._emit_save_request()
+        return True
+
+    def _build_attachment_payload(self, target: Path) -> dict[str, object]:
+        attachment = TimelineAttachment(
+            id=str(uuid.uuid4()),
+            name=target.name,
+            path=str(target),
+            size_bytes=target.stat().st_size if target.exists() else 0,
+        )
+        return self._attachment_to_dict(attachment)
 
     def _delete_attachments_for_item(self, item: dict[str, object]) -> None:
         attachments = item.get("attachments", [])
@@ -588,6 +707,11 @@ class _TodoDetailBridge(QObject):
                             "name": str(attachment.get("name", "")).strip(),
                             "path": str(attachment.get("path", "")).strip(),
                             "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                            "kind": str(attachment.get("kind", "")),
+                            "isImage": bool(attachment.get("isImage", False)),
+                            "isVideo": bool(attachment.get("isVideo", False)),
+                            "isPreviewable": bool(attachment.get("isPreviewable", False)),
+                            "fileUrl": str(attachment.get("fileUrl", "")),
                         }
                         for attachment in item.get("attachments", [])
                         if isinstance(attachment, dict)
@@ -631,6 +755,7 @@ class TodoDetailPanel(QQuickView):
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
+        self._bridge.clipboardImagePasteRequested.connect(self._paste_clipboard_image)
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
@@ -655,6 +780,13 @@ class TodoDetailPanel(QQuickView):
         if not files:
             return
         self._bridge.attach_files_to_event(event_id, list(files))
+
+    def _paste_clipboard_image(self, event_id: str) -> None:
+        clipboard = QGuiApplication.clipboard()
+        image = clipboard.image()
+        if image.isNull():
+            return
+        self._bridge.attach_clipboard_image_to_event(event_id, image)
 
     def show_todo(self, todo: TodoItem, anchor_rect=None) -> None:
         self._bridge.set_todo(todo)

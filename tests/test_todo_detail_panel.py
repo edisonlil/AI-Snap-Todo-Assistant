@@ -1,5 +1,5 @@
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _TodoDetailBridge
+from aica.todo_detail_panel import _TodoDetailBridge, _attachment_kind, _coerce_dropped_file_paths
 from aica.todo_store import TimelineEvent, TodoItem
 
 
@@ -130,6 +130,24 @@ def test_add_timeline_attachment_copies_file_and_persists(tmp_path) -> None:
     timeline = payload["timeline"]
     assert isinstance(timeline, list)
     assert timeline[-1].attachments[0].name == "evidence.txt"
+
+
+def test_coerce_dropped_file_paths_normalizes_file_urls_and_deduplicates() -> None:
+    paths = _coerce_dropped_file_paths(
+        [
+            "file:///C:/Temp/evidence.txt",
+            "C:\\Temp\\evidence.txt",
+            "file:///C:/Temp/second.log",
+        ]
+    )
+
+    assert paths == ["C:/Temp/evidence.txt", "C:/Temp/second.log"]
+
+
+def test_attachment_kind_classifies_previewable_types() -> None:
+    assert _attachment_kind("demo.png") == "image"
+    assert _attachment_kind("video.mp4") == "video"
+    assert _attachment_kind("archive.zip") == "file"
 
 
 def test_delete_timeline_entry_persists_removal() -> None:

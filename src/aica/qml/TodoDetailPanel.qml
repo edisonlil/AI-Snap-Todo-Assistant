@@ -5,6 +5,7 @@ Rectangle {
     width: 396
     height: 760
     color: "transparent"
+    focus: true
 
     readonly property color shellBg: "#F1F0EC"
     readonly property color panelBg: "#F1F0EC"
@@ -35,9 +36,11 @@ Rectangle {
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400
     property bool syncingFields: false
+    property string activeAttachmentEventId: ""
 
     function syncFields() {
         syncingFields = true
+        activeAttachmentEventId = todoDetailBridge.timelineCount > 0 ? todoDetailBridge.timeline[0].id : ""
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
         environmentEdit.text = todoDetailBridge.environment
@@ -51,6 +54,10 @@ Rectangle {
         if (!syncingFields) {
             todoDetailBridge.updateField(name, value)
         }
+    }
+
+    function markAttachmentTarget(eventId) {
+        activeAttachmentEventId = eventId || ""
     }
 
     function formatFileSize(sizeBytes) {
@@ -72,6 +79,17 @@ Rectangle {
         function onDataChanged() {
             root.syncFields()
         }
+        function onTimelineChanged() {
+            if (root.activeAttachmentEventId.length === 0 && todoDetailBridge.timelineCount > 0) {
+                root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: StandardKey.Paste
+        enabled: root.activeAttachmentEventId.length > 0
+        onActivated: todoDetailBridge.requestClipboardImagePaste(root.activeAttachmentEventId)
     }
 
     Rectangle {
@@ -764,13 +782,16 @@ Rectangle {
                                     property bool editing: false
                                     property string eventId: modelData.id
                                     property string originalContent: modelData.content
+                                    property bool dropActive: dropZone.containsDrag
+                                    property bool attachmentTarget: root.activeAttachmentEventId === eventId
+                                    property bool attachmentsExpanded: false
 
                                     width: contentColumn.width
                                     height: Math.max(124, entryColumn.implicitHeight + 28)
                                     radius: 18
                                     color: root.timelineBg
-                                    border.width: editing ? 1 : 0
-                                    border.color: editing ? "#D7E5FF" : root.fieldLine
+                                    border.width: editing || dropActive || attachmentTarget ? 1 : 0
+                                    border.color: dropActive ? root.accent : (editing || attachmentTarget ? "#D7E5FF" : root.fieldLine)
 
                                     Column {
                                         id: entryColumn
@@ -875,7 +896,27 @@ Rectangle {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.requestAttachmentSelection(timelineCard.eventId)
+                                                        onClicked: {
+                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                            todoDetailBridge.requestAttachmentSelection(timelineCard.eventId)
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "粘贴截图"
+                                                    color: root.accent
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                            todoDetailBridge.requestClipboardImagePaste(timelineCard.eventId)
+                                                        }
                                                     }
                                                 }
 
@@ -910,6 +951,7 @@ Rectangle {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: {
+                                                    root.markAttachmentTarget(timelineCard.eventId)
                                                     timelineCard.originalContent = modelData.content
                                                     timelineCard.editing = true
                                                 }
@@ -931,6 +973,7 @@ Rectangle {
                                             text: modelData.content
                                             onVisibleChanged: {
                                                 if (visible) {
+                                                    root.markAttachmentTarget(timelineCard.eventId)
                                                     timelineCard.originalContent = modelData.content
                                                     forceActiveFocus()
                                                     cursorPosition = length
@@ -944,67 +987,230 @@ Rectangle {
                                             spacing: 8
                                             visible: modelData.attachmentCount > 0
 
-                                            Text {
-                                                text: "附件 " + modelData.attachmentCount
-                                                color: root.labelInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.labelWeight
-                                            }
+                                            Rectangle {
+                                                width: parent.width
+                                                height: 34
+                                                radius: 12
+                                                color: "#FFFFFF"
+                                                border.width: 0
+                                                border.color: root.fieldLine
 
-                                            Repeater {
-                                                model: modelData.attachments
+                                                Text {
+                                                    x: 12
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: "附件 " + modelData.attachmentCount
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
+                                                }
 
-                                                delegate: Rectangle {
-                                                    width: entryColumn.width
-                                                    height: 34
-                                                    radius: 12
-                                                    color: "#FFFFFF"
-                                                    border.width: 0
-                                                    border.color: root.fieldLine
+                                                Text {
+                                                    anchors.right: parent.right
+                                                    anchors.rightMargin: 12
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: timelineCard.attachmentsExpanded ? "收起" : "展开"
+                                                    color: root.accent
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.labelWeight
 
-                                                    Text {
-                                                        x: 12
-                                                        anchors.verticalCenter: parent.verticalCenter
-                                                        width: parent.width - 108
-                                                        elide: Text.ElideMiddle
-                                                        text: modelData.name
-                                                        color: root.bodyInk
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: 11
-                                                        font.weight: root.bodyWeight
-                                                    }
-
-                                                    Text {
-                                                        anchors.right: removeAttachment.left
-                                                        anchors.rightMargin: 10
-                                                        anchors.verticalCenter: parent.verticalCenter
-                                                        text: root.formatFileSize(modelData.sizeBytes)
-                                                        color: root.mutedInk
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: 10
-                                                        font.weight: root.bodyWeight
-                                                    }
-
-                                                    Text {
-                                                        id: removeAttachment
-                                                        anchors.right: parent.right
-                                                        anchors.rightMargin: 12
-                                                        anchors.verticalCenter: parent.verticalCenter
-                                                        text: "移除"
-                                                        color: "#E35B66"
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: 10
-                                                        font.weight: root.labelWeight
-
-                                                        MouseArea {
-                                                            anchors.fill: parent
-                                                            cursorShape: Qt.PointingHandCursor
-                                                            onClicked: todoDetailBridge.removeTimelineAttachment(timelineCard.eventId, modelData.id)
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                            timelineCard.attachmentsExpanded = !timelineCard.attachmentsExpanded
                                                         }
                                                     }
                                                 }
                                             }
+
+                                            Column {
+                                                width: parent.width
+                                                spacing: 8
+                                                visible: timelineCard.attachmentsExpanded
+
+                                                Repeater {
+                                                    model: modelData.attachments
+
+                                                    delegate: Rectangle {
+                                                        width: entryColumn.width
+                                                        height: modelData.isImage ? 74 : 42
+                                                        radius: 12
+                                                        color: "#FFFFFF"
+                                                        border.width: 0
+                                                        border.color: root.fieldLine
+
+                                                        Item {
+                                                            anchors.fill: parent
+                                                            anchors.margins: 8
+
+                                                            Rectangle {
+                                                                id: previewThumb
+                                                                width: modelData.isImage ? 58 : 48
+                                                                height: modelData.isImage ? 58 : 26
+                                                                anchors.left: parent.left
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                radius: modelData.isImage ? 10 : 8
+                                                                color: modelData.isPreviewable ? root.accentTint : root.fieldBg
+                                                                visible: modelData.isPreviewable
+                                                                border.width: 0
+                                                                border.color: "transparent"
+
+                                                                Image {
+                                                                    anchors.fill: parent
+                                                                    anchors.margins: 1
+                                                                    fillMode: Image.PreserveAspectCrop
+                                                                    visible: modelData.isImage
+                                                                    source: modelData.fileUrl
+                                                                    asynchronous: true
+                                                                    cache: false
+                                                                    smooth: true
+                                                                    clip: true
+                                                                }
+
+                                                                Text {
+                                                                    anchors.centerIn: parent
+                                                                    visible: modelData.isVideo
+                                                                    text: "视频"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                    font.weight: root.labelWeight
+                                                                }
+
+                                                                MouseArea {
+                                                                    anchors.fill: parent
+                                                                    cursorShape: Qt.PointingHandCursor
+                                                                    onClicked: {
+                                                                        root.markAttachmentTarget(timelineCard.eventId)
+                                                                        todoDetailBridge.previewAttachment(modelData.path)
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            Column {
+                                                                anchors.left: previewThumb.visible ? previewThumb.right : parent.left
+                                                                anchors.leftMargin: previewThumb.visible ? 12 : 4
+                                                                anchors.right: actionRow.left
+                                                                anchors.rightMargin: 8
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                spacing: 4
+
+                                                                Text {
+                                                                    width: parent.width
+                                                                    elide: Text.ElideMiddle
+                                                                    text: modelData.name
+                                                                    color: root.bodyInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                    font.weight: root.bodyWeight
+                                                                }
+
+                                                                Text {
+                                                                    width: parent.width
+                                                                    elide: Text.ElideRight
+                                                                    text: {
+                                                                        var sizeLabel = root.formatFileSize(modelData.sizeBytes)
+                                                                        if (modelData.isPreviewable) {
+                                                                            return sizeLabel.length > 0 ? sizeLabel + " · 可预览" : "可预览"
+                                                                        }
+                                                                        return sizeLabel
+                                                                    }
+                                                                    color: root.mutedInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.bodyWeight
+                                                                }
+                                                            }
+
+                                                            Row {
+                                                                id: actionRow
+                                                                anchors.right: parent.right
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                spacing: 10
+
+                                                                Text {
+                                                                    visible: modelData.isPreviewable
+                                                                    text: "预览"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.previewAttachment(modelData.path)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    id: removeAttachment
+                                                                    text: "移除"
+                                                                    color: "#E35B66"
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.removeTimelineAttachment(timelineCard.eventId, modelData.id)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    DropArea {
+                                        id: dropZone
+                                        anchors.fill: parent
+                                        enabled: !timelineCard.editing
+
+                                        onEntered: function(drag) {
+                                            if (drag.hasUrls) {
+                                                drag.acceptProposedAction()
+                                            }
+                                        }
+
+                                        onDropped: function(drop) {
+                                            if (!drop.hasUrls) {
+                                                return
+                                            }
+                                            root.markAttachmentTarget(timelineCard.eventId)
+                                            todoDetailBridge.addTimelineAttachmentsFromUrls(timelineCard.eventId, drop.urls)
+                                            drop.acceptProposedAction()
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: root.accentTint
+                                        opacity: dropActive ? 0.88 : 0
+                                        visible: dropActive
+                                        border.width: 1
+                                        border.color: root.accent
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "释放即可上传附件"
+                                            color: root.accent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: root.sectionWeight
                                         }
                                     }
 
