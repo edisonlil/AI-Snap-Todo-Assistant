@@ -344,6 +344,18 @@ class TodoBindingStore:
     def list_binding_payloads(self, todo_id: str) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self.list_bindings(todo_id)]
 
+    def list_records(self, todo_id: str) -> list[TodoBinding]:
+        with self._lock:
+            items = [
+                item
+                for item in self._load_items_unlocked()
+                if item.todo_id == todo_id
+            ]
+        return sorted(items, key=lambda item: item.updated_at, reverse=True)
+
+    def list_record_payloads(self, todo_id: str) -> list[dict[str, Any]]:
+        return [item.to_dict() for item in self.list_records(todo_id)]
+
     def get_binding(self, todo_id: str, integration_id: str) -> TodoBinding | None:
         with self._lock:
             binding = self._find_record(self._load_items_unlocked(), todo_id, integration_id)

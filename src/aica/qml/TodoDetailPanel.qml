@@ -486,6 +486,80 @@ Rectangle {
 
                     Column {
                         width: parent.width
+                        spacing: 8
+
+                        Row {
+                            width: parent.width
+                            spacing: 10
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "同步状态"
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: root.sectionWeight
+                            }
+
+                            Rectangle {
+                                width: compactSyncStatusText.implicitWidth + 14
+                                height: 22
+                                radius: 11
+                                color: todoDetailBridge.hasExternalId ? "#E7F5ED" : "#F4EEE4"
+
+                                Text {
+                                    id: compactSyncStatusText
+                                    anchors.centerIn: parent
+                                    text: todoDetailBridge.syncStatus
+                                    color: todoDetailBridge.hasExternalId ? "#17663A" : root.labelInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 10
+                                    font.weight: root.labelWeight
+                                }
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: todoDetailBridge.hasExternalId ? parent.width - 170 : parent.width - 110
+                                elide: Text.ElideRight
+                                text: todoDetailBridge.syncStatusDetail
+                                color: root.mutedInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.bodyWeight
+                            }
+
+                            Text {
+                                visible: todoDetailBridge.hasExternalId
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "复制 ID"
+                                color: root.accent
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: todoDetailBridge.copyExternalId()
+                                }
+                            }
+                        }
+
+                        Text {
+                            visible: todoDetailBridge.hasExternalId
+                            width: parent.width
+                            text: "external_id: " + todoDetailBridge.externalId
+                            color: root.mutedInk
+                            font.family: root.uiFont
+                            font.pixelSize: 11
+                            font.weight: root.bodyWeight
+                            wrapMode: Text.WrapAnywhere
+                        }
+                    }
+
+                    Column {
+                        width: parent.width
                         spacing: 10
                         visible: false
 

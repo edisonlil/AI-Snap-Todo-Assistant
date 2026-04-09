@@ -163,7 +163,11 @@ def main() -> None:
         todo = todo_controller.get_todo_detail(todo_id)
         if todo is None:
             return
-        todo_detail_panel.show_todo(todo, todo_panel.frameGeometry())
+        todo_detail_panel.show_todo(
+            todo,
+            todo_panel.frameGeometry(),
+            sync_records=binding_store.list_record_payloads(todo_id),
+        )
 
     def _build_selected_todo_context() -> str:
         todo = todo_controller.get_selected_todo()
@@ -501,6 +505,11 @@ def main() -> None:
         )
         if updated is None:
             return
+        todo_detail_panel.show_todo(
+            updated,
+            todo_panel.frameGeometry(),
+            sync_records=binding_store.list_record_payloads(todo_id),
+        )
         _refresh_todo_panel()
 
     def _on_todo_detail_closed() -> None:

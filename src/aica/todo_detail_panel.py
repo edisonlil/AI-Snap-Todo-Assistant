@@ -129,6 +129,9 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def setMimeData(self, *_args, **_kwargs):
             return None
 
+        def setText(self, *_args, **_kwargs):
+            return None
+
     class QGuiApplication:  # type: ignore[no-redef]
         @staticmethod
         def clipboard():
@@ -191,6 +194,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         @staticmethod
         def primaryScreen():
             return None
+
+        @staticmethod
+        def clipboard():
+            return _Clipboard()
 
     class QFileDialog:  # type: ignore[no-redef]
         @staticmethod
@@ -335,6 +342,10 @@ class _TodoDetailBridge(QObject):
         self._timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
+        self._sync_integration_id = ""
+        self._sync_status = "未同步"
+        self._sync_status_detail = "当前待办还没有外部绑定。"
+        self._external_id = ""
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -388,7 +399,27 @@ class _TodoDetailBridge(QObject):
     def timelineExpanded(self) -> bool:
         return self._timeline_expanded
 
-    def set_todo(self, todo: TodoItem) -> None:
+    @pyqtProperty(str, notify=dataChanged)
+    def syncIntegrationId(self) -> str:
+        return self._sync_integration_id
+
+    @pyqtProperty(str, notify=dataChanged)
+    def syncStatus(self) -> str:
+        return self._sync_status
+
+    @pyqtProperty(str, notify=dataChanged)
+    def syncStatusDetail(self) -> str:
+        return self._sync_status_detail
+
+    @pyqtProperty(str, notify=dataChanged)
+    def externalId(self) -> str:
+        return self._external_id
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasExternalId(self) -> bool:
+        return bool(self._external_id)
+
+    def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
@@ -420,6 +451,7 @@ class _TodoDetailBridge(QObject):
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
+        self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
         self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
@@ -568,6 +600,12 @@ class _TodoDetailBridge(QObject):
         self.timelineChanged.emit()
         self._emit_save_request()
 
+    @pyqtSlot()
+    def copyExternalId(self) -> None:
+        if not self._external_id:
+            return
+        QApplication.clipboard().setText(self._external_id)
+
     @pyqtSlot(float, float)
     def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
         self.panelDragStarted.emit(float(offset_x), float(offset_y))
@@ -653,6 +691,21 @@ class _TodoDetailBridge(QObject):
         if self._todo_id is None or payload is None:
             return
         self.saveRequested.emit(self._todo_id, payload)
+
+    def _apply_sync_records(self, sync_records: list[dict[str, object]]) -> None:
+        if not sync_records:
+            self._sync_integration_id = ""
+            self._sync_status = "未同步"
+            self._sync_status_detail = "当前待办还没有外部绑定。"
+            self._external_id = ""
+            return
+
+        latest = sync_records[0]
+        self._sync_integration_id = str(latest.get("integration_id") or "").strip()
+        self._external_id = str(latest.get("external_id") or "").strip()
+        sync_status = str(latest.get("last_sync_status") or "").strip()
+        self._sync_status = "已同步" if self._external_id else "未同步"
+        self._sync_status_detail = sync_status or ("已获得 external_id" if self._external_id else "等待外部系统返回 external_id")
 
     def _find_timeline_item(self, event_id: str) -> dict[str, object] | None:
         for item in self._timeline:
@@ -912,8 +965,8 @@ class TodoDetailPanel(QQuickView):
             return
         self._bridge.attach_clipboard_image_to_event(event_id, image)
 
-    def show_todo(self, todo: TodoItem, anchor_rect=None) -> None:
-        self._bridge.set_todo(todo)
+    def show_todo(self, todo: TodoItem, anchor_rect=None, sync_records: list[dict[str, object]] | None = None) -> None:
+        self._bridge.set_todo(todo, sync_records=sync_records)
         self.resize(self._panel_width, self._panel_height)
         self._reposition(anchor_rect)
         self.show()

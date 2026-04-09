@@ -287,3 +287,60 @@ def test_activate_attachment_routes_other_files_to_download(tmp_path) -> None:
     bridge.activateAttachment(str(attachment), False, False, attachment.name)
 
     assert captured == [(attachment, "demo.zip")]
+
+
+def test_set_todo_exposes_sync_status_and_external_id() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        ),
+        sync_records=[
+            {
+                "integration_id": "company-platform",
+                "external_id": "EXT-001",
+                "last_sync_status": "ok:updated",
+            }
+        ],
+    )
+
+    assert bridge.syncIntegrationId == "company-platform"
+    assert bridge.syncStatus == "已同步"
+    assert bridge.syncStatusDetail == "ok:updated"
+    assert bridge.externalId == "EXT-001"
+    assert bridge.hasExternalId is True
+
+
+def test_copy_external_id_writes_to_clipboard(monkeypatch) -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        ),
+        sync_records=[
+            {
+                "integration_id": "company-platform",
+                "external_id": "EXT-001",
+                "last_sync_status": "ok:created",
+            }
+        ],
+    )
+
+    captured: dict[str, str] = {}
+
+    class _Clipboard:
+        def setText(self, text: str) -> None:
+            captured["text"] = text
+
+    from aica import todo_detail_panel as module
+
+    monkeypatch.setattr(module.QApplication, "clipboard", staticmethod(lambda: _Clipboard()))
+    bridge.copyExternalId()
+
+    assert captured["text"] == "EXT-001"
