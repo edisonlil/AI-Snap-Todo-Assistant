@@ -18,6 +18,7 @@ from .models import (
     merge_summary_fields_for_append,
 )
 from .paths import todos_file as default_todos_file
+from .text_sanitize import sanitize_text
 
 
 class TodoStatus(StrEnum):
@@ -37,8 +38,8 @@ class TimelineAttachment:
     size_bytes: int = 0
 
     def __post_init__(self) -> None:
-        self.name = str(self.name or "").strip()
-        self.path = str(self.path or "").strip()
+        self.name = sanitize_text(self.name)
+        self.path = sanitize_text(self.path)
         try:
             self.size_bytes = max(0, int(self.size_bytes))
         except (TypeError, ValueError):
@@ -54,6 +55,13 @@ class TimelineEvent:
     content: str = ""
     attachments: list[TimelineAttachment] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.id = sanitize_text(self.id) or str(uuid.uuid4())
+        self.timestamp = sanitize_text(self.timestamp) or _now_iso()
+        self.kind = sanitize_text(self.kind) or "analysis"
+        self.scenario = sanitize_text(self.scenario)
+        self.content = sanitize_text(self.content)
+
 
 @dataclass
 class TodoItem:
@@ -65,6 +73,14 @@ class TodoItem:
     updated_at: str = field(default_factory=_now_iso)
     status: str = TodoStatus.OPEN
     timeline: list[TimelineEvent] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.id = sanitize_text(self.id) or str(uuid.uuid4())
+        self.title = sanitize_text(self.title) or "未分类任务"
+        self.current_summary = sanitize_text(self.current_summary)
+        self.created_at = sanitize_text(self.created_at) or _now_iso()
+        self.updated_at = sanitize_text(self.updated_at) or _now_iso()
+        self.status = sanitize_text(self.status) or TodoStatus.OPEN
 
     @property
     def timeline_count(self) -> int:
@@ -168,9 +184,9 @@ class TodoStore:
             if item.id != todo_id:
                 continue
             if title is not None:
-                item.title = title.strip() or item.title
+                item.title = sanitize_text(title) or item.title
             if current_summary is not None:
-                item.current_summary = current_summary.strip()
+                item.current_summary = sanitize_text(current_summary)
             if summary_fields is not None:
                 item.summary_fields = summary_fields
             if timeline is not None:

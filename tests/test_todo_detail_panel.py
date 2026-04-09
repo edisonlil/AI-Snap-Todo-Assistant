@@ -46,6 +46,34 @@ def test_add_timeline_entry_expands_empty_timeline_and_persists() -> None:
     assert timeline[-1].scenario == _MANUAL_SCENARIO
 
 
+def test_add_timeline_entry_sanitizes_invalid_surrogates() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+
+    captured: dict[str, object] = {}
+
+    def _capture(todo_id: str, payload: object) -> None:
+        captured["todo_id"] = todo_id
+        captured["payload"] = payload
+
+    bridge.saveRequested.connect(_capture)
+    bridge.addTimelineEntry("manual \udcaa follow-up")
+
+    assert bridge.timeline[0]["content"] == "manual \ufffd follow-up"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    timeline = payload["timeline"]
+    assert isinstance(timeline, list)
+    assert timeline[-1].content == "manual \ufffd follow-up"
+
+
 def test_commit_timeline_content_persists_manual_edits() -> None:
     bridge = _TodoDetailBridge()
     bridge.set_todo(

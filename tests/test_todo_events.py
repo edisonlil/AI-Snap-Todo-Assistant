@@ -12,8 +12,9 @@ from aica.todo_events import (
     TodoDomainEventType,
     TodoEventBus,
     TodoIntegrationRegistry,
+    _integration_subprocess_options,
 )
-from aica.todo_store import TodoStore
+from aica.todo_store import TimelineEvent, TodoItem, TodoStore
 
 
 class _Publisher:
@@ -136,9 +137,89 @@ def _write_integrations_config(tmp_path: Path, script_path: Path, *, mode: str) 
     return config_path
 
 
+def _write_logger_script(tmp_path: Path) -> Path:
+    script_path = tmp_path / "logger_todo.py"
+    script_path.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import sys
+            from pathlib import Path
+
+            event = json.load(sys.stdin)
+            output_path = Path("event-log.json")
+            output_path.write_text(json.dumps(event, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps({"ok": True, "action": "logged"}, ensure_ascii=False))
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    return script_path
+
+
+def _write_raw_stdin_probe_script(tmp_path: Path) -> Path:
+    script_path = tmp_path / "stdin_probe.py"
+    script_path.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            raw = sys.stdin.read()
+            Path("raw-stdin.json").write_text(raw, encoding="utf-8")
+            payload = {
+                "ok": True,
+                "action": "logged",
+                "metadata": {
+                    "stdin_encoding": sys.stdin.encoding,
+                    "stdin_errors": sys.stdin.errors,
+                    "pythonioencoding": os.environ.get("PYTHONIOENCODING", ""),
+                    "pythonutf8": os.environ.get("PYTHONUTF8", ""),
+                },
+            }
+            print(json.dumps(payload, ensure_ascii=False))
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    return script_path
+
+
 def _build_event_bus(tmp_path: Path, *, mode: str) -> tuple[TodoEventBus, TodoBindingStore]:
     script_path = _write_script(tmp_path)
     config_path = _write_integrations_config(tmp_path, script_path, mode=mode)
+    binding_store = TodoBindingStore(str(tmp_path / "todo_bindings.json"))
+    handler = ScriptEventHandler(
+        binding_store=binding_store,
+        integration_registry=TodoIntegrationRegistry(str(config_path)),
+    )
+    return TodoEventBus(
+        handlers=[handler],
+        binding_store=binding_store,
+        async_dispatch=False,
+    ), binding_store
+
+
+def _build_logger_event_bus(tmp_path: Path) -> tuple[TodoEventBus, TodoBindingStore]:
+    script_path = _write_logger_script(tmp_path)
+    config_path = _write_integrations_config(tmp_path, script_path, mode="")
+    binding_store = TodoBindingStore(str(tmp_path / "todo_bindings.json"))
+    handler = ScriptEventHandler(
+        binding_store=binding_store,
+        integration_registry=TodoIntegrationRegistry(str(config_path)),
+    )
+    return TodoEventBus(
+        handlers=[handler],
+        binding_store=binding_store,
+        async_dispatch=False,
+    ), binding_store
+
+
+def _build_probe_event_bus(tmp_path: Path) -> tuple[TodoEventBus, TodoBindingStore]:
+    script_path = _write_raw_stdin_probe_script(tmp_path)
+    config_path = _write_integrations_config(tmp_path, script_path, mode="")
     binding_store = TodoBindingStore(str(tmp_path / "todo_bindings.json"))
     handler = ScriptEventHandler(
         binding_store=binding_store,
@@ -386,3 +467,73 @@ def test_script_handler_processes_updated_event_when_binding_exists(tmp_path: Pa
     assert binding.external_id == "EXT-KEEP"
     assert binding.last_event_type == "updated"
     assert binding.last_sync_status == "ok:updated"
+
+
+def test_script_handler_sanitizes_surrogates_before_sending_event(tmp_path: Path):
+    event_bus, binding_store = _build_logger_event_bus(tmp_path)
+    todo = TodoItem(
+        title="bad\udcae title",
+        current_summary="summary with \udcaa surrogate",
+        timeline=[TimelineEvent(content="timeline \udcae detail", scenario="todo assistant")],
+    )
+
+    event_bus.publish(TodoDomainEvent.created(todo, "todo assistant"))
+
+    record = binding_store.get_record(todo.id, "company-platform")
+    assert record is not None
+    assert record.last_sync_status == "ok:logged"
+
+    payload = json.loads((tmp_path / "event-log.json").read_text(encoding="utf-8"))
+    assert payload["todo_snapshot"]["title"] == "bad\ufffd title"
+    assert payload["todo_snapshot"]["current_summary"] == "summary with \ufffd surrogate"
+    assert payload["todo_snapshot"]["timeline"][0]["content"] == "timeline \ufffd detail"
+
+
+def test_script_handler_uses_ascii_safe_json_and_python_utf8_env(tmp_path: Path):
+    event_bus, binding_store = _build_probe_event_bus(tmp_path)
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("中文💡标题", "中文💪摘要", "中文💮跟进"),
+        "todo assistant",
+    )
+
+    event_bus.publish(TodoDomainEvent.created(todo, "todo assistant"))
+
+    record = binding_store.get_record(todo.id, "company-platform")
+    assert record is not None
+    assert record.last_sync_status == "ok:logged"
+    assert record.metadata["pythonioencoding"] == "utf-8"
+    assert record.metadata["pythonutf8"] == "1"
+
+    raw_stdin = (tmp_path / "raw-stdin.json").read_text(encoding="utf-8")
+    assert "\\u4e2d\\u6587" in raw_stdin
+    assert "\\ud83d\\udca1" in raw_stdin
+    assert "中文" not in raw_stdin
+
+
+def test_integration_subprocess_options_returns_hidden_window_flags_on_windows(monkeypatch):
+    from aica import todo_events as module
+
+    class _StartupInfo:
+        def __init__(self) -> None:
+            self.dwFlags = 0
+            self.wShowWindow = None
+
+    monkeypatch.setattr(module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(module.subprocess, "STARTUPINFO", _StartupInfo, raising=False)
+    monkeypatch.setattr(module.subprocess, "STARTF_USESHOWWINDOW", 1, raising=False)
+    monkeypatch.setattr(module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+
+    options = _integration_subprocess_options()
+
+    assert options["creationflags"] == 0x08000000
+    assert options["startupinfo"].dwFlags & 1
+    assert options["startupinfo"].wShowWindow == 0
+
+
+def test_integration_subprocess_options_returns_empty_on_non_windows(monkeypatch):
+    from aica import todo_events as module
+
+    monkeypatch.setattr(module.os, "name", "posix", raising=False)
+
+    assert _integration_subprocess_options() == {}

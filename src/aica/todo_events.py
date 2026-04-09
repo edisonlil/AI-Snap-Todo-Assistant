@@ -18,6 +18,12 @@ from .paths import (
     integrations_file as default_integrations_file,
     todo_bindings_file as default_todo_bindings_file,
 )
+from .text_sanitize import (
+    find_invalid_surrogate_paths,
+    sanitize_json_like,
+    sanitize_text,
+    strip_invalid_surrogates,
+)
 from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
 
 
@@ -26,7 +32,7 @@ def _now_iso() -> str:
 
 
 def _sanitize_text(value: Any) -> str:
-    return str(value or "").strip()
+    return sanitize_text(value)
 
 
 def _normalize_metadata(payload: Any) -> dict[str, Any]:
@@ -38,9 +44,29 @@ def _append_integration_log(message: str) -> None:
         log_file = default_error_log_file()
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n[todo_event_sync] {_now_iso()} {message}\n")
+            sanitized_message = strip_invalid_surrogates(message)
+            handle.write(f"\n[todo_event_sync] {_now_iso()} {sanitized_message}\n")
     except OSError:
         pass
+
+
+def _integration_subprocess_options() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    startf_use_show_window = getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if startupinfo_factory is None:
+        return {"creationflags": create_no_window} if create_no_window else {}
+
+    startupinfo = startupinfo_factory()
+    startupinfo.dwFlags |= startf_use_show_window
+    startupinfo.wShowWindow = 0
+    options: dict[str, Any] = {"startupinfo": startupinfo}
+    if create_no_window:
+        options["creationflags"] = create_no_window
+    return options
 
 
 def serialize_timeline_attachment(attachment: TimelineAttachment) -> dict[str, Any]:
@@ -484,7 +510,7 @@ class TodoBindingStore:
     def _save_items_unlocked(self, items: list[TodoBinding]) -> None:
         path = Path(self._path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [item.to_dict() for item in items]
+        payload = sanitize_json_like([item.to_dict() for item in items])
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
@@ -566,11 +592,23 @@ class ScriptEventHandler(TodoEventHandler):
             self._handle_integration(event, integration)
 
     def _handle_integration(self, event: TodoDomainEvent, integration: TodoIntegrationConfig) -> None:
-        payload_text = json.dumps(event.to_dict(), ensure_ascii=False)
+        raw_payload = event.to_dict()
+        invalid_paths = find_invalid_surrogate_paths(raw_payload)
+        if invalid_paths:
+            joined_paths = ", ".join(invalid_paths[:8])
+            if len(invalid_paths) > 8:
+                joined_paths += f", ... (+{len(invalid_paths) - 8} more)"
+            _append_integration_log(
+                "Sanitized invalid Unicode before integration "
+                f"[{integration.id}] event={event.event_type} todo_id={event.todo_id} paths={joined_paths}"
+            )
+        payload_text = json.dumps(sanitize_json_like(raw_payload), ensure_ascii=True)
         env = os.environ.copy()
         env.update(integration.env)
         env["AICA_INTEGRATION_ID"] = integration.id
         env["AICA_TODO_EVENT_TYPE"] = str(event.event_type)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
         command = [integration.command, *integration.args]
 
         try:
@@ -584,6 +622,7 @@ class ScriptEventHandler(TodoEventHandler):
                 cwd=integration.cwd or None,
                 env=env,
                 check=False,
+                **_integration_subprocess_options(),
             )
         except FileNotFoundError:
             self._update_existing_binding(

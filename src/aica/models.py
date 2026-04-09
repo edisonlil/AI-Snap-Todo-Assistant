@@ -9,6 +9,7 @@ from .ticket_field_resolver import (
     normalize_ticket_type,
     resolve_product_line,
 )
+from .text_sanitize import sanitize_text, strip_invalid_surrogates
 
 
 UNKNOWN_TEXT = "未知"
@@ -127,12 +128,12 @@ _DISPLAY_CHAR_RE = re.compile(r"显示(?:为|成)?([A-Za-z0-9])")
 
 
 def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
-    text = str(value or "").strip()
+    text = sanitize_text(value)
     return text or fallback
 
 
 def _clean_free_text(value: Any) -> str:
-    return str(value or "").strip()
+    return sanitize_text(value)
 
 
 def is_unknown_text(value: Any) -> bool:
@@ -396,7 +397,7 @@ class TicketSnapshot:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TicketSnapshot":
         raw_summary = payload.get("current_summary") or payload.get("summary") or payload.get("task_desc")
-        raw_title = str(payload.get("title") or "").strip()
+        raw_title = sanitize_text(payload.get("title"))
         if raw_title:
             title = raw_title
         else:
@@ -446,7 +447,7 @@ class TicketSnapshot:
 
     @classmethod
     def from_text(cls, text: str) -> "TicketSnapshot":
-        cleaned = text.strip()
+        cleaned = sanitize_text(text)
         summary = cleaned or PENDING_TEXT
         title = summarize_issue_title(summary, fallback=UNCLASSIFIED_TASK)
         return cls(
@@ -459,17 +460,18 @@ class TicketSnapshot:
 
     def __str__(self) -> str:
         evidence_lines = "\n".join(
-            f"{index}. [{item.type}] {item.label}: {item.value}"
+            f"{index}. [{strip_invalid_surrogates(item.type)}] "
+            f"{strip_invalid_surrogates(item.label)}: {strip_invalid_surrogates(item.value)}"
             for index, item in enumerate(self.evidence_items, 1)
         )
         evidence_text = evidence_lines or "无"
         return (
-            f"标题: {self.title}\n"
-            f"群聊名称: {self.fields.group_name}\n"
-            f"环境: {self.fields.environment}\n"
-            f"产品线: {self.fields.product_line}\n"
-            f"工单类型: {self.fields.ticket_type}\n"
-            f"当前摘要: {self.current_summary}\n"
-            f"跟进记录: {self.timeline_entry}\n"
+            f"标题: {strip_invalid_surrogates(self.title)}\n"
+            f"群聊名称: {strip_invalid_surrogates(self.fields.group_name)}\n"
+            f"环境: {strip_invalid_surrogates(self.fields.environment)}\n"
+            f"产品线: {strip_invalid_surrogates(self.fields.product_line)}\n"
+            f"工单类型: {strip_invalid_surrogates(self.fields.ticket_type)}\n"
+            f"当前摘要: {strip_invalid_surrogates(self.current_summary)}\n"
+            f"跟进记录: {strip_invalid_surrogates(self.timeline_entry)}\n"
             f"关键证据:\n{evidence_text}"
         )

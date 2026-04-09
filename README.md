@@ -291,6 +291,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 当前版本支持将待办生命周期事件以统一 JSON 协议发送给包外适配器，并独立保存平台返回的 `externalId` 绑定关系。
 
 - 详细接入文档：`docs/todo-event-integration.md`
+- 脚本集成指南：`docs/script-integration-guide.md`
 - integration 配置文件：`~/.aica/integrations.json`
 - 外部绑定文件：`~/.aica/todo_bindings.json`
 

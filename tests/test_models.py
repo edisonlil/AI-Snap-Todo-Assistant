@@ -89,3 +89,17 @@ def test_ticket_snapshot_from_dict_merges_evidence_into_timeline_entry():
     assert snapshot.evidence_items == []
     assert "task_id" in snapshot.timeline_entry
     assert "trace-1" in snapshot.timeline_entry
+
+
+def test_ticket_snapshot_from_dict_replaces_invalid_surrogates():
+    snapshot = TicketSnapshot.from_dict(
+        {
+            "title": "排查💡\udcaa",
+            "current_summary": "摘要包含异常代理项\udcae",
+            "timeline_entry": "跟进内容\udc80",
+        }
+    )
+
+    assert snapshot.title == "排查💡�"
+    assert snapshot.current_summary == "摘要包含异常代理项�"
+    assert snapshot.timeline_entry == "跟进内容�"

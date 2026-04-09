@@ -16,6 +16,7 @@ from aica.ticket_field_resolver import (
     normalize_ticket_type,
     resolve_product_line,
 )
+from aica.text_sanitize import sanitize_text
 
 _UNKNOWN_TEXT = "\u672a\u77e5"
 _UNCLASSIFIED_TASK = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -24,7 +25,7 @@ _SAVE_HINT = "\u4fdd\u5b58\u540e\u4f1a\u521b\u5efa\u5f85\u529e\u6216\u8ffd\u52a0
 
 
 def _clean_text(value: str, fallback: str = _UNKNOWN_TEXT) -> str:
-    text = str(value or "").strip()
+    text = sanitize_text(value)
     return text or fallback
 
 
@@ -40,12 +41,12 @@ class _ResultDialogBridge(QObject):
         self._scenario = scenario
         self._model = model
         self._show_feedback = show_feedback
-        self._fallback_title = result.title.strip() or _UNCLASSIFIED_TASK
-        self._title = result.title.strip()
+        self._fallback_title = sanitize_text(result.title) or _UNCLASSIFIED_TASK
+        self._title = sanitize_text(result.title)
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
         self._product_line = resolve_product_line(raw_value=result.fields.product_line)
-        self._recognition_conclusion = result.timeline_entry.strip() or result.current_summary.strip()
+        self._recognition_conclusion = sanitize_text(result.timeline_entry) or sanitize_text(result.current_summary)
         self._ticket_type = normalize_ticket_type(
             result.fields.ticket_type,
             summary_text=self._recognition_conclusion,
@@ -97,7 +98,7 @@ class _ResultDialogBridge(QObject):
 
     @pyqtSlot(str, str)
     def updateField(self, name: str, value: str) -> None:
-        text = str(value)
+        text = sanitize_text(value)
         if name == "title":
             self._title = text
         elif name == "group_name":

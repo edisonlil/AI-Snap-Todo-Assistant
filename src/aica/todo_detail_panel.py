@@ -215,6 +215,7 @@ from .ticket_field_resolver import (
     normalize_ticket_type,
     resolve_product_line,
 )
+from .text_sanitize import sanitize_text
 from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
 
 _EMPTY_TEXT = "未填写"
@@ -233,7 +234,7 @@ def _format_ts(value: str) -> str:
 
 
 def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
-    text = str(value or "").strip()
+    text = sanitize_text(value)
     return text or fallback
 
 
@@ -458,7 +459,7 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str, str)
     def updateField(self, name: str, value: str) -> None:
-        text = str(value)
+        text = sanitize_text(value)
         if name == "title":
             self._title = text.strip()
             self._overview = self._title
@@ -480,7 +481,7 @@ class _TodoDetailBridge(QObject):
     def updateTimelineContent(self, event_id: str, value: str) -> None:
         item = self._find_timeline_item(event_id)
         if item is not None:
-            item["content"] = str(value)
+            item["content"] = sanitize_text(value)
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
@@ -529,7 +530,7 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def addTimelineEntry(self, value: str) -> None:
-        content = str(value or "").strip()
+        content = sanitize_text(value)
         if not content:
             return
         timestamp = datetime.now().isoformat()
