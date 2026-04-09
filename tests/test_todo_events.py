@@ -226,7 +226,7 @@ def test_delete_todo_publishes_deleted_event_with_predelete_snapshot(tmp_path: P
     assert event.delta == {"deleted": True}
 
 
-def test_update_todo_does_not_publish_event(tmp_path: Path):
+def test_update_todo_publishes_updated_event(tmp_path: Path):
     publisher = _Publisher()
     controller = _build_controller(tmp_path, publisher)
     created = controller.save_analysis_result(
@@ -237,7 +237,11 @@ def test_update_todo_does_not_publish_event(tmp_path: Path):
 
     controller.update_todo(created.todo.id, title="new title")
 
-    assert publisher.events == []
+    assert len(publisher.events) == 1
+    event = publisher.events[0]
+    assert event.event_type == TodoDomainEventType.UPDATED
+    assert event.todo_snapshot["title"] == "new title"
+    assert event.delta == {"changed_fields": ["title"]}
 
 
 def test_script_handler_persists_binding_when_created_ack_contains_external_id(tmp_path: Path):
@@ -356,3 +360,29 @@ def test_script_handler_invalid_ack_does_not_overwrite_existing_binding(tmp_path
     assert binding is not None
     assert binding.external_id == "EXT-KEEP"
     assert binding.last_sync_status == "failed:invalid_ack"
+
+
+def test_script_handler_processes_updated_event_when_binding_exists(tmp_path: Path):
+    event_bus, binding_store = _build_event_bus(tmp_path, mode="")
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "initial summary", "first follow-up"),
+        "todo assistant",
+    )
+    binding_store.upsert_binding(
+        todo.id,
+        "company-platform",
+        "EXT-KEEP",
+        sync_status="ok:created",
+    )
+
+    reloaded = store.get_todo(todo.id)
+    assert reloaded is not None
+    reloaded.title = "edited title"
+    event_bus.publish(TodoDomainEvent.updated(reloaded, "todo assistant", ["title"]))
+
+    binding = binding_store.get_binding(todo.id, "company-platform")
+    assert binding is not None
+    assert binding.external_id == "EXT-KEEP"
+    assert binding.last_event_type == "updated"
+    assert binding.last_sync_status == "ok:updated"

@@ -196,10 +196,29 @@ class TodoController:
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
     ) -> TodoItem | None:
-        return self._store.update_todo(
+        changed_fields: list[str] = []
+        if title is not None:
+            changed_fields.append("title")
+        if current_summary is not None:
+            changed_fields.append("current_summary")
+        if summary_fields is not None:
+            changed_fields.append("summary_fields")
+        if timeline is not None:
+            changed_fields.append("timeline")
+
+        updated = self._store.update_todo(
             todo_id,
             title=title,
             current_summary=current_summary,
             summary_fields=summary_fields,
             timeline=timeline,
         )
+        if updated is not None and changed_fields:
+            self._publish_event(
+                TodoDomainEvent.updated(
+                    updated,
+                    self._resolve_todo_scenario(updated),
+                    changed_fields,
+                )
+            )
+        return updated

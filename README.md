@@ -231,6 +231,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 
 ## Changelog
 
+后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
 ### 2026-04-09
 
 - 托盘控制面板重构：
@@ -244,6 +246,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
   - 新增 `~/.aica/integrations.json` 与 `~/.aica/todo_bindings.json`，分别保存集成配置和外部 `externalId` 绑定关系
   - 控制面板新增“脚本集成”分组，可导入、启用、停用、替换和移除本地脚本
   - 支持导入 `.py`、`.pyw`、`.ps1`、`.bat`、`.cmd`、`.exe`，并按脚本类型自动生成调用命令
+  - `update_todo()` 编辑保存后也会发布 `updated` 事件，外部脚本可通过 `delta.changed_fields` 判断本次修改内容
 - 配置与运行时体验升级：
   - `config.json` 新增 `hotkeys.capture`，默认值为 `Alt+A`，并保持旧配置自动补全
   - 截图热键支持在控制面板保存后立即重绑，无需重启应用

@@ -79,6 +79,7 @@ def serialize_todo_item(todo: TodoItem) -> dict[str, Any]:
 class TodoDomainEventType(StrEnum):
     CREATED = "created"
     APPENDED = "appended"
+    UPDATED = "updated"
     COMPLETED = "completed"
     DELETED = "deleted"
 
@@ -188,6 +189,23 @@ class TodoDomainEvent:
             todo_id=todo.id,
             todo_snapshot=serialize_todo_item(todo),
             delta=delta,
+        )
+
+    @classmethod
+    def updated(
+        cls,
+        todo: TodoItem,
+        scenario: str,
+        changed_fields: list[str] | None = None,
+    ) -> TodoDomainEvent:
+        return cls(
+            event_id=str(uuid.uuid4()),
+            event_type=TodoDomainEventType.UPDATED,
+            occurred_at=_now_iso(),
+            scenario=_sanitize_text(scenario),
+            todo_id=todo.id,
+            todo_snapshot=serialize_todo_item(todo),
+            delta={"changed_fields": list(changed_fields or [])},
         )
 
     @classmethod

@@ -3,12 +3,21 @@ from pathlib import Path
 from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
 from aica.todo_controller import TodoController
+from aica.todo_events import TodoDomainEvent, TodoDomainEventType
 from aica.todo_store import TimelineEvent, TodoStore
 
 
 def _build_controller(tmp_path: Path) -> TodoController:
     store = TodoStore(str(tmp_path / "todos.json"))
     return TodoController(store)
+
+
+class _Publisher:
+    def __init__(self) -> None:
+        self.events: list[TodoDomainEvent] = []
+
+    def publish(self, event: TodoDomainEvent) -> None:
+        self.events.append(event)
 
 
 def _snapshot(
@@ -184,3 +193,23 @@ def test_delete_todo_clears_selection_and_removes_item(tmp_path: Path):
     assert controller.delete_todo(created.todo.id)
     assert controller.selected_todo_id is None
     assert controller.get_active_todos() == []
+
+
+def test_update_todo_publishes_updated_event(tmp_path: Path):
+    publisher = _Publisher()
+    store = TodoStore(str(tmp_path / "todos.json"))
+    controller = TodoController(store, event_publisher=publisher)
+    created = controller.save_analysis_result(
+        _snapshot("title", "summary", "timeline"),
+        "todo assistant",
+    )
+    publisher.events.clear()
+
+    controller.update_todo(created.todo.id, title="new title", current_summary="new summary")
+
+    assert len(publisher.events) == 1
+    event = publisher.events[0]
+    assert event.event_type == TodoDomainEventType.UPDATED
+    assert event.todo_snapshot["title"] == "new title"
+    assert event.todo_snapshot["current_summary"] == "new summary"
+    assert event.delta == {"changed_fields": ["title", "current_summary"]}

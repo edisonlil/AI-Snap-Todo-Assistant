@@ -19,7 +19,7 @@
 
 通知主链路：
 
-`生成待办 / 追加待办 / 完成待办 / 删除待办`
+`生成待办 / 追加待办 / 更新待办 / 完成待办 / 删除待办`
 -> `TodoController`
 -> `TodoEventBus.publish(event)`
 -> 事件处理器
@@ -35,10 +35,11 @@
 
 ## 事件类型
 
-支持 4 类待办生命周期事件：
+支持 5 类待办生命周期事件：
 
 - `created`
 - `appended`
+- `updated`
 - `completed`
 - `deleted`
 
@@ -46,10 +47,9 @@
 
 - `save_analysis_result()` 创建待办时发布 `created`
 - `save_analysis_result()` 追加待办时发布 `appended`
+- `update_todo()` 编辑保存成功后发布 `updated`
 - `complete_todo()` 成功后发布 `completed`
 - `delete_todo()` 成功后发布 `deleted`
-
-普通编辑保存 `update_todo()` 不触发外部通知。
 
 删除动作特殊处理：
 
@@ -143,6 +143,7 @@
 
 - `created`：`timeline_event` 为首条时间线
 - `appended`：`timeline_event` 为本次新增时间线
+- `updated`：`{"changed_fields":["title","current_summary","summary_fields","timeline"]}` 的子集
 - `completed`：`{"status_change":{"from":"open","to":"done"}}`
 - `deleted`：`{"deleted":true}`
 
@@ -292,7 +293,7 @@
   - 视为本次通知成功
   - 不创建有效 binding
   - 会保留一条仅含同步状态的本地记录，便于追踪
-- `appended / completed / deleted` 首次返回 `external_id`
+- `appended / updated / completed / deleted` 首次返回 `external_id`
   - 允许补建 binding
 - 已有 binding 且后续回执未返回 `external_id`
   - 不清空已有 binding
@@ -312,7 +313,7 @@
 
 ## 未绑定事件的默认策略
 
-对 `appended / completed / deleted` 三类事件，主程序默认只会发送给“已存在有效 binding”的 integration。
+对 `appended / updated / completed / deleted` 四类事件，主程序默认只会发送给“已存在有效 binding”的 integration。
 
 如果某个 integration 还没有 `external_id`：
 
@@ -322,6 +323,14 @@
 - 不自动补建平台工单
 
 这样可以避免把未绑定待办误更新到错误的外部记录。
+
+补充说明：
+
+- 这里的“只会发送”是指主程序会在调用脚本前先检查 binding
+- 如果检查未通过，脚本进程不会启动，因此外部脚本也不会收到这次事件
+- 所以当你发现脚本没有生成日志时，不一定是脚本执行失败，也可能是主程序在脚本启动前就已经跳过了该事件
+- `created` 事件不受这个限制，会直接调用脚本
+- 通常需要先让 `created` 事件成功回传 `external_id`，后续 `appended / updated / completed / deleted` 才会继续进入脚本
 
 ## 删除语义
 
