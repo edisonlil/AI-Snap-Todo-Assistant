@@ -77,6 +77,8 @@ class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
     closeRequested = pyqtSignal()
+    minimizeRequested = pyqtSignal()
+    dragRequested = pyqtSignal()
     configSaved = pyqtSignal(object)
 
     def __init__(self, config_manager: ConfigManager) -> None:
@@ -303,6 +305,14 @@ class _ControlPanelBridge(QObject):
         self.closeRequested.emit()
 
     @pyqtSlot()
+    def minimizePanel(self) -> None:
+        self.minimizeRequested.emit()
+
+    @pyqtSlot()
+    def startWindowDrag(self) -> None:
+        self.dragRequested.emit()
+
+    @pyqtSlot()
     def saveConfig(self) -> None:
         self._clear_messages()
         try:
@@ -343,6 +353,13 @@ class ControlPanelWindow(QWidget):
         self._bridge = _ControlPanelBridge(config_manager)
 
         self.setObjectName("controlPanelWindow")
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("AICA 控制面板")
         self.resize(1040, 760)
         self.setMinimumSize(920, 680)
@@ -350,11 +367,13 @@ class ControlPanelWindow(QWidget):
         self._setup_ui()
 
         self._bridge.closeRequested.connect(self.hide)
+        self._bridge.minimizeRequested.connect(self.showMinimized)
+        self._bridge.dragRequested.connect(self._start_system_move)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(0)
 
         self._view = QQuickWidget(self)
@@ -374,6 +393,8 @@ class ControlPanelWindow(QWidget):
     def show_panel(self, section_id: str = "models") -> None:
         self._bridge.reloadConfig()
         self._bridge.setCurrentSection(section_id)
+        if self.isMinimized():
+            self.showNormal()
         self.show()
         self.raise_()
         self.activateWindow()
@@ -398,3 +419,13 @@ class ControlPanelWindow(QWidget):
         frame = self.frameGeometry()
         frame.moveCenter(available.center())
         self.move(frame.topLeft())
+
+    def _start_system_move(self) -> None:
+        window_handle = self.windowHandle()
+        if window_handle is None:
+            self.activateWindow()
+            return
+        try:
+            window_handle.startSystemMove()
+        except AttributeError:
+            self.activateWindow()

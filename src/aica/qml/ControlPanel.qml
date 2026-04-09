@@ -6,7 +6,7 @@ Rectangle {
     id: root
     width: 1040
     height: 760
-    color: "#F6F2EA"
+    color: "transparent"
 
     readonly property color shellBg: "#F6F2EA"
     readonly property color panelBg: "#FCF9F3"
@@ -62,6 +62,37 @@ Rectangle {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: buttonRoot.clicked()
+        }
+    }
+
+    component WindowButton: Rectangle {
+        id: windowButton
+        property string label: ""
+        property color hoverColor: "#EEE5D8"
+        property color pressedColor: "#E5D9C7"
+        property color inkColor: root.bodyInk
+        signal clicked
+
+        implicitWidth: 30
+        implicitHeight: 30
+        radius: 15
+        color: buttonArea.pressed ? windowButton.pressedColor : buttonArea.containsMouse ? windowButton.hoverColor : "transparent"
+
+        Text {
+            anchors.centerIn: parent
+            text: windowButton.label
+            color: windowButton.inkColor
+            font.family: root.uiFont
+            font.pixelSize: 15
+            font.weight: 600
+        }
+
+        MouseArea {
+            id: buttonArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: windowButton.clicked()
         }
     }
 
@@ -128,153 +159,208 @@ Rectangle {
     }
 
     component SectionCard: Rectangle {
-        radius: 22
+        radius: 24
         color: root.panelAltBg
         border.width: 0
-        border.color: root.panelLine
     }
 
     Rectangle {
+        id: shell
         anchors.fill: parent
-        anchors.margins: 16
-        radius: 28
+        radius: 30
         color: root.shellBg
-        border.width: 0
+        clip: true
 
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 14
+            anchors.margins: 16
+            spacing: 12
 
-            SectionCard {
-                Layout.preferredWidth: 220
-                Layout.fillHeight: true
-                color: "#F8F2E8"
-                radius: 26
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 42
+                radius: 20
+                color: "#FAF5EC"
 
-                ColumnLayout {
+                MouseArea {
                     anchors.fill: parent
-                    anchors.margins: 18
-                    spacing: 14
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: controlPanelBridge.startWindowDrag()
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 10
+                    spacing: 10
+
+                    Rectangle {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        radius: 9
+                        color: root.accentSoft
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "A"
+                            color: root.accent
+                            font.family: root.uiFont
+                            font.pixelSize: 10
+                            font.weight: 700
+                        }
+                    }
 
                     Text {
                         text: "AICA 控制面板"
-                        color: root.titleInk
-                        font.family: root.uiFont
-                        font.pixelSize: 20
-                        font.weight: 700
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: "统一管理模型、截图热键与本地数据入口。"
                         color: root.bodyInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
-                        wrapMode: Text.Wrap
+                        font.pixelSize: 13
+                        font.weight: 600
                     }
 
-                    Repeater {
-                        model: controlPanelBridge.sections
-
-                        delegate: SectionCard {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 70
-                            color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
-                            border.width: 0
-
-                            Column {
-                                anchors.fill: parent
-                                anchors.margins: 18
-                                spacing: 5
-
-                                Text {
-                                    text: modelData.title
-                                    color: root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: 700
-                                }
-
-                                Text {
-                                    width: parent.width
-                                    text: modelData.description
-                                    color: root.bodyInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: controlPanelBridge.setCurrentSection(modelData.id)
-                            }
-                        }
-                    }
-
-                    SectionCard {
+                    Item {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        color: root.navIdle
-                        radius: 24
+                    }
 
-                        Text {
-                            anchors.fill: parent
-                            anchors.margins: 16
-                            text: "提示：如果功能提示配置缺失，请从托盘图标进入这里完成设置。"
-                            color: root.bodyInk
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
+                    WindowButton {
+                        label: "−"
+                        onClicked: controlPanelBridge.minimizePanel()
+                    }
+
+                    WindowButton {
+                        label: "×"
+                        hoverColor: "#F4D9D5"
+                        pressedColor: "#EDC3BC"
+                        inkColor: "#8B3A2C"
+                        onClicked: controlPanelBridge.closePanel()
                     }
                 }
             }
 
-            SectionCard {
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: root.panelBg
-                radius: 26
+                spacing: 14
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 20
-                    spacing: 14
+                SectionCard {
+                    Layout.preferredWidth: 220
+                    Layout.fillHeight: true
+                    color: "#F8F2E8"
+                    radius: 26
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 14
 
-                        ColumnLayout {
+                        Text {
+                            text: "AICA 控制面板"
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 20
+                            font.weight: 700
+                        }
+
+                        Text {
                             Layout.fillWidth: true
-                            spacing: 6
+                            text: "统一管理模型、截图热键与本地数据入口。"
+                            color: root.bodyInk
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                        }
 
-                            Text {
-                                text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键" : "存储与日志"
-                                color: root.titleInk
-                                font.family: root.uiFont
-                                font.pixelSize: 20
-                                font.weight: 700
-                            }
+                        Repeater {
+                            model: controlPanelBridge.sections
 
-                            Text {
+                            delegate: SectionCard {
                                 Layout.fillWidth: true
-                                text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。" : "快速打开本地数据目录，定位配置、反馈和错误日志。"
-                                color: root.bodyInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                wrapMode: Text.Wrap
+                                Layout.preferredHeight: 70
+                                color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
+
+                                Column {
+                                    anchors.fill: parent
+                                    anchors.margins: 18
+                                    spacing: 5
+
+                                    Text {
+                                        text: modelData.title
+                                        color: root.titleInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: 700
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: modelData.description
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: controlPanelBridge.setCurrentSection(modelData.id)
+                                }
                             }
                         }
 
-                        Row {
-                            spacing: 10
+                        SectionCard {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            color: root.navIdle
 
-                            PlainButton {
-                                label: "关闭"
-                                onClicked: controlPanelBridge.closePanel()
+                            Text {
+                                anchors.fill: parent
+                                anchors.margins: 16
+                                text: "提示: 如果功能提示配置缺失，请从托盘图标进入这里完成设置。"
+                                color: root.bodyInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+                }
+
+                SectionCard {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    color: root.panelBg
+                    radius: 26
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 20
+                        spacing: 14
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Text {
+                                    text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键" : "存储与日志"
+                                    color: root.titleInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 20
+                                    font.weight: 700
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。" : "快速打开本地数据目录，定位配置、反馈和错误日志。"
+                                    color: root.bodyInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    wrapMode: Text.Wrap
+                                }
                             }
 
                             PlainButton {
@@ -287,191 +373,349 @@ Rectangle {
                                 onClicked: controlPanelBridge.saveConfig()
                             }
                         }
-                    }
 
-                    SectionCard {
-                        visible: controlPanelBridge.hasError
-                        Layout.fillWidth: true
-                        color: root.errorBg
-                        implicitHeight: errorText.implicitHeight + 24
-                        border.width: 0
+                        SectionCard {
+                            visible: controlPanelBridge.hasError
+                            Layout.fillWidth: true
+                            color: root.errorBg
+                            implicitHeight: errorText.implicitHeight + 24
 
-                        Text {
-                            id: errorText
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            text: controlPanelBridge.errorMessage
-                            color: root.errorInk
-                            font.family: root.uiFont
-                            font.pixelSize: 12
-                            wrapMode: Text.Wrap
+                            Text {
+                                id: errorText
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                text: controlPanelBridge.errorMessage
+                                color: root.errorInk
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                            }
                         }
-                    }
 
-                    SectionCard {
-                        visible: controlPanelBridge.hasStatus
-                        Layout.fillWidth: true
-                        color: root.successBg
-                        implicitHeight: statusText.implicitHeight + 24
-                        border.width: 0
+                        SectionCard {
+                            visible: controlPanelBridge.hasStatus
+                            Layout.fillWidth: true
+                            color: root.successBg
+                            implicitHeight: statusText.implicitHeight + 24
 
-                        Text {
-                            id: statusText
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            text: controlPanelBridge.statusMessage
-                            color: root.successInk
-                            font.family: root.uiFont
-                            font.pixelSize: 12
-                            wrapMode: Text.Wrap
+                            Text {
+                                id: statusText
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                text: controlPanelBridge.statusMessage
+                                color: root.successInk
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                            }
                         }
-                    }
 
-                    ScrollView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
+                        ScrollView {
+                            id: scrollArea
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
 
-                        ColumnLayout {
-                            width: parent.width
-                            spacing: 18
+                            ColumnLayout {
+                                id: contentColumn
+                                width: scrollArea.availableWidth
+                                spacing: 18
 
-                            Repeater {
-                                model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.providers : []
+                                Repeater {
+                                    model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.providers : []
 
-                                delegate: SectionCard {
+                                    delegate: SectionCard {
+                                        Layout.fillWidth: true
+                                        implicitHeight: providerContent.implicitHeight + 32
+                                        color: "#F6F0E6"
+
+                                        ColumnLayout {
+                                            id: providerContent
+                                            anchors.fill: parent
+                                            anchors.margins: 16
+                                            spacing: 12
+
+                                            Text {
+                                                text: modelData.name
+                                                color: root.titleInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 15
+                                                font.weight: 700
+                                            }
+
+                                            Text {
+                                                text: modelData.kind
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                            }
+
+                                            Text {
+                                                text: "API Key"
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            SettingsInput {
+                                                Layout.fillWidth: true
+                                                echoMode: TextInput.Password
+                                                text: modelData.apiKey
+                                                placeholderText: "输入 " + modelData.name + " 的 API Key"
+                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "api_key", text)
+                                            }
+
+                                            Text {
+                                                text: "Base URL"
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            SettingsInput {
+                                                Layout.fillWidth: true
+                                                enabled: modelData.baseUrlEnabled
+                                                text: modelData.baseUrl
+                                                placeholderText: modelData.baseUrlEnabled ? "https://..." : "该供应商无需设置"
+                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "base_url", text)
+                                            }
+
+                                            Text {
+                                                text: "超时时间 (秒)"
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            SettingsInput {
+                                                Layout.fillWidth: true
+                                                text: modelData.timeoutSeconds
+                                                inputMethodHints: Qt.ImhDigitsOnly
+                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "timeout_seconds", text)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "models"
                                     Layout.fillWidth: true
-                                    implicitHeight: providerContent.implicitHeight + 32
-                                    radius: 24
+                                    implicitHeight: bindingContent.implicitHeight + 32
                                     color: "#F6F0E6"
 
                                     ColumnLayout {
-                                        id: providerContent
+                                        id: bindingContent
                                         anchors.fill: parent
                                         anchors.margins: 16
                                         spacing: 12
 
-                                        Text { text: modelData.name; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-                                        Text { text: modelData.kind; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11 }
+                                        Text {
+                                            text: "任务模型绑定"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
 
-                                        Text { text: "API Key"; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11; font.weight: 600 }
-                                        SettingsInput { Layout.fillWidth: true; echoMode: TextInput.Password; text: modelData.apiKey; placeholderText: "输入 " + modelData.name + " 的 API Key"; onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "api_key", text) }
+                                        Repeater {
+                                            model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.taskBindings : []
 
-                                        Text { text: "Base URL"; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11; font.weight: 600 }
-                                        SettingsInput { Layout.fillWidth: true; enabled: modelData.baseUrlEnabled; text: modelData.baseUrl; placeholderText: modelData.baseUrlEnabled ? "https://..." : "该供应商无需设置"; onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "base_url", text) }
+                                            delegate: ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
 
-                                        Text { text: "超时时间（秒）"; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11; font.weight: 600 }
-                                        SettingsInput { Layout.fillWidth: true; text: modelData.timeoutSeconds; inputMethodHints: Qt.ImhDigitsOnly; onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "timeout_seconds", text) }
-                                    }
-                                }
-                            }
+                                                Text {
+                                                    text: modelData.label
+                                                    color: root.bodyInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 12
+                                                    font.weight: 600
+                                                }
 
-                            SectionCard {
-                                visible: controlPanelBridge.currentSection === "models"
-                                Layout.fillWidth: true
-                                implicitHeight: bindingContent.implicitHeight + 32
-                                radius: 24
-                                color: "#F6F0E6"
+                                                SettingsCombo {
+                                                    id: providerCombo
+                                                    Layout.fillWidth: true
+                                                    model: modelData.providerOptions
+                                                    currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId)
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
+                                                }
 
-                                ColumnLayout {
-                                    id: bindingContent
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 12
-
-                                    Text { text: "任务模型绑定"; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-
-                                    Repeater {
-                                        model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.taskBindings : []
-
-                                        delegate: ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 8
-
-                                            Text { text: modelData.label; color: root.bodyInk; font.family: root.uiFont; font.pixelSize: 12; font.weight: 600 }
-                                            SettingsCombo { id: providerCombo; Layout.fillWidth: true; model: modelData.providerOptions; currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId); onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value) }
-                                            SettingsCombo { id: modelCombo; Layout.fillWidth: true; model: modelData.modelOptions; currentIndex: root.optionIndex(modelData.modelOptions, modelData.modelId); onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingModel(modelData.id, modelCombo.model[currentIndex].value) }
+                                                SettingsCombo {
+                                                    id: modelCombo
+                                                    Layout.fillWidth: true
+                                                    model: modelData.modelOptions
+                                                    currentIndex: root.optionIndex(modelData.modelOptions, modelData.modelId)
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingModel(modelData.id, modelCombo.model[currentIndex].value)
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            SectionCard {
-                                visible: controlPanelBridge.currentSection === "hotkeys"
-                                Layout.fillWidth: true
-                                implicitHeight: hotkeyContent.implicitHeight + 32
-                                radius: 24
-                                color: "#F6F0E6"
-
-                                ColumnLayout {
-                                    id: hotkeyContent
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 12
-
-                                    Text { text: "全局截图热键"; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-                                    Text { text: "支持形如 Alt+A、Ctrl+Shift+A。至少需要一个修饰键。"; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                                    SettingsInput { Layout.fillWidth: true; text: controlPanelBridge.captureHotkey; placeholderText: "Alt+A"; onTextEdited: controlPanelBridge.updateCaptureHotkey(text) }
-                                }
-                            }
-
-                            SectionCard {
-                                visible: controlPanelBridge.currentSection === "hotkeys"
-                                Layout.fillWidth: true
-                                implicitHeight: imageContent.implicitHeight + 32
-                                radius: 24
-                                color: "#F6F0E6"
-
-                                ColumnLayout {
-                                    id: imageContent
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 12
-
-                                    Text { text: "图片压缩阈值"; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-                                    Text { text: "超过该大小的截图会在发送前进行压缩。"; color: root.labelInk; font.family: root.uiFont; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                                    SettingsInput { Layout.fillWidth: true; text: controlPanelBridge.maxImageMegabytes; placeholderText: "4"; onTextEdited: controlPanelBridge.updateMaxImageMegabytes(text) }
-                                }
-                            }
-
-                            SectionCard {
-                                visible: controlPanelBridge.currentSection === "storage"
-                                Layout.fillWidth: true
-                                implicitHeight: storageContent.implicitHeight + 32
-                                radius: 24
-                                color: "#F6F0E6"
-
-                                ColumnLayout {
-                                    id: storageContent
-                                    anchors.fill: parent
-                                    anchors.margins: 16
-                                    spacing: 10
-
-                                    Text { text: "配置文件"; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-                                    Text { Layout.fillWidth: true; text: "config.json: " + controlPanelBridge.configPath; color: root.bodyInk; font.family: root.uiFont; font.pixelSize: 12; wrapMode: Text.WrapAnywhere }
-                                    Text { Layout.fillWidth: true; text: "prompts.json: " + controlPanelBridge.promptsPath; color: root.bodyInk; font.family: root.uiFont; font.pixelSize: 12; wrapMode: Text.WrapAnywhere }
-                                    Text { Layout.fillWidth: true; text: "todos.json: " + controlPanelBridge.todosPath; color: root.bodyInk; font.family: root.uiFont; font.pixelSize: 12; wrapMode: Text.WrapAnywhere }
-                                }
-                            }
-
-                            Repeater {
-                                model: controlPanelBridge.currentSection === "storage" ? controlPanelBridge.locations : []
-
-                                delegate: SectionCard {
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "hotkeys"
                                     Layout.fillWidth: true
-                                    implicitHeight: locationContent.implicitHeight + 32
-                                    radius: 24
+                                    implicitHeight: hotkeyContent.implicitHeight + 32
                                     color: "#F6F0E6"
 
                                     ColumnLayout {
-                                        id: locationContent
+                                        id: hotkeyContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "全局截图热键"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            text: "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
+                                        }
+
+                                        SettingsInput {
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.captureHotkey
+                                            placeholderText: "Alt+A"
+                                            onTextEdited: controlPanelBridge.updateCaptureHotkey(text)
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "hotkeys"
+                                    Layout.fillWidth: true
+                                    implicitHeight: imageContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: imageContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "图片压缩阈值"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            text: "超过该大小的截图会在发送前进行压缩。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
+                                        }
+
+                                        SettingsInput {
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.maxImageMegabytes
+                                            placeholderText: "4"
+                                            onTextEdited: controlPanelBridge.updateMaxImageMegabytes(text)
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "storage"
+                                    Layout.fillWidth: true
+                                    implicitHeight: storageContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: storageContent
                                         anchors.fill: parent
                                         anchors.margins: 16
                                         spacing: 10
 
-                                        Text { text: modelData.title; color: root.titleInk; font.family: root.uiFont; font.pixelSize: 15; font.weight: 700 }
-                                        Text { Layout.fillWidth: true; text: modelData.description; color: root.bodyInk; font.family: root.uiFont; font.pixelSize: 12; wrapMode: Text.WrapAnywhere }
-                                        PlainButton { label: "打开目录"; onClicked: controlPanelBridge.openLocation(modelData.id) }
+                                        Text {
+                                            text: "配置文件"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "config.json: " + controlPanelBridge.configPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "prompts.json: " + controlPanelBridge.promptsPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "todos.json: " + controlPanelBridge.todosPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+                                    }
+                                }
+
+                                Repeater {
+                                    model: controlPanelBridge.currentSection === "storage" ? controlPanelBridge.locations : []
+
+                                    delegate: SectionCard {
+                                        Layout.fillWidth: true
+                                        implicitHeight: locationContent.implicitHeight + 32
+                                        color: "#F6F0E6"
+
+                                        ColumnLayout {
+                                            id: locationContent
+                                            anchors.fill: parent
+                                            anchors.margins: 16
+                                            spacing: 10
+
+                                            Text {
+                                                text: modelData.title
+                                                color: root.titleInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 15
+                                                font.weight: 700
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.description
+                                                color: root.bodyInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.WrapAnywhere
+                                            }
+
+                                            PlainButton {
+                                                label: "打开目录"
+                                                onClicked: controlPanelBridge.openLocation(modelData.id)
+                                            }
+                                        }
                                     }
                                 }
                             }
