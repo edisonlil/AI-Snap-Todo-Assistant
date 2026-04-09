@@ -28,6 +28,7 @@ from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
+from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo_panel import TodoPanel
 from aica.todo_store import TodoStore
 from aica.toolbar import FloatingToolbar
@@ -96,7 +97,12 @@ def main() -> None:
     control_panel = ControlPanelWindow(config_mgr)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
-    todo_controller = TodoController(todo_store)
+    binding_store = TodoBindingStore()
+    todo_event_bus = TodoEventBus(
+        handlers=[ScriptEventHandler(binding_store=binding_store)],
+        binding_store=binding_store,
+    )
+    todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
     todo_panel = TodoPanel()
     todo_detail_panel = TodoDetailPanel()
     toolbar.set_scenario_selector_visible(True)

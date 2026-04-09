@@ -1,0 +1,18 @@
+{
+  "todo_event_integrations": [
+    {
+      "id": "company-platform",
+      "enabled": true,
+      "type": "script",
+      "command": "C:\\Users\\Admin\\scoop\\apps\\python\\current\\python.exe",
+      "args": [
+        "C:\\Users\\Admin\\PycharmProjects\\AI-Snap-Todo-Assistant\\.manual_test_tmp\\todo_event_recheck\\sync_todo.py"
+      ],
+      "cwd": "C:\\Users\\Admin\\PycharmProjects\\AI-Snap-Todo-Assistant\\.manual_test_tmp\\todo_event_recheck",
+      "timeout_seconds": 8,
+      "env": {
+        "TEST_ACK_MODE": "late_bind"
+      }
+    }
+  ]
+}

@@ -1,21 +1,31 @@
 """QML-backed application control panel."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtQuickWidgets import QQuickWidget
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout
 
 from aica.config import ConfigManager, ProviderConfig, TaskModelBinding
 from aica.control_panel_state import (
+    build_script_integration,
     format_image_limit_megabytes,
+    list_script_integrations,
+    load_integration_config,
     persist_control_panel_config,
+    replace_script_integrations,
+    save_integration_config,
+    script_integration_display_path,
+    update_script_integration_path,
 )
 from aica.paths import (
     app_data_dir,
     config_file,
     error_log_file,
     feedback_dir,
+    integrations_file,
     prompt_history_dir,
     prompts_file,
     qml_dir,
@@ -44,6 +54,11 @@ _SECTION_ITEMS = [
         "id": "storage",
         "title": "存储与日志",
         "description": "查看配置位置并快速跳转本地数据目录。",
+    },
+    {
+        "id": "integrations",
+        "title": "脚本集成",
+        "description": "导入外部脚本，并控制启用或停用同步脚本。",
     },
 ]
 
@@ -85,6 +100,9 @@ class _ControlPanelBridge(QObject):
         super().__init__()
         self._config_manager = config_manager
         self._config = config_manager.load()
+        self._integrations_path = integrations_file()
+        self._integration_payload = load_integration_config(self._integrations_path)
+        self._script_integrations = list_script_integrations(self._integration_payload)
         self._current_section = "models"
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
@@ -159,6 +177,26 @@ class _ControlPanelBridge(QObject):
     def todosPath(self) -> str:
         return str(todos_file())
 
+    @pyqtProperty(str, constant=True)
+    def integrationsPath(self) -> str:
+        return str(self._integrations_path)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def integrationScripts(self):  # noqa: ANN201
+        payload = []
+        for integration in self._script_integrations:
+            script_path = script_integration_display_path(integration)
+            payload.append(
+                {
+                    "id": str(integration.get("id") or "").strip(),
+                    "name": str(integration.get("name") or integration.get("id") or "未命名脚本").strip(),
+                    "enabled": bool(integration.get("enabled", True)),
+                    "scriptPath": script_path,
+                    "exists": bool(script_path) and Path(script_path).exists(),
+                }
+            )
+        return payload
+
     @pyqtProperty("QVariantList", constant=True)
     def locations(self):  # noqa: ANN201
         return [
@@ -181,6 +219,11 @@ class _ControlPanelBridge(QObject):
                 "id": "error_log_dir",
                 "title": "错误日志目录",
                 "description": str(error_log_file().parent),
+            },
+            {
+                "id": "integrations_dir",
+                "title": "脚本集成配置目录",
+                "description": str(self._integrations_path.parent),
             },
         ]
 
@@ -230,6 +273,8 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot()
     def reloadConfig(self) -> None:
         self._config = self._config_manager.load()
+        self._integration_payload = load_integration_config(self._integrations_path)
+        self._script_integrations = list_script_integrations(self._integration_payload)
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._clear_messages()
@@ -293,6 +338,7 @@ class _ControlPanelBridge(QObject):
             "feedback_dir": feedback_dir(),
             "prompt_history_dir": prompt_history_dir(),
             "error_log_dir": error_log_file().parent,
+            "integrations_dir": self._integrations_path.parent,
         }
         target = mapping.get(str(location_id or "").strip())
         if target is None:
@@ -311,6 +357,13 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot()
     def startWindowDrag(self) -> None:
         self.dragRequested.emit()
+
+    @pyqtSlot()
+    def saveCurrentSection(self) -> None:
+        if self._current_section == "integrations":
+            self.saveIntegrations()
+            return
+        self.saveConfig()
 
     @pyqtSlot()
     def saveConfig(self) -> None:
@@ -334,6 +387,79 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
         self.configSaved.emit(self._config)
 
+    @pyqtSlot()
+    def saveIntegrations(self) -> None:
+        self._clear_messages()
+        self._integration_payload = replace_script_integrations(
+            self._integration_payload,
+            self._script_integrations,
+        )
+        save_integration_config(self._integrations_path, self._integration_payload)
+        self._status_message = "脚本集成配置已保存。"
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def addIntegrationScript(self) -> None:
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "选择外部脚本",
+            str(app_data_dir()),
+            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+        )
+        if not selected_path:
+            return
+        existing_ids = {
+            str(item.get("id") or "").strip()
+            for item in self._script_integrations
+            if str(item.get("id") or "").strip()
+        }
+        self._script_integrations.append(build_script_integration(selected_path, existing_ids))
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def chooseIntegrationScript(self, integration_id: str) -> None:
+        target_id = str(integration_id or "").strip()
+        integration = self._find_script_integration(target_id)
+        if integration is None:
+            return
+        current_path = script_integration_display_path(integration)
+        start_dir = str(Path(current_path).parent) if current_path else str(app_data_dir())
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "选择外部脚本",
+            start_dir,
+            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+        )
+        if not selected_path:
+            return
+        self._replace_script_integration(
+            target_id,
+            update_script_integration_path(integration, selected_path),
+        )
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, bool)
+    def setIntegrationEnabled(self, integration_id: str, enabled: bool) -> None:
+        integration = self._find_script_integration(str(integration_id or "").strip())
+        if integration is None:
+            return
+        integration["enabled"] = bool(enabled)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def removeIntegrationScript(self, integration_id: str) -> None:
+        target_id = str(integration_id or "").strip()
+        self._script_integrations = [
+            item
+            for item in self._script_integrations
+            if str(item.get("id") or "").strip() != target_id
+        ]
+        self._clear_messages()
+        self._emit_data_changed()
+
     def _coerce_provider_timeouts(self) -> None:
         for provider in self._config.providers:
             try:
@@ -342,6 +468,22 @@ class _ControlPanelBridge(QObject):
                 raise ValueError(f"{provider.name} 的超时时间必须是正整数") from exc
             if provider.timeout_seconds <= 0:
                 raise ValueError(f"{provider.name} 的超时时间必须大于 0")
+
+    def _find_script_integration(self, integration_id: str) -> dict[str, object] | None:
+        return next(
+            (
+                item
+                for item in self._script_integrations
+                if str(item.get("id") or "").strip() == integration_id
+            ),
+            None,
+        )
+
+    def _replace_script_integration(self, integration_id: str, updated_item: dict[str, object]) -> None:
+        for index, item in enumerate(self._script_integrations):
+            if str(item.get("id") or "").strip() == integration_id:
+                self._script_integrations[index] = updated_item
+                return
 
 
 class ControlPanelWindow(QWidget):

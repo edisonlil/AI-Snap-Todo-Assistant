@@ -236,6 +236,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
   - 应用启动后默认驻留系统托盘，点击托盘图标可打开控制面板
   - 新增基于 QML 的统一控制面板，集中管理模型供应商、任务模型绑定、截图热键、图片压缩阈值与本地目录入口
   - 移除旧的 `api_key_dialog.py` 配置对话框，缺少 `api_key` 或模型绑定时只提示前往控制面板完成设置
+- 外部脚本集成能力：
+  - 新增待办事件总线、脚本处理器与外部绑定存储，支持把待办生命周期事件发布给包外脚本处理
+  - 新增 `~/.aica/integrations.json` 与 `~/.aica/todo_bindings.json`，分别保存集成配置和外部 `externalId` 绑定关系
+  - 控制面板新增“脚本集成”分组，可导入、启用、停用、替换和移除本地脚本
+  - 支持导入 `.py`、`.pyw`、`.ps1`、`.bat`、`.cmd`、`.exe`，并按脚本类型自动生成调用命令
 - 配置与运行时体验升级：
   - `config.json` 新增 `hotkeys.capture`，默认值为 `Alt+A`，并保持旧配置自动补全
   - 截图热键支持在控制面板保存后立即重绑，无需重启应用
@@ -274,6 +279,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
   - 导出的 Markdown 会自动追加“附件图示”区并嵌入图片
   - 视频与其他附件会在导出文档中追加可点击链接
   - 导出方案会强制补足“时间线回顾”章节，并保留明确时间节点
+
+## 外部平台集成
+
+当前版本支持将待办生命周期事件以统一 JSON 协议发送给包外适配器，并独立保存平台返回的 `externalId` 绑定关系。
+
+- 详细接入文档：`docs/todo-event-integration.md`
+- integration 配置文件：`~/.aica/integrations.json`
+- 外部绑定文件：`~/.aica/todo_bindings.json`
+
+设计目标：
+
+- 不修改 `todos.json` 结构
+- 不把平台 API、鉴权、字段映射硬编码到主程序
+- 主程序只负责发布标准事件、调用处理器、保存 binding
+- 后续增加 webhook / 自定义处理器或做查元数据时可复用同一套 integration 边界
 
 ## 项目结构
 

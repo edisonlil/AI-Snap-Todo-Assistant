@@ -65,6 +65,55 @@ Rectangle {
         }
     }
 
+    component StatusToggle: Item {
+        id: toggleRoot
+        property bool checked: false
+        signal toggled(bool checked)
+
+        implicitWidth: toggleRow.implicitWidth
+        implicitHeight: toggleRow.implicitHeight
+
+        Row {
+            id: toggleRow
+            anchors.fill: parent
+            spacing: 8
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: toggleRoot.checked ? "启用" : "停用"
+                color: toggleRoot.checked ? root.successInk : root.labelInk
+                font.family: root.uiFont
+                font.pixelSize: 12
+                font.weight: 700
+            }
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 48
+                height: 26
+                radius: 13
+                color: toggleRoot.checked ? root.accent : "#D7CCBE"
+
+                Rectangle {
+                    width: 22
+                    height: 22
+                    radius: 11
+                    x: toggleRoot.checked ? parent.width - width - 2 : 2
+                    y: 2
+                    color: "#FFFDFC"
+                    border.width: 1
+                    border.color: toggleRoot.checked ? "#D1E4DA" : "#E0D4C5"
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: toggleRoot.toggled(!toggleRoot.checked)
+        }
+    }
+
     component WindowButton: Rectangle {
         id: windowButton
         property string label: ""
@@ -346,7 +395,10 @@ Rectangle {
                                 spacing: 6
 
                                 Text {
-                                    text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键" : "存储与日志"
+                                    text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型"
+                                          : controlPanelBridge.currentSection === "hotkeys" ? "截图热键"
+                                          : controlPanelBridge.currentSection === "integrations" ? "脚本集成"
+                                          : "存储与日志"
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 20
@@ -355,7 +407,10 @@ Rectangle {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。" : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。" : "快速打开本地数据目录，定位配置、反馈和错误日志。"
+                                    text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。"
+                                          : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。"
+                                          : controlPanelBridge.currentSection === "integrations" ? "导入本地脚本并控制启用状态，保存后会写入 integrations.json。"
+                                          : "快速打开本地数据目录，定位配置、反馈和错误日志。"
                                     color: root.bodyInk
                                     font.family: root.uiFont
                                     font.pixelSize: 12
@@ -370,7 +425,7 @@ Rectangle {
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
                                 border.color: root.accent
-                                onClicked: controlPanelBridge.saveConfig()
+                                onClicked: controlPanelBridge.saveCurrentSection()
                             }
                         }
 
@@ -676,6 +731,173 @@ Rectangle {
                                             font.family: root.uiFont
                                             font.pixelSize: 12
                                             wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "integrations.json: " + controlPanelBridge.integrationsPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "integrations"
+                                    Layout.fillWidth: true
+                                    implicitHeight: integrationIntro.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: integrationIntro
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "外部脚本"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        PlainButton {
+                                            label: "上传脚本"
+                                            onClicked: controlPanelBridge.addIntegrationScript()
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "integrations" && controlPanelBridge.integrationScripts.length === 0
+                                    Layout.fillWidth: true
+                                    implicitHeight: emptyIntegrationContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: emptyIntegrationContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 8
+
+                                        Text {
+                                            text: "还没有导入脚本"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "先上传一个本地脚本，随后可以单独启用、停用或替换脚本路径。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+                                }
+
+                                Repeater {
+                                    model: controlPanelBridge.currentSection === "integrations" ? controlPanelBridge.integrationScripts : []
+
+                                    delegate: SectionCard {
+                                        Layout.fillWidth: true
+                                        implicitHeight: integrationContent.implicitHeight + 32
+                                        color: "#F6F0E6"
+
+                                        ColumnLayout {
+                                            id: integrationContent
+                                            anchors.fill: parent
+                                            anchors.margins: 16
+                                            spacing: 12
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                Layout.alignment: Qt.AlignTop
+                                                spacing: 12
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    Layout.alignment: Qt.AlignTop
+                                                    spacing: 4
+
+                                                    Text {
+                                                        text: modelData.name
+                                                        color: root.titleInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 15
+                                                        font.weight: 700
+                                                    }
+
+                                                    Text {
+                                                        text: modelData.enabled ? "已启用" : "已停用"
+                                                        color: modelData.enabled ? root.successInk : root.labelInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        font.weight: 600
+                                                    }
+                                                }
+
+                                                StatusToggle {
+                                                    Layout.alignment: Qt.AlignTop | Qt.AlignRight
+                                                    Layout.topMargin: 2
+                                                    checked: modelData.enabled
+                                                    onToggled: checked => controlPanelBridge.setIntegrationEnabled(modelData.id, checked)
+                                                }
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: "脚本路径: " + modelData.scriptPath
+                                                color: root.bodyInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.WrapAnywhere
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.exists ? "脚本文件存在" : "警告：当前脚本路径不存在"
+                                                color: modelData.exists ? root.labelInk : root.errorInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                wrapMode: Text.Wrap
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+
+                                                Item {
+                                                    Layout.fillWidth: true
+                                                }
+
+                                                PlainButton {
+                                                    label: "重新选择"
+                                                    onClicked: controlPanelBridge.chooseIntegrationScript(modelData.id)
+                                                }
+
+                                                PlainButton {
+                                                    label: "移除"
+                                                    fillColor: "#FFF3F1"
+                                                    inkColor: "#8B3A2C"
+                                                    onClicked: controlPanelBridge.removeIntegrationScript(modelData.id)
+                                                }
+                                            }
                                         }
                                     }
                                 }

@@ -9,6 +9,7 @@ from .models import (
     TicketSummaryFields,
     merge_summary_fields_for_append,
 )
+from .todo_events import TodoDomainEvent, TodoEventPublisher
 from .todo_store import TimelineEvent, TodoItem, TodoStore
 
 
@@ -21,8 +22,9 @@ class SaveAnalysisResult:
 class TodoController:
     """Coordinates Todo workflow state between UI and persistence."""
 
-    def __init__(self, store: TodoStore):
+    def __init__(self, store: TodoStore, event_publisher: TodoEventPublisher | None = None):
         self._store = store
+        self._event_publisher = event_publisher
         self._selected_todo_id: str | None = None
         self._detail_todo_id: str | None = None
 
@@ -121,6 +123,19 @@ class TodoController:
             evidence_items=[],
         )
 
+    @staticmethod
+    def _resolve_todo_scenario(todo: TodoItem) -> str:
+        for event in reversed(todo.timeline):
+            scenario = str(event.scenario or "").strip()
+            if scenario:
+                return scenario
+        return ""
+
+    def _publish_event(self, event: TodoDomainEvent | None) -> None:
+        if event is None or self._event_publisher is None:
+            return
+        self._event_publisher.publish(event)
+
     def save_analysis_result(self, snapshot: TicketSnapshot, scenario: str) -> SaveAnalysisResult:
         if self._selected_todo_id:
             selected_todo = self.get_selected_todo()
@@ -133,15 +148,23 @@ class TodoController:
             )
             if todo is not None:
                 self._selected_todo_id = None
+                self._publish_event(TodoDomainEvent.appended(todo, scenario))
                 return SaveAnalysisResult(action="append", todo=todo)
 
         todo = self._store.create_todo_from_analysis(snapshot, scenario)
+        self._publish_event(TodoDomainEvent.created(todo, scenario))
         return SaveAnalysisResult(action="create", todo=todo)
 
     def complete_todo(self, todo_id: str) -> bool:
         completed = self._store.complete_todo(todo_id)
         if not completed:
             return False
+
+        updated_todo = self._store.get_todo(todo_id)
+        if updated_todo is not None:
+            self._publish_event(
+                TodoDomainEvent.completed(updated_todo, self._resolve_todo_scenario(updated_todo))
+            )
 
         if self._selected_todo_id == todo_id:
             self._selected_todo_id = None
@@ -150,6 +173,7 @@ class TodoController:
         return True
 
     def delete_todo(self, todo_id: str) -> bool:
+        todo_snapshot = self._store.get_todo(todo_id)
         deleted = self._store.delete_todo(todo_id)
         if not deleted:
             return False
@@ -157,6 +181,10 @@ class TodoController:
             self._selected_todo_id = None
         if self._detail_todo_id == todo_id:
             self._detail_todo_id = None
+        if todo_snapshot is not None:
+            self._publish_event(
+                TodoDomainEvent.deleted(todo_snapshot, self._resolve_todo_scenario(todo_snapshot))
+            )
         return True
 
     def update_todo(

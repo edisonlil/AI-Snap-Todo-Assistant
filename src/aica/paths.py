@@ -21,6 +21,14 @@ def todos_file() -> Path:
     return app_data_dir() / "todos.json"
 
 
+def todo_bindings_file() -> Path:
+    return app_data_dir() / "todo_bindings.json"
+
+
+def integrations_file() -> Path:
+    return app_data_dir() / "integrations.json"
+
+
 def feedback_dir() -> Path:
     return app_data_dir() / "feedback"
 
