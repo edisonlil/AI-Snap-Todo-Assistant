@@ -471,7 +471,7 @@ class _TodoDetailBridge(QObject):
                 "id": str(uuid.uuid4()),
                 "timestamp": timestamp,
                 "timeLabel": _format_ts(timestamp),
-                "scenario": "鎵嬪姩璺熻繘",
+                "scenario": _MANUAL_SCENARIO,
                 "content": content,
                 "kind": "manual",
                 "attachments": [],

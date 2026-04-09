@@ -1,5 +1,6 @@
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import (
+    _MANUAL_SCENARIO,
     _TodoDetailBridge,
     _attachment_kind,
     _clamp_panel_position,
@@ -36,11 +37,13 @@ def test_add_timeline_entry_expands_empty_timeline_and_persists() -> None:
     assert bridge.timelineExpanded is True
     assert bridge.timeline[0]["content"] == "manual follow-up"
     assert bridge.timeline[0]["kind"] == "manual"
+    assert bridge.timeline[0]["scenario"] == _MANUAL_SCENARIO
     payload = captured["payload"]
     assert isinstance(payload, dict)
     timeline = payload["timeline"]
     assert isinstance(timeline, list)
     assert timeline[-1].content == "manual follow-up"
+    assert timeline[-1].scenario == _MANUAL_SCENARIO
 
 
 def test_commit_timeline_content_persists_manual_edits() -> None:
