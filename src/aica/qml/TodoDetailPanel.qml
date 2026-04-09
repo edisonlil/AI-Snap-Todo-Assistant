@@ -1102,7 +1102,16 @@ Rectangle {
                                                                     cursorShape: Qt.PointingHandCursor
                                                                     onClicked: {
                                                                         root.markAttachmentTarget(timelineCard.eventId)
-                                                                        todoDetailBridge.previewAttachment(modelData.path)
+                                                                        if (modelData.isPreviewable) {
+                                                                            todoDetailBridge.previewAttachment(modelData.path)
+                                                                        } else {
+                                                                            todoDetailBridge.activateAttachment(
+                                                                                modelData.path,
+                                                                                modelData.isImage,
+                                                                                modelData.isVideo,
+                                                                                modelData.name
+                                                                            )
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -1162,6 +1171,28 @@ Rectangle {
                                                                         onClicked: {
                                                                             root.markAttachmentTarget(timelineCard.eventId)
                                                                             todoDetailBridge.previewAttachment(modelData.path)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    text: modelData.isPreviewable ? "复制" : "下载"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.activateAttachment(
+                                                                                modelData.path,
+                                                                                modelData.isImage,
+                                                                                modelData.isVideo,
+                                                                                modelData.name
+                                                                            )
                                                                         }
                                                                     }
                                                                 }

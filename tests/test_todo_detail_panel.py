@@ -242,3 +242,48 @@ def test_delete_timeline_entry_persists_removal() -> None:
     timeline = payload["timeline"]
     assert isinstance(timeline, list)
     assert len(timeline) == 1
+
+
+def test_activate_attachment_routes_image_to_copy(tmp_path) -> None:
+    attachment = tmp_path / "demo.png"
+    attachment.write_bytes(b"fake-image")
+    bridge = _TodoDetailBridge()
+    captured: list[Path] = []
+
+    bridge._copy_image_attachment = lambda path: captured.append(path)  # type: ignore[method-assign]
+    bridge._copy_file_to_clipboard = lambda path: captured.append(Path("video"))  # type: ignore[method-assign]
+    bridge._download_attachment = lambda source, name: captured.append(Path("download"))  # type: ignore[method-assign]
+
+    bridge.activateAttachment(str(attachment), True, False, attachment.name)
+
+    assert captured == [attachment]
+
+
+def test_activate_attachment_routes_video_to_clipboard_file(tmp_path) -> None:
+    attachment = tmp_path / "demo.mp4"
+    attachment.write_bytes(b"fake-video")
+    bridge = _TodoDetailBridge()
+    captured: list[Path] = []
+
+    bridge._copy_image_attachment = lambda path: captured.append(Path("image"))  # type: ignore[method-assign]
+    bridge._copy_file_to_clipboard = lambda path: captured.append(path)  # type: ignore[method-assign]
+    bridge._download_attachment = lambda source, name: captured.append(Path("download"))  # type: ignore[method-assign]
+
+    bridge.activateAttachment(str(attachment), False, True, attachment.name)
+
+    assert captured == [attachment]
+
+
+def test_activate_attachment_routes_other_files_to_download(tmp_path) -> None:
+    attachment = tmp_path / "demo.zip"
+    attachment.write_bytes(b"fake-archive")
+    bridge = _TodoDetailBridge()
+    captured: list[tuple[Path, str]] = []
+
+    bridge._copy_image_attachment = lambda path: None  # type: ignore[method-assign]
+    bridge._copy_file_to_clipboard = lambda path: None  # type: ignore[method-assign]
+    bridge._download_attachment = lambda source, name: captured.append((source, name))  # type: ignore[method-assign]
+
+    bridge.activateAttachment(str(attachment), False, False, attachment.name)
+
+    assert captured == [(attachment, "demo.zip")]

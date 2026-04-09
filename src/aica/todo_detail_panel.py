@@ -14,7 +14,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QObject, QPoint, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import QObject, QPoint, Qt, QMimeData, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QCursor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
@@ -70,9 +70,22 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             Tool = 0
 
     class QUrl:  # type: ignore[no-redef]
+        def __init__(self, path=""):
+            self._path = path
+
         @staticmethod
         def fromLocalFile(path):
-            return path
+            return QUrl(path)
+
+        def toString(self):
+            return self._path
+
+    class QMimeData:  # type: ignore[no-redef]
+        def __init__(self):
+            self._urls = []
+
+        def setUrls(self, urls):
+            self._urls = list(urls)
 
     class QPoint:  # type: ignore[no-redef]
         def __init__(self, x=0, y=0):
@@ -109,6 +122,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
     class _Clipboard:  # type: ignore[no-redef]
         def image(self):
             return QImage()
+
+        def setImage(self, *_args, **_kwargs):
+            return None
+
+        def setMimeData(self, *_args, **_kwargs):
+            return None
 
     class QGuiApplication:  # type: ignore[no-redef]
         @staticmethod
@@ -177,6 +196,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         @staticmethod
         def getOpenFileNames(*_args, **_kwargs):
             return [], ""
+
+        @staticmethod
+        def getSaveFileName(*_args, **_kwargs):
+            return "", ""
 
 from .models import TicketSummaryFields
 from .paths import todo_attachments_dir
@@ -459,6 +482,19 @@ class _TodoDetailBridge(QObject):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    @pyqtSlot(str, bool, bool, str)
+    def activateAttachment(self, file_path: str, is_image: bool, is_video: bool, file_name: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.is_file():
+            return
+        if bool(is_image):
+            self._copy_image_attachment(path)
+            return
+        if bool(is_video):
+            self._copy_file_to_clipboard(path)
+            return
+        self._download_attachment(path, str(file_name or path.name).strip() or path.name)
+
     @pyqtSlot(str)
     def addTimelineEntry(self, value: str) -> None:
         content = str(value or "").strip()
@@ -685,6 +721,28 @@ class _TodoDetailBridge(QObject):
             size_bytes=target.stat().st_size if target.exists() else 0,
         )
         return self._attachment_to_dict(attachment)
+
+    def _copy_image_attachment(self, path: Path) -> None:
+        image = QImage(str(path))
+        if image.isNull():
+            return
+        QGuiApplication.clipboard().setImage(image)
+
+    def _copy_file_to_clipboard(self, path: Path) -> None:
+        mime_data = QMimeData()
+        mime_data.setUrls([QUrl.fromLocalFile(str(path))])
+        QGuiApplication.clipboard().setMimeData(mime_data)
+
+    def _download_attachment(self, source: Path, suggested_name: str) -> None:
+        target_path, _ = QFileDialog.getSaveFileName(
+            None,
+            "保存附件",
+            str(source.with_name(suggested_name)),
+            "所有文件 (*.*)",
+        )
+        if not target_path:
+            return
+        shutil.copy2(source, Path(target_path))
 
     def _delete_attachments_for_item(self, item: dict[str, object]) -> None:
         attachments = item.get("attachments", [])
