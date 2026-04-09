@@ -9,19 +9,20 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QRect, QTimer
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
-from aica.api_key_dialog import ApiKeyDialog
 from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
-from aica.config import ConfigManager
+from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
+from aica.control_panel import ControlPanelWindow
 from aica.feedback import FeedbackData
 from aica.hotkey import HotkeyManager
 from aica.llm.service import LLMService, ModelResolutionError
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
+from aica.paths import error_log_file, icon_file
 from aica.prompts import PromptManager
 from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
@@ -41,12 +42,11 @@ from aica.worker import (
 
 def _setup_exception_handler() -> None:
     """Install a global exception hook and persist uncaught errors to disk."""
-    log_dir = os.path.join(os.path.expanduser("~"), ".aica")
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, "error.log")
+    log_file = error_log_file()
+    log_file.parent.mkdir(parents=True, exist_ok=True)
 
     def exception_hook(exc_type, exc_value, exc_tb):
-        with open(log_file, "a", encoding="utf-8") as handle:
+        with log_file.open("a", encoding="utf-8") as handle:
             handle.write(f"\n{'=' * 60}\n")
             handle.write(f"时间: {datetime.now().isoformat()}\n")
             handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
@@ -80,12 +80,20 @@ def main() -> None:
 
     _setup_exception_handler()
 
+    os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     config_mgr = ConfigManager()
+    initial_config = config_mgr.load()
     prompt_mgr = PromptManager()
-    hotkey_mgr = HotkeyManager()
+    try:
+        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
+    except ValueError:
+        initial_config.hotkeys.capture = DEFAULT_CAPTURE_HOTKEY
+        config_mgr.save(initial_config)
+        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
+    control_panel = ControlPanelWindow(config_mgr)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
     todo_controller = TodoController(todo_store)
@@ -102,6 +110,42 @@ def main() -> None:
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
+    tray_icon = QSystemTrayIcon(QIcon(str(icon_file())), app)
+    tray_icon.setToolTip("AICA")
+
+    def _show_control_panel(section_id: str = "models") -> None:
+        control_panel.show_panel(section_id)
+
+    def _show_missing_settings_message() -> None:
+        QMessageBox.information(
+            None,
+            "请先完成设置",
+            "当前未配置可用的 API Key 或模型绑定。\n请点击系统托盘中的 AICA 图标，打开控制面板完成设置。",
+        )
+
+    def _quit_application() -> None:
+        tray_icon.hide()
+        control_panel.hide()
+        app.quit()
+
+    tray_menu = QMenu()
+    action_open_panel = QAction("打开控制面板", app)
+    action_exit = QAction("退出", app)
+    action_open_panel.triggered.connect(lambda: _show_control_panel("models"))
+    action_exit.triggered.connect(_quit_application)
+    tray_menu.addAction(action_open_panel)
+    tray_menu.addSeparator()
+    tray_menu.addAction(action_exit)
+    tray_icon.setContextMenu(tray_menu)
+
+    def _on_tray_activated(reason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            _show_control_panel("models")
+
+    tray_icon.activated.connect(_on_tray_activated)
 
     def _refresh_todo_panel() -> None:
         todo_panel.set_todos(
@@ -346,16 +390,7 @@ def main() -> None:
         try:
             return _build_runtime_config(config)
         except ModelResolutionError:
-            pass
-
-        dialog = ApiKeyDialog(config_mgr)
-        if dialog.exec():
-            saved_config = dialog.get_saved_config()
-            if saved_config is not None:
-                try:
-                    return _build_runtime_config(saved_config)
-                except ModelResolutionError:
-                    return None
+            _show_missing_settings_message()
         return None
 
     def _handle_analysis_finished(result, feedback_image_base64: str) -> None:
@@ -476,6 +511,13 @@ def main() -> None:
             todo_detail_panel.hide()
         _refresh_todo_panel()
 
+    def _on_control_panel_saved(saved_config) -> None:
+        try:
+            hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
+        except ValueError:
+            hotkey_mgr.update_hotkey(DEFAULT_CAPTURE_HOTKEY)
+
+    control_panel.config_saved.connect(_on_control_panel_saved)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
     toolbar.summarize_clicked.connect(_on_summarize)
     toolbar.continue_capture_clicked.connect(_on_continue_capture)
@@ -497,9 +539,15 @@ def main() -> None:
 
     try:
         _refresh_todo_panel()
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            tray_icon.show()
+        else:
+            _show_control_panel("models")
         hotkey_mgr.start()
         sys.exit(app.exec())
     finally:
+        tray_icon.hide()
+        control_panel.hide()
         hotkey_mgr.stop()
         instance_guard.release()
 

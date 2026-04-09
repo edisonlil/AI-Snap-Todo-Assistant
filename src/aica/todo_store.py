@@ -17,6 +17,7 @@ from .models import (
     merge_timeline_with_evidence,
     merge_summary_fields_for_append,
 )
+from .paths import todos_file as default_todos_file
 
 
 class TodoStatus(StrEnum):
@@ -75,8 +76,7 @@ class TodoStore:
 
     def __init__(self, store_path: str | None = None):
         if store_path is None:
-            data_dir = os.path.join(os.path.expanduser("~"), ".aica")
-            store_path = os.path.join(data_dir, "todos.json")
+            store_path = str(default_todos_file())
         self._path = store_path
 
     @property

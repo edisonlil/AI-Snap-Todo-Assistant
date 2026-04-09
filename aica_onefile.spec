@@ -10,6 +10,7 @@ icon_path = project_root / "assets" / "aica_icon.ico"
 version_file = project_root / "aica_version_info.txt"
 datas = [
     (str(project_root / "src" / "aica" / "qml"), "aica/qml"),
+    (str(project_root / "assets"), "assets"),
 ]
 
 

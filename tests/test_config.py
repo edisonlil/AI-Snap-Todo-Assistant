@@ -1,37 +1,39 @@
 import json
+from dataclasses import asdict
 
-from aica.config import ConfigManager, build_default_config, default_task_model_bindings
+from aica.config import (
+    DEFAULT_CAPTURE_HOTKEY,
+    _app_config_from_dict,
+    _migrate_legacy_config,
+    ConfigManager,
+    build_default_config,
+    default_task_model_bindings,
+)
 
 
-def test_load_migrates_legacy_schema(tmp_path):
-    config_file = tmp_path / "config.json"
-    config_file.write_text(
-        json.dumps(
-            {
-                "api_key": "legacy-key",
-                "model": "legacy/vision",
-                "title_generation_model": "legacy/title",
-                "plan_export_model": "legacy/plan",
-                "api_base_url": "https://legacy.example/v1/chat/completions",
-                "timeout_seconds": 45,
-                "max_image_bytes": 2048,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+def test_load_migrates_legacy_schema():
+    config = _migrate_legacy_config(
+        {
+            "api_key": "legacy-key",
+            "model": "legacy/vision",
+            "title_generation_model": "legacy/title",
+            "plan_export_model": "legacy/plan",
+            "api_base_url": "https://legacy.example/v1/chat/completions",
+            "timeout_seconds": 45,
+            "max_image_bytes": 2048,
+        }
     )
-
-    manager = ConfigManager(str(config_file))
-    config = manager.load()
 
     assert config.providers[0].api_key == "legacy-key"
     assert config.providers[0].base_url == "https://legacy.example/v1/chat/completions"
     assert config.task_model_bindings.analysis.model_id == "analysis-model"
     assert config.task_model_bindings.title_generation.model_id == "title-model"
     assert config.task_model_bindings.plan_export.model_id == "plan-export-model"
-    persisted = json.loads(config_file.read_text(encoding="utf-8"))
+    assert config.hotkeys.capture == DEFAULT_CAPTURE_HOTKEY
+    persisted = asdict(config)
     assert "providers" in persisted
-    assert "api_key" not in persisted
+    assert "hotkeys" in persisted
+    assert persisted["hotkeys"]["capture"] == DEFAULT_CAPTURE_HOTKEY
 
 
 def test_default_config_includes_minmax_provider():
@@ -53,3 +55,14 @@ def test_minmax_default_bindings_keep_vision_tasks_on_vision_model():
     assert bindings.title_generation.model_id == "minimax-m2-5"
     assert bindings.plan_export.provider_id == "siliconflow"
     assert bindings.prompt_optimization.provider_id == "siliconflow"
+
+
+def test_save_and_reload_preserves_hotkey_and_image_limit():
+    config = build_default_config()
+    config.hotkeys.capture = "Ctrl+Shift+A"
+    config.max_image_bytes = 6 * 1024 * 1024
+
+    reloaded = _app_config_from_dict(asdict(config))
+
+    assert reloaded.hotkeys.capture == "Ctrl+Shift+A"
+    assert reloaded.max_image_bytes == 6 * 1024 * 1024

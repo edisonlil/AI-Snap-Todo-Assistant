@@ -163,6 +163,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return [], ""
 
 from .models import TicketSummaryFields
+from .paths import todo_attachments_dir
 from .ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
@@ -263,7 +264,7 @@ class _TodoDetailBridge(QObject):
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
-        self._attachment_root = Path(attachment_root) if attachment_root is not None else Path.home() / ".aica" / "todo_attachments"
+        self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:

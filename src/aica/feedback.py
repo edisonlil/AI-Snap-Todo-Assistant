@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from aica.paths import feedback_dir as default_feedback_dir
+
 
 @dataclass
 class FeedbackData:
@@ -61,8 +63,7 @@ class FeedbackCollector:
     def __init__(self, feedback_dir: Optional[str] = None):
         """初始化反馈收集器"""
         if feedback_dir is None:
-            aica_dir = os.path.join(os.path.expanduser("~"), ".aica")
-            feedback_dir = os.path.join(aica_dir, "feedback")
+            feedback_dir = str(default_feedback_dir())
 
         self._dir = feedback_dir
         os.makedirs(self._dir, exist_ok=True)

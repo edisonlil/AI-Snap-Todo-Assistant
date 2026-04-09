@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
 
+from aica.paths import prompts_file as default_prompts_file
+
 
 DEFAULT_SCENARIO_NAME = "工单待办助手"
 
@@ -122,8 +124,7 @@ class PromptManager:
 
     def __init__(self, config_path: Optional[str] = None):
         if config_path is None:
-            config_dir = os.path.join(os.path.expanduser("~"), ".aica")
-            config_path = os.path.join(config_dir, "prompts.json")
+            config_path = str(default_prompts_file())
         self._path = config_path
         self._config = self._load_config()
 

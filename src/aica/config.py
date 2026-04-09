@@ -5,6 +5,11 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 
+from aica.paths import config_file as default_config_file
+
+
+DEFAULT_CAPTURE_HOTKEY = "Alt+A"
+
 
 @dataclass
 class ProviderModelConfig:
@@ -97,10 +102,23 @@ class TaskModelBindings:
 
 
 @dataclass
+class HotkeyConfig:
+    capture: str = DEFAULT_CAPTURE_HOTKEY
+
+    @classmethod
+    def from_dict(cls, data: object) -> "HotkeyConfig":
+        if not isinstance(data, dict):
+            return cls()
+        capture = str(data.get("capture", DEFAULT_CAPTURE_HOTKEY)).strip() or DEFAULT_CAPTURE_HOTKEY
+        return cls(capture=capture)
+
+
+@dataclass
 class AppConfig:
     default_provider_id: str = "siliconflow"
     providers: list[ProviderConfig] = field(default_factory=list)
     task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
+    hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     max_image_bytes: int = 4 * 1024 * 1024
 
 
@@ -192,6 +210,7 @@ def build_default_config() -> AppConfig:
         default_provider_id="siliconflow",
         providers=default_provider_configs(),
         task_model_bindings=default_task_model_bindings("siliconflow"),
+        hotkeys=HotkeyConfig(),
         max_image_bytes=4 * 1024 * 1024,
     )
 
@@ -280,6 +299,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         default_provider_id=default_provider_id,
         providers=providers,
         task_model_bindings=bindings,
+        hotkeys=HotkeyConfig.from_dict(data.get("hotkeys")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
     )
 
@@ -308,6 +328,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
         prompt_optimization=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
+    migrated.hotkeys = HotkeyConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     return migrated
 
@@ -321,8 +342,7 @@ def _needs_legacy_migration(data: object) -> bool:
     )
 
 
-_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".aica")
-_CONFIG_FILE = os.path.join(_CONFIG_DIR, "config.json")
+_CONFIG_FILE = str(default_config_file())
 
 
 class ConfigManager:

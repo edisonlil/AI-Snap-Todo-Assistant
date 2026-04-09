@@ -137,6 +137,9 @@ python -m pip install -r requirements-build.txt
       "model_id": "qwen25-vl-72b"
     }
   },
+  "hotkeys": {
+    "capture": "Alt+A"
+  },
   "max_image_bytes": 4194304
 }
 ```
@@ -221,6 +224,13 @@ Windows `onefile`：
 powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ```
 
+## 控制面板更新
+
+- 程序启动后默认驻留系统托盘，点击托盘图标可打开控制面板
+- 控制面板首版可配置供应商 API Key、Base URL、超时时间、任务模型绑定、`hotkeys.capture` 与 `max_image_bytes`
+- 使用功能时如果缺少可用 `api_key` / 模型绑定，程序只会提示去控制面板完成设置，不再弹出旧配置对话框
+- 本地数据目录新增 `~/.aica/prompt_history/` 与 `~/.aica/error.log` 入口
+
 ## Changelog
 
 ### 2026-04-08
@@ -267,7 +277,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 │   └── aica/
 │       ├── main.py
 │       ├── analysis_flow.py
-│       ├── api_key_dialog.py
+│       ├── control_panel.py
 │       ├── capture_ui_flow.py
 │       ├── capture_session.py
 │       ├── config.py
