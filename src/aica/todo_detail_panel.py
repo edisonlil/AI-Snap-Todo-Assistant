@@ -14,8 +14,8 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-    from PyQt6.QtGui import QColor, QDesktopServices, QGuiApplication, QImage
+    from PyQt6.QtCore import QObject, QPoint, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtGui import QColor, QCursor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
 except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
@@ -74,6 +74,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def fromLocalFile(path):
             return path
 
+    class QPoint:  # type: ignore[no-redef]
+        def __init__(self, x=0, y=0):
+            self._x = x
+            self._y = y
+
+        def x(self):
+            return self._x
+
+        def y(self):
+            return self._y
+
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
             pass
@@ -89,6 +100,11 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         @staticmethod
         def openUrl(*_args, **_kwargs):
             return False
+
+    class QCursor:  # type: ignore[no-redef]
+        @staticmethod
+        def pos():
+            return QPoint()
 
     class _Clipboard:  # type: ignore[no-redef]
         def image(self):
@@ -237,10 +253,41 @@ def _attachment_kind(path: str, name: str = "") -> str:
     return "file"
 
 
+def _clamp_panel_position(
+    x: int,
+    y: int,
+    *,
+    panel_width: int,
+    panel_height: int,
+    available_left: int,
+    available_top: int,
+    available_right: int,
+    available_bottom: int,
+    margin: int,
+) -> tuple[int, int]:
+    max_x = available_right - panel_width - margin
+    max_y = available_bottom - panel_height - margin
+    clamped_x = max(available_left + margin, min(x, max_x))
+    clamped_y = max(available_top + margin, min(y, max_y))
+    return clamped_x, clamped_y
+
+
+def _resolve_available_geometry(screen_or_geometry):
+    if screen_or_geometry is None:
+        return None
+    geometry_getter = getattr(screen_or_geometry, "availableGeometry", None)
+    if callable(geometry_getter):
+        return geometry_getter()
+    return screen_or_geometry
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
+    panelDragStarted = pyqtSignal(float, float)
+    panelDragMoved = pyqtSignal()
+    panelDragFinished = pyqtSignal()
 
     saveRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
@@ -484,6 +531,18 @@ class _TodoDetailBridge(QObject):
     def saveTodo(self) -> None:
         self.timelineChanged.emit()
         self._emit_save_request()
+
+    @pyqtSlot(float, float)
+    def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
+        self.panelDragStarted.emit(float(offset_x), float(offset_y))
+
+    @pyqtSlot()
+    def updatePanelDrag(self) -> None:
+        self.panelDragMoved.emit()
+
+    @pyqtSlot()
+    def finishPanelDrag(self) -> None:
+        self.panelDragFinished.emit()
 
     def _build_payload(self) -> dict[str, object] | None:
         if self._todo_id is None:
@@ -738,6 +797,9 @@ class TodoDetailPanel(QQuickView):
         self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
 
         self.setFlags(
             Qt.WindowType.FramelessWindowHint
@@ -761,6 +823,9 @@ class TodoDetailPanel(QQuickView):
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
         self._bridge.exportPlanRequested.connect(self.export_plan_requested)
+        self._bridge.panelDragStarted.connect(self._begin_panel_drag)
+        self._bridge.panelDragMoved.connect(self._update_panel_drag)
+        self._bridge.panelDragFinished.connect(self._finish_panel_drag)
 
         self.resize(self._panel_width, self._panel_height)
         self.hide()
@@ -813,14 +878,49 @@ class TodoDetailPanel(QQuickView):
                 available.left() + self._screen_margin,
                 min(x, available.right() - self.width() - self._screen_margin),
             )
-            y = max(
-                available.top() + self._screen_margin,
-                min(
-                    anchor_rect.top(),
-                    available.bottom() - self.height() - self._screen_margin,
-                ),
-            )
-        self.setPosition(x, y)
+            y = anchor_rect.top()
+        self._move_within_screen(x, y, screen)
+
+    def _begin_panel_drag(self, offset_x: float, offset_y: float) -> None:
+        self._drag_active = True
+        self._drag_offset_x = max(0, int(offset_x))
+        self._drag_offset_y = max(0, int(offset_y))
+
+    def _update_panel_drag(self) -> None:
+        if not self._drag_active:
+            return
+        cursor_pos = QCursor.pos()
+        x = cursor_pos.x() - self._drag_offset_x
+        y = cursor_pos.y() - self._drag_offset_y
+        self._move_within_screen(x, y, self._screen_for_point(cursor_pos))
+
+    def _finish_panel_drag(self) -> None:
+        self._drag_active = False
+
+    def _screen_for_point(self, point: QPoint):
+        screen_at = getattr(QGuiApplication, "screenAt", None)
+        if callable(screen_at):
+            screen = screen_at(point)
+            if screen is not None:
+                return screen
+        return QApplication.primaryScreen()
+
+    def _move_within_screen(self, x: int, y: int, screen) -> None:
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        target_x, target_y = _clamp_panel_position(
+            int(x),
+            int(y),
+            panel_width=self.width(),
+            panel_height=self.height(),
+            available_left=available.left(),
+            available_top=available.top(),
+            available_right=available.right(),
+            available_bottom=available.bottom(),
+            margin=self._screen_margin,
+        )
+        self.setPosition(target_x, target_y)
 
     def _close_panel(self) -> None:
         self.hide()

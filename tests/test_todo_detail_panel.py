@@ -1,5 +1,11 @@
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _TodoDetailBridge, _attachment_kind, _coerce_dropped_file_paths
+from aica.todo_detail_panel import (
+    _TodoDetailBridge,
+    _attachment_kind,
+    _clamp_panel_position,
+    _coerce_dropped_file_paths,
+    _resolve_available_geometry,
+)
 from aica.todo_store import TimelineEvent, TodoItem
 
 
@@ -148,6 +154,59 @@ def test_attachment_kind_classifies_previewable_types() -> None:
     assert _attachment_kind("demo.png") == "image"
     assert _attachment_kind("video.mp4") == "video"
     assert _attachment_kind("archive.zip") == "file"
+
+
+def test_clamp_panel_position_keeps_panel_inside_available_area() -> None:
+    x, y = _clamp_panel_position(
+        2000,
+        -20,
+        panel_width=396,
+        panel_height=724,
+        available_left=0,
+        available_top=0,
+        available_right=1440,
+        available_bottom=900,
+        margin=20,
+    )
+
+    assert x == 1024
+    assert y == 20
+
+
+def test_begin_update_finish_panel_drag_emit_bridge_signals() -> None:
+    bridge = _TodoDetailBridge()
+    captured: list[tuple[str, tuple[object, ...]]] = []
+
+    bridge.panelDragStarted.connect(lambda x, y: captured.append(("start", (x, y))))
+    bridge.panelDragMoved.connect(lambda: captured.append(("move", ())))
+    bridge.panelDragFinished.connect(lambda: captured.append(("finish", ())))
+
+    bridge.beginPanelDrag(18, 24)
+    bridge.updatePanelDrag()
+    bridge.finishPanelDrag()
+
+    assert captured == [
+        ("start", (18.0, 24.0)),
+        ("move", ()),
+        ("finish", ()),
+    ]
+
+
+def test_resolve_available_geometry_accepts_screen_like_object() -> None:
+    class _Geometry:
+        pass
+
+    class _Screen:
+        def __init__(self):
+            self.geometry = _Geometry()
+
+        def availableGeometry(self):
+            return self.geometry
+
+    screen = _Screen()
+
+    assert _resolve_available_geometry(screen) is screen.geometry
+    assert _resolve_available_geometry(screen.geometry) is screen.geometry
 
 
 def test_delete_timeline_entry_persists_removal() -> None:

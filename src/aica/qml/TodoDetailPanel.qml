@@ -118,6 +118,22 @@ Rectangle {
                 anchors.top: parent.top
                 height: 54
 
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                    onPressed: function(mouse) {
+                        todoDetailBridge.beginPanelDrag(mouse.x, mouse.y)
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (mouse.buttons & Qt.LeftButton) {
+                            todoDetailBridge.updatePanelDrag()
+                        }
+                    }
+                    onReleased: todoDetailBridge.finishPanelDrag()
+                    onCanceled: todoDetailBridge.finishPanelDrag()
+                }
+
                 Text {
                     x: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
@@ -129,6 +145,7 @@ Rectangle {
                 }
 
                 Row {
+                    z: 1
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
