@@ -5,7 +5,7 @@ import time
 
 import requests
 
-from aica.llm.types import ContentPart, Message, ModelReference
+from aica.llm.types import ContentPart, Message, ModelReference, ProviderInvocationError, ProviderResponse
 
 
 class OpenAICompatibleProvider:
@@ -18,7 +18,8 @@ class OpenAICompatibleProvider:
         messages: list[Message],
         temperature: float,
         timeout: int,
-    ) -> str:
+        max_attempts: int,
+    ) -> ProviderResponse:
         headers = {
             "Authorization": f"Bearer {model.api_key}",
             "Content-Type": "application/json",
@@ -29,7 +30,9 @@ class OpenAICompatibleProvider:
             "temperature": temperature,
         }
         response = None
-        for attempt in range(3):
+        actual_attempts = 0
+        for attempt in range(max(1, int(max_attempts))):
+            actual_attempts = attempt + 1
             response = requests.post(
                 model.base_url,
                 json=payload,
@@ -38,8 +41,11 @@ class OpenAICompatibleProvider:
             )
             if response.status_code == 200:
                 data = response.json()
-                return str(data["choices"][0]["message"]["content"])
-            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == 2:
+                return ProviderResponse(
+                    text=str(data["choices"][0]["message"]["content"]),
+                    attempts=actual_attempts,
+                )
+            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == max_attempts - 1:
                 break
             time.sleep(1.2 * (attempt + 1))
 
@@ -49,7 +55,7 @@ class OpenAICompatibleProvider:
         detail = f"HTTP {response.status_code}" if response is not None else "HTTP unknown"
         if response_text:
             detail = f"{detail}: {response_text[:400]}"
-        raise requests.RequestException(detail)
+        raise ProviderInvocationError(detail, attempts=actual_attempts or 1)
 
     def _message_to_payload(self, message: Message) -> dict[str, object]:
         if isinstance(message.content, str):

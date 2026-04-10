@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout
 
+from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
 from aica.config import ConfigManager, ProviderConfig, TaskModelBinding
 from aica.control_panel_state import (
     build_script_integration,
@@ -35,7 +36,6 @@ from aica.paths import (
 
 _TASK_LABELS = {
     "analysis": "截图分析",
-    "title_generation": "标题生成",
     "plan_export": "方案导出",
     "prompt_optimization": "Prompt 优化",
 }
@@ -64,8 +64,6 @@ _SECTION_ITEMS = [
 
 
 def _required_capability(task_name: str) -> str:
-    if task_name == "title_generation":
-        return "text_chat"
     return "vision_chat"
 
 
@@ -88,6 +86,21 @@ def _option_payload(value: str, text: str) -> dict[str, str]:
     }
 
 
+def _append_metric_suffix(label: str, summary: ModelLatencySummary | None) -> str:
+    if summary is None or summary.is_empty:
+        return label
+    return f"{label} · {summary.to_display_text()}"
+
+
+def _build_speed_hint(model_name: str, summary: ModelLatencySummary | None) -> str:
+    if summary is None or summary.avg_latency_ms <= 10000:
+        return ""
+    lowered = str(model_name or "").lower()
+    if "thinking" not in lowered and "reasoning" not in lowered:
+        return ""
+    return "该模型近期平均耗时偏长，通常更适合重质量场景；若更看重速度，可优先比较 Instruct/Flash 类模型。"
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -100,6 +113,7 @@ class _ControlPanelBridge(QObject):
         super().__init__()
         self._config_manager = config_manager
         self._config = config_manager.load()
+        self._analysis_metrics = AnalysisMetricsStore()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
@@ -126,12 +140,20 @@ class _ControlPanelBridge(QObject):
         payload = []
         for task_name, label in _TASK_LABELS.items():
             binding = getattr(self._config.task_model_bindings, task_name)
+            summary = self._analysis_metrics.get_summary(task_name, binding.provider_id, binding.model_id)
+            provider = self._find_provider(binding.provider_id)
+            model_name = ""
+            if provider is not None:
+                model = next((item for item in provider.models if item.id == binding.model_id), None)
+                model_name = model.name if model is not None else ""
             payload.append(
                 {
                     "id": task_name,
                     "label": label,
                     "providerId": binding.provider_id,
                     "modelId": binding.model_id,
+                    "performanceSummary": summary.to_display_text() if summary is not None else "暂无耗时样本",
+                    "speedHint": _build_speed_hint(model_name, summary),
                     "providerOptions": [
                         _option_payload(provider.id, provider.name)
                         for provider in self._config.providers
@@ -235,7 +257,10 @@ class _ControlPanelBridge(QObject):
         options = [
             _option_payload(
                 model.id,
-                f"{model.name} ({', '.join(model.capabilities)})",
+                _append_metric_suffix(
+                    f"{model.name} ({', '.join(model.capabilities)})",
+                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
+                ),
             )
             for model in provider.models
             if capability in model.capabilities
@@ -245,7 +270,10 @@ class _ControlPanelBridge(QObject):
         return [
             _option_payload(
                 model.id,
-                f"{model.name} ({', '.join(model.capabilities)})",
+                _append_metric_suffix(
+                    f"{model.name} ({', '.join(model.capabilities)})",
+                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
+                ),
             )
             for model in provider.models
         ]

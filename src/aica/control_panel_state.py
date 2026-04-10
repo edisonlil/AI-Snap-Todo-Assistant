@@ -15,7 +15,6 @@ from aica.llm.service import LLMService, ModelResolutionError
 MEGABYTE = 1024 * 1024
 TASK_NAMES = (
     "analysis",
-    "title_generation",
     "plan_export",
     "prompt_optimization",
 )

@@ -45,6 +45,10 @@ def error_log_file() -> Path:
     return app_data_dir() / "error.log"
 
 
+def analysis_metrics_file() -> Path:
+    return app_data_dir() / "analysis_metrics.json"
+
+
 def todo_attachments_dir() -> Path:
     return app_data_dir() / "todo_attachments"
 

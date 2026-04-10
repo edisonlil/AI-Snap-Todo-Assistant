@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 ContentPartType = Literal["text", "image_data_url"]
-TaskName = Literal["analysis", "title_generation", "plan_export", "prompt_optimization"]
+TaskName = Literal["analysis", "plan_export", "prompt_optimization"]
 
 
 @dataclass(frozen=True)
@@ -36,3 +36,23 @@ class ModelReference:
     @property
     def display_name(self) -> str:
         return f"{self.provider_name} / {self.model_name}"
+
+
+@dataclass(frozen=True)
+class ProviderResponse:
+    text: str
+    attempts: int
+
+
+@dataclass(frozen=True)
+class TaskRunResult:
+    text: str
+    attempts: int
+    latency_ms: int
+    reference: ModelReference
+
+
+class ProviderInvocationError(RuntimeError):
+    def __init__(self, message: str, *, attempts: int):
+        super().__init__(message)
+        self.attempts = max(1, int(attempts))

@@ -1,12 +1,13 @@
 """Task-oriented LLM service."""
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding
 
 from .registry import create_provider
-from .types import Message, ModelReference, TaskName
+from .types import Message, ModelReference, TaskName, TaskRunResult
 
 
 class LLMServiceError(RuntimeError):
@@ -15,6 +16,23 @@ class LLMServiceError(RuntimeError):
 
 class ModelResolutionError(LLMServiceError):
     """Task model binding is invalid."""
+
+
+class TaskExecutionError(LLMServiceError):
+    """Provider invocation failed with execution metadata."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reference: ModelReference,
+        attempts: int,
+        latency_ms: int,
+    ) -> None:
+        super().__init__(message)
+        self.reference = reference
+        self.attempts = max(1, int(attempts))
+        self.latency_ms = max(0, int(latency_ms))
 
 
 @dataclass
@@ -34,19 +52,49 @@ class LLMService:
         temperature: float = 0.3,
         timeout: int | None = None,
     ) -> str:
+        return self.run_task_detailed(
+            task_name,
+            messages=messages,
+            temperature=temperature,
+            timeout=timeout,
+        ).text
+
+    def run_task_detailed(
+        self,
+        task_name: TaskName,
+        *,
+        messages: list[Message],
+        temperature: float = 0.3,
+        timeout: int | None = None,
+    ) -> TaskRunResult:
         resolved = self.resolve_task_model(task_name)
         provider = create_provider(resolved.reference.provider_kind)
         request_timeout = timeout or resolved.reference.timeout_seconds
+        started_at = time.perf_counter()
+        max_attempts = self._max_attempts(task_name)
         try:
-            return provider.generate(
+            provider_result = provider.generate(
                 model=resolved.reference,
                 messages=messages,
                 temperature=temperature,
                 timeout=request_timeout,
+                max_attempts=max_attempts,
+            )
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            return TaskRunResult(
+                text=provider_result.text,
+                attempts=provider_result.attempts,
+                latency_ms=latency_ms,
+                reference=resolved.reference,
             )
         except Exception as exc:  # noqa: BLE001
-            raise LLMServiceError(
-                f"{resolved.reference.provider_name} / {resolved.reference.model_name}: {exc}"
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            attempts = getattr(exc, "attempts", max_attempts)
+            raise TaskExecutionError(
+                f"{resolved.reference.provider_name} / {resolved.reference.model_name}: {exc}",
+                reference=resolved.reference,
+                attempts=attempts,
+                latency_ms=latency_ms,
             ) from exc
 
     def resolve_task_model(self, task_name: TaskName) -> ResolvedTaskModel:
@@ -90,6 +138,8 @@ class LLMService:
 
     @staticmethod
     def _required_capability(task_name: TaskName) -> str:
-        if task_name == "title_generation":
-            return "text_chat"
         return "vision_chat"
+
+    @staticmethod
+    def _max_attempts(task_name: TaskName) -> int:
+        return 1 if task_name == "analysis" else 3

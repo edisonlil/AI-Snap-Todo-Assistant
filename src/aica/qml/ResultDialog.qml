@@ -230,6 +230,24 @@ Rectangle {
                                 font.weight: root.labelWeight
                             }
                         }
+
+                        Rectangle {
+                            height: 24
+                            width: timingText.implicitWidth + 16
+                            radius: 13
+                            color: "#F7F4EC"
+                            visible: resultDialogBridge.timingSummary.length > 0
+
+                            Text {
+                                id: timingText
+                                anchors.centerIn: parent
+                                text: resultDialogBridge.timingSummary
+                                color: "#7B694E"
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
+                            }
+                        }
                     }
 
                     Item {

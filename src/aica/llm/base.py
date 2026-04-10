@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .types import Message, ModelReference
+from .types import Message, ModelReference, ProviderResponse
 
 
 class LLMProvider(Protocol):
@@ -14,4 +14,5 @@ class LLMProvider(Protocol):
         messages: list[Message],
         temperature: float,
         timeout: int,
-    ) -> str: ...
+        max_attempts: int,
+    ) -> ProviderResponse: ...
