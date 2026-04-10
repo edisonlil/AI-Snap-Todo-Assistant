@@ -571,7 +571,7 @@ def main() -> None:
         event = todo_controller.build_manual_sync_event(todo_id)
         if event is None:
             return
-        todo_event_bus.dispatch(event, async_dispatch=False)
+        todo_event_bus.dispatch(event, async_dispatch=True)
         _show_todo_detail(todo_id)
         _refresh_todo_panel()
 

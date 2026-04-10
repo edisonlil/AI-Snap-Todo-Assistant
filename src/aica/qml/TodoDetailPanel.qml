@@ -35,6 +35,7 @@ Rectangle {
     readonly property int sectionWeight: 600
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400
+    readonly property int actionButtonWidth: 62
     property bool syncingFields: false
     property string activeAttachmentEventId: ""
 
@@ -569,17 +570,20 @@ Rectangle {
                                     id: syncActionRow
                                     anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 0
+                                    spacing: 12
 
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        horizontalAlignment: Text.AlignRight
-                                        width: 62
-                                        text: todoDetailBridge.hasExternalId ? "重新同步" : "立即同步"
-                                        color: root.accent
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.labelWeight
+                                    Item {
+                                        width: root.actionButtonWidth
+                                        height: 24
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: todoDetailBridge.hasExternalId ? "重新同步" : "立即同步"
+                                            color: root.accent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: root.labelWeight
+                                        }
 
                                         MouseArea {
                                             anchors.fill: parent
@@ -698,7 +702,7 @@ Rectangle {
 
                                     Rectangle {
                                         id: completeButton
-                                        width: 62
+                                        width: root.actionButtonWidth
                                         height: 30
                                         radius: 15
                                         color: root.accentTint
