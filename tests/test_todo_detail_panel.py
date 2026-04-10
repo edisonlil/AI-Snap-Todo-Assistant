@@ -330,6 +330,8 @@ def test_set_todo_exposes_sync_status_and_external_id() -> None:
             {
                 "integration_id": "company-platform",
                 "external_id": "EXT-001",
+                "updated_at": "2026-04-10T12:30:00",
+                "last_event_type": "manual_sync",
                 "last_sync_status": "ok:updated",
             }
         ],
@@ -338,8 +340,12 @@ def test_set_todo_exposes_sync_status_and_external_id() -> None:
     assert bridge.syncIntegrationId == "company-platform"
     assert bridge.syncStatus == "已同步"
     assert bridge.syncStatusDetail == "ok:updated"
+    assert bridge.syncEventLabel == "manual_sync"
+    assert bridge.syncUpdatedAtLabel == "04-10 12:30"
     assert bridge.externalId == "EXT-001"
     assert bridge.hasExternalId is True
+    assert bridge.syncRecordCount == 1
+    assert bridge.syncRecords[0]["eventType"] == "manual_sync"
 
 
 def test_copy_external_id_writes_to_clipboard(monkeypatch) -> None:
@@ -372,3 +378,22 @@ def test_copy_external_id_writes_to_clipboard(monkeypatch) -> None:
     bridge.copyExternalId()
 
     assert captured["text"] == "EXT-001"
+
+
+def test_request_manual_sync_emits_current_todo_id() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            id="todo-123",
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+    captured: list[str] = []
+    bridge.manualSyncRequested.connect(captured.append)
+
+    bridge.requestManualSync()
+
+    assert captured == ["todo-123"]

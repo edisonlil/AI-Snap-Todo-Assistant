@@ -567,6 +567,14 @@ def main() -> None:
             todo_detail_panel.hide()
         _refresh_todo_panel()
 
+    def _on_todo_detail_manual_sync(todo_id: str) -> None:
+        event = todo_controller.build_manual_sync_event(todo_id)
+        if event is None:
+            return
+        todo_event_bus.dispatch(event, async_dispatch=False)
+        _show_todo_detail(todo_id)
+        _refresh_todo_panel()
+
     def _on_control_panel_saved(saved_config) -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
@@ -592,6 +600,7 @@ def main() -> None:
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
     todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
+    todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
 
     try:
         _refresh_todo_panel()

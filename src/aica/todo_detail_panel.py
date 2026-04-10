@@ -323,6 +323,7 @@ class _TodoDetailBridge(QObject):
     saveRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
     clipboardImagePasteRequested = pyqtSignal(str)
+    manualSyncRequested = pyqtSignal(str)
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
@@ -347,6 +348,9 @@ class _TodoDetailBridge(QObject):
         self._sync_status = "未同步"
         self._sync_status_detail = "当前待办还没有外部绑定。"
         self._external_id = ""
+        self._sync_event_label = ""
+        self._sync_updated_at = ""
+        self._sync_records: list[dict[str, object]] = []
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -419,6 +423,22 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def hasExternalId(self) -> bool:
         return bool(self._external_id)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def syncEventLabel(self) -> str:
+        return self._sync_event_label
+
+    @pyqtProperty(str, notify=dataChanged)
+    def syncUpdatedAtLabel(self) -> str:
+        return self._sync_updated_at
+
+    @pyqtProperty(int, notify=dataChanged)
+    def syncRecordCount(self) -> int:
+        return len(self._sync_records)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def syncRecords(self):  # noqa: ANN201
+        return self._sync_records
 
     def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
         self._todo_id = todo.id
@@ -607,6 +627,12 @@ class _TodoDetailBridge(QObject):
             return
         QApplication.clipboard().setText(self._external_id)
 
+    @pyqtSlot()
+    def requestManualSync(self) -> None:
+        if self._todo_id is None:
+            return
+        self.manualSyncRequested.emit(self._todo_id)
+
     @pyqtSlot(float, float)
     def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
         self.panelDragStarted.emit(float(offset_x), float(offset_y))
@@ -699,6 +725,9 @@ class _TodoDetailBridge(QObject):
             self._sync_status = "未同步"
             self._sync_status_detail = "当前待办还没有外部绑定。"
             self._external_id = ""
+            self._sync_event_label = ""
+            self._sync_updated_at = ""
+            self._sync_records = []
             return
 
         latest = sync_records[0]
@@ -707,6 +736,20 @@ class _TodoDetailBridge(QObject):
         sync_status = str(latest.get("last_sync_status") or "").strip()
         self._sync_status = "已同步" if self._external_id else "未同步"
         self._sync_status_detail = sync_status or ("已获得 external_id" if self._external_id else "等待外部系统返回 external_id")
+        self._sync_event_label = str(latest.get("last_event_type") or "").strip()
+        self._sync_updated_at = _format_ts(str(latest.get("updated_at") or "").strip())
+        self._sync_records = [
+            {
+                "integrationId": str(item.get("integration_id") or "").strip(),
+                "externalId": str(item.get("external_id") or "").strip(),
+                "hasExternalId": bool(str(item.get("external_id") or "").strip()),
+                "status": str(item.get("last_sync_status") or "").strip(),
+                "eventType": str(item.get("last_event_type") or "").strip(),
+                "updatedAtLabel": _format_ts(str(item.get("updated_at") or "").strip()),
+            }
+            for item in sync_records
+            if isinstance(item, dict)
+        ]
 
     def _find_timeline_item(self, event_id: str) -> dict[str, object] | None:
         for item in self._timeline:
@@ -897,6 +940,7 @@ class _TodoDetailBridge(QObject):
 
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
+    manual_sync_requested = pyqtSignal(str)
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
     delete_requested = pyqtSignal(str)
@@ -931,6 +975,7 @@ class TodoDetailPanel(QQuickView):
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
         self._bridge.clipboardImagePasteRequested.connect(self._paste_clipboard_image)
+        self._bridge.manualSyncRequested.connect(self.manual_sync_requested)
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)

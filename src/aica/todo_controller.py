@@ -222,3 +222,12 @@ class TodoController:
                 )
             )
         return updated
+
+    def build_manual_sync_event(self, todo_id: str) -> TodoDomainEvent | None:
+        todo = self._store.get_todo(todo_id)
+        if todo is None:
+            return None
+        return TodoDomainEvent.manual_sync(
+            todo,
+            self._resolve_todo_scenario(todo),
+        )
