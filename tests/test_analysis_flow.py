@@ -21,6 +21,7 @@ class _Worker:
         self.parse_error = _Signal()
         self.started = False
         self._feedback_image_base64 = "img-b64"
+        self._analysis_stats = "analysis-stats"
 
     def start(self):
         self.started = True
@@ -57,7 +58,8 @@ def _config():
 
     return SimpleNamespace(
         llm_service=_LLMService(),
-        timeout_seconds=30,
+        app_config=SimpleNamespace(max_image_bytes=3 * 1024 * 1024),
+        analysis_timeout_seconds=18,
     )
 
 
@@ -72,7 +74,7 @@ def test_build_worker_uses_single_factory_for_one_image():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=_Worker,
         multi_worker_factory=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()),
     )
@@ -84,7 +86,8 @@ def test_build_worker_uses_single_factory_for_one_image():
     assert worker.kwargs["scenario"] == "工单跟进"
     assert worker.kwargs["context_text"] == "existing context"
     assert worker.kwargs["model_label"] == "provider/analysis"
-    assert worker.kwargs["title_generation_model"] == "provider/title_generation"
+    assert worker.kwargs["timeout"] == 18
+    assert worker.kwargs["max_image_bytes"] == 3 * 1024 * 1024
     assert worker.kwargs["analysis_intent"].scene_type == "chat_feedback"
 
 
@@ -99,7 +102,7 @@ def test_build_worker_uses_multi_factory_for_multiple_images():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()),
         multi_worker_factory=_Worker,
     )
@@ -124,7 +127,7 @@ def test_start_analysis_restores_toolbar_when_api_key_missing():
         ensure_api_key_configured=lambda: None,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
     )
@@ -148,7 +151,7 @@ def test_start_analysis_requires_selected_intent():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: (_ for _ in ()).throw(AssertionError()),
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
         show_warning=lambda title, message: warnings.append((title, message)),
@@ -173,7 +176,7 @@ def test_start_analysis_wires_and_starts_worker():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: hidden.__setitem__("count", hidden["count"] + 1),
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
     )
@@ -189,8 +192,9 @@ def test_start_analysis_wires_and_starts_worker():
     assert hidden["count"] == 1
 
 
-def test_handle_finished_unlocks_and_forwards_result():
+def test_handle_finished_unlocks_forwards_and_records_metrics():
     seen = []
+    recorded = []
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
@@ -201,9 +205,10 @@ def test_handle_finished_unlocks_and_forwards_result():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback: seen.append((result, feedback)),
+        on_finished=lambda result, feedback, stats: seen.append((result, feedback, stats)),
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
+        record_analysis_metrics=lambda stats, success: recorded.append((stats, success)),
     )
     coordinator._current_worker = _Worker("img-1")
     coordinator._capture_locked = True
@@ -211,13 +216,15 @@ def test_handle_finished_unlocks_and_forwards_result():
     coordinator._handle_finished("done")
 
     assert coordinator.capture_locked is False
-    assert seen == [("done", "img-b64")]
+    assert seen == [("done", "img-b64", "analysis-stats")]
+    assert recorded == [("analysis-stats", True)]
 
 
-def test_handle_parse_error_copies_and_restores_toolbar():
+def test_handle_parse_error_copies_restores_and_records_failure():
     copied = []
     warnings = []
     restored = {"count": 0}
+    recorded = []
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
@@ -228,17 +235,20 @@ def test_handle_parse_error_copies_and_restores_toolbar():
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),
-        on_finished=lambda result, feedback: None,
+        on_finished=lambda result, feedback, stats: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
         show_warning=lambda title, message: warnings.append((title, message)),
         copy_to_clipboard=lambda text: copied.append(text),
+        record_analysis_metrics=lambda stats, success: recorded.append((stats, success)),
     )
+    coordinator._current_worker = _Worker("img-1")
     coordinator._capture_locked = True
 
     coordinator._handle_parse_error("raw-text")
 
     assert coordinator.capture_locked is False
     assert copied == ["raw-text"]
-    assert warnings and warnings[0][0] == "格式异常"
+    assert warnings == [("格式异常", "AI 返回格式异常，已将原始内容写入剪贴板")]
     assert restored["count"] == 1
+    assert recorded == [("analysis-stats", False)]

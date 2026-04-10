@@ -605,6 +605,25 @@ Rectangle {
                                                     currentIndex: root.optionIndex(modelData.modelOptions, modelData.modelId)
                                                     onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingModel(modelData.id, modelCombo.model[currentIndex].value)
                                                 }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: modelData.performanceSummary
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    wrapMode: Text.Wrap
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    visible: modelData.speedHint.length > 0
+                                                    text: modelData.speedHint
+                                                    color: "#B7793F"
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    wrapMode: Text.Wrap
+                                                }
                                             }
                                         }
                                     }

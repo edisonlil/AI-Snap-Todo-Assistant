@@ -25,13 +25,13 @@ _JSON_CONTRACT = (
 
 _COMMON_RULES = (
     "通用要求："
-    "1. title 要简洁专业，优先保留最终用户可见的异常现象或核心诉求。"
+    "1. title 必须直接给出可展示、可保存的最终工单标题，优先保留最终用户可见的异常现象或核心诉求，不要写成“客户反馈问题”“排查截图”这类泛化标题。"
     "2. product_line 固定返回“文档中台”。"
     "3. ticket_type 只能从“排查类”“咨询类”“操作类”中选择一个。"
     "4. current_summary 只写当前问题现状或本批截图的核心结论，不要塞入过多参数明细。"
     "5. timeline_entry 只写本批截图新增的跟进、观察、待确认项或下一步。"
     "6. 参数、关键日志、URL、TraceId、返回结果、错误码等细节都直接写进 timeline_entry，不要单独输出其他字段，也不要只概括成“已提供参数”或“有日志”。"
-    "7. group_name/environment 缺失时填“未知”。"
+    "7. group_name/environment 缺失时填“未知”。（group_name信息通常在左上角，需重点关注，它是关键信息）"
     "8. 不要输出 JSON 以外的解释或 markdown。"
 )
 

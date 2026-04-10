@@ -1,11 +1,9 @@
-import json
 from dataclasses import asdict
 
 from aica.config import (
     DEFAULT_CAPTURE_HOTKEY,
     _app_config_from_dict,
     _migrate_legacy_config,
-    ConfigManager,
     build_default_config,
     default_task_model_bindings,
 )
@@ -27,13 +25,13 @@ def test_load_migrates_legacy_schema():
     assert config.providers[0].api_key == "legacy-key"
     assert config.providers[0].base_url == "https://legacy.example/v1/chat/completions"
     assert config.task_model_bindings.analysis.model_id == "analysis-model"
-    assert config.task_model_bindings.title_generation.model_id == "title-model"
     assert config.task_model_bindings.plan_export.model_id == "plan-export-model"
     assert config.hotkeys.capture == DEFAULT_CAPTURE_HOTKEY
     persisted = asdict(config)
     assert "providers" in persisted
     assert "hotkeys" in persisted
     assert persisted["hotkeys"]["capture"] == DEFAULT_CAPTURE_HOTKEY
+    assert "title_generation" not in persisted["task_model_bindings"]
 
 
 def test_default_config_includes_minmax_provider():
@@ -51,8 +49,6 @@ def test_minmax_default_bindings_keep_vision_tasks_on_vision_model():
 
     assert bindings.analysis.provider_id == "siliconflow"
     assert bindings.analysis.model_id == "qwen25-vl-72b"
-    assert bindings.title_generation.provider_id == "minmax"
-    assert bindings.title_generation.model_id == "minimax-m2-5"
     assert bindings.plan_export.provider_id == "siliconflow"
     assert bindings.prompt_optimization.provider_id == "siliconflow"
 

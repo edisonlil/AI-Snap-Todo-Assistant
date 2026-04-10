@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from aica.analysis_metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot
 
@@ -53,7 +54,13 @@ class ResultFlowCoordinator:
         feedback_data.correction = edited_result.to_dict()
         return feedback_data
 
-    def handle_ai_finished(self, result: TicketSnapshot, *, feedback_image_base64: str = "") -> None:
+    def handle_ai_finished(
+        self,
+        result: TicketSnapshot,
+        *,
+        feedback_image_base64: str = "",
+        analysis_stats: AnalysisRunStats | None = None,
+    ) -> None:
         import pyperclip
         from PyQt6.QtWidgets import QMessageBox
 
@@ -61,7 +68,7 @@ class ResultFlowCoordinator:
         from aica.result_dialog import ResultDialog
 
         scenario = self._get_scenario()
-        model = self._get_model()
+        model = analysis_stats.display_name if analysis_stats is not None else self._get_model()
         result_dialog: ResultDialog | None = None
 
         def on_save_result(snapshot: TicketSnapshot) -> None:
@@ -107,6 +114,7 @@ class ResultFlowCoordinator:
             result,
             scenario,
             model,
+            analysis_stats=analysis_stats,
             feedback_callback=on_feedback,
             save_callback=on_save_result,
             parent=None,

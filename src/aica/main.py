@@ -13,6 +13,7 @@ from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis_flow import AnalysisFlowCoordinator
+from aica.analysis_metrics import AnalysisMetricsStore
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
@@ -108,6 +109,7 @@ def main() -> None:
     toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
+    analysis_metrics_store = AnalysisMetricsStore()
     feedback_workers: list[FeedbackOptimizeWorker] = []
     plan_export_workers: list[PlanExportWorker] = []
     capture_ui = CaptureUiFlow(
@@ -268,15 +270,12 @@ def main() -> None:
         analysis_ref = llm_service.resolve_task_model("analysis").reference
         plan_export_ref = llm_service.resolve_task_model("plan_export").reference
         prompt_ref = llm_service.resolve_task_model("prompt_optimization").reference
-        timeout_seconds = max(
-            analysis_ref.timeout_seconds,
-            plan_export_ref.timeout_seconds,
-            prompt_ref.timeout_seconds,
-        )
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
-            timeout_seconds=timeout_seconds,
+            analysis_timeout_seconds=analysis_ref.timeout_seconds,
+            plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
+            prompt_optimization_timeout_seconds=prompt_ref.timeout_seconds,
         )
 
     def _on_feedback_optimization_finished(summary: dict) -> None:
@@ -314,7 +313,7 @@ def main() -> None:
 
         worker = FeedbackOptimizeWorker(
             runtime_config.llm_service,
-            runtime_config.timeout_seconds,
+            runtime_config.prompt_optimization_timeout_seconds,
             feedback,
         )
         feedback_workers.append(worker)
@@ -356,7 +355,7 @@ def main() -> None:
         worker = PlanExportWorker(
             config.llm_service,
             config.llm_service.describe_task_model("plan_export"),
-            config.timeout_seconds,
+            config.plan_export_timeout_seconds,
             payload,
             export_path,
         )
@@ -403,10 +402,11 @@ def main() -> None:
             _show_missing_settings_message()
         return None
 
-    def _handle_analysis_finished(result, feedback_image_base64: str) -> None:
+    def _handle_analysis_finished(result, feedback_image_base64: str, analysis_stats=None) -> None:
         result_flow.handle_ai_finished(
             result,
             feedback_image_base64=feedback_image_base64,
+            analysis_stats=analysis_stats,
         )
 
     analysis_flow = AnalysisFlowCoordinator(
@@ -423,6 +423,7 @@ def main() -> None:
         single_worker_factory=AIWorker,
         multi_worker_factory=MultiCaptureAIWorker,
         show_warning=lambda title, message: QMessageBox.warning(None, title, message),
+        record_analysis_metrics=lambda stats, success: analysis_metrics_store.record(stats, success=success),
     )
 
     def _on_summarize() -> None:

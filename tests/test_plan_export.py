@@ -2,7 +2,6 @@ import shutil
 from pathlib import Path
 
 from aica.worker import (
-    TITLE_GENERATION_MODEL,
     append_plan_export_attachment_section,
     append_plan_export_timeline_visual_section,
     build_plan_export_filename,
@@ -48,7 +47,6 @@ def _payload() -> dict[str, object]:
 def test_build_plan_export_messages_contains_required_context():
     messages = build_plan_export_messages(_payload())
 
-    assert TITLE_GENERATION_MODEL == "Qwen/Qwen3-8B"
     assert messages[0].role == "system"
     assert "Markdown 处理方案" in messages[1].content
     assert "待办标题: 企业微信导出报表失败" in messages[1].content
