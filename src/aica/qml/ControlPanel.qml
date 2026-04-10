@@ -732,8 +732,7 @@ Rectangle {
                             }
 
                             PlainButton {
-                                visible: controlPanelBridge.currentSection !== "storage"
-                                label: "保存配置"
+                                label: controlPanelBridge.currentSection === "storage" ? "保存目录" : "保存配置"
                                 fillColor: root.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
@@ -1037,6 +1036,74 @@ Rectangle {
                                             font.family: root.uiFont
                                             font.pixelSize: 15
                                             font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "可将数据和日志切换到非 C 盘目录。保存时会复制已有本地数据，旧目录不会自动删除。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            text: "数据目录"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            SettingsInput {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.dataDir
+                                                placeholderText: "D:/AICA/data"
+                                                onTextEdited: controlPanelBridge.updateDataDir(text)
+                                            }
+
+                                            PlainButton {
+                                                label: "选择目录"
+                                                onClicked: controlPanelBridge.chooseStorageDir("data_dir")
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "日志目录"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            SettingsInput {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.logDir
+                                                placeholderText: "D:/AICA/logs"
+                                                onTextEdited: controlPanelBridge.updateLogDir(text)
+                                            }
+
+                                            PlainButton {
+                                                label: "选择目录"
+                                                onClicked: controlPanelBridge.chooseStorageDir("log_dir")
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "storage.json: " + controlPanelBridge.storageConfigPath
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.WrapAnywhere
                                         }
 
                                         Text {

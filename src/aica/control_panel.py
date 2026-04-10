@@ -15,6 +15,8 @@ from aica.control_panel_state import (
     format_image_limit_megabytes,
     list_script_integrations,
     load_integration_config,
+    normalize_directory_path,
+    persist_storage_paths,
     persist_control_panel_config,
     replace_script_integrations,
     save_integration_config,
@@ -27,9 +29,11 @@ from aica.paths import (
     error_log_file,
     feedback_dir,
     integrations_file,
+    log_dir,
     prompt_history_dir,
     prompts_file,
     qml_dir,
+    storage_config_file,
     todos_file,
 )
 
@@ -133,6 +137,8 @@ class _ControlPanelBridge(QObject):
         self._current_section = "models"
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._data_dir = str(app_data_dir())
+        self._log_dir = str(log_dir())
         self._error_message = ""
         self._status_message = ""
 
@@ -200,19 +206,31 @@ class _ControlPanelBridge(QObject):
     def hasStatus(self) -> bool:
         return bool(self._status_message)
 
-    @pyqtProperty(str, constant=True)
+    @pyqtProperty(str, notify=dataChanged)
+    def dataDir(self) -> str:
+        return self._data_dir
+
+    @pyqtProperty(str, notify=dataChanged)
+    def logDir(self) -> str:
+        return self._log_dir
+
+    @pyqtProperty(str, notify=dataChanged)
+    def storageConfigPath(self) -> str:
+        return str(storage_config_file())
+
+    @pyqtProperty(str, notify=dataChanged)
     def configPath(self) -> str:
         return str(config_file())
 
-    @pyqtProperty(str, constant=True)
+    @pyqtProperty(str, notify=dataChanged)
     def promptsPath(self) -> str:
         return str(prompts_file())
 
-    @pyqtProperty(str, constant=True)
+    @pyqtProperty(str, notify=dataChanged)
     def todosPath(self) -> str:
         return str(todos_file())
 
-    @pyqtProperty(str, constant=True)
+    @pyqtProperty(str, notify=dataChanged)
     def integrationsPath(self) -> str:
         return str(self._integrations_path)
 
@@ -232,13 +250,13 @@ class _ControlPanelBridge(QObject):
             )
         return payload
 
-    @pyqtProperty("QVariantList", constant=True)
+    @pyqtProperty("QVariantList", notify=dataChanged)
     def locations(self):  # noqa: ANN201
         return [
             {
                 "id": "data_dir",
                 "title": "本地数据目录",
-                "description": str(app_data_dir()),
+                "description": self._data_dir,
             },
             {
                 "id": "feedback_dir",
@@ -253,7 +271,7 @@ class _ControlPanelBridge(QObject):
             {
                 "id": "error_log_dir",
                 "title": "错误日志目录",
-                "description": str(error_log_file().parent),
+                "description": self._log_dir,
             },
             {
                 "id": "integrations_dir",
@@ -354,11 +372,15 @@ class _ControlPanelBridge(QObject):
 
     @pyqtSlot()
     def reloadConfig(self) -> None:
+        self._config_manager = ConfigManager()
         self._config = self._config_manager.load()
+        self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._data_dir = str(app_data_dir())
+        self._log_dir = str(log_dir())
         self._clear_messages()
         self._emit_data_changed()
 
@@ -435,6 +457,39 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
 
     @pyqtSlot(str)
+    def updateDataDir(self, value: str) -> None:
+        self._data_dir = str(value or "")
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def updateLogDir(self, value: str) -> None:
+        self._log_dir = str(value or "")
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def chooseStorageDir(self, target_name: str) -> None:
+        normalized_target = str(target_name or "").strip()
+        current_value = self._data_dir if normalized_target == "data_dir" else self._log_dir
+        start_dir = current_value.strip() or str(app_data_dir())
+        selected_path = QFileDialog.getExistingDirectory(
+            None,
+            "选择目录",
+            start_dir,
+        )
+        if not selected_path:
+            return
+        if normalized_target == "data_dir":
+            self._data_dir = selected_path
+        elif normalized_target == "log_dir":
+            self._log_dir = selected_path
+        else:
+            return
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
     def openLocation(self, location_id: str) -> None:
         mapping = {
             "data_dir": app_data_dir(),
@@ -466,7 +521,33 @@ class _ControlPanelBridge(QObject):
         if self._current_section == "integrations":
             self.saveIntegrations()
             return
+        if self._current_section == "storage":
+            self.saveStoragePaths()
+            return
         self.saveConfig()
+
+    @pyqtSlot()
+    def saveStoragePaths(self) -> None:
+        self._clear_messages()
+        try:
+            previous_data_dir = str(app_data_dir())
+            previous_log_dir = str(log_dir())
+            result = persist_storage_paths(
+                data_dir=normalize_directory_path(self._data_dir),
+                log_dir=normalize_directory_path(self._log_dir),
+                previous_data_dir=previous_data_dir,
+                previous_log_dir=previous_log_dir,
+            )
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._emit_data_changed()
+            return
+
+        self._data_dir = result["data_dir"]
+        self._log_dir = result["log_dir"]
+        self.reloadConfig()
+        self._status_message = "目录设置已保存，新日志会写入新位置；数据目录切换建议重启应用后完全生效。"
+        self._emit_data_changed()
 
     @pyqtSlot()
     def saveConfig(self) -> None:

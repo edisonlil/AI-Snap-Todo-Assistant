@@ -358,12 +358,9 @@ def _needs_legacy_migration(data: object) -> bool:
     )
 
 
-_CONFIG_FILE = str(default_config_file())
-
-
 class ConfigManager:
-    def __init__(self, config_path: str = _CONFIG_FILE):
-        self._path = config_path
+    def __init__(self, config_path: str | None = None):
+        self._path = config_path or str(default_config_file())
 
     @property
     def path(self) -> str:
