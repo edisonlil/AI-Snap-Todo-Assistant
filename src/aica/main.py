@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QRect, QTimer
@@ -42,16 +43,46 @@ from aica.worker import (
 )
 
 
-def _setup_exception_handler() -> None:
+def _resolve_error_log_file() -> Path:
+    candidates = [error_log_file()]
+    local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "AICA" / "error.log")
+    temp_dir = os.getenv("TEMP", "").strip() or os.getenv("TMP", "").strip()
+    if temp_dir:
+        candidates.append(Path(temp_dir) / "AICA" / "error.log")
+    candidates.append(Path.cwd() / "aica_error.log")
+
+    for candidate in candidates:
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except Exception:
+            continue
+    return Path.cwd() / "aica_error.log"
+
+
+def _append_startup_log(log_file: Path, message: str) -> None:
+    try:
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{datetime.now().isoformat()}] {message}\n")
+    except Exception:
+        pass
+
+
+def _setup_exception_handler() -> Path:
     """Install a global exception hook and persist uncaught errors to disk."""
-    log_file = error_log_file()
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file = _resolve_error_log_file()
+    _append_startup_log(log_file, "startup: exception handler ready")
 
     def exception_hook(exc_type, exc_value, exc_tb):
-        with log_file.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n{'=' * 60}\n")
-            handle.write(f"时间: {datetime.now().isoformat()}\n")
-            handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        try:
+            with log_file.open("a", encoding="utf-8") as handle:
+                handle.write(f"\n{'=' * 60}\n")
+                handle.write(f"时间: {datetime.now().isoformat()}\n")
+                handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        except Exception:
+            pass
 
         QMessageBox.critical(
             None,
@@ -60,6 +91,7 @@ def _setup_exception_handler() -> None:
         )
 
     sys.excepthook = exception_hook
+    return log_file
 
 
 def _format_ts(value: str) -> str:
@@ -80,11 +112,13 @@ def main() -> None:
     except Exception:
         pass
 
-    _setup_exception_handler()
+    startup_log_file = _setup_exception_handler()
+    _append_startup_log(startup_log_file, "startup: main entered")
 
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    _append_startup_log(startup_log_file, "startup: QApplication ready")
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
@@ -118,8 +152,13 @@ def main() -> None:
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
-    tray_icon = QSystemTrayIcon(QIcon(str(icon_file())), app)
+    tray_icon_path = icon_file()
+    tray_icon = QSystemTrayIcon(QIcon(str(tray_icon_path)), app)
     tray_icon.setToolTip("AICA")
+    _append_startup_log(
+        startup_log_file,
+        f"startup: tray icon path={tray_icon_path} exists={tray_icon_path.exists()}",
+    )
 
     def _show_control_panel(section_id: str = "models") -> None:
         control_panel.show_panel(section_id)
@@ -557,9 +596,23 @@ def main() -> None:
         _refresh_todo_panel()
         if QSystemTrayIcon.isSystemTrayAvailable():
             tray_icon.show()
+            _append_startup_log(startup_log_file, "startup: tray icon shown")
         else:
+            _append_startup_log(startup_log_file, "startup: system tray unavailable")
             _show_control_panel("models")
-        hotkey_mgr.start()
+        try:
+            hotkey_mgr.start()
+            _append_startup_log(startup_log_file, "startup: hotkey listener started")
+        except Exception as exc:
+            _append_startup_log(
+                startup_log_file,
+                f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
+            )
+            QMessageBox.warning(
+                None,
+                "???????",
+                f"???????????????????\n???????????????????\n\n??: {startup_log_file}\n{exc}",
+            )
         sys.exit(app.exec())
     finally:
         tray_icon.hide()
