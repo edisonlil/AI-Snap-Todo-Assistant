@@ -52,7 +52,7 @@ def test_default_config_includes_dashscope_provider():
     assert dashscope is not None
     assert dashscope.kind == "openai_compatible"
     assert dashscope.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-    assert [model.id for model in dashscope.models] == ["qwen-vl-max-latest", "qwen-plus-latest"]
+    assert [model.id for model in dashscope.models] == ["qwen-vl-max", "qwen-plus"]
 
 
 def test_minmax_default_bindings_keep_vision_tasks_on_vision_model():
@@ -68,9 +68,44 @@ def test_dashscope_default_bindings_use_dashscope_vision_model():
     bindings = default_task_model_bindings("dashscope")
 
     assert bindings.analysis.provider_id == "dashscope"
-    assert bindings.analysis.model_id == "qwen-vl-max-latest"
+    assert bindings.analysis.model_id == "qwen-vl-max"
     assert bindings.plan_export.provider_id == "dashscope"
     assert bindings.prompt_optimization.provider_id == "dashscope"
+
+
+def test_reload_normalizes_dashscope_legacy_model_aliases_and_base_url():
+    reloaded = _app_config_from_dict(
+        {
+            "default_provider_id": "dashscope",
+            "providers": [
+                {
+                    "id": "dashscope",
+                    "kind": "openai_compatible",
+                    "name": "阿里云百炼",
+                    "api_key": "test-key",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "timeout_seconds": 30,
+                    "models": [
+                        {
+                            "id": "qwen-vl-max-latest",
+                            "name": "qwen-vl-max-latest",
+                            "capabilities": ["vision_chat", "text_chat"],
+                        }
+                    ],
+                }
+            ],
+            "task_model_bindings": {
+                "analysis": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
+                "plan_export": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
+                "prompt_optimization": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
+            },
+        }
+    )
+
+    dashscope = next(provider for provider in reloaded.providers if provider.id == "dashscope")
+    assert dashscope.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    assert dashscope.models[0].id == "qwen-vl-max"
+    assert reloaded.task_model_bindings.analysis.model_id == "qwen-vl-max"
 
 
 def test_save_and_reload_preserves_hotkey_and_image_limit():

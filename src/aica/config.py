@@ -9,6 +9,11 @@ from aica.paths import config_file as default_config_file
 
 
 DEFAULT_CAPTURE_HOTKEY = "Alt+A"
+_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+_DASHSCOPE_MODEL_ALIASES = {
+    "qwen-vl-max-latest": "qwen-vl-max",
+    "qwen-plus-latest": "qwen-plus",
+}
 
 
 @dataclass
@@ -149,17 +154,17 @@ def default_provider_configs() -> list[ProviderConfig]:
             id="dashscope",
             kind="openai_compatible",
             name="阿里云百炼",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            base_url=_DASHSCOPE_BASE_URL,
             timeout_seconds=30,
             models=[
                 ProviderModelConfig(
-                    id="qwen-vl-max-latest",
-                    name="qwen-vl-max-latest",
+                    id="qwen-vl-max",
+                    name="qwen-vl-max",
                     capabilities=["vision_chat", "text_chat"],
                 ),
                 ProviderModelConfig(
-                    id="qwen-plus-latest",
-                    name="qwen-plus-latest",
+                    id="qwen-plus",
+                    name="qwen-plus",
                     capabilities=["text_chat"],
                 ),
             ],
@@ -208,9 +213,9 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
         )
     if default_provider_id == "dashscope":
         return TaskModelBindings(
-            analysis=_binding("dashscope", "qwen-vl-max-latest"),
-            plan_export=_binding("dashscope", "qwen-vl-max-latest"),
-            prompt_optimization=_binding("dashscope", "qwen-vl-max-latest"),
+            analysis=_binding("dashscope", "qwen-vl-max"),
+            plan_export=_binding("dashscope", "qwen-vl-max"),
+            prompt_optimization=_binding("dashscope", "qwen-vl-max"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
@@ -259,6 +264,8 @@ def _normalize_provider_configs(providers: list[ProviderConfig], default_provide
             provider.models = default_provider.models
         if provider.timeout_seconds <= 0:
             provider.timeout_seconds = default_provider.timeout_seconds if default_provider is not None else 30
+        if provider.id == "dashscope":
+            _normalize_dashscope_provider(provider)
         normalized.append(provider)
 
     if default_provider_id not in seen_ids:
@@ -272,6 +279,19 @@ def _normalize_provider_configs(providers: list[ProviderConfig], default_provide
             normalized.append(provider)
 
     return normalized
+
+
+def _normalize_dashscope_provider(provider: ProviderConfig) -> None:
+    if provider.base_url.rstrip("/").endswith("/compatible-mode/v1"):
+        provider.base_url = _DASHSCOPE_BASE_URL
+    elif not provider.base_url:
+        provider.base_url = _DASHSCOPE_BASE_URL
+
+    for model in provider.models:
+        canonical_id = _DASHSCOPE_MODEL_ALIASES.get(model.id, model.id)
+        canonical_name = _DASHSCOPE_MODEL_ALIASES.get(model.name, model.name)
+        model.id = canonical_id
+        model.name = canonical_name
 
 
 def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[ProviderConfig], default_provider_id: str) -> TaskModelBindings:

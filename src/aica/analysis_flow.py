@@ -3,6 +3,25 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+_PROVIDER_SAFE_IMAGE_LIMITS = {
+    "dashscope": 768 * 1024,
+}
+
+
+def _resolve_analysis_image_limit(config: Any) -> int:
+    configured_limit = max(1, int(getattr(config.app_config, "max_image_bytes", 4 * 1024 * 1024)))
+    llm_service = getattr(config, "llm_service", None)
+    if llm_service is None or not hasattr(llm_service, "resolve_task_model"):
+        return configured_limit
+    try:
+        provider_id = llm_service.resolve_task_model("analysis").reference.provider_id
+    except Exception:
+        return configured_limit
+    safe_limit = _PROVIDER_SAFE_IMAGE_LIMITS.get(str(provider_id or "").strip())
+    if safe_limit is None:
+        return configured_limit
+    return min(configured_limit, safe_limit)
+
 
 class AnalysisFlowCoordinator:
     """Owns analysis start, worker selection, and error recovery."""
@@ -73,7 +92,7 @@ class AnalysisFlowCoordinator:
             scenario=scenario,
             analysis_intent=analysis_intent,
             context_text=context_text,
-            max_image_bytes=config.app_config.max_image_bytes,
+            max_image_bytes=_resolve_analysis_image_limit(config),
         )
         if len(images) == 1:
             return self._single_worker_factory(images[0], **worker_kwargs)

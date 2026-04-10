@@ -114,13 +114,13 @@ python -m pip install -r requirements-build.txt
       "timeout_seconds": 30,
       "models": [
         {
-          "id": "qwen-vl-max-latest",
-          "name": "qwen-vl-max-latest",
+          "id": "qwen-vl-max",
+          "name": "qwen-vl-max",
           "capabilities": ["vision_chat", "text_chat"]
         },
         {
-          "id": "qwen-plus-latest",
-          "name": "qwen-plus-latest",
+          "id": "qwen-plus",
+          "name": "qwen-plus",
           "capabilities": ["text_chat"]
         }
       ]

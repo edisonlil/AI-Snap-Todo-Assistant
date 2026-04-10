@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from aica.analysis_flow import AnalysisFlowCoordinator
+from aica.analysis_flow import AnalysisFlowCoordinator, _resolve_analysis_image_limit
 from aica.analysis_intent import build_analysis_intent
 
 
@@ -53,6 +53,9 @@ class _CaptureSession:
 
 def _config():
     class _LLMService:
+        def resolve_task_model(self, task_name):
+            return SimpleNamespace(reference=SimpleNamespace(provider_id="gemini"))
+
         def describe_task_model(self, task_name):
             return f"provider/{task_name}"
 
@@ -89,6 +92,19 @@ def test_build_worker_uses_single_factory_for_one_image():
     assert worker.kwargs["timeout"] == 18
     assert worker.kwargs["max_image_bytes"] == 3 * 1024 * 1024
     assert worker.kwargs["analysis_intent"].scene_type == "chat_feedback"
+
+
+def test_resolve_analysis_image_limit_clamps_dashscope_requests():
+    class _LLMService:
+        def resolve_task_model(self, task_name):
+            return SimpleNamespace(reference=SimpleNamespace(provider_id="dashscope"))
+
+    config = SimpleNamespace(
+        llm_service=_LLMService(),
+        app_config=SimpleNamespace(max_image_bytes=3 * 1024 * 1024),
+    )
+
+    assert _resolve_analysis_image_limit(config) == 768 * 1024
 
 
 def test_build_worker_uses_multi_factory_for_multiple_images():
