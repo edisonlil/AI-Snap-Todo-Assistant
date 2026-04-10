@@ -288,6 +288,9 @@ def main() -> None:
     def _clear_capture_state() -> None:
         capture_ui.clear_capture_state(_refresh_todo_panel)
 
+    def _release_capture_mode() -> None:
+        capture_ui.release_capture_mode(_refresh_todo_panel)
+
     def _restore_toolbar_for_current_capture() -> None:
         capture_ui.restore_toolbar_for_current_capture()
 
@@ -476,9 +479,7 @@ def main() -> None:
     def _on_continue_capture() -> None:
         if not _queue_current_capture():
             return
-        _hide_overlays(reset=True)
-        toolbar.hide()
-        QTimer.singleShot(50, _show_overlays)
+        _release_capture_mode()
 
     def _on_cancel() -> None:
         _clear_capture_state()

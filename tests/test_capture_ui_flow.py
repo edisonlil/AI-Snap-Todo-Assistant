@@ -82,6 +82,7 @@ class _Toolbar:
         self.edit_modes: list[str] = []
         self.multi_modes: list[int] = []
         self.single_mode_calls = 0
+        self.reset_analysis_inputs_calls = 0
         self.hidden = 0
         self.shown_at = []
         self.loading = False
@@ -97,6 +98,9 @@ class _Toolbar:
 
     def set_single_capture_mode(self):
         self.single_mode_calls += 1
+
+    def reset_analysis_inputs(self):
+        self.reset_analysis_inputs_calls += 1
 
     def hide(self):
         self.hidden += 1
@@ -188,5 +192,29 @@ def test_clear_capture_state_resets_session_and_hides_toolbar():
     assert session.active_overlay is None
     assert session.queued_captures == []
     assert toolbar.single_mode_calls == 1
+    assert toolbar.reset_analysis_inputs_calls == 1
     assert toolbar.hidden == 1
+    assert refreshed["count"] == 1
+
+
+def test_release_capture_mode_preserves_queue_and_waits_for_next_hotkey():
+    flow, toolbar, session = _build_flow()
+    overlay = _Overlay("active")
+    flow._overlays = [overlay]
+    refreshed = {"count": 0}
+
+    session.current_selection = "rect"
+    session.current_capture = None
+    session.active_overlay = overlay
+    session.queued_captures = ["queued"]
+
+    flow.release_capture_mode(lambda: refreshed.__setitem__("count", refreshed["count"] + 1))
+
+    assert session.current_selection is None
+    assert session.current_capture is None
+    assert session.active_overlay is None
+    assert session.queued_captures == ["queued"]
+    assert toolbar.attached_overlay is None
+    assert toolbar.hidden == 1
+    assert overlay.actions == ["dismiss"]
     assert refreshed["count"] == 1

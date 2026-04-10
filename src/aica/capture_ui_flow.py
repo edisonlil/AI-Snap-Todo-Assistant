@@ -64,6 +64,14 @@ class CaptureUiFlow:
         self._toolbar.hide()
         refresh_todo_panel()
 
+    def release_capture_mode(self, refresh_todo_panel: Callable[[], None]) -> None:
+        self.hide_overlays(reset=True)
+        self._capture_session.active_overlay = None
+        self._capture_session.current_selection = None
+        self._toolbar.attach_to_overlay(None)
+        self._toolbar.hide()
+        refresh_todo_panel()
+
     def restore_toolbar_for_current_capture(self) -> None:
         if not self._capture_session.sync_from_active_overlay():
             return
