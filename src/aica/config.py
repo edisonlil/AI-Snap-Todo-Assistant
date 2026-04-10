@@ -146,6 +146,25 @@ def default_provider_configs() -> list[ProviderConfig]:
             ],
         ),
         ProviderConfig(
+            id="dashscope",
+            kind="openai_compatible",
+            name="阿里云百炼",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            timeout_seconds=30,
+            models=[
+                ProviderModelConfig(
+                    id="qwen-vl-max-latest",
+                    name="qwen-vl-max-latest",
+                    capabilities=["vision_chat", "text_chat"],
+                ),
+                ProviderModelConfig(
+                    id="qwen-plus-latest",
+                    name="qwen-plus-latest",
+                    capabilities=["text_chat"],
+                ),
+            ],
+        ),
+        ProviderConfig(
             id="minmax",
             kind="openai_compatible",
             name="MiniMax",
@@ -186,6 +205,12 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
             analysis=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
             prompt_optimization=_binding("gemini", "gemini-2.5-flash"),
+        )
+    if default_provider_id == "dashscope":
+        return TaskModelBindings(
+            analysis=_binding("dashscope", "qwen-vl-max-latest"),
+            plan_export=_binding("dashscope", "qwen-vl-max-latest"),
+            prompt_optimization=_binding("dashscope", "qwen-vl-max-latest"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(

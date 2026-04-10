@@ -33,6 +33,35 @@ Rectangle {
         return options.length > 0 ? 0 : -1
     }
 
+    function optionText(options, value) {
+        for (var index = 0; index < options.length; index += 1) {
+            if (options[index].value === value) {
+                return options[index].text
+            }
+        }
+        return value || ""
+    }
+
+    function fuzzyMatch(text, query) {
+        var source = (text || "").toLowerCase()
+        var keyword = (query || "").toLowerCase().trim()
+        if (!keyword.length) {
+            return true
+        }
+        if (source.indexOf(keyword) >= 0) {
+            return true
+        }
+        var sourceIndex = 0
+        for (var queryIndex = 0; queryIndex < keyword.length; queryIndex += 1) {
+            var charIndex = source.indexOf(keyword[queryIndex], sourceIndex)
+            if (charIndex < 0) {
+                return false
+            }
+            sourceIndex = charIndex + 1
+        }
+        return true
+    }
+
     component PlainButton: Rectangle {
         id: buttonRoot
         property string label: ""
@@ -204,6 +233,290 @@ Rectangle {
             color: "#FFFEFC"
             border.width: 1
             border.color: combo.activeFocus ? root.accent : root.panelLine
+        }
+    }
+
+    component SearchableModelCombo: Item {
+        id: comboRoot
+        property var model: []
+        property string value: ""
+        property string placeholderText: ""
+        signal valueCommitted(string value, string capabilities)
+
+        implicitWidth: 200
+        implicitHeight: 44
+
+        function filteredOptions() {
+            var keyword = input.text || ""
+            if (!keyword.trim().length) {
+                return comboRoot.model
+            }
+            var matches = []
+            for (var index = 0; index < comboRoot.model.length; index += 1) {
+                var option = comboRoot.model[index]
+                if (root.fuzzyMatch(option.text, keyword) || root.fuzzyMatch(option.value, keyword)) {
+                    matches.push(option)
+                }
+            }
+            return matches
+        }
+
+        function hasMatches() {
+            return comboRoot.filteredOptions().length > 0
+        }
+
+        function hasExactMatch() {
+            var keyword = (input.text || "").trim().toLowerCase()
+            if (!keyword.length) {
+                return true
+            }
+            for (var index = 0; index < comboRoot.model.length; index += 1) {
+                var option = comboRoot.model[index]
+                if ((option.value || "").toLowerCase() === keyword || (option.text || "").toLowerCase() === keyword) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        function syncInputText() {
+            if (input.activeFocus) {
+                return
+            }
+            input.text = root.optionText(comboRoot.model, comboRoot.value)
+        }
+
+        function commitValue(nextValue) {
+            var normalized = (nextValue || "").trim()
+            if (!normalized.length) {
+                syncInputText()
+                popup.close()
+                return
+            }
+            comboRoot.valueCommitted(normalized, "")
+            popup.close()
+        }
+
+        function commitCustomValue(capabilities) {
+            var normalized = (input.text || "").trim()
+            if (!normalized.length) {
+                syncInputText()
+                popup.close()
+                return
+            }
+            comboRoot.valueCommitted(normalized, capabilities || "")
+            popup.close()
+        }
+
+        function moveHighlight(step) {
+            var options = comboRoot.filteredOptions()
+            if (!options.length) {
+                optionList.currentIndex = -1
+                return
+            }
+            if (!popup.visible) {
+                popup.open()
+            }
+            if (optionList.currentIndex < 0) {
+                optionList.currentIndex = step > 0 ? 0 : options.length - 1
+            } else {
+                optionList.currentIndex = (optionList.currentIndex + step + options.length) % options.length
+            }
+            optionList.positionViewAtIndex(optionList.currentIndex, ListView.Contain)
+        }
+
+        function commitHighlightedOrInput() {
+            var options = comboRoot.filteredOptions()
+            if (popup.visible && optionList.currentIndex >= 0 && optionList.currentIndex < options.length) {
+                comboRoot.commitValue(options[optionList.currentIndex].value)
+                return
+            }
+            if ((input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()) {
+                comboRoot.commitCustomValue("vision_chat,text_chat")
+                return
+            }
+            comboRoot.commitValue(input.text)
+        }
+
+        onModelChanged: syncInputText()
+        onValueChanged: syncInputText()
+        Component.onCompleted: syncInputText()
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 16
+            color: "#FFFEFC"
+            border.width: 1
+            border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
+        }
+
+        TextField {
+            id: input
+            anchors.fill: parent
+            color: root.titleInk
+            font.family: root.uiFont
+            font.pixelSize: 12
+            selectByMouse: true
+            leftPadding: 14
+            rightPadding: 36
+            topPadding: 11
+            bottomPadding: 11
+            placeholderText: comboRoot.placeholderText
+            background: Item {}
+            onTextEdited: popup.open()
+            onActiveFocusChanged: if (activeFocus) popup.open()
+            onAccepted: comboRoot.commitHighlightedOrInput()
+            onEditingFinished: if (!popup.visible) comboRoot.commitValue(text)
+            Keys.onDownPressed: comboRoot.moveHighlight(1)
+            Keys.onUpPressed: comboRoot.moveHighlight(-1)
+        }
+
+        Canvas {
+            x: comboRoot.width - width - 14
+            y: 19
+            width: 10
+            height: 6
+            contextType: "2d"
+            onPaint: {
+                context.reset()
+                context.moveTo(0, 0)
+                context.lineTo(width, 0)
+                context.lineTo(width / 2, height)
+                context.closePath()
+                context.fillStyle = root.labelInk
+                context.fill()
+            }
+        }
+
+        MouseArea {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 34
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                input.forceActiveFocus()
+                if (popup.visible) {
+                    popup.close()
+                } else {
+                    popup.open()
+                }
+            }
+        }
+
+        Popup {
+            id: popup
+            y: comboRoot.height + 6
+            width: comboRoot.width
+            padding: 8
+            modal: false
+            focus: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+
+            background: Rectangle {
+                radius: 16
+                color: "#FFFEFC"
+                border.width: 1
+                border.color: root.panelLine
+            }
+
+            contentItem: Column {
+                width: popup.width - popup.leftPadding - popup.rightPadding
+                spacing: 6
+
+                Rectangle {
+                    width: parent.width
+                    height: addLabel.implicitHeight + 14
+                    radius: 12
+                    visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
+                    color: addMouseArea.pressed ? "#E7F5ED" : addMouseArea.containsMouse ? "#F1FAF5" : "#FFFFFF"
+
+                    Text {
+                        id: addLabel
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        text: "添加并使用: " + (input.text || "").trim()
+                        color: root.accent
+                        font.family: root.uiFont
+                        font.pixelSize: 12
+                        font.weight: 700
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        id: addMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: comboRoot.commitCustomValue("vision_chat,text_chat")
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: textOnlyLabel.implicitHeight + 14
+                    radius: 12
+                    visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
+                    color: textOnlyMouseArea.pressed ? "#F6F0E6" : textOnlyMouseArea.containsMouse ? "#FBF6EE" : "#FFFFFF"
+
+                    Text {
+                        id: textOnlyLabel
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        text: "添加为仅文本模型"
+                        color: root.bodyInk
+                        font.family: root.uiFont
+                        font.pixelSize: 12
+                        font.weight: 600
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        id: textOnlyMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: comboRoot.commitCustomValue("text_chat")
+                    }
+                }
+
+                ListView {
+                    id: optionList
+                    width: parent.width
+                    implicitHeight: Math.min(contentHeight, 240)
+                    clip: true
+                    model: comboRoot.filteredOptions()
+
+                    delegate: Rectangle {
+                        width: optionList.width
+                        height: optionText.implicitHeight + 14
+                        radius: 12
+                        color: optionMouseArea.pressed ? "#EDE6D9" : optionMouseArea.containsMouse ? "#F7F1E7" : "transparent"
+
+                        Text {
+                            id: optionText
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            text: modelData.text
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        MouseArea {
+                            id: optionMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: comboRoot.commitValue(modelData.value)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -598,12 +911,13 @@ Rectangle {
                                                     onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
                                                 }
 
-                                                SettingsCombo {
+                                                SearchableModelCombo {
                                                     id: modelCombo
                                                     Layout.fillWidth: true
                                                     model: modelData.modelOptions
-                                                    currentIndex: root.optionIndex(modelData.modelOptions, modelData.modelId)
-                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingModel(modelData.id, modelCombo.model[currentIndex].value)
+                                                    value: modelData.modelId
+                                                    placeholderText: "输入或搜索模型名"
+                                                    onValueCommitted: (value, capabilities) => controlPanelBridge.addOrSelectTaskBindingModel(modelData.id, value, capabilities)
                                                 }
 
                                                 Text {

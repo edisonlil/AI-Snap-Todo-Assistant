@@ -33,6 +33,7 @@
 - 可访问模型供应商接口
   - `openai_compatible`
   - `gemini`
+  - 内置供应商包含 `SiliconFlow`、`阿里云百炼`、`MiniMax` 与 `Google Gemini`
 
 ## 安装
 
@@ -100,6 +101,26 @@ python -m pip install -r requirements-build.txt
         {
           "id": "minimax-m2-5-highspeed",
           "name": "MiniMax-M2.5-highspeed",
+          "capabilities": ["text_chat"]
+        }
+      ]
+    },
+    {
+      "id": "dashscope",
+      "kind": "openai_compatible",
+      "name": "阿里云百炼",
+      "api_key": "",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "timeout_seconds": 30,
+      "models": [
+        {
+          "id": "qwen-vl-max-latest",
+          "name": "qwen-vl-max-latest",
+          "capabilities": ["vision_chat", "text_chat"]
+        },
+        {
+          "id": "qwen-plus-latest",
+          "name": "qwen-plus-latest",
           "capabilities": ["text_chat"]
         }
       ]

@@ -9,7 +9,7 @@ from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout
 
 from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
-from aica.config import ConfigManager, ProviderConfig, TaskModelBinding
+from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.control_panel_state import (
     build_script_integration,
     format_image_limit_megabytes,
@@ -84,6 +84,19 @@ def _option_payload(value: str, text: str) -> dict[str, str]:
         "value": value,
         "text": text,
     }
+
+
+def _normalize_model_text(value: str) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_capabilities(value: str) -> list[str]:
+    items = [item.strip() for item in str(value or "").split(",")]
+    capabilities: list[str] = []
+    for item in items:
+        if item and item not in capabilities:
+            capabilities.append(item)
+    return capabilities
 
 
 def _append_metric_suffix(label: str, summary: ModelLatencySummary | None) -> str:
@@ -281,6 +294,47 @@ class _ControlPanelBridge(QObject):
     def _find_provider(self, provider_id: str) -> ProviderConfig | None:
         return next((provider for provider in self._config.providers if provider.id == provider_id), None)
 
+    def _find_provider_model(self, provider: ProviderConfig, model_text: str) -> ProviderModelConfig | None:
+        normalized = _normalize_model_text(model_text)
+        if not normalized:
+            return None
+        lowered = normalized.casefold()
+        return next(
+            (
+                model
+                for model in provider.models
+                if model.id.casefold() == lowered or model.name.casefold() == lowered
+            ),
+            None,
+        )
+
+    def _ensure_provider_model(
+        self,
+        task_name: str,
+        provider: ProviderConfig,
+        model_text: str,
+        capability_text: str = "",
+    ) -> ProviderModelConfig | None:
+        normalized = _normalize_model_text(model_text)
+        if not normalized:
+            return None
+        existing = self._find_provider_model(provider, normalized)
+        if existing is not None:
+            return existing
+        capability = _required_capability(task_name)
+        capabilities = _normalize_capabilities(capability_text)
+        if not capabilities:
+            capabilities = [capability, "text_chat"]
+        elif capability in capabilities and "text_chat" not in capabilities:
+            capabilities.append("text_chat")
+        model = ProviderModelConfig(
+            id=normalized,
+            name=normalized,
+            capabilities=capabilities,
+        )
+        provider.models.append(model)
+        return model
+
     def _clear_messages(self) -> None:
         self._error_message = ""
         self._status_message = ""
@@ -345,6 +399,27 @@ class _ControlPanelBridge(QObject):
             return
         binding.model_id = str(model_id or "").strip()
         self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str, str)
+    def addOrSelectTaskBindingModel(self, task_name: str, model_text: str, capability_text: str) -> None:
+        binding = getattr(self._config.task_model_bindings, task_name, None)
+        if not isinstance(binding, TaskModelBinding):
+            return
+        provider = self._find_provider(binding.provider_id)
+        if provider is None:
+            return
+        required_capability = _required_capability(task_name)
+        model = self._ensure_provider_model(task_name, provider, model_text, capability_text)
+        if model is None:
+            return
+        self._clear_messages()
+        if required_capability in model.capabilities:
+            binding.model_id = model.id
+        else:
+            self._status_message = (
+                f"已添加模型 {model.name}，但当前任务需要 {required_capability} 能力，暂未自动绑定。"
+            )
         self._emit_data_changed()
 
     @pyqtSlot(str)
