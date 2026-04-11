@@ -1,3 +1,4 @@
+from aica import todo_detail_panel as module
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import (
     _MANUAL_SCENARIO,
@@ -6,6 +7,8 @@ from aica.todo_detail_panel import (
     _clamp_panel_position,
     _coerce_dropped_file_paths,
     _resolve_available_geometry,
+    _screen_for_point,
+    _virtual_available_geometry,
 )
 from aica.todo_models import TodoProjectLink
 from aica.todo_store import TimelineEvent, TodoItem
@@ -239,6 +242,166 @@ def test_resolve_available_geometry_accepts_screen_like_object() -> None:
 
     assert _resolve_available_geometry(screen) is screen.geometry
     assert _resolve_available_geometry(screen.geometry) is screen.geometry
+
+
+def test_screen_for_point_prefers_screen_at(monkeypatch) -> None:
+    primary = object()
+    secondary = object()
+
+    monkeypatch.setattr(module.QGuiApplication, "screenAt", staticmethod(lambda _point: secondary))
+    monkeypatch.setattr(module.QApplication, "primaryScreen", staticmethod(lambda: primary))
+
+    assert _screen_for_point(object()) is secondary
+
+
+def test_virtual_available_geometry_unites_screens(monkeypatch) -> None:
+    class _Geometry:
+        def __init__(self, left: int, top: int, right: int, bottom: int) -> None:
+            self._left = left
+            self._top = top
+            self._right = right
+            self._bottom = bottom
+
+        def availableGeometry(self):
+            return self
+
+        def left(self) -> int:
+            return self._left
+
+        def top(self) -> int:
+            return self._top
+
+        def right(self) -> int:
+            return self._right
+
+        def bottom(self) -> int:
+            return self._bottom
+
+        def united(self, other: "_Geometry") -> "_Geometry":
+            return _Geometry(
+                min(self._left, other.left()),
+                min(self._top, other.top()),
+                max(self._right, other.right()),
+                max(self._bottom, other.bottom()),
+            )
+
+    class _Screen:
+        def __init__(self, geometry: _Geometry) -> None:
+            self._geometry = geometry
+
+        def availableGeometry(self):
+            return self._geometry
+
+    screens = [
+        _Screen(_Geometry(0, 0, 1919, 1079)),
+        _Screen(_Geometry(1920, 0, 3839, 1079)),
+    ]
+
+    monkeypatch.setattr(module.QApplication, "screens", staticmethod(lambda: screens))
+    monkeypatch.setattr(module.QApplication, "primaryScreen", staticmethod(lambda: screens[0]))
+
+    available = _virtual_available_geometry()
+
+    assert available.left() == 0
+    assert available.top() == 0
+    assert available.right() == 3839
+    assert available.bottom() == 1079
+
+
+def test_update_panel_drag_keeps_continuous_virtual_coordinates(monkeypatch) -> None:
+    class _Geometry:
+        def __init__(self, left: int, top: int, right: int, bottom: int) -> None:
+            self._left = left
+            self._top = top
+            self._right = right
+            self._bottom = bottom
+
+        def availableGeometry(self):
+            return self
+
+        def left(self) -> int:
+            return self._left
+
+        def top(self) -> int:
+            return self._top
+
+        def right(self) -> int:
+            return self._right
+
+        def bottom(self) -> int:
+            return self._bottom
+
+        def united(self, other: "_Geometry") -> "_Geometry":
+            return _Geometry(
+                min(self._left, other.left()),
+                min(self._top, other.top()),
+                max(self._right, other.right()),
+                max(self._bottom, other.bottom()),
+            )
+
+    class _Screen:
+        def __init__(self, geometry: _Geometry) -> None:
+            self._geometry = geometry
+
+        def availableGeometry(self):
+            return self._geometry
+
+    class _CursorPos:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class _Panel:
+        def __init__(self) -> None:
+            self._drag_active = True
+            self._drag_offset_x = 20
+            self._drag_offset_y = 10
+            self._screen_margin = 20
+            self._calls: list[tuple[int, int]] = []
+
+        def width(self) -> int:
+            return 396
+
+        def height(self) -> int:
+            return 724
+
+        def setPosition(self, x: int, y: int) -> None:
+            self._calls.append((x, y))
+
+        def _move_within_screen(self, x: int, y: int, screen) -> None:
+            available = _resolve_available_geometry(screen)
+            target_x, target_y = _clamp_panel_position(
+                int(x),
+                int(y),
+                panel_width=self.width(),
+                panel_height=self.height(),
+                available_left=available.left(),
+                available_top=available.top(),
+                available_right=available.right(),
+                available_bottom=available.bottom(),
+                margin=self._screen_margin,
+            )
+            self.setPosition(target_x, target_y)
+
+    screens = [
+        _Screen(_Geometry(0, 0, 1919, 1079)),
+        _Screen(_Geometry(1920, 0, 3839, 1079)),
+    ]
+    panel = _Panel()
+
+    monkeypatch.setattr(module.QApplication, "screens", staticmethod(lambda: screens))
+    monkeypatch.setattr(module.QApplication, "primaryScreen", staticmethod(lambda: screens[0]))
+    monkeypatch.setattr(module.QCursor, "pos", staticmethod(lambda: _CursorPos(2400, 120)))
+
+    module.TodoDetailPanel._update_panel_drag(panel)
+
+    assert panel._calls == [(2380, 110)]
 
 
 def test_delete_timeline_entry_persists_removal() -> None:

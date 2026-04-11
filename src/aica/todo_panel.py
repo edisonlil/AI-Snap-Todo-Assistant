@@ -3,12 +3,33 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QCursor
+from PyQt6.QtCore import QObject, QRect, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
 from .todo_store import TodoItem
+
+
+def _screen_for_point(point):
+    screen_at = getattr(QGuiApplication, "screenAt", None)
+    if callable(screen_at):
+        screen = screen_at(point)
+        if screen is not None:
+            return screen
+    return QApplication.primaryScreen()
+
+
+def _virtual_available_geometry() -> QRect | None:
+    screens = QApplication.screens()
+    if not screens:
+        primary = QApplication.primaryScreen()
+        return primary.availableGeometry() if primary is not None else None
+
+    bounds = QRect(screens[0].availableGeometry())
+    for screen in screens[1:]:
+        bounds = bounds.united(screen.availableGeometry())
+    return bounds
 
 
 class _TodoPanelBridge(QObject):
@@ -213,7 +234,7 @@ class TodoPanel(QQuickView):
             self._reposition()
 
     def _reposition(self) -> None:
-        screen = QApplication.primaryScreen()
+        screen = _screen_for_point(self.position())
         if screen is None:
             return
         available = screen.availableGeometry()
@@ -236,11 +257,10 @@ class TodoPanel(QQuickView):
     def _move_drag(self) -> None:
         if self._drag_offset is None:
             return
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            return
-        available = screen.availableGeometry()
         cursor_pos = QCursor.pos()
+        available = _virtual_available_geometry()
+        if available is None:
+            return
         candidate = cursor_pos - self._drag_offset
         x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
         y = min(max(candidate.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
@@ -251,7 +271,7 @@ class TodoPanel(QQuickView):
         if self._drag_offset is None:
             return
         self._drag_offset = None
-        screen = QApplication.primaryScreen()
+        screen = _screen_for_point(QCursor.pos())
         if screen is None:
             return
         available = screen.availableGeometry()

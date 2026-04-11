@@ -137,6 +137,14 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def clipboard():
             return _Clipboard()
 
+        @staticmethod
+        def screenAt(_point):
+            return None
+
+        @staticmethod
+        def screens():
+            return []
+
     class _Context:  # type: ignore[no-redef]
         def setContextProperty(self, *_args, **_kwargs):
             return None
@@ -194,6 +202,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         @staticmethod
         def primaryScreen():
             return None
+
+        @staticmethod
+        def screens():
+            return []
 
         @staticmethod
         def clipboard():
@@ -337,6 +349,36 @@ def _clamp_panel_position(
     clamped_x = max(available_left + margin, min(x, max_x))
     clamped_y = max(available_top + margin, min(y, max_y))
     return clamped_x, clamped_y
+
+
+def _screen_for_point(point):
+    screen_at = getattr(QGuiApplication, "screenAt", None)
+    if callable(screen_at):
+        screen = screen_at(point)
+        if screen is not None:
+            return screen
+    return QApplication.primaryScreen()
+
+
+def _virtual_available_geometry():
+    screens = QApplication.screens()
+    if not screens:
+        primary = QApplication.primaryScreen()
+        return primary.availableGeometry() if primary is not None else None
+
+    bounds = _resolve_available_geometry(screens[0])
+    if bounds is None:
+        return None
+    for screen in screens[1:]:
+        geometry = _resolve_available_geometry(screen)
+        if geometry is None:
+            continue
+        united = getattr(bounds, "united", None)
+        if callable(united):
+            bounds = united(geometry)
+        else:
+            return geometry
+    return bounds
 
 
 def _resolve_available_geometry(screen_or_geometry):
@@ -1086,17 +1128,27 @@ class TodoDetailPanel(QQuickView):
         self.requestActivate()
 
     def _reposition(self, anchor_rect=None) -> None:
-        screen = QApplication.primaryScreen()
+        if anchor_rect is not None:
+            screen = _screen_for_point(anchor_rect.center())
+        else:
+            screen = QApplication.primaryScreen()
         if screen is None:
             return
-        available = screen.availableGeometry()
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
         if anchor_rect is None:
             x = available.right() - self.width() - self._screen_margin
             y = available.top() + self._screen_margin
         else:
-            x = anchor_rect.left() - self.width() - self._anchor_gap
-            if x < available.left() + self._screen_margin:
-                x = anchor_rect.right() + self._anchor_gap
+            left_x = anchor_rect.left() - self.width() - self._anchor_gap
+            right_x = anchor_rect.right() + self._anchor_gap
+            if left_x >= available.left() + self._screen_margin:
+                x = left_x
+            elif right_x + self.width() <= available.right() - self._screen_margin:
+                x = right_x
+            else:
+                x = left_x
             x = max(
                 available.left() + self._screen_margin,
                 min(x, available.right() - self.width() - self._screen_margin),
@@ -1115,18 +1167,10 @@ class TodoDetailPanel(QQuickView):
         cursor_pos = QCursor.pos()
         x = cursor_pos.x() - self._drag_offset_x
         y = cursor_pos.y() - self._drag_offset_y
-        self._move_within_screen(x, y, self._screen_for_point(cursor_pos))
+        self._move_within_screen(x, y, _virtual_available_geometry())
 
     def _finish_panel_drag(self) -> None:
         self._drag_active = False
-
-    def _screen_for_point(self, point: QPoint):
-        screen_at = getattr(QGuiApplication, "screenAt", None)
-        if callable(screen_at):
-            screen = screen_at(point)
-            if screen is not None:
-                return screen
-        return QApplication.primaryScreen()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
