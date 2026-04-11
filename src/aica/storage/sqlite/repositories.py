@@ -9,6 +9,7 @@ from typing import Any
 
 from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
+from aica.project_management import is_project_active
 from aica.storage.adapters import (
     build_project_link,
     build_todo_item,
@@ -58,9 +59,7 @@ def _load_schema_sql() -> str:
 
 
 def _is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
-    normalized_end = sanitize_text(support_ended_at)
-    current_time = sanitize_text(now) or now_iso()
-    return not normalized_end or normalized_end >= current_time
+    return is_project_active(support_ended_at, now=now)
 
 
 def _build_project_record(

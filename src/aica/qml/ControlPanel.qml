@@ -23,6 +23,10 @@ Rectangle {
     readonly property color successBg: "#E7F5ED"
     readonly property color successInk: "#17663A"
     readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property var projectLevelOptions: [
+        { value: "normal", text: "常规" },
+        { value: "important", text: "重要" }
+    ]
     property var projectDraft: emptyProjectDraft()
     property string projectAliasInput: ""
 
@@ -112,6 +116,27 @@ Rectangle {
         projectDraft = next
     }
 
+    function normalizedProjectLevel(value) {
+        var text = (value || "").toString().toLowerCase()
+        if (text === "important" || value === "重要") {
+            return "important"
+        }
+        return "normal"
+    }
+
+    function displayProjectDate(value) {
+        var text = (value || "").toString()
+        if (!text.length) {
+            return ""
+        }
+        if (text.indexOf("T") >= 0) {
+            text = text.split("T")[0]
+        } else if (text.indexOf(" ") >= 0) {
+            text = text.split(" ")[0]
+        }
+        return text.replace(/-/g, "/")
+    }
+
     function addProjectAlias() {
         var alias = (projectAliasInput || "").trim()
         if (!alias.length) {
@@ -139,6 +164,13 @@ Rectangle {
         }
         next.aliases = updatedAliases
         projectDraft = next
+    }
+
+    Connections {
+        target: controlPanelBridge
+        function onProjectDateSelected(fieldName, value) {
+            root.updateProjectDraft(fieldName, value)
+        }
     }
 
     component PlainButton: Rectangle {
@@ -1475,26 +1507,93 @@ Rectangle {
                                                         Layout.fillWidth: true
                                                         spacing: 10
 
-                                                        SettingsInput {
+                                                        Rectangle {
                                                             Layout.fillWidth: true
-                                                            text: root.projectDraft.followUpStartedAt
-                                                            placeholderText: "跟进开始时间"
-                                                            onTextEdited: root.updateProjectDraft("followUpStartedAt", text)
-                                                        }
+                                                            implicitHeight: 44
+                                                            radius: 16
+                                                            color: "#FFFEFC"
+                                                            border.width: 1
+                                                            border.color: root.panelLine
 
-                                                        SettingsInput {
-                                                            Layout.fillWidth: true
-                                                            text: root.projectDraft.supportEndedAt
-                                                            placeholderText: "过保时间"
-                                                            onTextEdited: root.updateProjectDraft("supportEndedAt", text)
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                anchors.left: parent.left
+                                                                anchors.leftMargin: 14
+                                                                anchors.right: parent.right
+                                                                anchors.rightMargin: 38
+                                                                text: root.displayProjectDate(root.projectDraft.followUpStartedAt) || "跟进开始日期"
+                                                                color: root.displayProjectDate(root.projectDraft.followUpStartedAt).length > 0 ? root.titleInk : root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 12
+                                                                elide: Text.ElideRight
+                                                            }
+
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                anchors.right: parent.right
+                                                                anchors.rightMargin: 14
+                                                                text: "▾"
+                                                                color: root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 12
+                                                            }
+
+                                                            MouseArea {
+                                                                anchors.fill: parent
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", root.projectDraft.followUpStartedAt)
+                                                            }
                                                         }
                                                     }
 
-                                                    SettingsInput {
+                                                    RowLayout {
                                                         Layout.fillWidth: true
-                                                        text: root.projectDraft.projectLevel
-                                                        placeholderText: "项目级别"
-                                                        onTextEdited: root.updateProjectDraft("projectLevel", text)
+                                                        spacing: 10
+
+                                                        Rectangle {
+                                                            Layout.fillWidth: true
+                                                            implicitHeight: 44
+                                                            radius: 16
+                                                            color: "#FFFEFC"
+                                                            border.width: 1
+                                                            border.color: root.panelLine
+
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                anchors.left: parent.left
+                                                                anchors.leftMargin: 14
+                                                                anchors.right: parent.right
+                                                                anchors.rightMargin: 38
+                                                                text: root.displayProjectDate(root.projectDraft.supportEndedAt) || "过保日期"
+                                                                color: root.displayProjectDate(root.projectDraft.supportEndedAt).length > 0 ? root.titleInk : root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 12
+                                                                elide: Text.ElideRight
+                                                            }
+
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                anchors.right: parent.right
+                                                                anchors.rightMargin: 14
+                                                                text: "▾"
+                                                                color: root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 12
+                                                            }
+
+                                                            MouseArea {
+                                                                anchors.fill: parent
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", root.projectDraft.supportEndedAt)
+                                                            }
+                                                        }
+                                                    }
+
+                                                    SettingsCombo {
+                                                        Layout.fillWidth: true
+                                                        model: root.projectLevelOptions
+                                                        currentIndex: root.optionIndex(root.projectLevelOptions, root.normalizedProjectLevel(root.projectDraft.projectLevel))
+                                                        onActivated: if (currentIndex >= 0) root.updateProjectDraft("projectLevel", root.projectLevelOptions[currentIndex].value)
                                                     }
 
                                                     Flow {

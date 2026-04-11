@@ -5,7 +5,7 @@ import csv
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +36,7 @@ PROJECT_TEMPLATE_CONTENT = (
     "task_order_no,project_name,customer_name,product_line,product_version,"
     "project_manager,follow_up_started_at,support_ended_at,project_level,group_aliases\n"
     "WO-2026-001,示例项目,示例客户,客服中台,v3.1,张三,2026-01-01T09:00:00,"
-    "2099-12-31T23:59:59,normal,\"示例客户群A;示例客户群B\"\n"
+    "2099-12-31T23:59:59,常规,\"示例客户群A;示例客户群B\"\n"
 )
 
 
@@ -65,10 +65,40 @@ def build_project_template_content() -> str:
     return PROJECT_TEMPLATE_CONTENT
 
 
+def normalize_project_level(value: str) -> str:
+    text = sanitize_text(value).casefold()
+    if text in {"重要", "important", "high", "critical"}:
+        return "important"
+    return "normal"
+
+
+def _parse_datetime_value(value: str, *, end_of_day: bool = False) -> datetime | None:
+    text = sanitize_text(value)
+    if not text:
+        return None
+    normalized = text.replace("/", "-")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        try:
+            parsed_date = datetime.strptime(normalized, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        parsed = datetime.combine(parsed_date, time.max if end_of_day else time.min)
+    else:
+        if "T" not in normalized and " " not in normalized:
+            parsed = datetime.combine(parsed.date(), time.max if end_of_day else time.min)
+    return parsed
+
+
 def is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
-    normalized_end = sanitize_text(support_ended_at)
-    current_time = sanitize_text(now) or _now_iso()
-    return not normalized_end or normalized_end >= current_time
+    parsed_end = _parse_datetime_value(support_ended_at, end_of_day=True)
+    if parsed_end is None:
+        normalized_end = sanitize_text(support_ended_at)
+        current_time = sanitize_text(now) or _now_iso()
+        return not normalized_end or normalized_end >= current_time
+    parsed_now = _parse_datetime_value(sanitize_text(now) or _now_iso()) or datetime.now()
+    return parsed_end >= parsed_now
 
 
 @dataclass(frozen=True)
@@ -189,7 +219,7 @@ def load_project_import_rows(path: str | Path) -> tuple[list[ProjectImportRow], 
                 project_manager=normalized_row.get("project_manager", ""),
                 follow_up_started_at=normalized_row.get("follow_up_started_at", ""),
                 support_ended_at=normalized_row.get("support_ended_at", ""),
-                project_level=normalized_row.get("project_level", "") or "normal",
+                project_level=normalize_project_level(normalized_row.get("project_level", "") or "normal"),
                 aliases=split_project_aliases(normalized_row.get("group_aliases", "")),
             )
         )
@@ -207,7 +237,9 @@ def merge_project_record(existing: ProjectRecord | None, row: ProjectImportRow) 
         product_line=row.product_line or (existing.product_line if existing is not None else ""),
         product_version=row.product_version or (existing.product_version if existing is not None else ""),
         project_manager=row.project_manager or (existing.project_manager if existing is not None else ""),
-        project_level=row.project_level or (existing.project_level if existing is not None else "normal"),
+        project_level=normalize_project_level(
+            row.project_level or (existing.project_level if existing is not None else "normal")
+        ),
         aliases=row.aliases,
         created_at=existing.created_at if existing is not None else _now_iso(),
         updated_at=_now_iso(),
@@ -235,7 +267,9 @@ def project_record_from_payload(payload: dict[str, Any], existing: ProjectRecord
         product_line=sanitize_text(payload.get("productLine") or payload.get("product_line")),
         product_version=sanitize_text(payload.get("productVersion") or payload.get("product_version")),
         project_manager=sanitize_text(payload.get("projectManager") or payload.get("project_manager")),
-        project_level=sanitize_text(payload.get("projectLevel") or payload.get("project_level")) or "normal",
+        project_level=normalize_project_level(
+            sanitize_text(payload.get("projectLevel") or payload.get("project_level")) or "normal"
+        ),
         aliases=aliases,
         created_at=existing.created_at if existing is not None else _now_iso(),
         updated_at=_now_iso(),

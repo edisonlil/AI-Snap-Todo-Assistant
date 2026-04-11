@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QDate, QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtQuickWidgets import QQuickWidget
-from PyQt6.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
 
 from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
@@ -132,6 +132,23 @@ def _build_speed_hint(model_name: str, summary: ModelLatencySummary | None) -> s
     return "该模型近期平均耗时偏长，通常更适合重质量场景；若更看重速度，可优先比较 Instruct/Flash 类模型。"
 
 
+def _parse_project_date(value: str) -> QDate:
+    text = str(value or "").strip().replace("/", "-")
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    if " " in text:
+        text = text.split(" ", 1)[0]
+    parsed = QDate.fromString(text, "yyyy-MM-dd")
+    return parsed if parsed.isValid() else QDate.currentDate()
+
+
+def _serialize_project_date(field_name: str, selected_date: QDate) -> str:
+    normalized_date = selected_date.toString("yyyy-MM-dd")
+    if field_name == "supportEndedAt":
+        return f"{normalized_date}T23:59:59"
+    return f"{normalized_date}T00:00:00"
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -139,6 +156,7 @@ class _ControlPanelBridge(QObject):
     minimizeRequested = pyqtSignal()
     dragRequested = pyqtSignal()
     configSaved = pyqtSignal(object)
+    projectDateSelected = pyqtSignal(str, str)
 
     def __init__(self, config_manager: ConfigManager) -> None:
         super().__init__()
@@ -773,6 +791,34 @@ class _ControlPanelBridge(QObject):
         self._include_expired_projects = bool(include_expired)
         self._refresh_project_payloads()
         self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def chooseProjectDate(self, field_name: str, current_value: str) -> None:
+        normalized_field = str(field_name or "").strip()
+        if normalized_field not in {"followUpStartedAt", "supportEndedAt"}:
+            return
+        dialog = QDialog()
+        dialog.setWindowTitle("选择日期")
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        calendar = QCalendarWidget(dialog)
+        calendar.setSelectedDate(_parse_project_date(current_value))
+        layout.addWidget(calendar)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.projectDateSelected.emit(
+            normalized_field,
+            _serialize_project_date(normalized_field, calendar.selectedDate()),
+        )
 
     @pyqtSlot("QVariantMap")
     def saveProject(self, payload: object) -> None:
