@@ -42,6 +42,7 @@
 - `updated`
 - `completed`
 - `deleted`
+- `manual_sync`
 
 触发规则：
 
@@ -50,6 +51,7 @@
 - `update_todo()` 编辑保存成功后发布 `updated`
 - `complete_todo()` 成功后发布 `completed`
 - `delete_todo()` 成功后发布 `deleted`
+- 待办详情里的“立即同步 / 重新同步”按钮会发布 `manual_sync`
 
 删除动作特殊处理：
 
@@ -146,6 +148,7 @@
 - `updated`：`{"changed_fields":["title","current_summary","summary_fields","timeline"]}` 的子集
 - `completed`：`{"status_change":{"from":"open","to":"done"}}`
 - `deleted`：`{"deleted":true}`
+- `manual_sync`：`{"trigger":"manual"}`
 
 ### `bindings`
 
@@ -329,8 +332,9 @@
 - 这里的“只会发送”是指主程序会在调用脚本前先检查 binding
 - 如果检查未通过，脚本进程不会启动，因此外部脚本也不会收到这次事件
 - 所以当你发现脚本没有生成日志时，不一定是脚本执行失败，也可能是主程序在脚本启动前就已经跳过了该事件
-- `created` 事件不受这个限制，会直接调用脚本
+- `created` 和 `manual_sync` 事件不受这个限制，会直接调用脚本
 - 通常需要先让 `created` 事件成功回传 `external_id`，后续 `appended / updated / completed / deleted` 才会继续进入脚本
+- 如果需要补绑或重试同步，可以直接触发 `manual_sync`
 
 ## 删除语义
 

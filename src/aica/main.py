@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QRect, QTimer
@@ -13,6 +14,7 @@ from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis_flow import AnalysisFlowCoordinator
+from aica.analysis_metrics import AnalysisMetricsStore
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
@@ -41,16 +43,46 @@ from aica.worker import (
 )
 
 
-def _setup_exception_handler() -> None:
+def _resolve_error_log_file() -> Path:
+    candidates = [error_log_file()]
+    local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "AICA" / "error.log")
+    temp_dir = os.getenv("TEMP", "").strip() or os.getenv("TMP", "").strip()
+    if temp_dir:
+        candidates.append(Path(temp_dir) / "AICA" / "error.log")
+    candidates.append(Path.cwd() / "aica_error.log")
+
+    for candidate in candidates:
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except Exception:
+            continue
+    return Path.cwd() / "aica_error.log"
+
+
+def _append_startup_log(log_file: Path, message: str) -> None:
+    try:
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{datetime.now().isoformat()}] {message}\n")
+    except Exception:
+        pass
+
+
+def _setup_exception_handler() -> Path:
     """Install a global exception hook and persist uncaught errors to disk."""
-    log_file = error_log_file()
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file = _resolve_error_log_file()
+    _append_startup_log(log_file, "startup: exception handler ready")
 
     def exception_hook(exc_type, exc_value, exc_tb):
-        with log_file.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n{'=' * 60}\n")
-            handle.write(f"时间: {datetime.now().isoformat()}\n")
-            handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        try:
+            with log_file.open("a", encoding="utf-8") as handle:
+                handle.write(f"\n{'=' * 60}\n")
+                handle.write(f"时间: {datetime.now().isoformat()}\n")
+                handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        except Exception:
+            pass
 
         QMessageBox.critical(
             None,
@@ -59,6 +91,7 @@ def _setup_exception_handler() -> None:
         )
 
     sys.excepthook = exception_hook
+    return log_file
 
 
 def _format_ts(value: str) -> str:
@@ -79,11 +112,13 @@ def main() -> None:
     except Exception:
         pass
 
-    _setup_exception_handler()
+    startup_log_file = _setup_exception_handler()
+    _append_startup_log(startup_log_file, "startup: main entered")
 
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    _append_startup_log(startup_log_file, "startup: QApplication ready")
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
@@ -108,6 +143,7 @@ def main() -> None:
     toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
+    analysis_metrics_store = AnalysisMetricsStore()
     feedback_workers: list[FeedbackOptimizeWorker] = []
     plan_export_workers: list[PlanExportWorker] = []
     capture_ui = CaptureUiFlow(
@@ -116,8 +152,13 @@ def main() -> None:
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
-    tray_icon = QSystemTrayIcon(QIcon(str(icon_file())), app)
+    tray_icon_path = icon_file()
+    tray_icon = QSystemTrayIcon(QIcon(str(tray_icon_path)), app)
     tray_icon.setToolTip("AICA")
+    _append_startup_log(
+        startup_log_file,
+        f"startup: tray icon path={tray_icon_path} exists={tray_icon_path.exists()}",
+    )
 
     def _show_control_panel(section_id: str = "models") -> None:
         control_panel.show_panel(section_id)
@@ -247,6 +288,9 @@ def main() -> None:
     def _clear_capture_state() -> None:
         capture_ui.clear_capture_state(_refresh_todo_panel)
 
+    def _release_capture_mode() -> None:
+        capture_ui.release_capture_mode(_refresh_todo_panel)
+
     def _restore_toolbar_for_current_capture() -> None:
         capture_ui.restore_toolbar_for_current_capture()
 
@@ -268,15 +312,12 @@ def main() -> None:
         analysis_ref = llm_service.resolve_task_model("analysis").reference
         plan_export_ref = llm_service.resolve_task_model("plan_export").reference
         prompt_ref = llm_service.resolve_task_model("prompt_optimization").reference
-        timeout_seconds = max(
-            analysis_ref.timeout_seconds,
-            plan_export_ref.timeout_seconds,
-            prompt_ref.timeout_seconds,
-        )
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
-            timeout_seconds=timeout_seconds,
+            analysis_timeout_seconds=analysis_ref.timeout_seconds,
+            plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
+            prompt_optimization_timeout_seconds=prompt_ref.timeout_seconds,
         )
 
     def _on_feedback_optimization_finished(summary: dict) -> None:
@@ -314,7 +355,7 @@ def main() -> None:
 
         worker = FeedbackOptimizeWorker(
             runtime_config.llm_service,
-            runtime_config.timeout_seconds,
+            runtime_config.prompt_optimization_timeout_seconds,
             feedback,
         )
         feedback_workers.append(worker)
@@ -356,7 +397,7 @@ def main() -> None:
         worker = PlanExportWorker(
             config.llm_service,
             config.llm_service.describe_task_model("plan_export"),
-            config.timeout_seconds,
+            config.plan_export_timeout_seconds,
             payload,
             export_path,
         )
@@ -403,10 +444,11 @@ def main() -> None:
             _show_missing_settings_message()
         return None
 
-    def _handle_analysis_finished(result, feedback_image_base64: str) -> None:
+    def _handle_analysis_finished(result, feedback_image_base64: str, analysis_stats=None) -> None:
         result_flow.handle_ai_finished(
             result,
             feedback_image_base64=feedback_image_base64,
+            analysis_stats=analysis_stats,
         )
 
     analysis_flow = AnalysisFlowCoordinator(
@@ -423,6 +465,7 @@ def main() -> None:
         single_worker_factory=AIWorker,
         multi_worker_factory=MultiCaptureAIWorker,
         show_warning=lambda title, message: QMessageBox.warning(None, title, message),
+        record_analysis_metrics=lambda stats, success: analysis_metrics_store.record(stats, success=success),
     )
 
     def _on_summarize() -> None:
@@ -436,9 +479,7 @@ def main() -> None:
     def _on_continue_capture() -> None:
         if not _queue_current_capture():
             return
-        _hide_overlays(reset=True)
-        toolbar.hide()
-        QTimer.singleShot(50, _show_overlays)
+        _release_capture_mode()
 
     def _on_cancel() -> None:
         _clear_capture_state()
@@ -526,6 +567,14 @@ def main() -> None:
             todo_detail_panel.hide()
         _refresh_todo_panel()
 
+    def _on_todo_detail_manual_sync(todo_id: str) -> None:
+        event = todo_controller.build_manual_sync_event(todo_id)
+        if event is None:
+            return
+        todo_event_bus.dispatch(event, async_dispatch=True)
+        _show_todo_detail(todo_id)
+        _refresh_todo_panel()
+
     def _on_control_panel_saved(saved_config) -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
@@ -551,14 +600,29 @@ def main() -> None:
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
     todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
+    todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
 
     try:
         _refresh_todo_panel()
         if QSystemTrayIcon.isSystemTrayAvailable():
             tray_icon.show()
+            _append_startup_log(startup_log_file, "startup: tray icon shown")
         else:
+            _append_startup_log(startup_log_file, "startup: system tray unavailable")
             _show_control_panel("models")
-        hotkey_mgr.start()
+        try:
+            hotkey_mgr.start()
+            _append_startup_log(startup_log_file, "startup: hotkey listener started")
+        except Exception as exc:
+            _append_startup_log(
+                startup_log_file,
+                f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
+            )
+            QMessageBox.warning(
+                None,
+                "???????",
+                f"???????????????????\n???????????????????\n\n??: {startup_log_file}\n{exc}",
+            )
         sys.exit(app.exec())
     finally:
         tray_icon.hide()

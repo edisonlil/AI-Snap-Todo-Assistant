@@ -108,6 +108,7 @@ class TodoDomainEventType(StrEnum):
     UPDATED = "updated"
     COMPLETED = "completed"
     DELETED = "deleted"
+    MANUAL_SYNC = "manual_sync"
 
 
 @dataclass
@@ -256,6 +257,18 @@ class TodoDomainEvent:
             todo_id=todo.id,
             todo_snapshot=serialize_todo_item(todo),
             delta={"deleted": True},
+        )
+
+    @classmethod
+    def manual_sync(cls, todo: TodoItem, scenario: str) -> TodoDomainEvent:
+        return cls(
+            event_id=str(uuid.uuid4()),
+            event_type=TodoDomainEventType.MANUAL_SYNC,
+            occurred_at=_now_iso(),
+            scenario=_sanitize_text(scenario),
+            todo_id=todo.id,
+            todo_snapshot=serialize_todo_item(todo),
+            delta={"trigger": "manual"},
         )
 
     def with_bindings(self, bindings: list[dict[str, Any]]) -> TodoDomainEvent:
@@ -538,13 +551,17 @@ class TodoEventBus(TodoEventPublisher):
         self._async_dispatch = async_dispatch
 
     def publish(self, event: TodoDomainEvent) -> None:
+        self.dispatch(event)
+
+    def dispatch(self, event: TodoDomainEvent, *, async_dispatch: bool | None = None) -> None:
         if not self._handlers:
             return
         dispatch_event = event
         if self._binding_store is not None:
             dispatch_event = event.with_bindings(self._binding_store.list_binding_payloads(event.todo_id))
+        should_dispatch_async = self._async_dispatch if async_dispatch is None else async_dispatch
         for handler in self._handlers:
-            if self._async_dispatch:
+            if should_dispatch_async:
                 worker = threading.Thread(
                     target=self._safe_handle,
                     args=(handler, dispatch_event),
@@ -575,7 +592,7 @@ class ScriptEventHandler(TodoEventHandler):
     def handle(self, event: TodoDomainEvent) -> None:
         for integration in self._integration_registry.list_integrations():
             if (
-                event.event_type != TodoDomainEventType.CREATED
+                self._requires_existing_binding(event.event_type)
                 and not self._binding_store.has_binding(event.todo_id, integration.id)
             ):
                 self._binding_store.update_sync_status(
@@ -590,6 +607,13 @@ class ScriptEventHandler(TodoEventHandler):
                 )
                 continue
             self._handle_integration(event, integration)
+
+    @staticmethod
+    def _requires_existing_binding(event_type: TodoDomainEventType) -> bool:
+        return event_type not in {
+            TodoDomainEventType.CREATED,
+            TodoDomainEventType.MANUAL_SYNC,
+        }
 
     def _handle_integration(self, event: TodoDomainEvent, integration: TodoIntegrationConfig) -> None:
         raw_payload = event.to_dict()

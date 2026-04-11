@@ -3,6 +3,25 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+_PROVIDER_SAFE_IMAGE_LIMITS = {
+    "dashscope": 768 * 1024,
+}
+
+
+def _resolve_analysis_image_limit(config: Any) -> int:
+    configured_limit = max(1, int(getattr(config.app_config, "max_image_bytes", 4 * 1024 * 1024)))
+    llm_service = getattr(config, "llm_service", None)
+    if llm_service is None or not hasattr(llm_service, "resolve_task_model"):
+        return configured_limit
+    try:
+        provider_id = llm_service.resolve_task_model("analysis").reference.provider_id
+    except Exception:
+        return configured_limit
+    safe_limit = _PROVIDER_SAFE_IMAGE_LIMITS.get(str(provider_id or "").strip())
+    if safe_limit is None:
+        return configured_limit
+    return min(configured_limit, safe_limit)
+
 
 class AnalysisFlowCoordinator:
     """Owns analysis start, worker selection, and error recovery."""
@@ -19,12 +38,13 @@ class AnalysisFlowCoordinator:
         ensure_api_key_configured: Callable[[], Any | None],
         hide_overlays: Callable[..., None],
         restore_toolbar_for_current_capture: Callable[[], None],
-        on_finished: Callable[[object, str], None],
+        on_finished: Callable[[object, str, Any | None], None],
         single_worker_factory: Callable[..., Any] | None = None,
         multi_worker_factory: Callable[..., Any] | None = None,
         show_critical: Callable[[str, str], None] | None = None,
         show_warning: Callable[[str, str], None] | None = None,
         copy_to_clipboard: Callable[[str], None] | None = None,
+        record_analysis_metrics: Callable[[Any, bool], None] | None = None,
     ):
         self._capture_session = capture_session
         self._toolbar = toolbar
@@ -41,6 +61,7 @@ class AnalysisFlowCoordinator:
         self._show_critical = show_critical
         self._show_warning = show_warning
         self._copy_to_clipboard = copy_to_clipboard
+        self._record_analysis_metrics = record_analysis_metrics
         self._current_worker: Any | None = None
         self._capture_locked = False
 
@@ -63,16 +84,15 @@ class AnalysisFlowCoordinator:
         analysis_intent = self._get_analysis_intent(len(images)) if self._get_analysis_intent is not None else None
         context_text = self._get_analysis_context() if self._get_analysis_context is not None else ""
         analysis_model_label = config.llm_service.describe_task_model("analysis")
-        title_model_label = config.llm_service.describe_task_model("title_generation")
         worker_kwargs = dict(
             llm_service=config.llm_service,
             model_label=analysis_model_label,
-            title_generation_model=title_model_label,
-            timeout=config.timeout_seconds,
+            timeout=config.analysis_timeout_seconds,
             prompt_manager=self._prompt_manager,
             scenario=scenario,
             analysis_intent=analysis_intent,
             context_text=context_text,
+            max_image_bytes=_resolve_analysis_image_limit(config),
         )
         if len(images) == 1:
             return self._single_worker_factory(images[0], **worker_kwargs)
@@ -113,12 +133,18 @@ class AnalysisFlowCoordinator:
     def _handle_finished(self, result) -> None:
         self._toolbar.set_loading(False)
         feedback_image_base64 = getattr(self._current_worker, "_feedback_image_base64", "")
+        analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         self._capture_locked = False
-        self._on_finished(result, feedback_image_base64)
+        if analysis_stats is not None and self._record_analysis_metrics is not None:
+            self._record_analysis_metrics(analysis_stats, True)
+        self._on_finished(result, feedback_image_base64, analysis_stats)
 
     def _handle_error(self, message: str) -> None:
         self._toolbar.set_loading(False)
+        analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         self._capture_locked = False
+        if analysis_stats is not None and self._record_analysis_metrics is not None:
+            self._record_analysis_metrics(analysis_stats, False)
         if self._show_critical is None:
             from PyQt6.QtWidgets import QMessageBox
 
@@ -136,7 +162,10 @@ class AnalysisFlowCoordinator:
             self._copy_to_clipboard(raw_text)
 
         self._toolbar.set_loading(False)
+        analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         self._capture_locked = False
+        if analysis_stats is not None and self._record_analysis_metrics is not None:
+            self._record_analysis_metrics(analysis_stats, False)
         warning_message = "AI 返回格式异常，已将原始内容写入剪贴板"
         if self._show_warning is None:
             from PyQt6.QtWidgets import QMessageBox

@@ -9,6 +9,11 @@ from aica.paths import config_file as default_config_file
 
 
 DEFAULT_CAPTURE_HOTKEY = "Alt+A"
+_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+_DASHSCOPE_MODEL_ALIASES = {
+    "qwen-vl-max-latest": "qwen-vl-max",
+    "qwen-plus-latest": "qwen-plus",
+}
 
 
 @dataclass
@@ -85,7 +90,6 @@ class TaskModelBinding:
 @dataclass
 class TaskModelBindings:
     analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
-    title_generation: TaskModelBinding = field(default_factory=TaskModelBinding)
     plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
     prompt_optimization: TaskModelBinding = field(default_factory=TaskModelBinding)
 
@@ -95,7 +99,6 @@ class TaskModelBindings:
             return default_task_model_bindings()
         return cls(
             analysis=TaskModelBinding.from_dict(data.get("analysis")),
-            title_generation=TaskModelBinding.from_dict(data.get("title_generation")),
             plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
             prompt_optimization=TaskModelBinding.from_dict(data.get("prompt_optimization")),
         )
@@ -148,6 +151,25 @@ def default_provider_configs() -> list[ProviderConfig]:
             ],
         ),
         ProviderConfig(
+            id="dashscope",
+            kind="openai_compatible",
+            name="阿里云百炼",
+            base_url=_DASHSCOPE_BASE_URL,
+            timeout_seconds=30,
+            models=[
+                ProviderModelConfig(
+                    id="qwen-vl-max",
+                    name="qwen-vl-max",
+                    capabilities=["vision_chat", "text_chat"],
+                ),
+                ProviderModelConfig(
+                    id="qwen-plus",
+                    name="qwen-plus",
+                    capabilities=["text_chat"],
+                ),
+            ],
+        ),
+        ProviderConfig(
             id="minmax",
             kind="openai_compatible",
             name="MiniMax",
@@ -186,20 +208,23 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
     if default_provider_id == "gemini":
         return TaskModelBindings(
             analysis=_binding("gemini", "gemini-2.5-flash"),
-            title_generation=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
             prompt_optimization=_binding("gemini", "gemini-2.5-flash"),
+        )
+    if default_provider_id == "dashscope":
+        return TaskModelBindings(
+            analysis=_binding("dashscope", "qwen-vl-max"),
+            plan_export=_binding("dashscope", "qwen-vl-max"),
+            prompt_optimization=_binding("dashscope", "qwen-vl-max"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
             analysis=_binding("siliconflow", "qwen25-vl-72b"),
-            title_generation=_binding("minmax", "minimax-m2-5"),
             plan_export=_binding("siliconflow", "qwen25-vl-72b"),
             prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
         )
     return TaskModelBindings(
         analysis=_binding("siliconflow", "qwen25-vl-72b"),
-        title_generation=_binding("siliconflow", "qwen3-8b"),
         plan_export=_binding("siliconflow", "qwen25-vl-72b"),
         prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
     )
@@ -239,6 +264,8 @@ def _normalize_provider_configs(providers: list[ProviderConfig], default_provide
             provider.models = default_provider.models
         if provider.timeout_seconds <= 0:
             provider.timeout_seconds = default_provider.timeout_seconds if default_provider is not None else 30
+        if provider.id == "dashscope":
+            _normalize_dashscope_provider(provider)
         normalized.append(provider)
 
     if default_provider_id not in seen_ids:
@@ -252,6 +279,19 @@ def _normalize_provider_configs(providers: list[ProviderConfig], default_provide
             normalized.append(provider)
 
     return normalized
+
+
+def _normalize_dashscope_provider(provider: ProviderConfig) -> None:
+    if provider.base_url.rstrip("/").endswith("/compatible-mode/v1"):
+        provider.base_url = _DASHSCOPE_BASE_URL
+    elif not provider.base_url:
+        provider.base_url = _DASHSCOPE_BASE_URL
+
+    for model in provider.models:
+        canonical_id = _DASHSCOPE_MODEL_ALIASES.get(model.id, model.id)
+        canonical_name = _DASHSCOPE_MODEL_ALIASES.get(model.name, model.name)
+        model.id = canonical_id
+        model.name = canonical_name
 
 
 def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[ProviderConfig], default_provider_id: str) -> TaskModelBindings:
@@ -269,7 +309,6 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
 
     return TaskModelBindings(
         analysis=normalize(bindings.analysis, defaults.analysis, "vision_chat"),
-        title_generation=normalize(bindings.title_generation, defaults.title_generation, "text_chat"),
         plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
         prompt_optimization=normalize(bindings.prompt_optimization, defaults.prompt_optimization, "vision_chat"),
     )
@@ -308,7 +347,6 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     defaults = build_default_config()
     api_key = str(data.get("api_key", "")).strip()
     model_name = str(data.get("model", "")).strip() or defaults.providers[0].models[0].name
-    title_model_name = str(data.get("title_generation_model", "")).strip() or defaults.providers[0].models[1].name
     plan_export_model_name = str(data.get("plan_export_model", "")).strip() or model_name
     api_base_url = str(data.get("api_base_url", "")).strip() or defaults.providers[0].base_url
     timeout_seconds = _coerce_positive_int(data.get("timeout_seconds"), 30)
@@ -319,12 +357,10 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     migrated.providers[0].timeout_seconds = timeout_seconds
     migrated.providers[0].models = [
         ProviderModelConfig(id="analysis-model", name=model_name, capabilities=["vision_chat", "text_chat"]),
-        ProviderModelConfig(id="title-model", name=title_model_name, capabilities=["text_chat"]),
         ProviderModelConfig(id="plan-export-model", name=plan_export_model_name, capabilities=["vision_chat", "text_chat"]),
     ]
     migrated.task_model_bindings = TaskModelBindings(
         analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
-        title_generation=TaskModelBinding(provider_id="siliconflow", model_id="title-model"),
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
         prompt_optimization=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
@@ -342,12 +378,9 @@ def _needs_legacy_migration(data: object) -> bool:
     )
 
 
-_CONFIG_FILE = str(default_config_file())
-
-
 class ConfigManager:
-    def __init__(self, config_path: str = _CONFIG_FILE):
-        self._path = config_path
+    def __init__(self, config_path: str | None = None):
+        self._path = config_path or str(default_config_file())
 
     @property
     def path(self) -> str:

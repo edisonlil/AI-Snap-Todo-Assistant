@@ -213,3 +213,18 @@ def test_update_todo_publishes_updated_event(tmp_path: Path):
     assert event.todo_snapshot["title"] == "new title"
     assert event.todo_snapshot["current_summary"] == "new summary"
     assert event.delta == {"changed_fields": ["title", "current_summary"]}
+
+
+def test_build_manual_sync_event_uses_current_todo_snapshot(tmp_path: Path):
+    controller = _build_controller(tmp_path)
+    created = controller.save_analysis_result(
+        _snapshot("title", "summary", "timeline"),
+        "todo assistant",
+    )
+
+    event = controller.build_manual_sync_event(created.todo.id)
+
+    assert event is not None
+    assert event.event_type == TodoDomainEventType.MANUAL_SYNC
+    assert event.todo_id == created.todo.id
+    assert event.delta == {"trigger": "manual"}

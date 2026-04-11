@@ -1,12 +1,87 @@
-"""Helpers for local data and bundled resource paths."""
+"""Helpers for local data, log, and bundled resource paths."""
 from __future__ import annotations
 
+import json
+import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
-def app_data_dir() -> Path:
+_ENV_HOME = "AICA_HOME"
+_ENV_DATA_DIR = "AICA_DATA_DIR"
+_ENV_LOG_DIR = "AICA_LOG_DIR"
+_STORAGE_CONFIG_NAME = "storage.json"
+
+
+@dataclass(frozen=True)
+class StoragePaths:
+    data_dir: Path
+    log_dir: Path
+
+
+def legacy_app_data_dir() -> Path:
     return Path.home() / ".aica"
+
+
+def storage_config_file() -> Path:
+    return legacy_app_data_dir() / _STORAGE_CONFIG_NAME
+
+
+def _normalize_directory(value: object) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return Path(text).expanduser()
+
+
+def _load_storage_config_payload() -> dict[str, object]:
+    path = storage_config_file()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def storage_paths() -> StoragePaths:
+    env_home = _normalize_directory(os.getenv(_ENV_HOME, ""))
+    env_data_dir = _normalize_directory(os.getenv(_ENV_DATA_DIR, ""))
+    env_log_dir = _normalize_directory(os.getenv(_ENV_LOG_DIR, ""))
+
+    payload = _load_storage_config_payload()
+    configured_data_dir = _normalize_directory(payload.get("data_dir"))
+    configured_log_dir = _normalize_directory(payload.get("log_dir"))
+
+    base_dir = env_home or legacy_app_data_dir()
+    data_dir = env_data_dir or configured_data_dir or base_dir
+    log_dir = env_log_dir or configured_log_dir or data_dir
+    return StoragePaths(data_dir=data_dir, log_dir=log_dir)
+
+
+def save_storage_paths(*, data_dir: str = "", log_dir: str = "") -> StoragePaths:
+    payload: dict[str, str] = {}
+    normalized_data_dir = _normalize_directory(data_dir)
+    normalized_log_dir = _normalize_directory(log_dir)
+    if normalized_data_dir is not None:
+        payload["data_dir"] = str(normalized_data_dir)
+    if normalized_log_dir is not None:
+        payload["log_dir"] = str(normalized_log_dir)
+
+    config_path = storage_config_file()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return storage_paths()
+
+
+def app_data_dir() -> Path:
+    return storage_paths().data_dir
+
+
+def log_dir() -> Path:
+    return storage_paths().log_dir
 
 
 def config_file() -> Path:
@@ -42,7 +117,11 @@ def prompt_history_dir() -> Path:
 
 
 def error_log_file() -> Path:
-    return app_data_dir() / "error.log"
+    return log_dir() / "error.log"
+
+
+def analysis_metrics_file() -> Path:
+    return app_data_dir() / "analysis_metrics.json"
 
 
 def todo_attachments_dir() -> Path:

@@ -5,7 +5,7 @@ import time
 
 import requests
 
-from aica.llm.types import ContentPart, Message, ModelReference
+from aica.llm.types import ContentPart, Message, ModelReference, ProviderInvocationError, ProviderResponse
 
 
 class GeminiProvider:
@@ -19,7 +19,8 @@ class GeminiProvider:
         messages: list[Message],
         temperature: float,
         timeout: int,
-    ) -> str:
+        max_attempts: int,
+    ) -> ProviderResponse:
         url = self._BASE_URL.format(model=model.model_name)
         params = {"key": model.api_key}
         payload = {
@@ -31,22 +32,24 @@ class GeminiProvider:
             payload["systemInstruction"] = system_instruction
 
         response = None
-        for attempt in range(3):
+        actual_attempts = 0
+        for attempt in range(max(1, int(max_attempts))):
+            actual_attempts = attempt + 1
             response = requests.post(url, json=payload, params=params, timeout=timeout)
             if response.status_code == 200:
                 break
-            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == 2:
+            if response.status_code not in self._RETRYABLE_STATUS_CODES or attempt == max_attempts - 1:
                 break
             time.sleep(1.2 * (attempt + 1))
 
         if response is None:
-            raise requests.RequestException("HTTP unknown")
+            raise ProviderInvocationError("HTTP unknown", attempts=actual_attempts or 1)
         if response.status_code != 200:
             response_text = response.text.strip()
             detail = f"HTTP {response.status_code}"
             if response_text:
                 detail = f"{detail}: {response_text[:400]}"
-            raise requests.RequestException(detail)
+            raise ProviderInvocationError(detail, attempts=actual_attempts or 1)
         data = response.json()
         candidates = data.get("candidates", [])
         if not candidates:
@@ -55,7 +58,7 @@ class GeminiProvider:
         texts = [str(part.get("text", "")).strip() for part in parts if str(part.get("text", "")).strip()]
         if not texts:
             raise ValueError("Missing Gemini text response")
-        return "\n".join(texts)
+        return ProviderResponse(text="\n".join(texts), attempts=actual_attempts or 1)
 
     def _build_system_instruction(self, messages: list[Message]) -> dict[str, object] | None:
         system_text = "\n".join(

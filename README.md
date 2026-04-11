@@ -33,6 +33,7 @@
 - 可访问模型供应商接口
   - `openai_compatible`
   - `gemini`
+  - 内置供应商包含 `SiliconFlow`、`阿里云百炼`、`MiniMax` 与 `Google Gemini`
 
 ## 安装
 
@@ -100,6 +101,26 @@ python -m pip install -r requirements-build.txt
         {
           "id": "minimax-m2-5-highspeed",
           "name": "MiniMax-M2.5-highspeed",
+          "capabilities": ["text_chat"]
+        }
+      ]
+    },
+    {
+      "id": "dashscope",
+      "kind": "openai_compatible",
+      "name": "阿里云百炼",
+      "api_key": "",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "timeout_seconds": 30,
+      "models": [
+        {
+          "id": "qwen-vl-max",
+          "name": "qwen-vl-max",
+          "capabilities": ["vision_chat", "text_chat"]
+        },
+        {
+          "id": "qwen-plus",
+          "name": "qwen-plus",
           "capabilities": ["text_chat"]
         }
       ]
@@ -232,6 +253,26 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ## Changelog
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
+### 2026-04-10
+
+- 待办同步体验增强：
+  - 待办详情的同步状态区新增最近同步事件与同步记录展示
+  - 新增 `manual_sync` 事件，支持从待办详情手动触发同步/重试同步
+- 分析链路增强：
+  - 新增分析指标记录能力，补充分析过程数据落盘与对应测试，便于后续排查模型调用与结果质量问题
+  - 新增图片预处理与文本清理工具，进一步稳定截图分析前的数据输入
+  - 调整分析策略说明，补充 `group_name` 信息提取规则
+- 模型与供应商配置升级：
+  - 新增阿里云百炼 `DashScope` 供应商接入，可在控制面板中直接配置并绑定模型
+  - 优化模型配置管理体验，补充相关配置项与测试覆盖
+  - 修复阿里云百炼模型别名兼容与图片大小限制处理，减少因模型名映射或超限导致的分析失败
+- 控制面板与本地存储管理：
+  - 控制面板新增存储路径管理，可集中查看和操作配置、数据等本地目录入口
+  - 本地路径状态管理与路径工具同步完善，补充对应测试用例
+- 运行稳定性与打包修复：
+  - 修复 UPX 压缩相关打包问题，改善可执行文件构建稳定性
+  - 补强主程序异常处理与日志记录，便于定位运行时故障
 
 ### 2026-04-09
 

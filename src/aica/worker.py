@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -67,21 +68,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
 from .analysis_intent import AnalysisIntent, build_analysis_intent
+from .analysis_metrics import AnalysisRunStats
 from .analysis_strategy import build_analysis_system_prompt, build_analysis_text_prompt
 from .feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
-from .image_utils import compress_if_needed
-from .llm.service import LLMService, LLMServiceError
-from .llm.types import ContentPart, Message
+from .image_utils import EncodedImage, encode_image_for_api
+from .llm.service import LLMService, LLMServiceError, TaskExecutionError
+from .llm.types import ContentPart, Message, TaskRunResult
 from .parser import ResultParser
 from .prompt_optimizer import PromptOptimizer
 from .prompts import PromptManager
 
-TITLE_GENERATION_MODEL = "Qwen/Qwen3-8B"
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
-_TITLE_SYSTEM_PROMPT = (
-    "你是一位资深的B端技术支持专家，负责生成最终展示和保存使用的工单标题。"
-    "你的输出会直接进入界面和待办存储，因此必须准确、简洁、专业。"
-)
 _PLAN_EXPORT_SYSTEM_PROMPT = (
     "你是一位资深的B端技术支持与实施专家，负责基于待办上下文输出可执行的处理方案。"
     "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
@@ -241,6 +238,10 @@ class _BaseVisionWorker(QThread):
     parse_error = pyqtSignal(str)
     show_result = pyqtSignal(object, str, str)
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._analysis_stats: AnalysisRunStats | None = None
+
     def _pixmap_to_bytes(self, pixmap: QPixmap) -> bytes:
         byte_array = QByteArray()
         buffer = QBuffer(byte_array)
@@ -253,10 +254,13 @@ class _BaseVisionWorker(QThread):
         img_bytes = self._pixmap_to_bytes(pixmap)
         return base64.b64encode(img_bytes).decode("utf-8")
 
-    def _encode_for_api(self, pixmap: QPixmap) -> str:
+    def _encode_for_api(self, pixmap: QPixmap, *, image_count: int) -> EncodedImage:
         img_bytes = self._pixmap_to_bytes(pixmap)
-        img_bytes = compress_if_needed(img_bytes)
-        return base64.b64encode(img_bytes).decode("utf-8")
+        return encode_image_for_api(
+            img_bytes,
+            image_count=image_count,
+            max_image_bytes=getattr(self, "_max_image_bytes", 4 * 1024 * 1024),
+        )
 
     def _build_combined_preview(self, pixmaps: list[QPixmap]) -> QPixmap:
         if not pixmaps:
@@ -275,61 +279,6 @@ class _BaseVisionWorker(QThread):
         painter.end()
         return combined
 
-    @staticmethod
-    def _normalize_generated_title(text: str) -> str:
-        raw = str(text or "").strip()
-        if not raw:
-            return ""
-
-        md_match = re.search(r"```(?:json|text)?\s*([\s\S]*?)```", raw)
-        if md_match:
-            raw = md_match.group(1).strip()
-
-        if raw.startswith("{"):
-            try:
-                payload = json.loads(raw)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                payload = None
-            if isinstance(payload, dict):
-                raw = str(payload.get("title") or "").strip()
-
-        lines = [line.strip() for line in raw.splitlines() if line.strip()]
-        if lines:
-            raw = lines[0]
-
-        raw = re.sub(r"^(?:标题|工单标题)\s*[:：]\s*", "", raw)
-        return raw.strip("`\"'“”‘’ ")
-
-    @staticmethod
-    def _build_title_generation_messages(result) -> list[Message]:  # noqa: ANN001
-        fields = result.fields
-        user_prompt = (
-            "请根据以下结构化工单信息，生成最终展示和保存使用的工单标题。\n"
-            "只输出标题文本，不要解释，不要 JSON，不要 markdown。\n"
-            "要求：\n"
-            "1. 标题格式优先使用：【关联产品】[触发操作/核心异常点] + [关键报错/现象]。\n"
-            "2. 如果信息同时包含背景、前置条件、排查动作和最终异常现象，优先保留最终用户可见的异常现象。\n"
-            "3. 不要把“上传时未勾选”“确认字体”“检查服务器字体”这类背景或排查动作写成标题主体。\n"
-            "4. 标题控制在 50 字以内，表述专业、准确、可检索。\n\n"
-            f"群聊名称: {fields.group_name}\n"
-            f"环境: {fields.environment}\n"
-            f"产品线: {fields.product_line}\n"
-            f"工单类型: {fields.ticket_type}\n"
-            f"当前摘要: {result.current_summary}\n"
-            f"本次跟进: {result.timeline_entry}"
-        )
-        return [
-            Message(role="system", content=_TITLE_SYSTEM_PROMPT),
-            Message(role="user", content=user_prompt),
-        ]
-
-    def _resolve_title_generation_model(self) -> str:
-        return (
-            getattr(self, "_title_generation_model_display", "")
-            or getattr(self, "_title_generation_model", "")
-            or TITLE_GENERATION_MODEL
-        )
-
     def _run_llm_task(
         self,
         task_name: str,
@@ -345,22 +294,42 @@ class _BaseVisionWorker(QThread):
             timeout=timeout,
         )
 
-    def _generate_title(self, result) -> str:  # noqa: ANN001
-        if not (result.current_summary.strip() or result.timeline_entry.strip()):
-            return result.title.strip()
+    def _run_llm_task_detailed(
+        self,
+        task_name: str,
+        *,
+        messages: list[Message],
+        temperature: float,
+        timeout: int | None = None,
+    ) -> TaskRunResult:
+        return self._llm_service.run_task_detailed(
+            task_name,
+            messages=messages,
+            temperature=temperature,
+            timeout=timeout,
+        )
 
-        try:
-            raw_title = self._run_llm_task(
-                "title_generation",
-                messages=self._build_title_generation_messages(result),
-                temperature=0.1,
-                timeout=min(self._timeout, 20),
-            )
-        except (LLMServiceError, KeyError, TypeError, ValueError):
-            return result.title.strip()
-
-        normalized_title = self._normalize_generated_title(raw_title)
-        return normalized_title or result.title.strip()
+    @staticmethod
+    def _build_analysis_stats(
+        *,
+        run_result: TaskRunResult,
+        preprocess_ms: int,
+        input_bytes: int,
+        image_count: int,
+        latency_ms: int,
+    ) -> AnalysisRunStats:
+        return AnalysisRunStats(
+            provider_id=run_result.reference.provider_id,
+            provider_name=run_result.reference.provider_name,
+            model_id=run_result.reference.model_id,
+            model_name=run_result.reference.model_name,
+            latency_ms=latency_ms,
+            llm_latency_ms=run_result.latency_ms,
+            preprocess_ms=preprocess_ms,
+            attempts=run_result.attempts,
+            image_count=image_count,
+            input_bytes=input_bytes,
+        )
 
 
 def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]:
@@ -622,19 +591,20 @@ class PlanExportWorker(_BaseVisionWorker):
 
 class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, llm_service: LLMService, model_label: str,
-                 title_generation_model: str = TITLE_GENERATION_MODEL, timeout: int = 30,
+                 timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
+                 max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
         self._image = image
         self._feedback_image_base64 = self._pixmap_to_base64(image)
         self._llm_service = llm_service
         self._model = model_label
-        self._title_generation_model_display = title_generation_model
         self._timeout = timeout
+        self._max_image_bytes = max_image_bytes
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("chat_feedback")
@@ -642,10 +612,9 @@ class AIWorker(_BaseVisionWorker):
 
     def run(self) -> None:
         try:
-            raw_text = self._call_api(self._encode_for_api(self._image))
+            raw_text = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
-                result.title = self._generate_title(result)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
@@ -655,7 +624,9 @@ class AIWorker(_BaseVisionWorker):
         except Exception as exc:
             self.error.emit(f"未知错误: {exc}")
 
-    def _call_api(self, b64_image: str) -> str:
+    def _call_api(self) -> str:
+        started_at = time.perf_counter()
+        encoded_image = self._encode_for_api(self._image, image_count=1)
         messages = [
             Message(role="system", content=build_analysis_system_prompt()),
             Message(
@@ -669,33 +640,57 @@ class AIWorker(_BaseVisionWorker):
                             image_count=1,
                         ),
                     ),
-                    ContentPart(type="image_data_url", data_url=f"data:image/png;base64,{b64_image}"),
+                    ContentPart(type="image_data_url", data_url=encoded_image.data_url),
                 ],
             ),
         ]
-        return self._run_llm_task(
-            "analysis",
-            messages=messages,
-            temperature=0.3,
-            timeout=self._timeout,
+        try:
+            run_result = self._run_llm_task_detailed(
+                "analysis",
+                messages=messages,
+                temperature=0.3,
+                timeout=self._timeout,
+            )
+        except TaskExecutionError as exc:
+            self._analysis_stats = AnalysisRunStats(
+                provider_id=exc.reference.provider_id,
+                provider_name=exc.reference.provider_name,
+                model_id=exc.reference.model_id,
+                model_name=exc.reference.model_name,
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                llm_latency_ms=exc.latency_ms,
+                preprocess_ms=encoded_image.preprocess_ms,
+                attempts=exc.attempts,
+                image_count=1,
+                input_bytes=encoded_image.byte_size,
+            )
+            raise
+        self._analysis_stats = self._build_analysis_stats(
+            run_result=run_result,
+            preprocess_ms=encoded_image.preprocess_ms,
+            input_bytes=encoded_image.byte_size,
+            image_count=1,
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
+        return run_result.text
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
     def __init__(self, images: list[QPixmap], llm_service: LLMService, model_label: str,
-                 title_generation_model: str = TITLE_GENERATION_MODEL, timeout: int = 30,
+                 timeout: int = 30,
                  prompt_manager: PromptManager = None,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
+                 max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
         self._images = images
         self._feedback_image_base64 = self._pixmap_to_base64(self._build_combined_preview(images))
         self._llm_service = llm_service
         self._model = model_label
-        self._title_generation_model_display = title_generation_model
         self._timeout = timeout
+        self._max_image_bytes = max_image_bytes
         self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("step_sequence", capture_count=len(images))
@@ -706,7 +701,6 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             raw_text = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
-                result.title = self._generate_title(result)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
@@ -717,6 +711,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             self.error.emit(f"未知错误: {exc}")
 
     def _call_api(self) -> str:
+        started_at = time.perf_counter()
         content: list[ContentPart] = [
             ContentPart(
                 type="text",
@@ -727,21 +722,47 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
                 ),
             )
         ]
+        encoded_images: list[EncodedImage] = []
         for index, pixmap in enumerate(self._images, 1):
+            encoded_image = self._encode_for_api(pixmap, image_count=len(self._images))
+            encoded_images.append(encoded_image)
             content.append(ContentPart(type="text", text=f"第 {index} 张截图"))
-            content.append(
-                ContentPart(type="image_data_url", data_url=f"data:image/png;base64,{self._encode_for_api(pixmap)}")
-            )
+            content.append(ContentPart(type="image_data_url", data_url=encoded_image.data_url))
 
-        return self._run_llm_task(
-            "analysis",
-            messages=[
-                Message(role="system", content=build_analysis_system_prompt()),
-                Message(role="user", content=content),
-            ],
-            temperature=0.3,
-            timeout=self._timeout,
+        preprocess_ms = sum(item.preprocess_ms for item in encoded_images)
+        input_bytes = sum(item.byte_size for item in encoded_images)
+        try:
+            run_result = self._run_llm_task_detailed(
+                "analysis",
+                messages=[
+                    Message(role="system", content=build_analysis_system_prompt()),
+                    Message(role="user", content=content),
+                ],
+                temperature=0.3,
+                timeout=self._timeout,
+            )
+        except TaskExecutionError as exc:
+            self._analysis_stats = AnalysisRunStats(
+                provider_id=exc.reference.provider_id,
+                provider_name=exc.reference.provider_name,
+                model_id=exc.reference.model_id,
+                model_name=exc.reference.model_name,
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                llm_latency_ms=exc.latency_ms,
+                preprocess_ms=preprocess_ms,
+                attempts=exc.attempts,
+                image_count=max(1, len(self._images)),
+                input_bytes=input_bytes,
+            )
+            raise
+        self._analysis_stats = self._build_analysis_stats(
+            run_result=run_result,
+            preprocess_ms=preprocess_ms,
+            input_bytes=input_bytes,
+            image_count=max(1, len(self._images)),
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
+        return run_result.text
 
 
 class FeedbackOptimizeWorker(QThread):

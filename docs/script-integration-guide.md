@@ -24,6 +24,7 @@ AICA 会在待办事件发生时启动外部脚本，并通过标准输入传递
 - `updated`
 - `completed`
 - `deleted`
+- `manual_sync`
 
 ## 2. integrations.json 示例
 

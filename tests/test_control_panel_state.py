@@ -2,10 +2,12 @@ import json
 
 import pytest
 
+import aica.paths as path_helpers
 from aica.config import build_default_config
 from aica.control_panel_state import (
     build_script_integration,
     load_integration_config,
+    persist_storage_paths,
     persist_control_panel_config,
     replace_script_integrations,
     save_integration_config,
@@ -119,3 +121,33 @@ def test_replace_and_save_script_integrations_preserves_other_entries(tmp_path):
     assert len(saved["todo_event_integrations"]) == 2
     assert saved["todo_event_integrations"][0]["type"] == "script"
     assert saved["todo_event_integrations"][1]["type"] == "webhook"
+
+
+def test_persist_storage_paths_copies_existing_files_and_logs(tmp_path, monkeypatch):
+    old_data_dir = tmp_path / "old_data"
+    old_log_dir = tmp_path / "old_logs"
+    new_data_dir = tmp_path / "new_data"
+    new_log_dir = tmp_path / "new_logs"
+    home_dir = tmp_path / "home"
+
+    old_data_dir.mkdir()
+    old_log_dir.mkdir()
+    home_dir.mkdir()
+    monkeypatch.setattr(path_helpers.Path, "home", lambda: home_dir)
+    (old_data_dir / "config.json").write_text('{"ok":true}', encoding="utf-8")
+    (old_data_dir / "feedback").mkdir()
+    (old_data_dir / "feedback" / "feedback.jsonl").write_text("{}", encoding="utf-8")
+    (old_log_dir / "error.log").write_text("legacy log", encoding="utf-8")
+
+    result = persist_storage_paths(
+        data_dir=str(new_data_dir),
+        log_dir=str(new_log_dir),
+        previous_data_dir=str(old_data_dir),
+        previous_log_dir=str(old_log_dir),
+    )
+
+    assert result["data_dir"] == str(new_data_dir)
+    assert result["log_dir"] == str(new_log_dir)
+    assert (new_data_dir / "config.json").read_text(encoding="utf-8") == '{"ok":true}'
+    assert (new_data_dir / "feedback" / "feedback.jsonl").read_text(encoding="utf-8") == "{}"
+    assert (new_log_dir / "error.log").read_text(encoding="utf-8") == "legacy log"

@@ -35,6 +35,7 @@ Rectangle {
     readonly property int sectionWeight: 600
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400
+    readonly property int actionButtonWidth: 62
     property bool syncingFields: false
     property string activeAttachmentEventId: ""
 
@@ -486,80 +487,6 @@ Rectangle {
 
                     Column {
                         width: parent.width
-                        spacing: 8
-
-                        Row {
-                            width: parent.width
-                            spacing: 10
-
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "同步状态"
-                                color: root.labelInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                font.weight: root.sectionWeight
-                            }
-
-                            Rectangle {
-                                width: compactSyncStatusText.implicitWidth + 14
-                                height: 22
-                                radius: 11
-                                color: todoDetailBridge.hasExternalId ? "#E7F5ED" : "#F4EEE4"
-
-                                Text {
-                                    id: compactSyncStatusText
-                                    anchors.centerIn: parent
-                                    text: todoDetailBridge.syncStatus
-                                    color: todoDetailBridge.hasExternalId ? "#17663A" : root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: root.labelWeight
-                                }
-                            }
-
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: todoDetailBridge.hasExternalId ? parent.width - 170 : parent.width - 110
-                                elide: Text.ElideRight
-                                text: todoDetailBridge.syncStatusDetail
-                                color: root.mutedInk
-                                font.family: root.uiFont
-                                font.pixelSize: 11
-                                font.weight: root.bodyWeight
-                            }
-
-                            Text {
-                                visible: todoDetailBridge.hasExternalId
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "复制 ID"
-                                color: root.accent
-                                font.family: root.uiFont
-                                font.pixelSize: 11
-                                font.weight: root.labelWeight
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: todoDetailBridge.copyExternalId()
-                                }
-                            }
-                        }
-
-                        Text {
-                            visible: todoDetailBridge.hasExternalId
-                            width: parent.width
-                            text: "external_id: " + todoDetailBridge.externalId
-                            color: root.mutedInk
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            font.weight: root.bodyWeight
-                            wrapMode: Text.WrapAnywhere
-                        }
-                    }
-
-                    Column {
-                        width: parent.width
                         spacing: 10
                         visible: false
 
@@ -625,107 +552,217 @@ Rectangle {
                         }
                     }
 
-                    Rectangle {
+                    Item {
                         width: parent.width
-                        height: 48
-                        radius: 18
-                        color: root.fieldBg
-                        border.width: 0
-                        border.color: root.fieldLine
+                        height: todoMetaColumn.implicitHeight + 12
 
-                        Text {
-                            x: 14
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "今天创建: " + todoDetailBridge.createdAtLabel
-                            color: root.mutedInk
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            font.weight: root.bodyWeight
-                        }
+                        Column {
+                            id: todoMetaColumn
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            spacing: 6
 
-                        Text {
-                            x: 136
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "更新于: " + todoDetailBridge.updatedAtLabel
-                            color: root.mutedInk
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            font.weight: root.bodyWeight
-                        }
+                            Item {
+                                width: parent.width
+                                height: 24
 
-                        Item {
-                            visible: false
-                            anchors.left: parent.left
-                            anchors.right: deleteText.left
-                            anchors.rightMargin: 18
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.leftMargin: 16
+                                Row {
+                                    id: syncActionRow
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 12
 
-                            Column {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 2
+                                    Item {
+                                        width: root.actionButtonWidth
+                                        height: 24
 
-                                Text {
-                                    text: "今天创建: " + todoDetailBridge.createdAtLabel
-                                    color: root.mutedInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.bodyWeight
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: todoDetailBridge.hasExternalId ? "重新同步" : "立即同步"
+                                            color: root.accent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: root.labelWeight
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: todoDetailBridge.requestManualSync()
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: todoDetailBridge.hasExternalId
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "复制 ID"
+                                        color: root.accent
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: todoDetailBridge.copyExternalId()
+                                        }
+                                    }
                                 }
 
-                                Text {
-                                    text: "更新于: " + todoDetailBridge.updatedAtLabel
-                                    color: root.mutedInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.bodyWeight
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.right: syncActionRow.left
+                                    anchors.rightMargin: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 8
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "同步状态"
+                                        color: root.labelInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 12
+                                        font.weight: root.sectionWeight
+                                    }
+
+                                    Rectangle {
+                                        width: compactSyncStatusText.implicitWidth + 14
+                                        height: 22
+                                        radius: 11
+                                        color: todoDetailBridge.hasExternalId ? "#E7F5ED" : "#F4EEE4"
+
+                                        Text {
+                                            id: compactSyncStatusText
+                                            anchors.centerIn: parent
+                                            text: todoDetailBridge.syncStatus
+                                            color: todoDetailBridge.hasExternalId ? "#17663A" : root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 10
+                                            font.weight: root.labelWeight
+                                        }
+                                    }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.max(0, parent.width - x)
+                                        elide: Text.ElideRight
+                                        text: todoDetailBridge.syncStatusDetail
+                                        color: root.mutedInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.bodyWeight
+                                    }
                                 }
                             }
-                        }
-
-                        Text {
-                            id: deleteText
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.right: completeButton.left
-                            anchors.rightMargin: 12
-                            text: "删除"
-                            color: "#E35B66"
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            font.weight: root.labelWeight
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: todoDetailBridge.deleteTodo()
-                            }
-                        }
-
-                        Rectangle {
-                            id: completeButton
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.right: parent.right
-                            anchors.rightMargin: 8
-                            width: 62
-                            height: 30
-                            radius: 15
-                            color: root.accentTint
-                            border.width: 0
-                            border.color: "transparent"
 
                             Text {
-                                anchors.centerIn: parent
-                                text: "完成"
-                                color: root.accent
+                                visible: todoDetailBridge.syncEventLabel.length > 0 || todoDetailBridge.syncUpdatedAtLabel.length > 0
+                                width: parent.width
+                                text: {
+                                    var parts = []
+                                    if (todoDetailBridge.syncEventLabel.length > 0) {
+                                        parts.push("最近事件: " + todoDetailBridge.syncEventLabel)
+                                    }
+                                    if (todoDetailBridge.syncUpdatedAtLabel.length > 0) {
+                                        parts.push("同步时间: " + todoDetailBridge.syncUpdatedAtLabel)
+                                    }
+                                    return parts.join("  ·  ")
+                                }
+                                color: root.mutedInk
                                 font.family: root.uiFont
-                                font.pixelSize: 12
-                                font.weight: root.labelWeight
+                                font.pixelSize: 11
+                                font.weight: root.bodyWeight
+                                wrapMode: Text.Wrap
                             }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: todoDetailBridge.completeTodo()
+                            Item {
+                                width: parent.width
+                                height: 30
+
+                                Row {
+                                    id: todoMetaActionRow
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 12
+
+                                    Text {
+                                        id: deleteText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "删除"
+                                        color: "#E35B66"
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            onClicked: todoDetailBridge.deleteTodo()
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        id: completeButton
+                                        width: root.actionButtonWidth
+                                        height: 30
+                                        radius: 15
+                                        color: root.accentTint
+                                        border.width: 0
+                                        border.color: "transparent"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "完成"
+                                            color: root.accent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            font.weight: root.labelWeight
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            onClicked: todoDetailBridge.completeTodo()
+                                        }
+                                    }
+                                }
+
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.right: todoMetaActionRow.left
+                                    anchors.rightMargin: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 10
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "今天创建: " + todoDetailBridge.createdAtLabel
+                                        color: root.mutedInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.bodyWeight
+                                    }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.max(0, parent.width - x)
+                                        elide: Text.ElideRight
+                                        text: "更新于: " + todoDetailBridge.updatedAtLabel
+                                        color: root.mutedInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.bodyWeight
+                                    }
+                                }
+                            }
+
+                            Text {
+                                visible: todoDetailBridge.hasExternalId
+                                width: parent.width
+                                text: "external_id: " + todoDetailBridge.externalId
+                                color: root.mutedInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.bodyWeight
+                                wrapMode: Text.WrapAnywhere
                             }
                         }
                     }

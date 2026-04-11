@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
+from aica.analysis_metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.ticket_field_resolver import (
@@ -36,10 +37,18 @@ class _ResultDialogBridge(QObject):
     saveRequested = pyqtSignal()
     feedbackRequested = pyqtSignal()
 
-    def __init__(self, result: TicketSnapshot, scenario: str, model: str, show_feedback: bool) -> None:
+    def __init__(
+        self,
+        result: TicketSnapshot,
+        scenario: str,
+        model: str,
+        show_feedback: bool,
+        analysis_stats: AnalysisRunStats | None = None,
+    ) -> None:
         super().__init__()
         self._scenario = scenario
         self._model = model
+        self._timing_summary = analysis_stats.timing_summary if analysis_stats is not None else ""
         self._show_feedback = show_feedback
         self._fallback_title = sanitize_text(result.title) or _UNCLASSIFIED_TASK
         self._title = sanitize_text(result.title)
@@ -59,6 +68,10 @@ class _ResultDialogBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def model(self) -> str:
         return self._model
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timingSummary(self) -> str:
+        return self._timing_summary
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -163,6 +176,7 @@ class ResultDialog(QDialog):
         result: TicketSnapshot,
         scenario: str,
         model: str,
+        analysis_stats: AnalysisRunStats | None = None,
         feedback_callback: Optional[Callable] = None,
         save_callback: Optional[Callable] = None,
         parent=None,
@@ -180,6 +194,7 @@ class ResultDialog(QDialog):
             scenario=scenario,
             model=model,
             show_feedback=feedback_callback is not None,
+            analysis_stats=analysis_stats,
         )
 
         self.setObjectName("resultDialog")

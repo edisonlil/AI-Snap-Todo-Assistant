@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -10,12 +11,12 @@ from typing import Any
 from aica.config import AppConfig
 from aica.hotkey import normalize_hotkey
 from aica.llm.service import LLMService, ModelResolutionError
+from aica.paths import save_storage_paths, storage_config_file
 
 
 MEGABYTE = 1024 * 1024
 TASK_NAMES = (
     "analysis",
-    "title_generation",
     "plan_export",
     "prompt_optimization",
 )
@@ -47,6 +48,68 @@ def validate_runtime_bindings(config: AppConfig) -> None:
             service.resolve_task_model(task_name)
     except ModelResolutionError as exc:
         raise ValueError(str(exc)) from exc
+
+
+def normalize_directory_path(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("目录不能为空")
+    return str(Path(text).expanduser())
+
+
+def persist_storage_paths(
+    *,
+    data_dir: str,
+    log_dir: str,
+    previous_data_dir: str,
+    previous_log_dir: str,
+) -> dict[str, str]:
+    normalized_data_dir = Path(normalize_directory_path(data_dir))
+    normalized_log_dir = Path(normalize_directory_path(log_dir))
+    _migrate_storage_contents(
+        source_dir=Path(previous_data_dir).expanduser(),
+        target_dir=normalized_data_dir,
+        skip_name=storage_config_file().name,
+    )
+    _migrate_log_files(
+        source_dir=Path(previous_log_dir).expanduser(),
+        target_dir=normalized_log_dir,
+    )
+    saved = save_storage_paths(
+        data_dir=str(normalized_data_dir),
+        log_dir=str(normalized_log_dir),
+    )
+    return {
+        "data_dir": str(saved.data_dir),
+        "log_dir": str(saved.log_dir),
+        "storage_config_path": str(storage_config_file()),
+    }
+
+
+def _migrate_storage_contents(source_dir: Path, target_dir: Path, *, skip_name: str = "") -> None:
+    if source_dir == target_dir or not source_dir.exists():
+        return
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for item in source_dir.iterdir():
+        if skip_name and item.name == skip_name:
+            continue
+        destination = target_dir / item.name
+        if item.is_dir():
+            shutil.copytree(item, destination, dirs_exist_ok=True)
+            continue
+        if not destination.exists():
+            shutil.copy2(item, destination)
+
+
+def _migrate_log_files(source_dir: Path, target_dir: Path) -> None:
+    if source_dir == target_dir or not source_dir.exists():
+        return
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for file_name in ("error.log",):
+        source_file = source_dir / file_name
+        target_file = target_dir / file_name
+        if source_file.exists() and not target_file.exists():
+            shutil.copy2(source_file, target_file)
 
 
 def persist_control_panel_config(

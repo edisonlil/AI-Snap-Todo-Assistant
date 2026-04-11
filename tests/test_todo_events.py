@@ -325,6 +325,19 @@ def test_update_todo_publishes_updated_event(tmp_path: Path):
     assert event.delta == {"changed_fields": ["title"]}
 
 
+def test_manual_sync_event_uses_manual_trigger_delta(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "initial summary", "first follow-up"),
+        "todo assistant",
+    )
+
+    event = TodoDomainEvent.manual_sync(todo, "todo assistant")
+
+    assert event.event_type == TodoDomainEventType.MANUAL_SYNC
+    assert event.delta == {"trigger": "manual"}
+
+
 def test_script_handler_persists_binding_when_created_ack_contains_external_id(tmp_path: Path):
     event_bus, binding_store = _build_event_bus(tmp_path, mode="return_extid")
     store = TodoStore(str(tmp_path / "todos.json"))
@@ -467,6 +480,22 @@ def test_script_handler_processes_updated_event_when_binding_exists(tmp_path: Pa
     assert binding.external_id == "EXT-KEEP"
     assert binding.last_event_type == "updated"
     assert binding.last_sync_status == "ok:updated"
+
+
+def test_script_handler_allows_manual_sync_without_existing_binding(tmp_path: Path):
+    event_bus, binding_store = _build_event_bus(tmp_path, mode="late_bind")
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "initial summary", "first follow-up"),
+        "todo assistant",
+    )
+
+    event_bus.publish(TodoDomainEvent.manual_sync(todo, "todo assistant"))
+
+    binding = binding_store.get_binding(todo.id, "company-platform")
+    assert binding is not None
+    assert binding.external_id == "EXT-LATE"
+    assert binding.last_event_type == "manual_sync"
 
 
 def test_script_handler_sanitizes_surrogates_before_sending_event(tmp_path: Path):
