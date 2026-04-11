@@ -157,6 +157,7 @@ class _ControlPanelBridge(QObject):
     minimizeRequested = pyqtSignal()
     maximizeRequested = pyqtSignal()
     dragRequested = pyqtSignal()
+    resizeRequested = pyqtSignal(str)
     configSaved = pyqtSignal(object)
     projectDateSelected = pyqtSignal(str, str)
 
@@ -613,6 +614,10 @@ class _ControlPanelBridge(QObject):
     def startWindowDrag(self) -> None:
         self.dragRequested.emit()
 
+    @pyqtSlot(str)
+    def startWindowResize(self, edge: str) -> None:
+        self.resizeRequested.emit(str(edge or "").strip())
+
     @pyqtSlot()
     def saveCurrentSection(self) -> None:
         if self._current_section == "integrations":
@@ -966,6 +971,7 @@ class ControlPanelWindow(QWidget):
         self._bridge.minimizeRequested.connect(self.showMinimized)
         self._bridge.maximizeRequested.connect(self._toggle_maximized)
         self._bridge.dragRequested.connect(self._start_system_move)
+        self._bridge.resizeRequested.connect(self._start_system_resize)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
         self._sync_window_state()
 
@@ -1034,6 +1040,30 @@ class ControlPanelWindow(QWidget):
             return
         try:
             window_handle.startSystemMove()
+        except AttributeError:
+            self.activateWindow()
+
+    def _start_system_resize(self, edge_name: str) -> None:
+        window_handle = self.windowHandle()
+        if window_handle is None:
+            self.activateWindow()
+            return
+
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            window_handle.startSystemResize(edge)
         except AttributeError:
             self.activateWindow()
 

@@ -760,30 +760,18 @@ Rectangle {
 
                             delegate: SectionCard {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 70
+                                Layout.preferredHeight: 54
                                 color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
 
-                                Column {
-                                    anchors.fill: parent
-                                    anchors.margins: 18
-                                    spacing: 5
-
-                                    Text {
-                                        text: modelData.title
-                                        color: root.titleInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: 700
-                                    }
-
-                                    Text {
-                                        width: parent.width
-                                        text: modelData.description
-                                        color: root.bodyInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        wrapMode: Text.Wrap
-                                    }
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 18
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.title
+                                    color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    font.weight: controlPanelBridge.currentSection === modelData.id ? 800 : 700
                                 }
 
                                 MouseArea {
@@ -1912,6 +1900,32 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    Item {
+        anchors.right: shell.right
+        anchors.bottom: shell.bottom
+        anchors.margins: 10
+        width: 24
+        height: 24
+        visible: !controlPanelBridge.windowMaximized
+        z: 20
+
+        Rectangle {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            width: 12
+            height: 12
+            radius: 4
+            color: "#D8EAE2"
+            opacity: 0.95
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.SizeFDiagCursor
+            onPressed: controlPanelBridge.startWindowResize("bottom_right")
         }
     }
 }
