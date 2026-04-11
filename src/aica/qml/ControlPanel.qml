@@ -260,6 +260,7 @@ Rectangle {
         property color hoverColor: "#EEE5D8"
         property color pressedColor: "#E5D9C7"
         property color inkColor: root.bodyInk
+        property int fontPixelSize: 15
         signal clicked
 
         implicitWidth: 30
@@ -272,7 +273,7 @@ Rectangle {
             text: windowButton.label
             color: windowButton.inkColor
             font.family: root.uiFont
-            font.pixelSize: 15
+            font.pixelSize: windowButton.fontPixelSize
             font.weight: 600
         }
 
@@ -640,7 +641,7 @@ Rectangle {
     Rectangle {
         id: shell
         anchors.fill: parent
-        radius: 30
+        radius: controlPanelBridge.windowMaximized ? 0 : 30
         color: root.shellBg
         clip: true
 
@@ -659,6 +660,7 @@ Rectangle {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton
                     onPressed: controlPanelBridge.startWindowDrag()
+                    onDoubleClicked: controlPanelBridge.toggleMaximizedPanel()
                 }
 
                 RowLayout {
@@ -701,6 +703,12 @@ Rectangle {
                     }
 
                     WindowButton {
+                        label: controlPanelBridge.windowMaximized ? "❐" : "□"
+                        fontPixelSize: 13
+                        onClicked: controlPanelBridge.toggleMaximizedPanel()
+                    }
+
+                    WindowButton {
                         label: "×"
                         hoverColor: "#F4D9D5"
                         pressedColor: "#EDC3BC"
@@ -724,9 +732,11 @@ Rectangle {
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 18
-                        spacing: 14
+                        spacing: 12
 
                         Text {
+                            visible: false
+                            Layout.preferredHeight: 0
                             text: "AICA 控制面板"
                             color: root.titleInk
                             font.family: root.uiFont
@@ -735,6 +745,8 @@ Rectangle {
                         }
 
                         Text {
+                            visible: false
+                            Layout.preferredHeight: 0
                             Layout.fillWidth: true
                             text: "统一管理模型、截图热键与本地数据入口。"
                             color: root.bodyInk

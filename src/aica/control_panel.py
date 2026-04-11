@@ -152,8 +152,10 @@ def _serialize_project_date(field_name: str, selected_date: QDate) -> str:
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
+    windowStateChanged = pyqtSignal()
     closeRequested = pyqtSignal()
     minimizeRequested = pyqtSignal()
+    maximizeRequested = pyqtSignal()
     dragRequested = pyqtSignal()
     configSaved = pyqtSignal(object)
     projectDateSelected = pyqtSignal(str, str)
@@ -179,6 +181,7 @@ class _ControlPanelBridge(QObject):
         self._last_project_import_summary = ""
         self._error_message = ""
         self._status_message = ""
+        self._window_maximized = False
 
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
@@ -187,6 +190,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, notify=currentSectionChanged)
     def currentSection(self) -> str:
         return self._current_section
+
+    @pyqtProperty(bool, notify=windowStateChanged)
+    def windowMaximized(self) -> bool:
+        return self._window_maximized
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def providers(self):  # noqa: ANN201
@@ -591,6 +598,18 @@ class _ControlPanelBridge(QObject):
         self.minimizeRequested.emit()
 
     @pyqtSlot()
+    def toggleMaximizedPanel(self) -> None:
+        self.maximizeRequested.emit()
+
+    @pyqtSlot(bool)
+    def setWindowMaximized(self, value: bool) -> None:
+        normalized = bool(value)
+        if self._window_maximized == normalized:
+            return
+        self._window_maximized = normalized
+        self.windowStateChanged.emit()
+
+    @pyqtSlot()
     def startWindowDrag(self) -> None:
         self.dragRequested.emit()
 
@@ -927,6 +946,7 @@ class ControlPanelWindow(QWidget):
         super().__init__(parent)
         self._positioned = False
         self._bridge = _ControlPanelBridge(config_manager)
+        self._layout: QVBoxLayout | None = None
 
         self.setObjectName("controlPanelWindow")
         self.setWindowFlags(
@@ -944,13 +964,16 @@ class ControlPanelWindow(QWidget):
 
         self._bridge.closeRequested.connect(self.hide)
         self._bridge.minimizeRequested.connect(self.showMinimized)
+        self._bridge.maximizeRequested.connect(self._toggle_maximized)
         self._bridge.dragRequested.connect(self._start_system_move)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
+        self._sync_window_state()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(0)
+        self._layout = layout
+        self._update_layout_margins()
 
         self._view = QQuickWidget(self)
         self._view.setClearColor(QColor(0, 0, 0, 0))
@@ -970,8 +993,12 @@ class ControlPanelWindow(QWidget):
         self._bridge.reloadConfig()
         self._bridge.setCurrentSection(section_id)
         if self.isMinimized():
-            self.showNormal()
+            if self.windowState() & Qt.WindowState.WindowMaximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
         self.show()
+        self._sync_window_state()
         self.raise_()
         self.activateWindow()
         if not self._positioned:
@@ -981,6 +1008,10 @@ class ControlPanelWindow(QWidget):
     def closeEvent(self, event) -> None:  # noqa: N802
         event.ignore()
         self.hide()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        self._sync_window_state()
 
     def _fit_within_screen(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
@@ -1005,3 +1036,20 @@ class ControlPanelWindow(QWidget):
             window_handle.startSystemMove()
         except AttributeError:
             self.activateWindow()
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        self._sync_window_state()
+
+    def _sync_window_state(self) -> None:
+        self._bridge.setWindowMaximized(self.isMaximized())
+        self._update_layout_margins()
+
+    def _update_layout_margins(self) -> None:
+        if self._layout is None:
+            return
+        margin = 0 if self.isMaximized() else 12
+        self._layout.setContentsMargins(margin, margin, margin, margin)
