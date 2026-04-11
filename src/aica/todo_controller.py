@@ -7,10 +7,12 @@ import re
 from .models import (
     TicketSnapshot,
     TicketSummaryFields,
+    merge_timeline_with_evidence,
     merge_summary_fields_for_append,
 )
+from .storage.contracts import TodoRepository
 from .todo_events import TodoDomainEvent, TodoEventPublisher
-from .todo_store import TimelineEvent, TodoItem, TodoStore
+from .todo_store import TimelineEvent, TodoItem
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,7 @@ class SaveAnalysisResult:
 class TodoController:
     """Coordinates Todo workflow state between UI and persistence."""
 
-    def __init__(self, store: TodoStore, event_publisher: TodoEventPublisher | None = None):
+    def __init__(self, store: TodoRepository, event_publisher: TodoEventPublisher | None = None):
         self._store = store
         self._event_publisher = event_publisher
         self._selected_todo_id: str | None = None
@@ -115,11 +117,12 @@ class TodoController:
 
     @classmethod
     def _normalize_snapshot_for_append(cls, todo: TodoItem, snapshot: TicketSnapshot) -> TicketSnapshot:
+        incremental_timeline_entry = cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry)
         return TicketSnapshot(
             title=todo.title,
             fields=merge_summary_fields_for_append(todo.summary_fields, snapshot.fields),
             current_summary=todo.current_summary,
-            timeline_entry=cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry),
+            timeline_entry=merge_timeline_with_evidence(incremental_timeline_entry, snapshot.evidence_items),
             evidence_items=[],
         )
 

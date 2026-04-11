@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
-from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
+from aica.ticket_field_resolver import TICKET_TYPE_OPTIONS
 from aica.todo_store import TimelineAttachment, TimelineEvent, TodoStore
 
 
@@ -104,7 +104,7 @@ def test_append_analysis_backfills_unknown_fields_only(tmp_path: Path):
     assert updated is not None
     assert updated.summary_fields.group_name == "recognized-group"
     assert updated.summary_fields.environment == "staging"
-    assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert updated.summary_fields.product_line == UNKNOWN_TEXT
 
 
 def test_legacy_evidence_is_folded_into_timeline_when_loading(tmp_path: Path):
@@ -165,7 +165,7 @@ def test_update_todo_persists_fields_and_timeline(tmp_path: Path):
     assert reloaded is not None
     assert reloaded.title == "new title"
     assert reloaded.current_summary == "new summary"
-    assert reloaded.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert reloaded.summary_fields.product_line == UNKNOWN_TEXT
     assert reloaded.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[1]
     assert reloaded.timeline[0].content == "edited timeline"
 
@@ -227,7 +227,7 @@ def test_legacy_summary_json_is_migrated(tmp_path: Path):
 
     assert todo is not None
     assert todo.summary_fields.group_name == "legacy-group"
-    assert todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert todo.summary_fields.product_line == UNKNOWN_TEXT
     assert todo.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[0]
     assert todo.current_summary == "legacy summary"
     assert todo.timeline[0].content == "legacy timeline"

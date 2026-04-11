@@ -92,6 +92,10 @@ def prompts_file() -> Path:
     return app_data_dir() / "prompts.json"
 
 
+def aica_database_file() -> Path:
+    return app_data_dir() / "aica.db"
+
+
 def todos_file() -> Path:
     return app_data_dir() / "todos.json"
 

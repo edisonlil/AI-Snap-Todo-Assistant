@@ -24,6 +24,7 @@ from aica.control_panel_state import (
     update_script_integration_path,
 )
 from aica.paths import (
+    aica_database_file,
     app_data_dir,
     config_file,
     error_log_file,
@@ -34,7 +35,6 @@ from aica.paths import (
     prompts_file,
     qml_dir,
     storage_config_file,
-    todos_file,
 )
 
 
@@ -228,7 +228,7 @@ class _ControlPanelBridge(QObject):
 
     @pyqtProperty(str, notify=dataChanged)
     def todosPath(self) -> str:
-        return str(todos_file())
+        return str(aica_database_file())
 
     @pyqtProperty(str, notify=dataChanged)
     def integrationsPath(self) -> str:

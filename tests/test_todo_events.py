@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 import textwrap
 from pathlib import Path
@@ -353,8 +354,21 @@ def test_script_handler_persists_binding_when_created_ack_contains_external_id(t
     assert binding.external_id == "EXT-001"
     assert binding.external_url.endswith("EXT-001")
 
-    todos_payload = json.loads((tmp_path / "todos.json").read_text(encoding="utf-8"))
-    assert "external_id" not in json.dumps(todos_payload, ensure_ascii=False)
+    with sqlite3.connect(tmp_path / "aica.db") as connection:
+        todo_row = connection.execute(
+            "SELECT title, current_summary, group_name, environment, ticket_type FROM todos WHERE id = ?",
+            (todo.id,),
+        ).fetchone()
+        timeline_rows = connection.execute(
+            "SELECT content FROM todo_timeline_events WHERE todo_id = ?",
+            (todo.id,),
+        ).fetchall()
+
+    todo_payload = {
+        "todo": list(todo_row) if todo_row is not None else [],
+        "timeline": [row[0] for row in timeline_rows],
+    }
+    assert "EXT-001" not in json.dumps(todo_payload, ensure_ascii=False)
 
 
 def test_script_handler_does_not_create_binding_without_external_id(tmp_path: Path):
@@ -500,11 +514,14 @@ def test_script_handler_allows_manual_sync_without_existing_binding(tmp_path: Pa
 
 def test_script_handler_sanitizes_surrogates_before_sending_event(tmp_path: Path):
     event_bus, binding_store = _build_logger_event_bus(tmp_path)
-    todo = TodoItem(
-        title="bad\udcae title",
-        current_summary="summary with \udcaa surrogate",
-        timeline=[TimelineEvent(content="timeline \udcae detail", scenario="todo assistant")],
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("safe title", "safe summary", "safe detail"),
+        "todo assistant",
     )
+    todo.title = "bad\udcae title"
+    todo.current_summary = "summary with \udcaa surrogate"
+    todo.timeline = [TimelineEvent(content="timeline \udcae detail", scenario="todo assistant")]
 
     event_bus.publish(TodoDomainEvent.created(todo, "todo assistant"))
 

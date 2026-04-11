@@ -1,130 +1,29 @@
-"""Todo domain models and local persistence."""
+"""Todo storage compatibility wrapper."""
 from __future__ import annotations
 
-import json
-import os
-import uuid
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
-from enum import StrEnum
-from typing import Any
-
-from .models import (
-    EvidenceItem,
-    TicketSnapshot,
-    TicketSummaryFields,
-    merge_evidence_items,
-    merge_timeline_with_evidence,
-    merge_summary_fields_for_append,
-)
-from .paths import todos_file as default_todos_file
-from .text_sanitize import sanitize_text
-
-
-class TodoStatus(StrEnum):
-    OPEN = "open"
-    DONE = "done"
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat()
-
-
-@dataclass
-class TimelineAttachment:
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""
-    path: str = ""
-    size_bytes: int = 0
-
-    def __post_init__(self) -> None:
-        self.name = sanitize_text(self.name)
-        self.path = sanitize_text(self.path)
-        try:
-            self.size_bytes = max(0, int(self.size_bytes))
-        except (TypeError, ValueError):
-            self.size_bytes = 0
-
-
-@dataclass
-class TimelineEvent:
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = field(default_factory=_now_iso)
-    kind: str = "analysis"
-    scenario: str = ""
-    content: str = ""
-    attachments: list[TimelineAttachment] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.id = sanitize_text(self.id) or str(uuid.uuid4())
-        self.timestamp = sanitize_text(self.timestamp) or _now_iso()
-        self.kind = sanitize_text(self.kind) or "analysis"
-        self.scenario = sanitize_text(self.scenario)
-        self.content = sanitize_text(self.content)
-
-
-@dataclass
-class TodoItem:
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    title: str = "未分类任务"
-    summary_fields: TicketSummaryFields = field(default_factory=TicketSummaryFields)
-    current_summary: str = ""
-    created_at: str = field(default_factory=_now_iso)
-    updated_at: str = field(default_factory=_now_iso)
-    status: str = TodoStatus.OPEN
-    timeline: list[TimelineEvent] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.id = sanitize_text(self.id) or str(uuid.uuid4())
-        self.title = sanitize_text(self.title) or "未分类任务"
-        self.current_summary = sanitize_text(self.current_summary)
-        self.created_at = sanitize_text(self.created_at) or _now_iso()
-        self.updated_at = sanitize_text(self.updated_at) or _now_iso()
-        self.status = sanitize_text(self.status) or TodoStatus.OPEN
-
-    @property
-    def timeline_count(self) -> int:
-        return len(self.timeline)
+from .models import TicketSnapshot, TicketSummaryFields
+from .storage.sqlite.repositories import SQLiteTodoRepository
+from .todo_models import TimelineAttachment, TimelineEvent, TodoItem, TodoProjectLink, TodoStatus
 
 
 class TodoStore:
-    """Persists active todos to a local JSON file."""
+    """Compatibility wrapper backed by the default SQLite Todo repository."""
 
     def __init__(self, store_path: str | None = None):
-        if store_path is None:
-            store_path = str(default_todos_file())
-        self._path = store_path
+        self._repository = SQLiteTodoRepository(store_path)
 
     @property
     def path(self) -> str:
-        return self._path
+        return self._repository.path
 
     def list_active_todos(self) -> list[TodoItem]:
-        items = [item for item in self._load_items() if item.status == TodoStatus.OPEN]
-        return sorted(items, key=lambda item: item.updated_at, reverse=True)
+        return self._repository.list_active_todos()
 
     def get_todo(self, todo_id: str) -> TodoItem | None:
-        for item in self._load_items():
-            if item.id == todo_id:
-                return item
-        return None
+        return self._repository.get_todo(todo_id)
 
     def create_todo_from_analysis(self, snapshot: TicketSnapshot, scenario: str) -> TodoItem:
-        todo = TodoItem(
-            title=snapshot.title,
-            summary_fields=snapshot.fields,
-            current_summary=snapshot.current_summary,
-            timeline=[
-                TimelineEvent(
-                    scenario=scenario,
-                    content=snapshot.timeline_entry,
-                )
-            ],
-        )
-        items = self._load_items()
-        items.append(todo)
-        self._save_items(items)
-        return todo
+        return self._repository.create_todo_from_analysis(snapshot, scenario)
 
     def append_analysis_to_todo(
         self,
@@ -132,43 +31,13 @@ class TodoStore:
         snapshot: TicketSnapshot,
         scenario: str,
     ) -> TodoItem | None:
-        items = self._load_items()
-        for item in items:
-            if item.id != todo_id:
-                continue
-            item.timeline.append(
-                TimelineEvent(
-                    scenario=scenario,
-                    content=snapshot.timeline_entry,
-                )
-            )
-            item.summary_fields = merge_summary_fields_for_append(item.summary_fields, snapshot.fields)
-            item.updated_at = _now_iso()
-            self._save_items(items)
-            return item
-        return None
+        return self._repository.append_analysis_to_todo(todo_id, snapshot, scenario)
 
     def complete_todo(self, todo_id: str) -> bool:
-        items = self._load_items()
-        updated = False
-        for item in items:
-            if item.id != todo_id:
-                continue
-            item.status = TodoStatus.DONE
-            item.updated_at = _now_iso()
-            updated = True
-            break
-        if updated:
-            self._save_items(items)
-        return updated
+        return self._repository.complete_todo(todo_id)
 
     def delete_todo(self, todo_id: str) -> bool:
-        items = self._load_items()
-        remaining = [item for item in items if item.id != todo_id]
-        if len(remaining) == len(items):
-            return False
-        self._save_items(remaining)
-        return True
+        return self._repository.delete_todo(todo_id)
 
     def update_todo(
         self,
@@ -179,127 +48,10 @@ class TodoStore:
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
     ) -> TodoItem | None:
-        items = self._load_items()
-        for item in items:
-            if item.id != todo_id:
-                continue
-            if title is not None:
-                item.title = sanitize_text(title) or item.title
-            if current_summary is not None:
-                item.current_summary = sanitize_text(current_summary)
-            if summary_fields is not None:
-                item.summary_fields = summary_fields
-            if timeline is not None:
-                item.timeline = timeline
-            item.updated_at = _now_iso()
-            self._save_items(items)
-            return item
-        return None
-
-    def _load_items(self) -> list[TodoItem]:
-        if not os.path.exists(self._path):
-            return []
-        try:
-            with open(self._path, "r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-            if not isinstance(payload, list):
-                return []
-            return [self._deserialize_item(item) for item in payload if isinstance(item, dict)]
-        except Exception:
-            return []
-
-    def _save_items(self, items: list[TodoItem]) -> None:
-        os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        payload = [self._serialize_item(item) for item in items]
-        with open(self._path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-
-    def _serialize_item(self, item: TodoItem) -> dict[str, Any]:
-        payload = asdict(item)
-        payload["summary_fields"] = item.summary_fields.to_dict()
-        return payload
-
-    def _deserialize_item(self, payload: dict[str, Any]) -> TodoItem:
-        summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
-        if payload.get("summary") and not payload.get("current_summary"):
-            summary_fields, current_summary = self._migrate_legacy_summary(
-                payload.get("summary", ""),
-                summary_fields,
-            )
-        else:
-            current_summary = str(payload.get("current_summary", ""))
-
-        timeline_payload = payload.get("timeline", [])
-        timeline = [self._deserialize_timeline_event(event) for event in timeline_payload if isinstance(event, dict)]
-        return TodoItem(
-            id=str(payload.get("id", str(uuid.uuid4()))),
-            title=str(payload.get("title", "未分类任务")),
-            summary_fields=summary_fields,
+        return self._repository.update_todo(
+            todo_id,
+            title=title,
             current_summary=current_summary,
-            created_at=str(payload.get("created_at", _now_iso())),
-            updated_at=str(payload.get("updated_at", _now_iso())),
-            status=str(payload.get("status", TodoStatus.OPEN)),
+            summary_fields=summary_fields,
             timeline=timeline,
         )
-
-    def _deserialize_timeline_event(self, payload: dict[str, Any]) -> TimelineEvent:
-        content = str(
-            payload.get("content")
-            or payload.get("summary")
-            or payload.get("detail")
-            or ""
-        ).strip()
-        evidence_items = self._deserialize_evidence_items(payload.get("evidence_items", []))
-        attachments = self._deserialize_timeline_attachments(payload.get("attachments", []))
-        return TimelineEvent(
-            id=str(payload.get("id", str(uuid.uuid4()))),
-            timestamp=str(payload.get("timestamp", _now_iso())),
-            kind=str(payload.get("kind", "analysis")),
-            scenario=str(payload.get("scenario", "")),
-            content=merge_timeline_with_evidence(content, evidence_items),
-            attachments=attachments,
-        )
-
-    def _deserialize_timeline_attachments(self, payload: Any) -> list[TimelineAttachment]:
-        if not isinstance(payload, list):
-            return []
-        attachments: list[TimelineAttachment] = []
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            attachment = TimelineAttachment(
-                id=str(item.get("id", str(uuid.uuid4()))),
-                name=item.get("name", ""),
-                path=item.get("path", ""),
-                size_bytes=item.get("size_bytes", item.get("sizeBytes", 0)),
-            )
-            if attachment.name and attachment.path:
-                attachments.append(attachment)
-        return attachments
-
-    def _deserialize_evidence_items(self, payload: Any) -> list[EvidenceItem]:
-        if not isinstance(payload, list):
-            return []
-        evidence_items: list[EvidenceItem] = []
-        for item in payload:
-            evidence = EvidenceItem.from_dict(item)
-            if evidence is not None:
-                evidence_items.append(evidence)
-        return merge_evidence_items(evidence_items)
-
-    def _migrate_legacy_summary(
-        self,
-        legacy_summary: str,
-        existing_fields: TicketSummaryFields,
-    ) -> tuple[TicketSummaryFields, str]:
-        cleaned = legacy_summary.strip()
-        if not cleaned:
-            return existing_fields, ""
-        try:
-            payload = json.loads(cleaned)
-            if isinstance(payload, dict):
-                snapshot = TicketSnapshot.from_dict(payload)
-                return snapshot.fields, snapshot.current_summary
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
-        return existing_fields, cleaned

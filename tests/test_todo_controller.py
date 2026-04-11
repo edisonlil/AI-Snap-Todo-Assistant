@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
-from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
+from aica.ticket_field_resolver import TICKET_TYPE_OPTIONS
 from aica.todo_controller import TodoController
 from aica.todo_events import TodoDomainEvent, TodoDomainEventType
 from aica.todo_store import TimelineEvent, TodoStore
@@ -119,7 +119,7 @@ def test_save_analysis_append_backfills_unknown_fields_only(tmp_path: Path):
     assert result.todo.current_summary == "initial summary"
     assert result.todo.summary_fields.group_name == "recognized-group"
     assert result.todo.summary_fields.environment == "staging"
-    assert result.todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert result.todo.summary_fields.product_line == UNKNOWN_TEXT
 
 
 def test_save_analysis_append_keeps_details_in_timeline_only(tmp_path: Path):
@@ -178,7 +178,7 @@ def test_update_todo_updates_fields_and_timeline(tmp_path: Path):
     assert updated.title == "new title"
     assert updated.current_summary == "new summary"
     assert updated.summary_fields.group_name == "new-group"
-    assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    assert updated.summary_fields.product_line == UNKNOWN_TEXT
     assert updated.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[1]
 
 
