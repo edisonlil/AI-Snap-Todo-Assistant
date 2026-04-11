@@ -91,7 +91,6 @@ class TaskModelBinding:
 class TaskModelBindings:
     analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
     plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
-    prompt_optimization: TaskModelBinding = field(default_factory=TaskModelBinding)
 
     @classmethod
     def from_dict(cls, data: object) -> "TaskModelBindings":
@@ -100,7 +99,6 @@ class TaskModelBindings:
         return cls(
             analysis=TaskModelBinding.from_dict(data.get("analysis")),
             plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
-            prompt_optimization=TaskModelBinding.from_dict(data.get("prompt_optimization")),
         )
 
 
@@ -209,24 +207,20 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
         return TaskModelBindings(
             analysis=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
-            prompt_optimization=_binding("gemini", "gemini-2.5-flash"),
         )
     if default_provider_id == "dashscope":
         return TaskModelBindings(
             analysis=_binding("dashscope", "qwen-vl-max"),
             plan_export=_binding("dashscope", "qwen-vl-max"),
-            prompt_optimization=_binding("dashscope", "qwen-vl-max"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
             analysis=_binding("siliconflow", "qwen25-vl-72b"),
             plan_export=_binding("siliconflow", "qwen25-vl-72b"),
-            prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
         )
     return TaskModelBindings(
         analysis=_binding("siliconflow", "qwen25-vl-72b"),
         plan_export=_binding("siliconflow", "qwen25-vl-72b"),
-        prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
     )
 
 
@@ -310,7 +304,6 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
     return TaskModelBindings(
         analysis=normalize(bindings.analysis, defaults.analysis, "vision_chat"),
         plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
-        prompt_optimization=normalize(bindings.prompt_optimization, defaults.prompt_optimization, "vision_chat"),
     )
 
 
@@ -362,7 +355,6 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     migrated.task_model_bindings = TaskModelBindings(
         analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
-        prompt_optimization=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
     migrated.hotkeys = HotkeyConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)

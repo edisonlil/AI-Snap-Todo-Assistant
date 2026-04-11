@@ -22,6 +22,8 @@ class _Worker:
         self.started = False
         self._feedback_image_base64 = "img-b64"
         self._analysis_stats = "analysis-stats"
+        self._prompt_trace_id = "trace-123"
+        self._prompt_version = "rules-v1"
 
     def start(self):
         self.started = True
@@ -70,14 +72,13 @@ def test_build_worker_uses_single_factory_for_one_image():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "工单跟进",
         get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "existing context",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=_Worker,
         multi_worker_factory=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()),
     )
@@ -111,14 +112,13 @@ def test_build_worker_uses_multi_factory_for_multiple_images():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1", "img-2"]),
         toolbar=_Toolbar(),
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "连续步骤截图",
         get_analysis_intent=lambda count: build_analysis_intent("step_sequence", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()),
         multi_worker_factory=_Worker,
     )
@@ -136,14 +136,13 @@ def test_start_analysis_restores_toolbar_when_api_key_missing():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "工单跟进",
         get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=lambda: None,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
     )
@@ -160,14 +159,13 @@ def test_start_analysis_requires_selected_intent():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "",
         get_analysis_intent=lambda count: None,
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: (_ for _ in ()).throw(AssertionError()),
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
         show_warning=lambda title, message: warnings.append((title, message)),
@@ -185,14 +183,13 @@ def test_start_analysis_wires_and_starts_worker():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=toolbar,
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "工单跟进",
         get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: hidden.__setitem__("count", hidden["count"] + 1),
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
     )
@@ -214,14 +211,13 @@ def test_handle_finished_unlocks_forwards_and_records_metrics():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "工单跟进",
         get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: None,
-        on_finished=lambda result, feedback, stats: seen.append((result, feedback, stats)),
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: seen.append((result, feedback, stats, trace_id, prompt_version)),
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
         record_analysis_metrics=lambda stats, success: recorded.append((stats, success)),
@@ -232,7 +228,7 @@ def test_handle_finished_unlocks_forwards_and_records_metrics():
     coordinator._handle_finished("done")
 
     assert coordinator.capture_locked is False
-    assert seen == [("done", "img-b64", "analysis-stats")]
+    assert seen == [("done", "img-b64", "analysis-stats", "trace-123", "rules-v1")]
     assert recorded == [("analysis-stats", True)]
 
 
@@ -244,14 +240,13 @@ def test_handle_parse_error_copies_restores_and_records_failure():
     coordinator = AnalysisFlowCoordinator(
         capture_session=_CaptureSession(images=["img-1"]),
         toolbar=_Toolbar(),
-        prompt_manager="prompt-manager",
         get_scenario=lambda: "工单跟进",
         get_analysis_intent=lambda count: build_analysis_intent("chat_feedback", capture_count=count),
         get_analysis_context=lambda: "",
         ensure_api_key_configured=_config,
         hide_overlays=lambda **kwargs: None,
         restore_toolbar_for_current_capture=lambda: restored.__setitem__("count", restored["count"] + 1),
-        on_finished=lambda result, feedback, stats: None,
+        on_finished=lambda result, feedback, stats, trace_id, prompt_version: None,
         single_worker_factory=_Worker,
         multi_worker_factory=_Worker,
         show_warning=lambda title, message: warnings.append((title, message)),

@@ -7,6 +7,8 @@ import re
 import shutil
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -67,16 +69,14 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def end(self):
             return None
 
+from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
-from .analysis_strategy import build_analysis_system_prompt, build_analysis_text_prompt
-from .feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
+from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
 from .parser import ResultParser
-from .prompt_optimizer import PromptOptimizer
-from .prompts import PromptManager
 
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _PLAN_EXPORT_SYSTEM_PROMPT = (
@@ -241,6 +241,11 @@ class _BaseVisionWorker(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._analysis_stats: AnalysisRunStats | None = None
+        self._prompt_bundle: AnalysisPromptBundle | None = None
+        self._prompt_trace_id = ""
+        self._prompt_version = "built-in"
+        self._rules_manager = AnalysisRulesManager()
+        self._prompt_debug_store = PromptDebugStore()
 
     def _pixmap_to_bytes(self, pixmap: QPixmap) -> bytes:
         byte_array = QByteArray()
@@ -329,6 +334,85 @@ class _BaseVisionWorker(QThread):
             attempts=run_result.attempts,
             image_count=image_count,
             input_bytes=input_bytes,
+        )
+
+    @staticmethod
+    def _build_prompt_trace_id() -> str:
+        return f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+    def _build_prompt_bundle(self, *, image_count: int) -> AnalysisPromptBundle:
+        config = self._rules_manager.reload()
+        bundle = build_analysis_prompt_bundle_from_rules(
+            self._analysis_intent,
+            rules_config=config,
+            trace_id=self._build_prompt_trace_id(),
+            context_text=self._context_text,
+            image_count=image_count,
+        )
+        self._prompt_bundle = bundle
+        self._prompt_trace_id = bundle.trace_id
+        self._prompt_version = bundle.prompt_version
+        return bundle
+
+    def _record_prompt_trace(
+        self,
+        *,
+        status: str,
+        raw_response: str = "",
+        error_message: str = "",
+        image_payloads: list[EncodedImage],
+    ) -> None:
+        bundle = self._prompt_bundle
+        config = self._rules_manager.config
+        if bundle is None or not config.debug.enabled:
+            return
+
+        payload = {
+            "trace_id": bundle.trace_id,
+            "timestamp": datetime.now().isoformat(),
+            "status": status,
+            "model": self._model,
+            "scenario": self._scenario,
+            "scene_type": bundle.scene_type,
+            "scene_label": bundle.scene_label,
+            "prompt_version": bundle.prompt_version,
+            "focus_hint": bundle.focus_hint,
+            "context_text": bundle.context_text,
+            "image_count": bundle.image_count,
+            "system_prompt": bundle.system_prompt,
+            "user_prompt": bundle.user_prompt,
+            "applied_rule_snapshot": bundle.applied_rule_snapshot,
+            "image_payloads": [
+                {
+                    "index": index,
+                    "byte_size": image.byte_size,
+                    "preprocess_ms": image.preprocess_ms,
+                }
+                for index, image in enumerate(image_payloads, 1)
+            ],
+            "raw_response": str(raw_response or ""),
+            "error_message": str(error_message or ""),
+            "timing_summary": self._analysis_stats.timing_summary if self._analysis_stats is not None else "",
+            "analysis_stats": (
+                {
+                    "provider_id": self._analysis_stats.provider_id,
+                    "provider_name": self._analysis_stats.provider_name,
+                    "model_id": self._analysis_stats.model_id,
+                    "model_name": self._analysis_stats.model_name,
+                    "latency_ms": self._analysis_stats.latency_ms,
+                    "llm_latency_ms": self._analysis_stats.llm_latency_ms,
+                    "preprocess_ms": self._analysis_stats.preprocess_ms,
+                    "attempts": self._analysis_stats.attempts,
+                    "image_count": self._analysis_stats.image_count,
+                    "input_bytes": self._analysis_stats.input_bytes,
+                }
+                if self._analysis_stats is not None
+                else {}
+            ),
+        }
+        self._prompt_debug_store.write_record(
+            payload,
+            max_records=config.debug.max_records,
         )
 
 
@@ -592,7 +676,6 @@ class PlanExportWorker(_BaseVisionWorker):
 class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, llm_service: LLMService, model_label: str,
                  timeout: int = 30,
-                 prompt_manager: PromptManager = None,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
@@ -605,41 +688,39 @@ class AIWorker(_BaseVisionWorker):
         self._model = model_label
         self._timeout = timeout
         self._max_image_bytes = max_image_bytes
-        self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("chat_feedback")
         self._context_text = context_text.strip()
 
     def run(self) -> None:
+        encoded_images: list[EncodedImage] = []
         try:
-            raw_text = self._call_api()
+            raw_text, encoded_images = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
+                self._record_prompt_trace(status="success", raw_response=raw_text, image_payloads=encoded_images)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
+                self._record_prompt_trace(status="parse_error", raw_response=raw_text, image_payloads=encoded_images)
                 self.parse_error.emit(raw_text)
         except LLMServiceError as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"未知错误: {exc}")
 
-    def _call_api(self) -> str:
+    def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
         encoded_image = self._encode_for_api(self._image, image_count=1)
+        bundle = self._build_prompt_bundle(image_count=1)
         messages = [
-            Message(role="system", content=build_analysis_system_prompt()),
+            Message(role="system", content=bundle.system_prompt),
             Message(
                 role="user",
                 content=[
-                    ContentPart(
-                        type="text",
-                        text=build_analysis_text_prompt(
-                            self._analysis_intent,
-                            context_text=self._context_text,
-                            image_count=1,
-                        ),
-                    ),
+                    ContentPart(type="text", text=bundle.user_prompt),
                     ContentPart(type="image_data_url", data_url=encoded_image.data_url),
                 ],
             ),
@@ -672,13 +753,12 @@ class AIWorker(_BaseVisionWorker):
             image_count=1,
             latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
-        return run_result.text
+        return run_result.text, [encoded_image]
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
     def __init__(self, images: list[QPixmap], llm_service: LLMService, model_label: str,
                  timeout: int = 30,
-                 prompt_manager: PromptManager = None,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str = "",
@@ -691,36 +771,34 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._model = model_label
         self._timeout = timeout
         self._max_image_bytes = max_image_bytes
-        self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("step_sequence", capture_count=len(images))
         self._context_text = context_text.strip()
 
     def run(self) -> None:
+        encoded_images: list[EncodedImage] = []
         try:
-            raw_text = self._call_api()
+            raw_text, encoded_images = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
+                self._record_prompt_trace(status="success", raw_response=raw_text, image_payloads=encoded_images)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
+                self._record_prompt_trace(status="parse_error", raw_response=raw_text, image_payloads=encoded_images)
                 self.parse_error.emit(raw_text)
         except LLMServiceError as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"未知错误: {exc}")
 
-    def _call_api(self) -> str:
+    def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
+        bundle = self._build_prompt_bundle(image_count=len(self._images))
         content: list[ContentPart] = [
-            ContentPart(
-                type="text",
-                text=build_analysis_text_prompt(
-                    self._analysis_intent,
-                    context_text=self._context_text,
-                    image_count=len(self._images),
-                ),
-            )
+            ContentPart(type="text", text=bundle.user_prompt)
         ]
         encoded_images: list[EncodedImage] = []
         for index, pixmap in enumerate(self._images, 1):
@@ -735,7 +813,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             run_result = self._run_llm_task_detailed(
                 "analysis",
                 messages=[
-                    Message(role="system", content=build_analysis_system_prompt()),
+                    Message(role="system", content=bundle.system_prompt),
                     Message(role="user", content=content),
                 ],
                 temperature=0.3,
@@ -762,56 +840,4 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             image_count=max(1, len(self._images)),
             latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
-        return run_result.text
-
-
-class FeedbackOptimizeWorker(QThread):
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, llm_service: LLMService, timeout: int, feedback: FeedbackData, parent=None):
-        super().__init__(parent)
-        self._llm_service = llm_service
-        self._timeout = timeout
-        self._feedback = feedback
-
-    def run(self) -> None:
-        summary = {
-            "feedback_id": self._feedback.id,
-            "scenario": self._feedback.scenario,
-            "analysis_applied": False,
-            "immediate_prompt_updated": False,
-            "threshold_prompt_updated": False,
-        }
-
-        try:
-            collector = FeedbackCollector()
-            analyzer = FeedbackAnalyzer(collector)
-            optimizer = PromptOptimizer(
-                self._llm_service,
-                collector,
-                analyzer,
-            )
-            prompt_manager = PromptManager()
-
-            if self._feedback.user_edited and self._feedback.feedback_status != "correct":
-                summary["analysis_applied"] = optimizer.analyze_feedback(
-                    self._feedback,
-                    self._timeout,
-                )
-
-            summary["immediate_prompt_updated"] = optimizer.apply_feedback_immediately(
-                self._feedback,
-                prompts_module=prompt_manager,
-                api_timeout=self._timeout,
-            )
-
-            if optimizer.check_feedback_threshold(self._feedback.scenario, prompt_manager):
-                summary["threshold_prompt_updated"] = optimizer.apply_style_to_prompt(
-                    self._feedback.scenario,
-                    prompts_module=prompt_manager,
-                )
-
-            self.finished.emit(summary)
-        except Exception as exc:
-            self.error.emit(str(exc))
+        return run_result.text, encoded_images

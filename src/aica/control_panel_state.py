@@ -18,7 +18,6 @@ MEGABYTE = 1024 * 1024
 TASK_NAMES = (
     "analysis",
     "plan_export",
-    "prompt_optimization",
 )
 
 

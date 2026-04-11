@@ -19,6 +19,7 @@ class FeedbackData:
     scenario: str = ""  # 场景名称，如 "工单提取"
     model: str = ""  # 使用的模型，如 "gpt-4v"
     prompt_version: str = "v1.0"  # 提示词版本
+    prompt_trace_id: str = ""  # 对应的 prompt 调试记录 ID
 
     # 原始AI输出
     ai_output: Dict = field(default_factory=dict)

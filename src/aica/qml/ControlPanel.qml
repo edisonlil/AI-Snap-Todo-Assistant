@@ -348,6 +348,23 @@ Rectangle {
         }
     }
 
+    component MultiLineInput: TextArea {
+        id: area
+        color: root.titleInk
+        font.family: root.uiFont
+        font.pixelSize: 12
+        selectByMouse: true
+        wrapMode: TextEdit.Wrap
+        padding: 14
+        implicitHeight: 96
+        background: Rectangle {
+            radius: 16
+            color: "#FFFEFC"
+            border.width: 1
+            border.color: area.activeFocus ? root.accent : root.panelLine
+        }
+    }
+
     component SearchableModelCombo: Item {
         id: comboRoot
         property var model: []
@@ -821,6 +838,7 @@ Rectangle {
                                 Text {
                                     text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型"
                                           : controlPanelBridge.currentSection === "hotkeys" ? "截图热键"
+                                          : controlPanelBridge.currentSection === "analysis_rules" ? "规则与 Prompt 调试"
                                           : controlPanelBridge.currentSection === "integrations" ? "脚本集成"
                                           : controlPanelBridge.currentSection === "projects" ? "项目管理"
                                           : "存储与日志"
@@ -834,6 +852,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。"
                                           : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。"
+                                          : controlPanelBridge.currentSection === "analysis_rules" ? "按场景维护识别偏好，并查看每次截图分析的完整 Prompt 构建结果。"
                                           : controlPanelBridge.currentSection === "integrations" ? "导入本地脚本并控制启用状态，保存后会写入 integrations.json。"
                                           : controlPanelBridge.currentSection === "projects" ? "批量导入项目主数据，并集中维护群名别名与轻量补关联。"
                                           : "快速打开本地数据目录，定位配置、反馈和错误日志。"
@@ -846,6 +865,7 @@ Rectangle {
 
                             PlainButton {
                                 label: controlPanelBridge.currentSection === "storage" ? "保存目录"
+                                      : controlPanelBridge.currentSection === "analysis_rules" ? "保存规则"
                                       : controlPanelBridge.currentSection === "projects" ? "补关联待办"
                                       : "保存配置"
                                 fillColor: root.accent
@@ -1134,6 +1154,271 @@ Rectangle {
                                 }
 
                                 SectionCard {
+                                    visible: controlPanelBridge.currentSection === "analysis_rules"
+                                    Layout.fillWidth: true
+                                    implicitHeight: analysisRulesContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: analysisRulesContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "用户规则"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        SettingsCombo {
+                                            Layout.fillWidth: true
+                                            model: controlPanelBridge.analysisRuleScenes
+                                            currentIndex: root.optionIndex(controlPanelBridge.analysisRuleScenes, controlPanelBridge.selectedAnalysisRuleScene)
+                                            onActivated: if (currentIndex >= 0) controlPanelBridge.setSelectedAnalysisRuleScene(controlPanelBridge.analysisRuleScenes[currentIndex].value)
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "当前场景：" + controlPanelBridge.analysisRuleForm.sceneLabel + "。这些规则会按顺序替换到分析提示词中的 {{RULE}}，用于约束和引导模型输出。"
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            Repeater {
+                                                model: controlPanelBridge.analysisRuleForm.userRules
+
+                                                delegate: RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 10
+
+                                                    Text {
+                                                        text: "规则 " + (index + 1)
+                                                        color: root.labelInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        font.weight: 600
+                                                    }
+
+                                                    SettingsInput {
+                                                        Layout.fillWidth: true
+                                                        text: modelData
+                                                        placeholderText: "例如：优先提取客户诉求、当前结论和下一步动作"
+                                                        onTextEdited: controlPanelBridge.updateAnalysisUserRule(index, text)
+                                                    }
+
+                                                    PlainButton {
+                                                        label: "删除"
+                                                        visible: controlPanelBridge.analysisRuleForm.userRules.length > 1 || (modelData || "").length > 0
+                                                        onClicked: controlPanelBridge.removeAnalysisUserRule(index)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        PlainButton {
+                                            label: "新增规则"
+                                            onClicked: controlPanelBridge.addAnalysisUserRule()
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "当前规则版本: " + controlPanelBridge.analysisRuleForm.promptVersion
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "analysis_rules"
+                                    Layout.fillWidth: true
+                                    implicitHeight: promptDebugContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: promptDebugContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "Prompt 调试"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            CheckBox {
+                                                checked: controlPanelBridge.analysisRuleForm.debugEnabled
+                                                text: "开启每次分析的 Prompt 快照记录"
+                                                font.family: root.uiFont
+                                                onToggled: controlPanelBridge.updateAnalysisDebugEnabled(checked)
+                                            }
+
+                                            SettingsInput {
+                                                Layout.preferredWidth: 120
+                                                text: controlPanelBridge.analysisRuleForm.debugMaxRecords
+                                                placeholderText: "100"
+                                                onTextEdited: controlPanelBridge.updateAnalysisDebugMaxRecords(text)
+                                            }
+
+                                            PlainButton {
+                                                label: "刷新记录"
+                                                onClicked: controlPanelBridge.refreshPromptDebugRecords()
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "analysis_rules.json: " + controlPanelBridge.analysisRulesPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "prompt_debug/: " + controlPanelBridge.promptDebugDirPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Repeater {
+                                            model: controlPanelBridge.promptDebugRecords
+
+                                            delegate: Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: debugItemColumn.implicitHeight + 18
+                                                radius: 16
+                                                color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accentSoft : "#FFFCF7"
+                                                border.width: 1
+                                                border.color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accent : root.panelLine
+
+                                                Column {
+                                                    id: debugItemColumn
+                                                    anchors.fill: parent
+                                                    anchors.margins: 10
+                                                    spacing: 4
+
+                                                    Text {
+                                                        text: modelData.sceneLabel + " · " + modelData.status
+                                                        color: root.titleInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 12
+                                                        font.weight: 700
+                                                    }
+
+                                                    Text {
+                                                        text: modelData.timestamp + " · " + modelData.model
+                                                        color: root.bodyInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        wrapMode: Text.Wrap
+                                                    }
+
+                                                    Text {
+                                                        text: (modelData.timingSummary || "") + " · " + modelData.imageCount + " 张图"
+                                                        color: root.labelInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        wrapMode: Text.Wrap
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: controlPanelBridge.selectPromptDebugRecord(modelData.traceId)
+                                                }
+                                            }
+                                        }
+
+                                        Text {
+                                            visible: controlPanelBridge.promptDebugRecords.length === 0
+                                            Layout.fillWidth: true
+                                            text: "还没有调试记录。开启调试后，新的截图分析会落盘保存完整 Prompt 快照。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            visible: controlPanelBridge.selectedPromptDebugRecord.trace_id.length > 0
+                                            text: "当前记录详情"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        RowLayout {
+                                            visible: controlPanelBridge.selectedPromptDebugRecord.trace_id.length > 0
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            PlainButton {
+                                                label: "复制 System"
+                                                onClicked: controlPanelBridge.copyPromptDebugField("system_prompt")
+                                            }
+
+                                            PlainButton {
+                                                label: "复制 User"
+                                                onClicked: controlPanelBridge.copyPromptDebugField("user_prompt")
+                                            }
+
+                                            PlainButton {
+                                                label: "复制原始返回"
+                                                onClicked: controlPanelBridge.copyPromptDebugField("raw_response")
+                                            }
+                                        }
+
+                                        MultiLineInput {
+                                            visible: controlPanelBridge.selectedPromptDebugRecord.trace_id.length > 0
+                                            Layout.fillWidth: true
+                                            implicitHeight: 120
+                                            readOnly: true
+                                            text: controlPanelBridge.selectedPromptDebugRecord.system_prompt
+                                        }
+
+                                        MultiLineInput {
+                                            visible: controlPanelBridge.selectedPromptDebugRecord.trace_id.length > 0
+                                            Layout.fillWidth: true
+                                            implicitHeight: 180
+                                            readOnly: true
+                                            text: controlPanelBridge.selectedPromptDebugRecord.user_prompt
+                                        }
+
+                                        MultiLineInput {
+                                            visible: controlPanelBridge.selectedPromptDebugRecord.trace_id.length > 0
+                                            Layout.fillWidth: true
+                                            implicitHeight: 140
+                                            readOnly: true
+                                            text: controlPanelBridge.selectedPromptDebugRecord.raw_response
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
                                     visible: controlPanelBridge.currentSection === "storage"
                                     Layout.fillWidth: true
                                     implicitHeight: storageContent.implicitHeight + 32
@@ -1232,7 +1517,16 @@ Rectangle {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "prompts.json: " + controlPanelBridge.promptsPath
+                                            text: "analysis_rules.json: " + controlPanelBridge.analysisRulesPath
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.WrapAnywhere
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "prompt_debug/: " + controlPanelBridge.promptDebugDirPath
                                             color: root.bodyInk
                                             font.family: root.uiFont
                                             font.pixelSize: 12

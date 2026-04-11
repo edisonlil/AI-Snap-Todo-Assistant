@@ -61,7 +61,6 @@ def test_minmax_default_bindings_keep_vision_tasks_on_vision_model():
     assert bindings.analysis.provider_id == "siliconflow"
     assert bindings.analysis.model_id == "qwen25-vl-72b"
     assert bindings.plan_export.provider_id == "siliconflow"
-    assert bindings.prompt_optimization.provider_id == "siliconflow"
 
 
 def test_dashscope_default_bindings_use_dashscope_vision_model():
@@ -70,7 +69,6 @@ def test_dashscope_default_bindings_use_dashscope_vision_model():
     assert bindings.analysis.provider_id == "dashscope"
     assert bindings.analysis.model_id == "qwen-vl-max"
     assert bindings.plan_export.provider_id == "dashscope"
-    assert bindings.prompt_optimization.provider_id == "dashscope"
 
 
 def test_reload_normalizes_dashscope_legacy_model_aliases_and_base_url():
@@ -97,7 +95,6 @@ def test_reload_normalizes_dashscope_legacy_model_aliases_and_base_url():
             "task_model_bindings": {
                 "analysis": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
                 "plan_export": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
-                "prompt_optimization": {"provider_id": "dashscope", "model_id": "qwen-vl-max-latest"},
             },
         }
     )
@@ -106,6 +103,22 @@ def test_reload_normalizes_dashscope_legacy_model_aliases_and_base_url():
     assert dashscope.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
     assert dashscope.models[0].id == "qwen-vl-max"
     assert reloaded.task_model_bindings.analysis.model_id == "qwen-vl-max"
+
+
+def test_reload_ignores_legacy_prompt_optimization_binding():
+    reloaded = _app_config_from_dict(
+        {
+            "task_model_bindings": {
+                "analysis": {"provider_id": "siliconflow", "model_id": "qwen25-vl-72b"},
+                "plan_export": {"provider_id": "siliconflow", "model_id": "qwen25-vl-72b"},
+                "prompt_optimization": {"provider_id": "dashscope", "model_id": "qwen-vl-max"},
+            }
+        }
+    )
+
+    persisted = asdict(reloaded)
+
+    assert "prompt_optimization" not in persisted["task_model_bindings"]
 
 
 def test_save_and_reload_preserves_hotkey_and_image_limit():

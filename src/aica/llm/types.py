@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 ContentPartType = Literal["text", "image_data_url"]
-TaskName = Literal["analysis", "plan_export", "prompt_optimization"]
+TaskName = Literal["analysis", "plan_export"]
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,8 @@ def test_populate_feedback_data_sets_structured_result_fields():
         edited_result=edited,
         feedback_data=feedback,
         feedback_image_base64="abc123",
+        prompt_trace_id="trace-001",
+        prompt_version="rules-v2",
     )
 
     assert "旧摘要" in populated.original_result
@@ -50,3 +52,5 @@ def test_populate_feedback_data_sets_structured_result_fields():
     assert populated.user_edited is True
     assert populated.image_base64 == "abc123"
     assert populated.correction["current_summary"] == "新摘要"
+    assert populated.prompt_trace_id == "trace-001"
+    assert populated.prompt_version == "rules-v2"
