@@ -25,7 +25,7 @@
 - 项目支持日期选择与项目级别设置
 - 时间线附件上传、预览与导出
 - 本地待办持久化
-- 反馈采集与 Prompt 优化
+- 反馈采集与 Prompt 调试
 - 单实例运行保护
 
 ## 运行环境
@@ -156,10 +156,6 @@ python -m pip install -r requirements-build.txt
       "provider_id": "siliconflow",
       "model_id": "qwen25-vl-72b"
     },
-    "prompt_optimization": {
-      "provider_id": "siliconflow",
-      "model_id": "qwen25-vl-72b"
-    }
   },
   "hotkeys": {
     "capture": "Alt+A"
@@ -182,7 +178,8 @@ python -m pip install -r requirements-build.txt
 - `task_model_bindings.analysis`：截图分析
 - `task_model_bindings.title_generation`：标题生成
 - `task_model_bindings.plan_export`：方案导出
-- `task_model_bindings.prompt_optimization`：Prompt 优化
+- `analysis_rules.json`：截图分析规则配置
+- `prompt_debug/`：截图分析 Prompt 调试快照
 - `max_image_bytes`：图片压缩阈值，默认 `4MB`
 
 补充说明：
@@ -196,7 +193,8 @@ python -m pip install -r requirements-build.txt
 程序默认使用 `~/.aica/` 目录保存本地数据：
 
 - `~/.aica/config.json`
-- `~/.aica/prompts.json`
+- `~/.aica/analysis_rules.json`
+- `~/.aica/prompt_debug/`
 - `~/.aica/todos.json`
 - `~/.aica/feedback/feedback.jsonl`
 - `~/.aica/feedback/images/`
@@ -219,7 +217,7 @@ python .\run_aica.py
 推荐的回归命令：
 
 ```powershell
-pytest tests\test_overlay.py tests\test_compress.py tests\test_prompts.py tests\test_single_instance.py tests\test_analysis_flow.py tests\test_result_flow.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_timeline_entry_dedup.py tests\test_ticket_field_resolver.py -q
+pytest tests\test_overlay.py tests\test_compress.py tests\test_analysis_rules.py tests\test_single_instance.py tests\test_analysis_flow.py tests\test_result_flow.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_timeline_entry_dedup.py tests\test_ticket_field_resolver.py -q
 ```
 
 运行完整测试：
@@ -255,6 +253,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ## Changelog
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
+### 2026-04-12
+
+- 控制面板交互补强：
+  - 新增窗口边缘调整大小能力，便于在不同屏幕尺寸下灵活调整控制面板布局
+- 分析流程与规则调试升级：
+  - 重构截图分析流程，进一步梳理分析链路中的 worker、结果回传与状态衔接
+  - 新增分析规则调试能力，可记录 Prompt 快照与相关调试信息，便于排查分析结果和规则配置问题
+- 待办分析辅助能力：
+  - 新增 `aica-todo-reader` skill，可直接查询 `aica.db` 中的待办、时间线与统计信息，用于历史工单回顾、客户问题汇总和数据分析
+- 测试覆盖补充：
+  - 新增屏幕坐标与虚拟几何相关测试，提升多屏与复杂显示布局场景下的稳定性验证
 
 ### 2026-04-11
 
@@ -312,7 +322,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 - 模型架构重构：
   - 模型调用从 worker 中抽离，新增统一 `LLMService`、Provider Registry 和任务绑定层
   - 首批内置两类供应商：`openai_compatible` 与 `gemini`
-  - 截图分析、标题生成、方案导出、Prompt 优化全部改为通过任务绑定选择模型
+  - 截图分析、方案导出全部改为通过任务绑定选择模型
 - 配置体系升级：
   - `config.json` 改为 `providers + task_model_bindings` 新 schema
   - 模型供应商与模型均支持配置

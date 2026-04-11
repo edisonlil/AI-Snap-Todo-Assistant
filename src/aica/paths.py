@@ -88,6 +88,10 @@ def config_file() -> Path:
     return app_data_dir() / "config.json"
 
 
+def analysis_rules_file() -> Path:
+    return app_data_dir() / "analysis_rules.json"
+
+
 def prompts_file() -> Path:
     return app_data_dir() / "prompts.json"
 
@@ -118,6 +122,10 @@ def feedback_images_dir() -> Path:
 
 def prompt_history_dir() -> Path:
     return app_data_dir() / "prompt_history"
+
+
+def prompt_debug_dir() -> Path:
+    return app_data_dir() / "prompt_debug"
 
 
 def error_log_file() -> Path:

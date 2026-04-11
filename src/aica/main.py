@@ -19,13 +19,11 @@ from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
 from aica.control_panel import ControlPanelWindow
-from aica.feedback import FeedbackData
 from aica.hotkey import HotkeyManager
 from aica.llm.service import LLMService, ModelResolutionError
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
-from aica.prompts import PromptManager
 from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
 from aica.todo_controller import TodoController
@@ -36,7 +34,6 @@ from aica.todo_store import TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
-    FeedbackOptimizeWorker,
     MultiCaptureAIWorker,
     PlanExportWorker,
     build_plan_export_filename,
@@ -122,7 +119,6 @@ def main() -> None:
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
-    prompt_mgr = PromptManager()
     try:
         hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
     except ValueError:
@@ -144,7 +140,6 @@ def main() -> None:
 
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
-    feedback_workers: list[FeedbackOptimizeWorker] = []
     plan_export_workers: list[PlanExportWorker] = []
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
@@ -297,11 +292,6 @@ def main() -> None:
     def _queue_current_capture() -> bool:
         return capture_ui.queue_current_capture()
 
-    def _cleanup_feedback_worker(worker: FeedbackOptimizeWorker) -> None:
-        if worker in feedback_workers:
-            feedback_workers.remove(worker)
-        worker.deleteLater()
-
     def _cleanup_plan_export_worker(worker: PlanExportWorker) -> None:
         if worker in plan_export_workers:
             plan_export_workers.remove(worker)
@@ -311,57 +301,12 @@ def main() -> None:
         llm_service = LLMService(config)
         analysis_ref = llm_service.resolve_task_model("analysis").reference
         plan_export_ref = llm_service.resolve_task_model("plan_export").reference
-        prompt_ref = llm_service.resolve_task_model("prompt_optimization").reference
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
             analysis_timeout_seconds=analysis_ref.timeout_seconds,
             plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
-            prompt_optimization_timeout_seconds=prompt_ref.timeout_seconds,
         )
-
-    def _on_feedback_optimization_finished(summary: dict) -> None:
-        nonlocal prompt_mgr
-
-        sender = app.sender()
-        if isinstance(sender, FeedbackOptimizeWorker):
-            _cleanup_feedback_worker(sender)
-
-        updated_parts = []
-        if summary.get("immediate_prompt_updated"):
-            updated_parts.append("Immediate prompt tuning applied from this feedback.")
-        if summary.get("threshold_prompt_updated"):
-            updated_parts.append("Threshold-based prompt optimization applied.")
-
-        if updated_parts:
-            prompt_mgr = PromptManager()
-            QMessageBox.information(
-                None,
-                "Prompt Updated",
-                f"Scenario: {summary.get('scenario', '')}\n\n" + "\n".join(updated_parts),
-            )
-
-    def _on_feedback_optimization_error(message: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, FeedbackOptimizeWorker):
-            _cleanup_feedback_worker(sender)
-        print(f"Feedback background optimization failed: {message}")
-
-    def _start_feedback_optimization(feedback: FeedbackData) -> None:
-        try:
-            runtime_config = _build_runtime_config(config_mgr.load())
-        except ModelResolutionError:
-            return
-
-        worker = FeedbackOptimizeWorker(
-            runtime_config.llm_service,
-            runtime_config.prompt_optimization_timeout_seconds,
-            feedback,
-        )
-        feedback_workers.append(worker)
-        worker.finished.connect(_on_feedback_optimization_finished)
-        worker.error.connect(_on_feedback_optimization_error)
-        worker.start()
 
     def _on_plan_export_finished(export_path: str) -> None:
         sender = app.sender()
@@ -411,7 +356,6 @@ def main() -> None:
         get_model=lambda: _build_runtime_config(config_mgr.load()).llm_service.describe_task_model("analysis"),
         save_result_to_todo=_save_analysis_to_todo,
         clear_capture_state=_clear_capture_state,
-        start_feedback_optimization=_start_feedback_optimization,
     )
 
     def _on_hotkey() -> None:
@@ -444,17 +388,24 @@ def main() -> None:
             _show_missing_settings_message()
         return None
 
-    def _handle_analysis_finished(result, feedback_image_base64: str, analysis_stats=None) -> None:
+    def _handle_analysis_finished(
+        result,
+        feedback_image_base64: str,
+        analysis_stats=None,
+        prompt_trace_id: str = "",
+        prompt_version: str = "built-in",
+    ) -> None:
         result_flow.handle_ai_finished(
             result,
             feedback_image_base64=feedback_image_base64,
             analysis_stats=analysis_stats,
+            prompt_trace_id=prompt_trace_id,
+            prompt_version=prompt_version,
         )
 
     analysis_flow = AnalysisFlowCoordinator(
         capture_session=capture_session,
         toolbar=toolbar,
-        prompt_manager=prompt_mgr,
         get_scenario=toolbar.get_current_scenario,
         get_analysis_intent=toolbar.build_analysis_intent,
         get_analysis_context=_build_selected_todo_context,

@@ -9,6 +9,13 @@ from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
 
 from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
+from aica.analysis_rules import (
+    AnalysisRulesManager,
+    PromptDebugStore,
+    SceneAnalysisRule,
+    UserRuleConfig,
+    build_scene_options_payload,
+)
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.control_panel_state import (
     build_script_integration,
@@ -33,15 +40,15 @@ from aica.project_management import (
 from aica.paths import (
     aica_database_file,
     app_data_dir,
+    analysis_rules_file,
     config_file,
     error_log_file,
     feedback_dir,
     integrations_file,
     log_dir,
-    prompt_history_dir,
-    prompts_file,
-    qml_dir,
+    prompt_debug_dir,
     storage_config_file,
+    qml_dir,
 )
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.todo_store import TodoStore
@@ -50,7 +57,6 @@ from aica.todo_store import TodoStore
 _TASK_LABELS = {
     "analysis": "截图分析",
     "plan_export": "方案导出",
-    "prompt_optimization": "Prompt 优化",
 }
 _SECTION_ITEMS = [
     {
@@ -62,6 +68,11 @@ _SECTION_ITEMS = [
         "id": "hotkeys",
         "title": "快捷键",
         "description": "调整截图热键并立即生效。",
+    },
+    {
+        "id": "analysis_rules",
+        "title": "规则与调试",
+        "description": "配置场景分析规则，并查看 Prompt 调试快照。",
     },
     {
         "id": "storage",
@@ -166,10 +177,15 @@ class _ControlPanelBridge(QObject):
         self._config_manager = config_manager
         self._config = config_manager.load()
         self._analysis_metrics = AnalysisMetricsStore()
+        self._analysis_rules_manager = AnalysisRulesManager()
+        self._analysis_rules = self._analysis_rules_manager.config
+        self._prompt_debug_store = PromptDebugStore()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
         self._current_section = "models"
+        self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
+        self._selected_prompt_debug_trace_id = ""
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
@@ -183,6 +199,9 @@ class _ControlPanelBridge(QObject):
         self._error_message = ""
         self._status_message = ""
         self._window_maximized = False
+        records = self._prompt_debug_store.list_records(limit=1)
+        if records:
+            self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
 
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
@@ -269,10 +288,6 @@ class _ControlPanelBridge(QObject):
         return str(config_file())
 
     @pyqtProperty(str, notify=dataChanged)
-    def promptsPath(self) -> str:
-        return str(prompts_file())
-
-    @pyqtProperty(str, notify=dataChanged)
     def todosPath(self) -> str:
         return str(aica_database_file())
 
@@ -294,6 +309,65 @@ class _ControlPanelBridge(QObject):
                     "exists": bool(script_path) and Path(script_path).exists(),
                 }
             )
+        return payload
+
+    @pyqtProperty("QVariantList", constant=True)
+    def analysisRuleScenes(self):  # noqa: ANN201
+        return build_scene_options_payload()
+
+    @pyqtProperty(str, notify=dataChanged)
+    def selectedAnalysisRuleScene(self) -> str:
+        return self._selected_rule_scene
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def analysisRuleForm(self):  # noqa: ANN201
+        user_rules = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        if not user_rules:
+            user_rules = [""]
+        return {
+            "userRules": user_rules,
+            "sceneLabel": next(
+                (
+                    option.get("text", "")
+                    for option in build_scene_options_payload()
+                    if option.get("value", "") == self._selected_rule_scene
+                ),
+                "",
+            ),
+            "promptVersion": self._analysis_rules.version,
+            "debugEnabled": self._analysis_rules.debug.enabled,
+            "debugMaxRecords": str(self._analysis_rules.debug.max_records),
+        }
+
+    @pyqtProperty(str, notify=dataChanged)
+    def analysisRulesPath(self) -> str:
+        return str(analysis_rules_file())
+
+    @pyqtProperty(str, notify=dataChanged)
+    def promptDebugDirPath(self) -> str:
+        return str(prompt_debug_dir())
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def promptDebugRecords(self):  # noqa: ANN201
+        return self._prompt_debug_store.list_records(limit=60)
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedPromptDebugRecord(self):  # noqa: ANN201
+        payload = self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id)
+        if payload is None:
+            return {
+                "trace_id": "",
+                "scene_label": "",
+                "timestamp": "",
+                "model": "",
+                "status": "",
+                "timing_summary": "",
+                "system_prompt": "",
+                "user_prompt": "",
+                "raw_response": "",
+                "error_message": "",
+                "context_text": "",
+            }
         return payload
 
     @pyqtProperty("QVariantList", notify=dataChanged)
@@ -326,9 +400,14 @@ class _ControlPanelBridge(QObject):
                 "description": str(feedback_dir()),
             },
             {
-                "id": "prompt_history_dir",
-                "title": "Prompt 历史目录",
-                "description": str(prompt_history_dir()),
+                "id": "analysis_rules_dir",
+                "title": "分析规则文件",
+                "description": str(analysis_rules_file()),
+            },
+            {
+                "id": "prompt_debug_dir",
+                "title": "Prompt 调试目录",
+                "description": str(prompt_debug_dir()),
             },
             {
                 "id": "error_log_dir",
@@ -457,6 +536,7 @@ class _ControlPanelBridge(QObject):
     def reloadConfig(self) -> None:
         self._config_manager = ConfigManager()
         self._config = self._config_manager.load()
+        self._analysis_rules = self._analysis_rules_manager.reload()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
@@ -467,6 +547,15 @@ class _ControlPanelBridge(QObject):
         self._project_repository = SQLiteProjectRepository(aica_database_file())
         self._todo_store = TodoStore(str(aica_database_file()))
         self._refresh_project_payloads()
+        if self._selected_rule_scene not in self._analysis_rules.scene_rules:
+            self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
+        if self._selected_prompt_debug_trace_id:
+            if self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id) is None:
+                self._selected_prompt_debug_trace_id = ""
+        if not self._selected_prompt_debug_trace_id:
+            records = self._prompt_debug_store.list_records(limit=1)
+            if records:
+                self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
         self._clear_messages()
         self._emit_data_changed()
 
@@ -580,7 +669,8 @@ class _ControlPanelBridge(QObject):
         mapping = {
             "data_dir": app_data_dir(),
             "feedback_dir": feedback_dir(),
-            "prompt_history_dir": prompt_history_dir(),
+            "analysis_rules_dir": analysis_rules_file().parent,
+            "prompt_debug_dir": prompt_debug_dir(),
             "error_log_dir": error_log_file().parent,
             "integrations_dir": self._integrations_path.parent,
         }
@@ -620,6 +710,9 @@ class _ControlPanelBridge(QObject):
 
     @pyqtSlot()
     def saveCurrentSection(self) -> None:
+        if self._current_section == "analysis_rules":
+            self.saveAnalysisRules()
+            return
         if self._current_section == "integrations":
             self.saveIntegrations()
             return
@@ -652,6 +745,127 @@ class _ControlPanelBridge(QObject):
         self._log_dir = result["log_dir"]
         self.reloadConfig()
         self._status_message = "目录设置已保存，新日志会写入新位置；数据目录切换建议重启应用后完全生效。"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def setSelectedAnalysisRuleScene(self, scene_type: str) -> None:
+        normalized = str(scene_type or "").strip()
+        if not normalized or normalized not in self._analysis_rules.scene_rules:
+            return
+        self._selected_rule_scene = normalized
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def updateAnalysisRuleField(self, field_name: str, value: str) -> None:
+        rule = self._analysis_rules.scenes.get(self._selected_rule_scene, SceneAnalysisRule())
+        normalized = str(field_name or "").strip()
+        text = str(value or "").strip()
+        if normalized == "titlePreference":
+            rule.title_preference = text
+        elif normalized == "summaryPreference":
+            rule.summary_preference = text
+        elif normalized == "timelinePreference":
+            rule.timeline_preference = text
+        elif normalized == "mustInclude":
+            rule.must_include = text
+        elif normalized == "mustAvoid":
+            rule.must_avoid = text
+        elif normalized == "extraInstructions":
+            rule.extra_instructions = text
+        else:
+            return
+        self._analysis_rules.scenes[self._selected_rule_scene] = rule
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(int, str)
+    def updateAnalysisUserRule(self, index: int, value: str) -> None:
+        normalized_index = max(0, int(index))
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        while len(items) <= normalized_index:
+            items.append("")
+        items[normalized_index] = str(value or "").strip()
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+
+    @pyqtSlot()
+    def addAnalysisUserRule(self) -> None:
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        items.append("")
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(int)
+    def removeAnalysisUserRule(self, index: int) -> None:
+        normalized_index = int(index)
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        if normalized_index < 0 or normalized_index >= len(items):
+            return
+        items.pop(normalized_index)
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(bool)
+    def updateAnalysisDebugEnabled(self, enabled: bool) -> None:
+        self._analysis_rules.debug.enabled = bool(enabled)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def updateAnalysisDebugMaxRecords(self, value: str) -> None:
+        try:
+            parsed = int(str(value or "100").strip() or "100")
+        except ValueError:
+            parsed = 100
+        self._analysis_rules.debug.max_records = max(1, parsed)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def saveAnalysisRules(self) -> None:
+        self._clear_messages()
+        try:
+            self._analysis_rules.debug.max_records = max(1, int(self._analysis_rules.debug.max_records))
+        except (TypeError, ValueError):
+            self._error_message = "调试记录保留条数必须是正整数"
+            self._emit_data_changed()
+            return
+        self._analysis_rules_manager.update_debug_config(
+            enabled=self._analysis_rules.debug.enabled,
+            max_records=self._analysis_rules.debug.max_records,
+        )
+        for scene_type, rules in self._analysis_rules.scene_rules.items():
+            self._analysis_rules_manager.update_scene_user_rules(scene_type, rules)
+        for scene_type, rule in self._analysis_rules.scenes.items():
+            self._analysis_rules_manager.update_scene_rule(scene_type, rule)
+        self._analysis_rules = self._analysis_rules_manager.save()
+        self._status_message = "分析规则与调试设置已保存。"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def selectPromptDebugRecord(self, trace_id: str) -> None:
+        self._selected_prompt_debug_trace_id = str(trace_id or "").strip()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def refreshPromptDebugRecords(self) -> None:
+        records = self._prompt_debug_store.list_records(limit=60)
+        if records and not self._selected_prompt_debug_trace_id:
+            self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def copyPromptDebugField(self, field_name: str) -> None:
+        payload = self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id)
+        if payload is None:
+            return
+        field_value = str(payload.get(str(field_name or "").strip(), "")).strip()
+        QApplication.clipboard().setText(field_value)
+        self._status_message = "调试内容已复制到剪贴板。"
         self._emit_data_changed()
 
     @pyqtSlot()

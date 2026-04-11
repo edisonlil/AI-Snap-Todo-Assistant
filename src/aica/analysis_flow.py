@@ -31,14 +31,13 @@ class AnalysisFlowCoordinator:
         *,
         capture_session,
         toolbar,
-        prompt_manager,
         get_scenario: Callable[[], str],
         get_analysis_intent: Callable[[int], Any | None] | None,
         get_analysis_context: Callable[[], str] | None,
         ensure_api_key_configured: Callable[[], Any | None],
         hide_overlays: Callable[..., None],
         restore_toolbar_for_current_capture: Callable[[], None],
-        on_finished: Callable[[object, str, Any | None], None],
+        on_finished: Callable[[object, str, Any | None, str, str], None],
         single_worker_factory: Callable[..., Any] | None = None,
         multi_worker_factory: Callable[..., Any] | None = None,
         show_critical: Callable[[str, str], None] | None = None,
@@ -48,7 +47,6 @@ class AnalysisFlowCoordinator:
     ):
         self._capture_session = capture_session
         self._toolbar = toolbar
-        self._prompt_manager = prompt_manager
         self._get_scenario = get_scenario
         self._get_analysis_intent = get_analysis_intent
         self._get_analysis_context = get_analysis_context
@@ -88,7 +86,6 @@ class AnalysisFlowCoordinator:
             llm_service=config.llm_service,
             model_label=analysis_model_label,
             timeout=config.analysis_timeout_seconds,
-            prompt_manager=self._prompt_manager,
             scenario=scenario,
             analysis_intent=analysis_intent,
             context_text=context_text,
@@ -134,10 +131,12 @@ class AnalysisFlowCoordinator:
         self._toolbar.set_loading(False)
         feedback_image_base64 = getattr(self._current_worker, "_feedback_image_base64", "")
         analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
+        prompt_trace_id = getattr(self._current_worker, "_prompt_trace_id", "")
+        prompt_version = getattr(self._current_worker, "_prompt_version", "built-in")
         self._capture_locked = False
         if analysis_stats is not None and self._record_analysis_metrics is not None:
             self._record_analysis_metrics(analysis_stats, True)
-        self._on_finished(result, feedback_image_base64, analysis_stats)
+        self._on_finished(result, feedback_image_base64, analysis_stats, prompt_trace_id, prompt_version)
 
     def _handle_error(self, message: str) -> None:
         self._toolbar.set_loading(False)

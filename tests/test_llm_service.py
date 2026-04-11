@@ -20,7 +20,6 @@ def _config() -> AppConfig:
         task_model_bindings=TaskModelBindings(
             analysis=TaskModelBinding(provider_id="gemini", model_id="flash"),
             plan_export=TaskModelBinding(provider_id="gemini", model_id="flash"),
-            prompt_optimization=TaskModelBinding(provider_id="gemini", model_id="flash"),
         ),
     )
 
