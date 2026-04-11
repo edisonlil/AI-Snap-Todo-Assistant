@@ -23,6 +23,13 @@ from aica.control_panel_state import (
     script_integration_display_path,
     update_script_integration_path,
 )
+from aica.project_management import (
+    build_project_template_content,
+    find_active_alias_conflicts,
+    import_projects_from_file,
+    project_record_from_payload,
+    project_to_payload,
+)
 from aica.paths import (
     aica_database_file,
     app_data_dir,
@@ -36,6 +43,8 @@ from aica.paths import (
     qml_dir,
     storage_config_file,
 )
+from aica.storage.sqlite.repositories import SQLiteProjectRepository
+from aica.todo_store import TodoStore
 
 
 _TASK_LABELS = {
@@ -63,6 +72,11 @@ _SECTION_ITEMS = [
         "id": "integrations",
         "title": "脚本集成",
         "description": "导入外部脚本，并控制启用或停用同步脚本。",
+    },
+    {
+        "id": "projects",
+        "title": "项目管理",
+        "description": "导入项目主数据并维护群名别名，补齐待办项目关联。",
     },
 ]
 
@@ -139,6 +153,12 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
+        self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._todo_store = TodoStore(str(aica_database_file()))
+        self._project_query = ""
+        self._include_expired_projects = True
+        self._projects = self._load_project_payloads()
+        self._last_project_import_summary = ""
         self._error_message = ""
         self._status_message = ""
 
@@ -251,6 +271,22 @@ class _ControlPanelBridge(QObject):
         return payload
 
     @pyqtProperty("QVariantList", notify=dataChanged)
+    def projects(self):  # noqa: ANN201
+        return list(self._projects)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectQuery(self) -> str:
+        return self._project_query
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def includeExpiredProjects(self) -> bool:
+        return self._include_expired_projects
+
+    @pyqtProperty(str, notify=dataChanged)
+    def lastProjectImportSummary(self) -> str:
+        return self._last_project_import_summary
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
     def locations(self):  # noqa: ANN201
         return [
             {
@@ -360,6 +396,27 @@ class _ControlPanelBridge(QObject):
     def _emit_data_changed(self) -> None:
         self.dataChanged.emit()
 
+    def _load_project_payloads(self) -> list[dict[str, object]]:
+        return [
+            project_to_payload(project)
+            for project in self._project_repository.list_projects(
+                query=self._project_query,
+                include_expired=self._include_expired_projects,
+            )
+        ]
+
+    def _refresh_project_payloads(self) -> None:
+        self._projects = self._load_project_payloads()
+
+    def _find_cached_project(self, project_id: str) -> dict[str, object] | None:
+        normalized_id = str(project_id or "").strip()
+        if not normalized_id:
+            return None
+        return next(
+            (item for item in self._projects if str(item.get("id") or "").strip() == normalized_id),
+            None,
+        )
+
     @pyqtSlot(str)
     def setCurrentSection(self, section_id: str) -> None:
         section = str(section_id or "").strip()
@@ -381,6 +438,9 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
+        self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._todo_store = TodoStore(str(aica_database_file()))
+        self._refresh_project_payloads()
         self._clear_messages()
         self._emit_data_changed()
 
@@ -524,6 +584,9 @@ class _ControlPanelBridge(QObject):
         if self._current_section == "storage":
             self.saveStoragePaths()
             return
+        if self._current_section == "projects":
+            self.relinkOpenUnresolvedTodos()
+            return
         self.saveConfig()
 
     @pyqtSlot()
@@ -642,6 +705,147 @@ class _ControlPanelBridge(QObject):
             if str(item.get("id") or "").strip() != target_id
         ]
         self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def chooseProjectImportFile(self) -> None:
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "选择项目主数据文件",
+            str(app_data_dir()),
+            "项目文件 (*.csv *.xlsx);;所有文件 (*.*)",
+        )
+        if selected_path:
+            self.importProjectFile(selected_path)
+
+    @pyqtSlot(str)
+    def importProjectFile(self, path: str) -> None:
+        self._clear_messages()
+        try:
+            result = import_projects_from_file(path, self._project_repository, self._todo_store)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._emit_data_changed()
+            return
+        self._refresh_project_payloads()
+        self._last_project_import_summary = (
+            f"导入完成：新增 {result.created_count}，更新 {result.updated_count}，"
+            f"跳过 {result.skipped_count}，补关联 {result.relinked_count}。"
+        )
+        if result.alias_conflicts or result.error_rows:
+            fragments = [self._last_project_import_summary]
+            if result.alias_conflicts:
+                first_conflict = result.alias_conflicts[0]
+                fragments.append(
+                    "别名冲突示例："
+                    f"第 {first_conflict.row_number} 行别名 {first_conflict.alias} "
+                    f"已被 {first_conflict.conflicting_project_name}"
+                    f"({first_conflict.conflicting_task_order_no}) 占用。"
+                )
+            if result.error_rows:
+                first_error = result.error_rows[0]
+                fragments.append(f"错误示例：第 {first_error['rowNumber']} 行，{first_error['message']}")
+            self._status_message = " ".join(fragments)
+        else:
+            self._status_message = self._last_project_import_summary
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def downloadProjectTemplate(self) -> None:
+        selected_path, _ = QFileDialog.getSaveFileName(
+            None,
+            "保存项目导入模板",
+            str(app_data_dir() / "project_import_template.csv"),
+            "CSV 文件 (*.csv)",
+        )
+        if not selected_path:
+            return
+        target = Path(selected_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(build_project_template_content(), encoding="utf-8-sig")
+        self._clear_messages()
+        self._status_message = f"项目导入模板已保存到 {target}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str, bool)
+    def listProjects(self, query: str, include_expired: bool) -> None:
+        self._project_query = str(query or "").strip()
+        self._include_expired_projects = bool(include_expired)
+        self._refresh_project_payloads()
+        self._emit_data_changed()
+
+    @pyqtSlot("QVariantMap")
+    def saveProject(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        self._clear_messages()
+        cached_project = self._find_cached_project(str(payload.get("id") or ""))
+        cached_existing = (
+            project_record_from_payload(cached_project)
+            if isinstance(cached_project, dict) and cached_project
+            else None
+        )
+        existing_by_task_order = self._project_repository.get_project_by_task_order_no(
+            str(payload.get("taskOrderNo") or payload.get("task_order_no") or "")
+        )
+        if cached_existing is not None and existing_by_task_order is not None and existing_by_task_order.id != cached_existing.id:
+            self._error_message = "任务单号已被其他项目占用"
+            self._emit_data_changed()
+            return
+        existing = cached_existing or existing_by_task_order
+        try:
+            project = project_record_from_payload(payload, existing=existing)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._emit_data_changed()
+            return
+        conflicts = find_active_alias_conflicts(
+            project,
+            self._project_repository.list_projects(include_expired=True),
+        )
+        if conflicts:
+            first_conflict = conflicts[0]
+            self._error_message = (
+                f"群名别名 {first_conflict.alias} 已被 "
+                f"{first_conflict.conflicting_project_name}"
+                f"({first_conflict.conflicting_task_order_no}) 使用"
+            )
+            self._emit_data_changed()
+            return
+        previous_aliases = list(existing.aliases) if existing is not None else []
+        self._project_repository.upsert_project(project)
+        relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(previous_aliases + list(project.aliases))
+        self._refresh_project_payloads()
+        self._status_message = (
+            f"项目已保存：{project.project_name}。"
+            f"本次补关联 {relinked_count} 条未解决待办。"
+        )
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def deleteProject(self, project_id: str) -> None:
+        cached_project = self._find_cached_project(project_id)
+        if not isinstance(cached_project, dict):
+            return
+        self._clear_messages()
+        project = project_record_from_payload(cached_project)
+        deleted = self._project_repository.delete_project(project.id)
+        if not deleted:
+            return
+        relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(list(project.aliases))
+        self._refresh_project_payloads()
+        self._status_message = (
+            f"项目已删除：{project.project_name}。"
+            f"本次补关联 {relinked_count} 条未解决待办。"
+        )
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def relinkOpenUnresolvedTodos(self) -> None:
+        self._clear_messages()
+        relinked_count = self._todo_store.relink_open_unresolved_todos()
+        self._refresh_project_payloads()
+        self._status_message = f"已补关联 {relinked_count} 条未完成且未解决关联的待办。"
         self._emit_data_changed()
 
     def _coerce_provider_timeouts(self) -> None:

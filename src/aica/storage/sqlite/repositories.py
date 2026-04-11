@@ -57,6 +57,34 @@ def _load_schema_sql() -> str:
     return Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
 
 
+def _is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
+    normalized_end = sanitize_text(support_ended_at)
+    current_time = sanitize_text(now) or now_iso()
+    return not normalized_end or normalized_end >= current_time
+
+
+def _build_project_record(
+    row: sqlite3.Row | dict[str, Any],
+    aliases: tuple[str, ...] = (),
+) -> ProjectRecord:
+    payload = dict(row)
+    return ProjectRecord(
+        id=str(payload.get("id") or ""),
+        project_name=str(payload.get("project_name") or ""),
+        customer_name=str(payload.get("customer_name") or ""),
+        task_order_no=str(payload.get("task_order_no") or ""),
+        follow_up_started_at=str(payload.get("follow_up_started_at") or ""),
+        support_ended_at=str(payload.get("support_ended_at") or ""),
+        product_line=str(payload.get("product_line") or ""),
+        product_version=str(payload.get("product_version") or ""),
+        project_manager=str(payload.get("project_manager") or ""),
+        project_level=str(payload.get("project_level") or "normal"),
+        aliases=aliases,
+        created_at=str(payload.get("created_at") or now_iso()),
+        updated_at=str(payload.get("updated_at") or now_iso()),
+    )
+
+
 class SQLiteStorageMigrator:
     def __init__(
         self,
@@ -262,6 +290,103 @@ class SQLiteProjectRepository:
             self.replace_project_aliases(project.id, list(project.aliases))
         return projects
 
+    def upsert_project(self, project: ProjectRecord) -> ProjectRecord:
+        saved = self.upsert_projects([project])
+        return saved[0]
+
+    def list_projects(
+        self,
+        query: str = "",
+        *,
+        include_expired: bool = True,
+        now: str | None = None,
+    ) -> list[ProjectRecord]:
+        normalized_query = sanitize_text(query).casefold()
+        current_time = sanitize_text(now) or now_iso()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                  id, project_name, customer_name, task_order_no,
+                  follow_up_started_at, support_ended_at, product_line,
+                  product_version, project_manager, project_level,
+                  created_at, updated_at
+                FROM projects
+                ORDER BY updated_at DESC, created_at DESC, id DESC
+                """
+            ).fetchall()
+            alias_rows = connection.execute(
+                """
+                SELECT project_id, alias_name
+                FROM project_group_aliases
+                ORDER BY created_at ASC, id ASC
+                """
+            ).fetchall()
+
+        aliases_by_project: dict[str, list[str]] = {}
+        for alias_row in alias_rows:
+            project_id = str(alias_row["project_id"] or "")
+            alias_name = str(alias_row["alias_name"] or "")
+            if not project_id or not alias_name:
+                continue
+            aliases_by_project.setdefault(project_id, []).append(alias_name)
+
+        projects: list[ProjectRecord] = []
+        for row in rows:
+            project = _build_project_record(
+                row,
+                aliases=tuple(aliases_by_project.get(str(row["id"]), [])),
+            )
+            if not include_expired and not _is_project_active(project.support_ended_at, now=current_time):
+                continue
+            if normalized_query:
+                haystacks = [
+                    project.project_name,
+                    project.customer_name,
+                    project.task_order_no,
+                    project.product_line,
+                    project.product_version,
+                    project.project_manager,
+                    *project.aliases,
+                ]
+                if not any(normalized_query in str(item or "").casefold() for item in haystacks):
+                    continue
+            projects.append(project)
+        return projects
+
+    def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
+        normalized_task_order = sanitize_text(task_order_no)
+        if not normalized_task_order:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                  id, project_name, customer_name, task_order_no,
+                  follow_up_started_at, support_ended_at, product_line,
+                  product_version, project_manager, project_level,
+                  created_at, updated_at
+                FROM projects
+                WHERE task_order_no = ?
+                ORDER BY updated_at DESC, created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (normalized_task_order,),
+            ).fetchone()
+            if row is None:
+                return None
+            alias_rows = connection.execute(
+                """
+                SELECT alias_name
+                FROM project_group_aliases
+                WHERE project_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (str(row["id"]),),
+            ).fetchall()
+        aliases = tuple(str(item["alias_name"] or "") for item in alias_rows if str(item["alias_name"] or ""))
+        return _build_project_record(row, aliases=aliases)
+
     def replace_project_aliases(self, project_id: str, aliases: list[str]) -> list[str]:
         sanitized_project_id = sanitize_text(project_id)
         normalized_aliases: list[str] = []
@@ -293,6 +418,17 @@ class SQLiteProjectRepository:
                     ),
                 )
         return normalized_aliases
+
+    def delete_project(self, project_id: str) -> bool:
+        sanitized_project_id = sanitize_text(project_id)
+        if not sanitized_project_id:
+            return False
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM projects WHERE id = ?",
+                (sanitized_project_id,),
+            )
+        return cursor.rowcount > 0
 
     def match_project_by_group_name(
         self,
@@ -340,24 +476,26 @@ class SQLiteProjectRepository:
             )
         for row in rows:
             support_ended_at = sanitize_text(row["support_ended_at"])
-            if support_ended_at and support_ended_at < current_time:
+            if not _is_project_active(support_ended_at, now=current_time):
                 expired_matches.append(row)
             else:
                 active_matches.append(row)
 
         if len(active_matches) == 1:
             match = active_matches[0]
-            project = ProjectRecord(
-                id=str(match["project_id"]),
-                project_name=str(match["project_name"] or ""),
-                customer_name=str(match["customer_name"] or ""),
-                task_order_no=str(match["task_order_no"] or ""),
-                follow_up_started_at=str(match["follow_up_started_at"] or ""),
-                support_ended_at=str(match["support_ended_at"] or ""),
-                product_line=str(match["product_line"] or ""),
-                product_version=str(match["product_version"] or ""),
-                project_manager=str(match["project_manager"] or ""),
-                project_level=str(match["project_level"] or "normal"),
+            project = _build_project_record(
+                {
+                    "id": match["project_id"],
+                    "project_name": match["project_name"],
+                    "customer_name": match["customer_name"],
+                    "task_order_no": match["task_order_no"],
+                    "follow_up_started_at": match["follow_up_started_at"],
+                    "support_ended_at": match["support_ended_at"],
+                    "product_line": match["product_line"],
+                    "product_version": match["product_version"],
+                    "project_manager": match["project_manager"],
+                    "project_level": match["project_level"],
+                }
             )
             return ProjectMatchResult(
                 status="matched",
@@ -376,17 +514,19 @@ class SQLiteProjectRepository:
             )
 
         expired = expired_matches[0]
-        expired_project = ProjectRecord(
-            id=str(expired["project_id"]),
-            project_name=str(expired["project_name"] or ""),
-            customer_name=str(expired["customer_name"] or ""),
-            task_order_no=str(expired["task_order_no"] or ""),
-            follow_up_started_at=str(expired["follow_up_started_at"] or ""),
-            support_ended_at=str(expired["support_ended_at"] or ""),
-            product_line=str(expired["product_line"] or ""),
-            product_version=str(expired["product_version"] or ""),
-            project_manager=str(expired["project_manager"] or ""),
-            project_level=str(expired["project_level"] or "normal"),
+        expired_project = _build_project_record(
+            {
+                "id": expired["project_id"],
+                "project_name": expired["project_name"],
+                "customer_name": expired["customer_name"],
+                "task_order_no": expired["task_order_no"],
+                "follow_up_started_at": expired["follow_up_started_at"],
+                "support_ended_at": expired["support_ended_at"],
+                "product_line": expired["product_line"],
+                "product_version": expired["product_version"],
+                "project_manager": expired["project_manager"],
+                "project_level": expired["project_level"],
+            }
         )
         return ProjectMatchResult(
             status="expired",
@@ -504,6 +644,54 @@ class SQLiteTodoRepository:
                 (TodoStatus.OPEN,),
             ).fetchall()
             return [self._load_todo(connection, str(row["id"])) for row in rows]
+
+    def relink_open_unresolved_todos(self) -> int:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT todos.id, todos.group_name
+                FROM todos
+                LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todos.status = ?
+                  AND (
+                    todo_project_links.match_status IS NULL
+                    OR todo_project_links.match_status IN ('unmatched', 'conflict', 'expired')
+                  )
+                ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC
+                """,
+                (TodoStatus.OPEN,),
+            ).fetchall()
+        return self._relink_rows(rows)
+
+    def relink_open_unresolved_todos_by_aliases(self, aliases: list[str]) -> int:
+        normalized_aliases = {
+            normalize_group_alias(alias)
+            for alias in aliases
+            if normalize_group_alias(alias)
+        }
+        if not normalized_aliases:
+            return 0
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT todos.id, todos.group_name
+                FROM todos
+                LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todos.status = ?
+                  AND (
+                    todo_project_links.match_status IS NULL
+                    OR todo_project_links.match_status IN ('unmatched', 'conflict', 'expired')
+                  )
+                ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC
+                """,
+                (TodoStatus.OPEN,),
+            ).fetchall()
+        filtered_rows = [
+            row
+            for row in rows
+            if normalize_group_alias(str(row["group_name"] or "")) in normalized_aliases
+        ]
+        return self._relink_rows(filtered_rows)
 
     def get_todo(self, todo_id: str) -> TodoItem | None:
         with self._connect() as connection:
@@ -773,6 +961,21 @@ class SQLiteTodoRepository:
     def _refresh_project_link(self, todo_id: str, group_name: str) -> None:
         match_result = self._project_repository.match_project_by_group_name(group_name)
         self._project_repository.bind_todo_to_project(todo_id, match_result)
+
+    def _relink_rows(self, rows: list[sqlite3.Row]) -> int:
+        relinked_count = 0
+        for row in rows:
+            todo_id = str(row["id"] or "")
+            if not todo_id:
+                continue
+            previous_link = self._project_repository.get_project_link(todo_id)
+            previous_payload = previous_link.to_dict() if previous_link is not None else {}
+            self._refresh_project_link(todo_id, str(row["group_name"] or ""))
+            current_link = self._project_repository.get_project_link(todo_id)
+            current_payload = current_link.to_dict() if current_link is not None else {}
+            if current_payload != previous_payload:
+                relinked_count += 1
+        return relinked_count
 
 
 class SQLiteBindingRepository:

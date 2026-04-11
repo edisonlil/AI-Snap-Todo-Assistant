@@ -7,6 +7,7 @@ from aica.todo_detail_panel import (
     _coerce_dropped_file_paths,
     _resolve_available_geometry,
 )
+from aica.todo_models import TodoProjectLink
 from aica.todo_store import TimelineEvent, TodoItem
 
 
@@ -397,3 +398,29 @@ def test_request_manual_sync_emits_current_todo_id() -> None:
     bridge.requestManualSync()
 
     assert captured == ["todo-123"]
+
+
+def test_set_todo_exposes_project_match_status_fields() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+            project_link=TodoProjectLink(
+                match_status="matched",
+                project_snapshot={
+                    "project_name": "项目A",
+                    "task_order_no": "WO-1",
+                    "project_manager": "张三",
+                },
+            ),
+        )
+    )
+
+    assert bridge.projectMatchStatus == "已关联项目"
+    assert bridge.projectMatchDetail == "项目A · WO-1"
+    assert bridge.projectName == "项目A"
+    assert bridge.projectTaskOrderNo == "WO-1"
+    assert bridge.projectManager == "张三"

@@ -23,6 +23,8 @@ Rectangle {
     readonly property color successBg: "#E7F5ED"
     readonly property color successInk: "#17663A"
     readonly property string uiFont: "Microsoft YaHei UI"
+    property var projectDraft: emptyProjectDraft()
+    property string projectAliasInput: ""
 
     function optionIndex(options, value) {
         for (var index = 0; index < options.length; index += 1) {
@@ -60,6 +62,83 @@ Rectangle {
             sourceIndex = charIndex + 1
         }
         return true
+    }
+
+    function emptyProjectDraft() {
+        return {
+            id: "",
+            projectName: "",
+            customerName: "",
+            taskOrderNo: "",
+            followUpStartedAt: "",
+            supportEndedAt: "",
+            productLine: "",
+            productVersion: "",
+            projectManager: "",
+            projectLevel: "normal",
+            aliases: []
+        }
+    }
+
+    function copyProjectDraft(source) {
+        return {
+            id: source.id || "",
+            projectName: source.projectName || "",
+            customerName: source.customerName || "",
+            taskOrderNo: source.taskOrderNo || "",
+            followUpStartedAt: source.followUpStartedAt || "",
+            supportEndedAt: source.supportEndedAt || "",
+            productLine: source.productLine || "",
+            productVersion: source.productVersion || "",
+            projectManager: source.projectManager || "",
+            projectLevel: source.projectLevel || "normal",
+            aliases: source.aliases ? source.aliases.slice(0) : []
+        }
+    }
+
+    function startNewProjectDraft() {
+        projectDraft = emptyProjectDraft()
+        projectAliasInput = ""
+    }
+
+    function loadProjectDraft(projectItem) {
+        projectDraft = copyProjectDraft(projectItem || emptyProjectDraft())
+        projectAliasInput = ""
+    }
+
+    function updateProjectDraft(fieldName, value) {
+        var next = copyProjectDraft(projectDraft)
+        next[fieldName] = value || ""
+        projectDraft = next
+    }
+
+    function addProjectAlias() {
+        var alias = (projectAliasInput || "").trim()
+        if (!alias.length) {
+            return
+        }
+        var next = copyProjectDraft(projectDraft)
+        for (var index = 0; index < next.aliases.length; index += 1) {
+            if ((next.aliases[index] || "").trim().toLowerCase() === alias.toLowerCase()) {
+                projectAliasInput = ""
+                return
+            }
+        }
+        next.aliases.push(alias)
+        projectDraft = next
+        projectAliasInput = ""
+    }
+
+    function removeProjectAlias(alias) {
+        var next = copyProjectDraft(projectDraft)
+        var updatedAliases = []
+        for (var index = 0; index < next.aliases.length; index += 1) {
+            if (next.aliases[index] !== alias) {
+                updatedAliases.push(next.aliases[index])
+            }
+        }
+        next.aliases = updatedAliases
+        projectDraft = next
     }
 
     component PlainButton: Rectangle {
@@ -711,6 +790,7 @@ Rectangle {
                                     text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型"
                                           : controlPanelBridge.currentSection === "hotkeys" ? "截图热键"
                                           : controlPanelBridge.currentSection === "integrations" ? "脚本集成"
+                                          : controlPanelBridge.currentSection === "projects" ? "项目管理"
                                           : "存储与日志"
                                     color: root.titleInk
                                     font.family: root.uiFont
@@ -723,6 +803,7 @@ Rectangle {
                                     text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。"
                                           : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。"
                                           : controlPanelBridge.currentSection === "integrations" ? "导入本地脚本并控制启用状态，保存后会写入 integrations.json。"
+                                          : controlPanelBridge.currentSection === "projects" ? "批量导入项目主数据，并集中维护群名别名与轻量补关联。"
                                           : "快速打开本地数据目录，定位配置、反馈和错误日志。"
                                     color: root.bodyInk
                                     font.family: root.uiFont
@@ -732,7 +813,9 @@ Rectangle {
                             }
 
                             PlainButton {
-                                label: controlPanelBridge.currentSection === "storage" ? "保存目录" : "保存配置"
+                                label: controlPanelBridge.currentSection === "storage" ? "保存目录"
+                                      : controlPanelBridge.currentSection === "projects" ? "补关联待办"
+                                      : "保存配置"
                                 fillColor: root.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
@@ -1140,6 +1223,379 @@ Rectangle {
                                             font.family: root.uiFont
                                             font.pixelSize: 12
                                             wrapMode: Text.WrapAnywhere
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: controlPanelBridge.currentSection === "projects"
+                                    Layout.fillWidth: true
+                                    implicitHeight: projectManagerContent.implicitHeight + 32
+                                    color: "#F6F0E6"
+
+                                    ColumnLayout {
+                                        id: projectManagerContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 14
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            SettingsInput {
+                                                id: projectSearchInput
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.projectQuery
+                                                placeholderText: "搜索项目名称 / 任务单号 / 群名别名"
+                                                onTextEdited: controlPanelBridge.listProjects(text, includeExpiredCheck.checked)
+                                            }
+
+                                            CheckBox {
+                                                id: includeExpiredCheck
+                                                checked: controlPanelBridge.includeExpiredProjects
+                                                text: "包含过保项目"
+                                                font.family: root.uiFont
+                                                onToggled: controlPanelBridge.listProjects(projectSearchInput.text, checked)
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            PlainButton {
+                                                label: "导入文件"
+                                                onClicked: controlPanelBridge.chooseProjectImportFile()
+                                            }
+
+                                            PlainButton {
+                                                label: "下载模板"
+                                                onClicked: controlPanelBridge.downloadProjectTemplate()
+                                            }
+
+                                            PlainButton {
+                                                label: "新建项目"
+                                                onClicked: root.startNewProjectDraft()
+                                            }
+
+                                            PlainButton {
+                                                label: "补关联未解决待办"
+                                                onClicked: controlPanelBridge.relinkOpenUnresolvedTodos()
+                                            }
+                                        }
+
+                                        Text {
+                                            visible: controlPanelBridge.lastProjectImportSummary.length > 0
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.lastProjectImportSummary
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 14
+
+                                            Rectangle {
+                                                Layout.preferredWidth: 340
+                                                implicitHeight: 520
+                                                radius: 18
+                                                color: "#FFF9F1"
+                                                border.width: 1
+                                                border.color: root.panelLine
+
+                                                ColumnLayout {
+                                                    anchors.fill: parent
+                                                    anchors.margins: 12
+                                                    spacing: 10
+
+                                                    Text {
+                                                        text: "项目列表"
+                                                        color: root.titleInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 14
+                                                        font.weight: 700
+                                                    }
+
+                                                    ListView {
+                                                        Layout.fillWidth: true
+                                                        Layout.fillHeight: true
+                                                        clip: true
+                                                        spacing: 8
+                                                        model: controlPanelBridge.projects
+
+                                                        delegate: Rectangle {
+                                                            width: ListView.view.width
+                                                            height: projectItemColumn.implicitHeight + 18
+                                                            radius: 14
+                                                            color: root.projectDraft.id === modelData.id ? root.accentSoft : "#FFFCF7"
+                                                            border.width: 1
+                                                            border.color: root.projectDraft.id === modelData.id ? root.accent : root.panelLine
+
+                                                            Column {
+                                                                id: projectItemColumn
+                                                                anchors.fill: parent
+                                                                anchors.margins: 10
+                                                                spacing: 4
+
+                                                                Text {
+                                                                    text: modelData.projectName
+                                                                    color: root.titleInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 13
+                                                                    font.weight: 700
+                                                                }
+
+                                                                Text {
+                                                                    text: "任务单号: " + modelData.taskOrderNo
+                                                                    color: root.bodyInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                    wrapMode: Text.WrapAnywhere
+                                                                }
+
+                                                                Text {
+                                                                    text: "项目经理: " + (modelData.projectManager || "未填写")
+                                                                    color: root.labelInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                    wrapMode: Text.Wrap
+                                                                }
+
+                                                                Text {
+                                                                    text: "群名别名: " + modelData.aliasCount + " 个" + (modelData.isExpired ? " · 已过保" : "")
+                                                                    color: root.labelInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                }
+                                                            }
+
+                                                            MouseArea {
+                                                                anchors.fill: parent
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: root.loadProjectDraft(modelData)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: 520
+                                                radius: 18
+                                                color: "#FFF9F1"
+                                                border.width: 1
+                                                border.color: root.panelLine
+
+                                                ColumnLayout {
+                                                    id: projectFormColumn
+                                                    anchors.fill: parent
+                                                    anchors.margins: 12
+                                                    spacing: 8
+
+                                                    Text {
+                                                        text: root.projectDraft.id.length > 0 ? "编辑项目" : "新建项目"
+                                                        color: root.titleInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 14
+                                                        font.weight: 700
+                                                    }
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: "保存时会校验群名别名冲突，并只补关联未完成且未解决关联状态的待办。"
+                                                        color: root.labelInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: 11
+                                                        wrapMode: Text.Wrap
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.projectName
+                                                            placeholderText: "项目名称"
+                                                            onTextEdited: root.updateProjectDraft("projectName", text)
+                                                        }
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.taskOrderNo
+                                                            placeholderText: "任务单号"
+                                                            onTextEdited: root.updateProjectDraft("taskOrderNo", text)
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.customerName
+                                                            placeholderText: "客户名称"
+                                                            onTextEdited: root.updateProjectDraft("customerName", text)
+                                                        }
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.projectManager
+                                                            placeholderText: "项目经理"
+                                                            onTextEdited: root.updateProjectDraft("projectManager", text)
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.productLine
+                                                            placeholderText: "产品线"
+                                                            onTextEdited: root.updateProjectDraft("productLine", text)
+                                                        }
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.productVersion
+                                                            placeholderText: "产品版本"
+                                                            onTextEdited: root.updateProjectDraft("productVersion", text)
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.followUpStartedAt
+                                                            placeholderText: "跟进开始时间"
+                                                            onTextEdited: root.updateProjectDraft("followUpStartedAt", text)
+                                                        }
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectDraft.supportEndedAt
+                                                            placeholderText: "过保时间"
+                                                            onTextEdited: root.updateProjectDraft("supportEndedAt", text)
+                                                        }
+                                                    }
+
+                                                    SettingsInput {
+                                                        Layout.fillWidth: true
+                                                        text: root.projectDraft.projectLevel
+                                                        placeholderText: "项目级别"
+                                                        onTextEdited: root.updateProjectDraft("projectLevel", text)
+                                                    }
+
+                                                    Flow {
+                                                        Layout.fillWidth: true
+                                                        width: parent.width
+                                                        spacing: 8
+
+                                                        Repeater {
+                                                            model: root.projectDraft.aliases
+
+                                                            delegate: Rectangle {
+                                                                radius: 14
+                                                                width: aliasChipText.implicitWidth + 28
+                                                                height: 28
+                                                                color: "#F0F6FF"
+                                                                border.width: 1
+                                                                border.color: "#D7E6FF"
+
+                                                                Text {
+                                                                    id: aliasChipText
+                                                                    anchors.verticalCenter: parent.verticalCenter
+                                                                    anchors.left: parent.left
+                                                                    anchors.leftMargin: 10
+                                                                    text: modelData
+                                                                    color: root.titleInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 11
+                                                                    font.weight: 600
+                                                                }
+
+                                                                Text {
+                                                                    anchors.verticalCenter: parent.verticalCenter
+                                                                    anchors.right: parent.right
+                                                                    anchors.rightMargin: 10
+                                                                    text: "×"
+                                                                    color: root.labelInk
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 12
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: root.removeProjectAlias(modelData)
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        SettingsInput {
+                                                            Layout.fillWidth: true
+                                                            text: root.projectAliasInput
+                                                            placeholderText: "输入群名别名"
+                                                            onTextEdited: root.projectAliasInput = text
+                                                            onAccepted: root.addProjectAlias()
+                                                        }
+
+                                                        PlainButton {
+                                                            label: "添加别名"
+                                                            onClicked: root.addProjectAlias()
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        PlainButton {
+                                                            label: "重置"
+                                                            onClicked: root.startNewProjectDraft()
+                                                        }
+
+                                                        Item {
+                                                            Layout.fillWidth: true
+                                                        }
+
+                                                        PlainButton {
+                                                            visible: root.projectDraft.id.length > 0
+                                                            label: "删除项目"
+                                                            fillColor: "#FFF3F1"
+                                                            inkColor: "#8B3A2C"
+                                                            onClicked: {
+                                                                controlPanelBridge.deleteProject(root.projectDraft.id)
+                                                                root.startNewProjectDraft()
+                                                            }
+                                                        }
+
+                                                        PlainButton {
+                                                            label: "保存项目"
+                                                            fillColor: root.accent
+                                                            inkColor: "#FFFFFF"
+                                                            strokeWidth: 0
+                                                            onClicked: controlPanelBridge.saveProject(root.projectDraft)
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

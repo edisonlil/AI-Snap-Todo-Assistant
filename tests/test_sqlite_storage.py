@@ -120,3 +120,79 @@ def test_legacy_json_data_migrates_to_sqlite_once(tmp_path: Path):
 
     assert todo_count == 1
     assert binding_count == 1
+
+
+def test_project_repository_lists_gets_and_deletes_projects(tmp_path: Path):
+    repository = SQLiteProjectRepository(tmp_path / "aica.db")
+    repository.upsert_projects(
+        [
+            ProjectRecord(
+                id="project-1",
+                project_name="Alpha 项目",
+                task_order_no="WO-1",
+                customer_name="客户A",
+                support_ended_at="2099-01-01T00:00:00",
+                aliases=("Alpha Group",),
+            ),
+            ProjectRecord(
+                id="project-2",
+                project_name="Expired 项目",
+                task_order_no="WO-2",
+                support_ended_at="2020-01-01T00:00:00",
+                aliases=("Expired Group",),
+            ),
+        ]
+    )
+
+    active_only = repository.list_projects(include_expired=False, now="2026-04-11T10:00:00")
+    queried = repository.list_projects(query="alpha", include_expired=True)
+    selected = repository.get_project_by_task_order_no("WO-1")
+    deleted = repository.delete_project("project-2")
+
+    assert [item.id for item in active_only] == ["project-1"]
+    assert [item.id for item in queried] == ["project-1"]
+    assert selected is not None
+    assert selected.aliases == ("Alpha Group",)
+    assert deleted is True
+    assert repository.get_project_by_task_order_no("WO-2") is None
+
+
+def test_relink_open_unresolved_todos_skips_done_and_matched_todos(tmp_path: Path):
+    repository = SQLiteProjectRepository(tmp_path / "aica.db")
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Alpha 项目",
+            task_order_no="WO-1",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("Alpha Group",),
+        )
+    )
+    store = TodoStore(str(tmp_path / "todos.json"))
+    unresolved = store.create_todo_from_analysis(_snapshot("u", "s", "t", group_name="Unmatched Group"), "todo assistant")
+    matched = store.create_todo_from_analysis(_snapshot("m", "s", "t", group_name="Alpha Group"), "todo assistant")
+    done = store.create_todo_from_analysis(_snapshot("d", "s", "t", group_name="Done Group"), "todo assistant")
+    assert store.complete_todo(done.id) is True
+
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-2",
+            project_name="Unmatched 项目",
+            task_order_no="WO-2",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("Unmatched Group", "Done Group"),
+        )
+    )
+
+    relinked_count = store.relink_open_unresolved_todos()
+    unresolved_after = store.get_todo(unresolved.id)
+    matched_after = store.get_todo(matched.id)
+    done_after = store.get_todo(done.id)
+
+    assert relinked_count == 1
+    assert unresolved_after is not None
+    assert unresolved_after.project_link.match_status == "matched"
+    assert matched_after is not None
+    assert matched_after.project_link.project_id == "project-1"
+    assert done_after is not None
+    assert done_after.project_link.match_status == "unmatched"

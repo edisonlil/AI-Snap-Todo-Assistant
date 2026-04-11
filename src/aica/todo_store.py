@@ -19,6 +19,12 @@ class TodoStore:
     def list_active_todos(self) -> list[TodoItem]:
         return self._repository.list_active_todos()
 
+    def relink_open_unresolved_todos(self) -> int:
+        return self._repository.relink_open_unresolved_todos()
+
+    def relink_open_unresolved_todos_by_aliases(self, aliases: list[str]) -> int:
+        return self._repository.relink_open_unresolved_todos_by_aliases(aliases)
+
     def get_todo(self, todo_id: str) -> TodoItem | None:
         return self._repository.get_todo(todo_id)
 

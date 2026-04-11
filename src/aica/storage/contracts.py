@@ -99,8 +99,26 @@ class ProjectRepository(Protocol):
     def upsert_projects(self, projects: list[ProjectRecord]) -> list[ProjectRecord]:
         """Create or update project master data."""
 
+    def upsert_project(self, project: ProjectRecord) -> ProjectRecord:
+        """Create or update a single project record."""
+
+    def list_projects(
+        self,
+        query: str = "",
+        *,
+        include_expired: bool = True,
+        now: str | None = None,
+    ) -> list[ProjectRecord]:
+        """List project records and their aliases."""
+
+    def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
+        """Fetch a project by business key."""
+
     def replace_project_aliases(self, project_id: str, aliases: list[str]) -> list[str]:
         """Replace normalized aliases for a project."""
+
+    def delete_project(self, project_id: str) -> bool:
+        """Delete a project record and its aliases."""
 
     def match_project_by_group_name(
         self,

@@ -244,6 +244,42 @@ def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
     return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
 
 
+def _project_status_label(status: str) -> str:
+    mapping = {
+        "matched": "已关联项目",
+        "unmatched": "未匹配项目",
+        "conflict": "匹配冲突",
+        "expired": "命中过保项目",
+        "manual": "手动指定项目",
+    }
+    return mapping.get(str(status or "").strip(), "未匹配项目")
+
+
+def _project_status_detail(todo: TodoItem) -> str:
+    link = todo.project_link
+    status = str(link.match_status or "").strip()
+    if status == "matched":
+        project_name = str(link.project_snapshot.get("project_name") or "").strip()
+        task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+        if project_name and task_order_no:
+            return f"{project_name} · {task_order_no}"
+        return project_name or task_order_no or "已根据群聊名称命中项目主数据。"
+    if status == "conflict":
+        reason = str(link.match_reason or "").strip()
+        if reason.startswith("multiple_active_projects:"):
+            return "命中了多个有效项目，请在项目管理页收敛别名。"
+        return reason or "当前群聊名称命中了多个有效项目。"
+    if status == "expired":
+        project_name = str(link.project_snapshot.get("project_name") or "").strip()
+        return f"{project_name} 已过保。" if project_name else "当前群聊名称只命中过保项目。"
+    if status == "manual":
+        return "当前待办使用了手动项目关联结果。"
+    reason = str(link.match_reason or "").strip()
+    if reason == "missing_group_name":
+        return "当前待办缺少群聊名称，无法自动匹配项目。"
+    return "当前群聊名称尚未命中任何项目别名。"
+
+
 def _coerce_dropped_file_paths(urls: object) -> list[str]:
     if not isinstance(urls, (list, tuple)):
         return []
@@ -344,6 +380,11 @@ class _TodoDetailBridge(QObject):
         self._timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
+        self._project_match_status = "未匹配项目"
+        self._project_match_detail = "当前群聊名称尚未命中任何项目别名。"
+        self._project_name = ""
+        self._project_task_order_no = ""
+        self._project_manager = ""
         self._sync_integration_id = ""
         self._sync_status = "未同步"
         self._sync_status_detail = "当前待办还没有外部绑定。"
@@ -403,6 +444,26 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=timelineExpandedChanged)
     def timelineExpanded(self) -> bool:
         return self._timeline_expanded
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectMatchStatus(self) -> str:
+        return self._project_match_status
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectMatchDetail(self) -> str:
+        return self._project_match_detail
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectName(self) -> str:
+        return self._project_name
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectTaskOrderNo(self) -> str:
+        return self._project_task_order_no
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectManager(self) -> str:
+        return self._project_manager
 
     @pyqtProperty(str, notify=dataChanged)
     def syncIntegrationId(self) -> str:
@@ -472,6 +533,11 @@ class _TodoDetailBridge(QObject):
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
+        self._project_match_status = _project_status_label(todo.project_link.match_status)
+        self._project_match_detail = _project_status_detail(todo)
+        self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
+        self._project_task_order_no = str(todo.project_link.project_snapshot.get("task_order_no") or "").strip()
+        self._project_manager = str(todo.project_link.project_snapshot.get("project_manager") or "").strip()
         self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
         self.timelineChanged.emit()
