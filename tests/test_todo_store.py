@@ -200,6 +200,52 @@ def test_update_todo_persists_timeline_attachments(tmp_path: Path):
     assert reloaded.timeline[0].attachments[0].size_bytes == 128
 
 
+def test_list_todos_filters_by_status_and_project_name(tmp_path: Path):
+    from aica.storage.contracts import ProjectRecord
+    from aica.storage.sqlite.repositories import SQLiteProjectRepository
+
+    repository = SQLiteProjectRepository(tmp_path / "aica.db")
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Phoenix Project",
+            task_order_no="WO-1",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("support-room",),
+        )
+    )
+
+    store = TodoStore(str(tmp_path / "todos.json"))
+    open_todo = store.create_todo_from_analysis(
+        _snapshot(
+            "login failed",
+            "need follow-up",
+            "customer reported login failure",
+            group_name="support-room",
+        ),
+        "todo assistant",
+    )
+    done_todo = store.create_todo_from_analysis(
+        _snapshot(
+            "closed task",
+            "resolved",
+            "issue resolved",
+            group_name="archive-room",
+            ticket_type="feature",
+        ),
+        "todo assistant",
+    )
+    assert store.complete_todo(done_todo.id) is True
+
+    project_results = store.list_todos(query="phoenix", status="open")
+    done_results = store.list_todos(query="closed", status="done")
+    all_results = store.list_todos(status="all")
+
+    assert [item.id for item in project_results] == [open_todo.id]
+    assert [item.id for item in done_results] == [done_todo.id]
+    assert [item.id for item in all_results] == [done_todo.id, open_todo.id]
+
+
 def test_legacy_summary_json_is_migrated(tmp_path: Path):
     path = tmp_path / "todos.json"
     legacy_payload = [

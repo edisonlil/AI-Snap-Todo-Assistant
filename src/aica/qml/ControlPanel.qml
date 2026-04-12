@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -915,12 +915,7 @@ Rectangle {
                                 spacing: 6
 
                                 Text {
-                                    text: controlPanelBridge.currentSection === "models" ? "模型供应商与任务模型"
-                                          : controlPanelBridge.currentSection === "hotkeys" ? "截图热键"
-                                          : controlPanelBridge.currentSection === "analysis_rules" ? "规则与 Prompt 调试"
-                                          : controlPanelBridge.currentSection === "integrations" ? "脚本集成"
-                                          : controlPanelBridge.currentSection === "projects" ? "项目管理"
-                                          : "存储与日志"
+                                    text: controlPanelBridge.currentSectionMeta.title
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 20
@@ -929,12 +924,7 @@ Rectangle {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: controlPanelBridge.currentSection === "models" ? "管理供应商 API Key、请求地址、超时和四类任务模型绑定。"
-                                          : controlPanelBridge.currentSection === "hotkeys" ? "截图热键保存后会立即重绑，无需重启应用。"
-                                          : controlPanelBridge.currentSection === "analysis_rules" ? "按场景维护识别偏好，并查看每次截图分析的完整 Prompt 构建结果。"
-                                          : controlPanelBridge.currentSection === "integrations" ? "导入本地脚本并控制启用状态，保存后会写入 integrations.json。"
-                                          : controlPanelBridge.currentSection === "projects" ? "批量导入项目主数据，并集中维护群名别名与轻量补关联。"
-                                          : "快速打开本地数据目录，定位配置、反馈和错误日志。"
+                                    text: controlPanelBridge.currentSectionMeta.description
                                     color: root.bodyInk
                                     font.family: root.uiFont
                                     font.pixelSize: 12
@@ -943,15 +933,18 @@ Rectangle {
                             }
 
                             PlainButton {
-                                label: controlPanelBridge.currentSection === "storage" ? "保存目录"
-                                      : controlPanelBridge.currentSection === "analysis_rules" ? "保存规则"
-                                      : controlPanelBridge.currentSection === "projects" ? "补关联待办"
-                                      : "保存配置"
+                                label: controlPanelBridge.currentSectionMeta.primaryActionLabel
                                 fillColor: root.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
                                 border.color: root.accent
-                                onClicked: controlPanelBridge.saveCurrentSection()
+                                onClicked: {
+                                    if (controlPanelBridge.currentSection === "tickets") {
+                                        controlPanelBridge.refreshTickets()
+                                    } else {
+                                        controlPanelBridge.saveCurrentSection()
+                                    }
+                                }
                             }
                         }
 
@@ -1632,8 +1625,18 @@ Rectangle {
                                     }
                                 }
 
+                                ProjectsSection {
+                                    theme: root
+                                    Layout.fillWidth: true
+                                }
+
+                                TicketsSection {
+                                    theme: root
+                                    Layout.fillWidth: true
+                                }
+
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "projects"
+                                    visible: false && controlPanelBridge.currentSection === "projects"
                                     Layout.fillWidth: true
                                     implicitHeight: projectManagerContent.implicitHeight + 32
                                     color: "#F6F0E6"

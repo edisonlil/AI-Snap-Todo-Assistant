@@ -1,0 +1,510 @@
+﻿import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+ColumnLayout {
+    id: projectSection
+    required property var theme
+
+    visible: controlPanelBridge.currentSection === "projects"
+    spacing: 0
+
+    ControlPanelSectionCard {
+        theme: projectSection.theme
+        Layout.fillWidth: true
+        implicitHeight: projectManagerContent.implicitHeight + 32
+        color: "#F6F0E6"
+
+        ColumnLayout {
+            id: projectManagerContent
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 14
+
+            RowLayout {
+                visible: theme.projectViewMode === "list"
+                Layout.fillWidth: true
+                spacing: 10
+
+                ControlPanelSettingsInput {
+                    id: projectSearchInput
+                    theme: projectSection.theme
+                    Layout.fillWidth: true
+                    text: controlPanelBridge.projectQuery
+                    placeholderText: "搜索项目名称 / 任务单号 / 群名别名"
+                    onTextEdited: controlPanelBridge.listProjects(text, includeExpiredCheck.checked)
+                }
+
+                CheckBox {
+                    id: includeExpiredCheck
+                    checked: controlPanelBridge.includeExpiredProjects
+                    text: "包含过保项目"
+                    font.family: theme.uiFont
+                    onToggled: controlPanelBridge.listProjects(projectSearchInput.text, checked)
+                }
+            }
+
+            RowLayout {
+                visible: theme.projectViewMode === "list"
+                Layout.fillWidth: true
+                spacing: 10
+
+                ControlPanelPlainButton {
+                    theme: projectSection.theme
+                    label: "导入文件"
+                    onClicked: controlPanelBridge.chooseProjectImportFile()
+                }
+
+                ControlPanelPlainButton {
+                    theme: projectSection.theme
+                    label: "下载模板"
+                    onClicked: controlPanelBridge.downloadProjectTemplate()
+                }
+
+                ControlPanelPlainButton {
+                    theme: projectSection.theme
+                    label: "新建项目"
+                    onClicked: theme.startNewProjectDraft()
+                }
+
+                ControlPanelPlainButton {
+                    theme: projectSection.theme
+                    label: "补关联未解决待办"
+                    onClicked: controlPanelBridge.relinkOpenUnresolvedTodos()
+                }
+            }
+
+            Text {
+                visible: theme.projectViewMode === "list" && controlPanelBridge.lastProjectImportSummary.length > 0
+                Layout.fillWidth: true
+                text: controlPanelBridge.lastProjectImportSummary
+                color: theme.labelInk
+                font.family: theme.uiFont
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 14
+
+                Rectangle {
+                    visible: theme.projectViewMode === "list"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 340
+                    implicitHeight: 520
+                    radius: 18
+                    color: "#FFF9F1"
+                    border.width: 1
+                    border.color: theme.panelLine
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 10
+
+                        Text {
+                            text: "项目列表"
+                            color: theme.titleInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 14
+                            font.weight: 700
+                        }
+
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 8
+                            model: controlPanelBridge.projects
+
+                            delegate: Rectangle {
+                                property bool currentProject: theme.projectDraft.id === modelData.id
+                                width: ListView.view.width
+                                height: projectInfoColumn.implicitHeight + 20
+                                radius: 14
+                                color: currentProject ? theme.accentSoft : "#FFFCF7"
+                                border.width: 1
+                                border.color: currentProject ? theme.accent : theme.panelLine
+
+                                Column {
+                                    id: projectInfoColumn
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 6
+
+                                    Row {
+                                        width: parent.width
+                                        spacing: 8
+
+                                        Text {
+                                            width: parent.width - expireBadge.width - parent.spacing
+                                            text: modelData.projectName
+                                            color: theme.titleInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Rectangle {
+                                            id: expireBadge
+                                            radius: 10
+                                            color: modelData.isExpired ? "#FFF1ED" : "#E9F7EF"
+                                            border.width: 1
+                                            border.color: modelData.isExpired ? "#F4C7BC" : "#B6DEC5"
+                                            implicitWidth: expireBadgeText.implicitWidth + 18
+                                            implicitHeight: 24
+
+                                            Text {
+                                                id: expireBadgeText
+                                                anchors.centerIn: parent
+                                                text: modelData.isExpired ? "已过保" : "未过保"
+                                                color: modelData.isExpired ? "#9A3412" : "#17663A"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 700
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: "任务单号: " + modelData.taskOrderNo
+                                        color: theme.bodyInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: "过保日期: " + (theme.displayProjectDate(modelData.supportEndedAt) || "未填写")
+                                        color: theme.labelInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: theme.loadProjectDraft(modelData)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: theme.projectViewMode === "detail"
+                    Layout.fillWidth: true
+                    implicitHeight: projectFormColumn.implicitHeight + 24
+                    radius: 18
+                    color: "#FFF9F1"
+                    border.width: 1
+                    border.color: theme.panelLine
+
+                    ColumnLayout {
+                        id: projectFormColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 12
+                        spacing: 8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelPlainButton {
+                                theme: projectSection.theme
+                                label: "返回列表"
+                                onClicked: theme.showProjectList()
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Text {
+                            text: theme.projectDraft.id.length > 0 ? "编辑项目" : "新建项目"
+                            color: theme.titleInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 14
+                            font.weight: 700
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "保存时会校验群名别名冲突，并只补关联未完成且未解决关联状态的待办。"
+                            color: theme.labelInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.projectName
+                                placeholderText: "项目名称"
+                                onTextEdited: theme.updateProjectDraft("projectName", text)
+                            }
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.taskOrderNo
+                                placeholderText: "任务单号"
+                                onTextEdited: theme.updateProjectDraft("taskOrderNo", text)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.customerName
+                                placeholderText: "客户名称"
+                                onTextEdited: theme.updateProjectDraft("customerName", text)
+                            }
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.projectManager
+                                placeholderText: "项目经理"
+                                onTextEdited: theme.updateProjectDraft("projectManager", text)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.productLine
+                                placeholderText: "产品线"
+                                onTextEdited: theme.updateProjectDraft("productLine", text)
+                            }
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectDraft.productVersion
+                                placeholderText: "产品版本"
+                                onTextEdited: theme.updateProjectDraft("productVersion", text)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: 44
+                                radius: 16
+                                color: "#FFFEFC"
+                                border.width: 1
+                                border.color: theme.panelLine
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 14
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 38
+                                    text: theme.displayProjectDate(theme.projectDraft.followUpStartedAt) || "跟进开始日期"
+                                    color: theme.displayProjectDate(theme.projectDraft.followUpStartedAt).length > 0 ? theme.titleInk : theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 14
+                                    text: "▼"
+                                    color: theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", theme.projectDraft.followUpStartedAt)
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: 44
+                                radius: 16
+                                color: "#FFFEFC"
+                                border.width: 1
+                                border.color: theme.panelLine
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 14
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 38
+                                    text: theme.displayProjectDate(theme.projectDraft.supportEndedAt) || "过保日期"
+                                    color: theme.displayProjectDate(theme.projectDraft.supportEndedAt).length > 0 ? theme.titleInk : theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 14
+                                    text: "▼"
+                                    color: theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", theme.projectDraft.supportEndedAt)
+                                }
+                            }
+                        }
+
+                        ControlPanelSettingsCombo {
+                            theme: projectSection.theme
+                            Layout.fillWidth: true
+                            model: theme.projectLevelOptions
+                            currentIndex: theme.optionIndex(theme.projectLevelOptions, theme.normalizedProjectLevel(theme.projectDraft.projectLevel))
+                            onActivated: if (currentIndex >= 0) theme.updateProjectDraft("projectLevel", theme.projectLevelOptions[currentIndex].value)
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            width: parent.width
+                            spacing: 8
+
+                            Repeater {
+                                model: theme.projectDraft.aliases
+
+                                delegate: Rectangle {
+                                    radius: 14
+                                    width: aliasChipText.implicitWidth + 28
+                                    height: 28
+                                    color: "#F0F6FF"
+                                    border.width: 1
+                                    border.color: "#D7E6FF"
+
+                                    Text {
+                                        id: aliasChipText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 10
+                                        text: modelData
+                                        color: theme.titleInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: 600
+                                    }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 10
+                                        text: "×"
+                                        color: theme.labelInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 12
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: theme.removeProjectAlias(modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                text: theme.projectAliasInput
+                                placeholderText: "输入群名别名"
+                                onTextEdited: theme.projectAliasInput = text
+                                onAccepted: theme.addProjectAlias()
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: projectSection.theme
+                                label: "添加别名"
+                                onClicked: theme.addProjectAlias()
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ControlPanelPlainButton {
+                                theme: projectSection.theme
+                                label: "重置"
+                                onClicked: theme.startNewProjectDraft()
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            ControlPanelPlainButton {
+                                visible: theme.projectDraft.id.length > 0
+                                theme: projectSection.theme
+                                label: "删除项目"
+                                fillColor: "#FFF3F1"
+                                inkColor: "#8B3A2C"
+                                onClicked: theme.deleteCurrentProject()
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: projectSection.theme
+                                label: "保存项目"
+                                fillColor: theme.accent
+                                inkColor: "#FFFFFF"
+                                strokeWidth: 0
+                                onClicked: theme.saveCurrentProject()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

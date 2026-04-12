@@ -16,6 +16,9 @@ class TodoStore:
     def path(self) -> str:
         return self._repository.path
 
+    def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
+        return self._repository.list_todos(query=query, status=status)
+
     def list_active_todos(self) -> list[TodoItem]:
         return self._repository.list_active_todos()
 

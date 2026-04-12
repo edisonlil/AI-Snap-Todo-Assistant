@@ -1,12 +1,233 @@
 """QML-backed application control panel."""
 from __future__ import annotations
 
+from datetime import datetime
+import os
 from pathlib import Path
+import sys
 
-from PyQt6.QtCore import QDate, QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QDesktopServices
-from PyQt6.QtQuickWidgets import QQuickWidget
-from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
+_SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+
+try:
+    if _SKIP_QT_IMPORT:
+        raise RuntimeError("Skip Qt import while running tests")
+    from PyQt6.QtCore import QDate, QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtGui import QColor, QDesktopServices
+    from PyQt6.QtQuickWidgets import QQuickWidget
+    from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
+except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
+    class QObject:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, callback):
+            self._callbacks.append(callback)
+
+        def emit(self, *args, **kwargs):
+            for callback in list(self._callbacks):
+                callback(*args, **kwargs)
+
+    class _SignalDescriptor:
+        def __init__(self):
+            self._name = ""
+
+        def __set_name__(self, owner, name):
+            self._name = f"__signal_{name}"
+
+        def __get__(self, instance, owner):
+            if instance is None:
+                return self
+            signal = getattr(instance, self._name, None)
+            if signal is None:
+                signal = _Signal()
+                setattr(instance, self._name, signal)
+            return signal
+
+    def pyqtSignal(*_args, **_kwargs):  # type: ignore[no-redef]
+        return _SignalDescriptor()
+
+    def pyqtSlot(*_args, **_kwargs):  # type: ignore[no-redef]
+        def _decorator(func):
+            return func
+        return _decorator
+
+    def pyqtProperty(*_args, **_kwargs):  # type: ignore[no-redef]
+        def _decorator(func):
+            return property(func)
+        return _decorator
+
+    class QDate:  # type: ignore[no-redef]
+        def __init__(self, text=""):
+            self._text = text
+
+        @staticmethod
+        def fromString(text, _format):
+            return QDate(str(text or ""))
+
+        @staticmethod
+        def currentDate():
+            return QDate("2000-01-01")
+
+        def isValid(self):
+            return bool(self._text)
+
+        def toString(self, _format):
+            return self._text or "2000-01-01"
+
+    class Qt:  # type: ignore[no-redef]
+        class WindowType:
+            Window = 0
+            FramelessWindowHint = 0
+            WindowSystemMenuHint = 0
+            WindowMinMaxButtonsHint = 0
+
+        class WidgetAttribute:
+            WA_TranslucentBackground = 0
+
+        class WindowState:
+            WindowMaximized = 0
+
+        class Edge:
+            LeftEdge = 0
+            RightEdge = 0
+            TopEdge = 0
+            BottomEdge = 0
+
+    class QUrl:  # type: ignore[no-redef]
+        def __init__(self, path=""):
+            self._path = path
+
+        @staticmethod
+        def fromLocalFile(path):
+            return QUrl(path)
+
+    class QColor:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class QDesktopServices:  # type: ignore[no-redef]
+        @staticmethod
+        def openUrl(*_args, **_kwargs):
+            return False
+
+    class _DummyContext:
+        def setContextProperty(self, *_args, **_kwargs):
+            return None
+
+    class QQuickWidget:  # type: ignore[no-redef]
+        class ResizeMode:
+            SizeRootObjectToView = 0
+
+        class Status:
+            Error = "error"
+
+        def __init__(self, *_args, **_kwargs):
+            self._context = _DummyContext()
+
+        def setClearColor(self, *_args, **_kwargs):
+            return None
+
+        def setResizeMode(self, *_args, **_kwargs):
+            return None
+
+        def rootContext(self):
+            return self._context
+
+        def setSource(self, *_args, **_kwargs):
+            return None
+
+        def status(self):
+            return None
+
+        def errors(self):
+            return []
+
+    class _Clipboard:
+        def setText(self, *_args, **_kwargs):
+            return None
+
+    class QApplication:  # type: ignore[no-redef]
+        @staticmethod
+        def clipboard():
+            return _Clipboard()
+
+        @staticmethod
+        def screenAt(*_args, **_kwargs):
+            return None
+
+        @staticmethod
+        def primaryScreen():
+            return None
+
+    class QCalendarWidget:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            self._selected_date = QDate.currentDate()
+
+        def setSelectedDate(self, date):
+            self._selected_date = date
+
+        def selectedDate(self):
+            return self._selected_date
+
+    class QDialog:  # type: ignore[no-redef]
+        class DialogCode:
+            Accepted = 1
+
+        def setWindowTitle(self, *_args, **_kwargs):
+            return None
+
+        def setModal(self, *_args, **_kwargs):
+            return None
+
+        def exec(self):
+            return 0
+
+        def accept(self):
+            return None
+
+        def reject(self):
+            return None
+
+    class _DummySignal:
+        def connect(self, *_args, **_kwargs):
+            return None
+
+    class QDialogButtonBox:  # type: ignore[no-redef]
+        class StandardButton:
+            Ok = 1
+            Cancel = 2
+
+        def __init__(self, *_args, **_kwargs):
+            self.accepted = _DummySignal()
+            self.rejected = _DummySignal()
+
+    class QFileDialog:  # type: ignore[no-redef]
+        @staticmethod
+        def getExistingDirectory(*_args, **_kwargs):
+            return ""
+
+        @staticmethod
+        def getOpenFileName(*_args, **_kwargs):
+            return "", ""
+
+        @staticmethod
+        def getSaveFileName(*_args, **_kwargs):
+            return "", ""
+
+    class QWidget:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class QVBoxLayout:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def setSpacing(self, *_args, **_kwargs):
+            return None
 
 from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
 from aica.analysis_rules import (
@@ -51,6 +272,7 @@ from aica.paths import (
     qml_dir,
 )
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
+from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
 
 
@@ -67,6 +289,11 @@ _SECTION_GROUPS = [
                 "id": "projects",
                 "title": "\u9879\u76ee\u7ba1\u7406",
                 "description": "\u5bfc\u5165\u9879\u76ee\u4e3b\u6570\u636e\u5e76\u7ef4\u62a4\u7fa4\u540d\u522b\u540d\uff0c\u8865\u9f50\u5f85\u529e\u9879\u76ee\u5173\u8054\u3002",
+            },
+            {
+                "id": "tickets",
+                "title": "\u5de5\u5355\u7ba1\u7406",
+                "description": "\u67e5\u770b\u5de5\u5355\u5217\u8868\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b\u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
             },
         ],
     },
@@ -109,6 +336,43 @@ _SECTION_GROUPS = [
     },
 ]
 _SECTION_ITEMS = [item for group in _SECTION_GROUPS for item in group["items"]]
+_SECTION_VIEW_META = {
+    "models": {
+        "title": "\u6a21\u578b\u4f9b\u5e94\u5546\u4e0e\u4efb\u52a1\u6a21\u578b",
+        "description": "\u7ba1\u7406\u4f9b\u5e94\u5546 API Key\u3001\u8bf7\u6c42\u5730\u5740\u3001\u8d85\u65f6\u548c\u56db\u7c7b\u4efb\u52a1\u6a21\u578b\u7ed1\u5b9a\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "hotkeys": {
+        "title": "\u622a\u56fe\u70ed\u952e",
+        "description": "\u622a\u56fe\u70ed\u952e\u4fdd\u5b58\u540e\u4f1a\u7acb\u5373\u91cd\u7ed1\uff0c\u65e0\u9700\u91cd\u542f\u5e94\u7528\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "analysis_rules": {
+        "title": "\u89c4\u5219\u4e0e Prompt \u8c03\u8bd5",
+        "description": "\u6309\u573a\u666f\u7ef4\u62a4\u8bc6\u522b\u504f\u597d\uff0c\u5e76\u67e5\u770b\u6bcf\u6b21\u622a\u56fe\u5206\u6790\u7684\u5b8c\u6574 Prompt \u6784\u5efa\u7ed3\u679c\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u89c4\u5219",
+    },
+    "storage": {
+        "title": "\u5b58\u50a8\u4e0e\u65e5\u5fd7",
+        "description": "\u5feb\u901f\u6253\u5f00\u672c\u5730\u6570\u636e\u76ee\u5f55\uff0c\u5b9a\u4f4d\u914d\u7f6e\u3001\u53cd\u9988\u548c\u9519\u8bef\u65e5\u5fd7\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u76ee\u5f55",
+    },
+    "integrations": {
+        "title": "\u811a\u672c\u96c6\u6210",
+        "description": "\u5bfc\u5165\u672c\u5730\u811a\u672c\u5e76\u63a7\u5236\u542f\u7528\u72b6\u6001\uff0c\u4fdd\u5b58\u540e\u4f1a\u5199\u5165 integrations.json\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "projects": {
+        "title": "\u9879\u76ee\u7ba1\u7406",
+        "description": "\u6279\u91cf\u5bfc\u5165\u9879\u76ee\u4e3b\u6570\u636e\uff0c\u5e76\u96c6\u4e2d\u7ef4\u62a4\u7fa4\u540d\u522b\u540d\u4e0e\u8f7b\u91cf\u8865\u5173\u8054\u3002",
+        "primaryActionLabel": "\u8865\u5173\u8054\u5f85\u529e",
+    },
+    "tickets": {
+        "title": "\u5de5\u5355\u7ba1\u7406",
+        "description": "\u67e5\u770b\u6253\u5f00\u4e2d\u6216\u5df2\u5b8c\u6210\u7684\u5de5\u5355\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b timeline \u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
+        "primaryActionLabel": "\u5237\u65b0\u5217\u8868",
+    },
+}
 
 
 def _required_capability(task_name: str) -> str:
@@ -179,6 +443,87 @@ def _serialize_project_date(field_name: str, selected_date: QDate) -> str:
     return f"{normalized_date}T00:00:00"
 
 
+def _format_display_timestamp(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text).strftime("%m-%d %H:%M")
+    except ValueError:
+        return text
+
+
+def _format_attachment_size(size_bytes: int) -> str:
+    try:
+        normalized = max(0, int(size_bytes))
+    except (TypeError, ValueError):
+        normalized = 0
+    if normalized >= 1024 * 1024:
+        return f"{normalized / (1024 * 1024):.1f} MB"
+    if normalized >= 1024:
+        return f"{normalized / 1024:.1f} KB"
+    return f"{normalized} B"
+
+
+def _todo_status_label(status: str) -> str:
+    return "\u5df2\u5b8c\u6210" if str(status or "").strip() == TodoStatus.DONE else "\u8fdb\u884c\u4e2d"
+
+
+def _todo_status_tone(status: str) -> str:
+    return "done" if str(status or "").strip() == TodoStatus.DONE else "open"
+
+
+def _ticket_project_status_label(status: str) -> str:
+    mapping = {
+        "matched": "\u5df2\u5173\u8054\u9879\u76ee",
+        "unmatched": "\u672a\u5339\u914d\u9879\u76ee",
+        "conflict": "\u5339\u914d\u51b2\u7a81",
+        "expired": "\u547d\u4e2d\u8fc7\u4fdd\u9879\u76ee",
+        "manual": "\u624b\u52a8\u6307\u5b9a\u9879\u76ee",
+    }
+    return mapping.get(str(status or "").strip(), "\u672a\u5339\u914d\u9879\u76ee")
+
+
+def _ticket_project_status_tone(status: str) -> str:
+    mapping = {
+        "matched": "matched",
+        "manual": "matched",
+        "conflict": "warning",
+        "expired": "warning",
+    }
+    return mapping.get(str(status or "").strip(), "default")
+
+
+def _ticket_project_status_detail(todo: TodoItem) -> str:
+    link = todo.project_link
+    status = str(link.match_status or "").strip()
+    project_name = str(link.project_snapshot.get("project_name") or "").strip()
+    task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+    if status == "matched":
+        if project_name and task_order_no:
+            return f"{project_name} / {task_order_no}"
+        return project_name or task_order_no or "\u5df2\u6839\u636e\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u9879\u76ee\u4e3b\u6570\u636e\u3002"
+    if status == "conflict":
+        reason = str(link.match_reason or "").strip()
+        if reason.startswith("multiple_active_projects:"):
+            return "\u547d\u4e2d\u4e86\u591a\u4e2a\u6709\u6548\u9879\u76ee\uff0c\u8bf7\u5728\u9879\u76ee\u7ba1\u7406\u9875\u6536\u655b\u522b\u540d\u3002"
+        return reason or "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u4e86\u591a\u4e2a\u6709\u6548\u9879\u76ee\u3002"
+    if status == "expired":
+        return f"{project_name} \u5df2\u8fc7\u4fdd\u3002" if project_name else "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u53ea\u547d\u4e2d\u8fc7\u4fdd\u9879\u76ee\u3002"
+    if status == "manual":
+        return "\u5f53\u524d\u5de5\u5355\u4f7f\u7528\u4e86\u624b\u52a8\u9879\u76ee\u5173\u8054\u7ed3\u679c\u3002"
+    reason = str(link.match_reason or "").strip()
+    if reason == "missing_group_name":
+        return "\u5f53\u524d\u5de5\u5355\u7f3a\u5c11\u7fa4\u804a\u540d\u79f0\uff0c\u65e0\u6cd5\u81ea\u52a8\u5339\u914d\u9879\u76ee\u3002"
+    return "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u5c1a\u672a\u547d\u4e2d\u4efb\u4f55\u9879\u76ee\u522b\u540d\u3002"
+
+
+def _ticket_timeline_scenario(kind: str, scenario: str) -> str:
+    if str(kind or "").strip() == "manual":
+        return "\u624b\u52a8\u8ddf\u8fdb"
+    return str(scenario or "").strip() or "\u7cfb\u7edf\u8bb0\u5f55"
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -215,6 +560,11 @@ class _ControlPanelBridge(QObject):
         self._include_expired_projects = True
         self._projects = self._load_project_payloads()
         self._last_project_import_summary = ""
+        self._ticket_query = ""
+        self._ticket_status_filter = TodoStatus.OPEN
+        self._tickets = self._load_ticket_payloads()
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
         self._error_message = ""
         self._status_message = ""
         self._window_maximized = False
@@ -233,6 +583,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, notify=currentSectionChanged)
     def currentSection(self) -> str:
         return self._current_section
+
+    @pyqtProperty("QVariantMap", notify=currentSectionChanged)
+    def currentSectionMeta(self):  # noqa: ANN201
+        return dict(_SECTION_VIEW_META.get(self._current_section, _SECTION_VIEW_META["models"]))
 
     @pyqtProperty(bool, notify=windowStateChanged)
     def windowMaximized(self) -> bool:
@@ -410,6 +764,22 @@ class _ControlPanelBridge(QObject):
         return self._last_project_import_summary
 
     @pyqtProperty("QVariantList", notify=dataChanged)
+    def tickets(self):  # noqa: ANN201
+        return list(self._tickets)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def ticketQuery(self) -> str:
+        return self._ticket_query
+
+    @pyqtProperty(str, notify=dataChanged)
+    def ticketStatusFilter(self) -> str:
+        return self._ticket_status_filter
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedTicket(self):  # noqa: ANN201
+        return dict(self._selected_ticket)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
     def locations(self):  # noqa: ANN201
         return [
             {
@@ -536,6 +906,124 @@ class _ControlPanelBridge(QObject):
     def _refresh_project_payloads(self) -> None:
         self._projects = self._load_project_payloads()
 
+    def _build_ticket_list_payload(self, todo: TodoItem) -> dict[str, object]:
+        snapshot = todo.project_link.project_snapshot
+        return {
+            "id": todo.id,
+            "title": str(todo.title or "").strip() or "\u672a\u5206\u7c7b\u4efb\u52a1",
+            "summary": str(todo.current_summary or "").strip(),
+            "groupName": str(todo.summary_fields.group_name or "").strip(),
+            "environment": str(todo.summary_fields.environment or "").strip(),
+            "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
+            "status": str(todo.status or TodoStatus.OPEN),
+            "statusLabel": _todo_status_label(todo.status),
+            "statusTone": _todo_status_tone(todo.status),
+            "projectName": str(snapshot.get("project_name") or "").strip(),
+            "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
+            "projectStatus": str(todo.project_link.match_status or "").strip(),
+            "projectStatusLabel": _ticket_project_status_label(todo.project_link.match_status),
+            "projectStatusTone": _ticket_project_status_tone(todo.project_link.match_status),
+            "projectStatusDetail": _ticket_project_status_detail(todo),
+            "updatedAt": str(todo.updated_at or ""),
+            "updatedAtLabel": _format_display_timestamp(todo.updated_at),
+            "timelineCount": len(todo.timeline),
+        }
+
+    def _build_ticket_detail_payload(self, todo: TodoItem) -> dict[str, object]:
+        snapshot = todo.project_link.project_snapshot
+        timeline_payload = []
+        for event in reversed(todo.timeline):
+            attachments = [
+                {
+                    "id": attachment.id,
+                    "name": str(attachment.name or "").strip() or Path(str(attachment.path or "")).name,
+                    "path": str(attachment.path or "").strip(),
+                    "sizeBytes": int(attachment.size_bytes),
+                    "sizeLabel": _format_attachment_size(attachment.size_bytes),
+                }
+                for attachment in event.attachments
+            ]
+            timeline_payload.append(
+                {
+                    "id": event.id,
+                    "timestamp": event.timestamp,
+                    "timestampLabel": _format_display_timestamp(event.timestamp),
+                    "scenario": _ticket_timeline_scenario(event.kind, event.scenario),
+                    "kind": str(event.kind or "").strip(),
+                    "content": str(event.content or "").strip(),
+                    "attachments": attachments,
+                }
+            )
+
+        return {
+            **self._build_ticket_list_payload(todo),
+            "createdAt": str(todo.created_at or ""),
+            "createdAtLabel": _format_display_timestamp(todo.created_at),
+            "currentSummary": str(todo.current_summary or "").strip(),
+            "projectLinkReason": str(todo.project_link.match_reason or "").strip(),
+            "projectAlias": str(todo.project_link.matched_alias or "").strip(),
+            "projectName": str(snapshot.get("project_name") or "").strip(),
+            "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
+            "productLine": str(snapshot.get("product_line") or "").strip(),
+            "productVersion": str(snapshot.get("product_version") or "").strip(),
+            "projectManager": str(snapshot.get("project_manager") or "").strip(),
+            "timeline": timeline_payload,
+        }
+
+    def _empty_ticket_detail_payload(self) -> dict[str, object]:
+        return {
+            "id": "",
+            "title": "",
+            "summary": "",
+            "currentSummary": "",
+            "groupName": "",
+            "environment": "",
+            "ticketType": "",
+            "status": "",
+            "statusLabel": "",
+            "statusTone": "open",
+            "projectStatus": "",
+            "projectStatusLabel": "",
+            "projectStatusTone": "default",
+            "projectStatusDetail": "",
+            "projectLinkReason": "",
+            "projectAlias": "",
+            "projectName": "",
+            "taskOrderNo": "",
+            "productLine": "",
+            "productVersion": "",
+            "projectManager": "",
+            "createdAt": "",
+            "createdAtLabel": "",
+            "updatedAt": "",
+            "updatedAtLabel": "",
+            "timelineCount": 0,
+            "timeline": [],
+        }
+
+    def _load_ticket_payloads(self) -> list[dict[str, object]]:
+        return [
+            self._build_ticket_list_payload(todo)
+            for todo in self._todo_store.list_todos(
+                query=self._ticket_query,
+                status=self._ticket_status_filter,
+            )
+        ]
+
+    def _refresh_ticket_payloads(self) -> None:
+        self._tickets = self._load_ticket_payloads()
+
+    def _refresh_selected_ticket_payload(self) -> None:
+        if not self._selected_ticket_id:
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            return
+        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            return
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+
     def _find_cached_project(self, project_id: str) -> dict[str, object] | None:
         normalized_id = str(project_id or "").strip()
         if not normalized_id:
@@ -570,6 +1058,8 @@ class _ControlPanelBridge(QObject):
         self._project_repository = SQLiteProjectRepository(aica_database_file())
         self._todo_store = TodoStore(str(aica_database_file()))
         self._refresh_project_payloads()
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
         if self._selected_rule_scene not in self._analysis_rules.scene_rules:
             self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
         if self._selected_prompt_debug_trace_id:
@@ -744,6 +1234,9 @@ class _ControlPanelBridge(QObject):
             return
         if self._current_section == "projects":
             self.relinkOpenUnresolvedTodos()
+            return
+        if self._current_section == "tickets":
+            self.refreshTickets()
             return
         self.saveConfig()
 
@@ -1051,6 +1544,51 @@ class _ControlPanelBridge(QObject):
         self._project_query = str(query or "").strip()
         self._include_expired_projects = bool(include_expired)
         self._refresh_project_payloads()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def listTickets(self, query: str, status_filter: str) -> None:
+        self._ticket_query = str(query or "").strip()
+        normalized_status = str(status_filter or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all"}:
+            normalized_status = TodoStatus.OPEN
+        self._ticket_status_filter = normalized_status
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def refreshTickets(self) -> None:
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._clear_messages()
+        self._status_message = f"\u5df2\u5237\u65b0 {len(self._tickets)} \u6761\u5de5\u5355\u3002"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def openTicketDetail(self, todo_id: str) -> None:
+        normalized_id = str(todo_id or "").strip()
+        if not normalized_id:
+            return
+        todo = self._todo_store.get_todo(normalized_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
+            self._emit_data_changed()
+            return
+        self._clear_messages()
+        self._selected_ticket_id = normalized_id
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def backToTicketList(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
+        self._clear_messages()
         self._emit_data_changed()
 
     @pyqtSlot(str, str)

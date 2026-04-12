@@ -630,19 +630,47 @@ class SQLiteTodoRepository:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
-    def list_active_todos(self) -> list[TodoItem]:
+    def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
+        normalized_query = sanitize_text(query).lower()
+        normalized_status = sanitize_text(status).lower() or TodoStatus.OPEN
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all"}:
+            normalized_status = TodoStatus.OPEN
+
+        sql = """
+            SELECT DISTINCT
+              todos.id, todos.title, todos.current_summary, todos.group_name, todos.environment,
+              todos.ticket_type, todos.status, todos.created_at, todos.updated_at
+            FROM todos
+            LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+            WHERE 1 = 1
+        """
+        params: list[object] = []
+        if normalized_status != "all":
+            sql += " AND todos.status = ?"
+            params.append(normalized_status)
+        if normalized_query:
+            sql += """
+              AND (
+                LOWER(todos.title) LIKE ?
+                OR LOWER(todos.current_summary) LIKE ?
+                OR LOWER(todos.group_name) LIKE ?
+                OR LOWER(todos.environment) LIKE ?
+                OR LOWER(todos.ticket_type) LIKE ?
+                OR LOWER(COALESCE(todo_project_links.matched_alias, '')) LIKE ?
+                OR LOWER(COALESCE(todo_project_links.match_reason, '')) LIKE ?
+                OR LOWER(COALESCE(todo_project_links.project_snapshot_json, '')) LIKE ?
+              )
+            """
+            pattern = f"%{normalized_query}%"
+            params.extend([pattern] * 8)
+        sql += " ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC"
+
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, status, created_at, updated_at
-                FROM todos
-                WHERE status = ?
-                ORDER BY updated_at DESC
-                """,
-                (TodoStatus.OPEN,),
-            ).fetchall()
+            rows = connection.execute(sql, params).fetchall()
             return [self._load_todo(connection, str(row["id"])) for row in rows]
+
+    def list_active_todos(self) -> list[TodoItem]:
+        return self.list_todos(status=TodoStatus.OPEN)
 
     def relink_open_unresolved_todos(self) -> int:
         with self._connect() as connection:
