@@ -8,7 +8,7 @@ ColumnLayout {
 
     visible: controlPanelBridge.currentSection === "tickets"
     spacing: 0
-    readonly property int detailGridColumns: ticketSection.width < 920 ? 1 : ticketSection.width < 1280 ? 3 : 4
+    readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
     property bool ticketVersionEditing: false
     property bool ticketVersionSaving: false
@@ -141,17 +141,19 @@ ColumnLayout {
         signal accepted
         signal canceled
 
-        radius: 16
-        color: editing ? "#FFF8EF" : "#FFFDF9"
-        border.width: 1
-        border.color: editing ? theme.accent : "#E8DDD0"
-        implicitHeight: fieldColumn.implicitHeight + 22
+        radius: 0
+        color: "transparent"
+        border.width: 0
+        implicitHeight: fieldColumn.implicitHeight + 14
 
         ColumnLayout {
             id: fieldColumn
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 6
+            anchors.leftMargin: 6
+            anchors.rightMargin: 6
+            anchors.topMargin: 4
+            anchors.bottomMargin: 10
+            spacing: 5
 
             Text {
                 Layout.fillWidth: true
@@ -159,9 +161,9 @@ ColumnLayout {
                 color: theme.labelInk
                 font.family: theme.uiFont
                 font.pixelSize: 10
-                font.weight: 700
+                font.weight: 500
                 elide: Text.ElideRight
-                opacity: 0.9
+                opacity: 0.72
             }
 
             Item {
@@ -191,12 +193,19 @@ ColumnLayout {
                         leftPadding: 0
                         rightPadding: 0
                         topPadding: 0
-                        bottomPadding: 0
+                        bottomPadding: 8
                         background: Rectangle {
-                            radius: 10
-                            color: "#FFFBF5"
-                            border.width: 1
-                            border.color: inlineEditor.activeFocus ? fieldRoot.theme.accent : "#D9CDBE"
+                            color: "transparent"
+                            border.width: 0
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 1
+                                color: inlineEditor.activeFocus ? fieldRoot.theme.accent : "#D8CCBE"
+                                opacity: inlineEditor.activeFocus ? 1 : 0.9
+                            }
                         }
 
                         onTextEdited: ticketSection.ticketVersionDraft = text
@@ -214,11 +223,12 @@ ColumnLayout {
                             anchors.left: parent.left
                             anchors.right: fieldAction.left
                             anchors.verticalCenter: parent.verticalCenter
-                            anchors.rightMargin: 8
+                            anchors.rightMargin: 10
                             text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                            color: fieldRoot.value.length > 0 ? theme.bodyInk : "#A39078"
+                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
                             font.family: theme.uiFont
-                            font.pixelSize: fieldRoot.compact ? 11 : 12
+                            font.pixelSize: fieldRoot.compact ? 12 : 13
+                            font.weight: fieldRoot.value.length > 0 ? 500 : 400
                             wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
                             elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
                         }
@@ -231,7 +241,8 @@ ColumnLayout {
                             text: "✎"
                             color: theme.accent
                             font.family: theme.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: 11
+                            opacity: 0.75
                         }
 
                         MouseArea {
@@ -243,6 +254,50 @@ ColumnLayout {
                             onClicked: fieldRoot.clicked()
                         }
                     }
+
+                    RowLayout {
+                        visible: fieldRoot.editable && fieldRoot.editing
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 10
+
+                        Text {
+                            text: "保存"
+                            color: fieldRoot.theme.accent
+                            font.family: fieldRoot.theme.uiFont
+                            font.pixelSize: 11
+                            font.weight: 600
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: fieldRoot.accepted()
+                            }
+                        }
+
+                        Text {
+                            text: "取消"
+                            color: fieldRoot.theme.labelInk
+                            font.family: fieldRoot.theme.uiFont
+                            font.pixelSize: 11
+                            font.weight: 500
+                            opacity: 0.88
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: fieldRoot.canceled()
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: !fieldRoot.editing
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: "#E8DFD2"
+                    opacity: 0.85
                 }
             }
         }
@@ -680,37 +735,34 @@ ColumnLayout {
                                 }
                             }
 
-                            Rectangle {
+                            Item {
                                 Layout.row: 0
                                 Layout.columnSpan: ticketSection.detailGridColumns
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignTop
-                                radius: 18
-                                color: "#FBF8F2"
-                                border.width: 1
-                                border.color: "#EEE4D8"
-                                implicitHeight: detailSidebar.implicitHeight + 28
+                                implicitHeight: detailSidebar.implicitHeight + 18
 
                                 ColumnLayout {
                                     id: detailSidebar
                                     anchors.fill: parent
-                                    anchors.margins: 14
-                                    spacing: 14
+                                    anchors.topMargin: 4
+                                    anchors.bottomMargin: 4
+                                    spacing: 10
 
                                     Text {
                                         Layout.fillWidth: true
                                         text: "关键信息"
                                         color: theme.titleInk
                                         font.family: theme.uiFont
-                                        font.pixelSize: 13
+                                        font.pixelSize: 14
                                         font.weight: 700
                                     }
 
                                     GridLayout {
                                         Layout.fillWidth: true
                                         columns: ticketSection.detailGridColumns
-                                        columnSpacing: 12
-                                        rowSpacing: 12
+                                        columnSpacing: 10
+                                        rowSpacing: 8
 
                                         DetailField {
                                             theme: ticketSection.theme
