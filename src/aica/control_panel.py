@@ -58,38 +58,57 @@ _TASK_LABELS = {
     "analysis": "截图分析",
     "plan_export": "方案导出",
 }
-_SECTION_ITEMS = [
+_SECTION_GROUPS = [
     {
-        "id": "models",
-        "title": "模型供应商",
-        "description": "维护供应商凭证、请求地址与任务模型绑定。",
+        "id": "business",
+        "title": "\u4e1a\u52a1\u7ba1\u7406",
+        "items": [
+            {
+                "id": "projects",
+                "title": "\u9879\u76ee\u7ba1\u7406",
+                "description": "\u5bfc\u5165\u9879\u76ee\u4e3b\u6570\u636e\u5e76\u7ef4\u62a4\u7fa4\u540d\u522b\u540d\uff0c\u8865\u9f50\u5f85\u529e\u9879\u76ee\u5173\u8054\u3002",
+            },
+        ],
     },
     {
-        "id": "hotkeys",
-        "title": "快捷键",
-        "description": "调整截图热键并立即生效。",
+        "id": "models_and_rules",
+        "title": "\u6a21\u578b\u4e0e\u89c4\u5219",
+        "items": [
+            {
+                "id": "models",
+                "title": "\u6a21\u578b\u4f9b\u5e94\u5546",
+                "description": "\u7ef4\u62a4\u4f9b\u5e94\u5546\u51ed\u8bc1\u3001\u8bf7\u6c42\u5730\u5740\u4e0e\u4efb\u52a1\u6a21\u578b\u7ed1\u5b9a\u3002",
+            },
+            {
+                "id": "analysis_rules",
+                "title": "\u89c4\u5219\u4e0e\u8c03\u8bd5",
+                "description": "\u914d\u7f6e\u573a\u666f\u5206\u6790\u89c4\u5219\uff0c\u5e76\u67e5\u770b Prompt \u8c03\u8bd5\u5feb\u7167\u3002",
+            },
+        ],
     },
     {
-        "id": "analysis_rules",
-        "title": "规则与调试",
-        "description": "配置场景分析规则，并查看 Prompt 调试快照。",
-    },
-    {
-        "id": "storage",
-        "title": "存储与日志",
-        "description": "查看配置位置并快速跳转本地数据目录。",
-    },
-    {
-        "id": "integrations",
-        "title": "脚本集成",
-        "description": "导入外部脚本，并控制启用或停用同步脚本。",
-    },
-    {
-        "id": "projects",
-        "title": "项目管理",
-        "description": "导入项目主数据并维护群名别名，补齐待办项目关联。",
+        "id": "runtime_and_integrations",
+        "title": "\u8fd0\u884c\u4e0e\u96c6\u6210",
+        "items": [
+            {
+                "id": "hotkeys",
+                "title": "\u5feb\u6377\u952e",
+                "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
+            },
+            {
+                "id": "storage",
+                "title": "\u5b58\u50a8\u4e0e\u65e5\u5fd7",
+                "description": "\u67e5\u770b\u914d\u7f6e\u4f4d\u7f6e\u5e76\u5feb\u901f\u8df3\u8f6c\u672c\u5730\u6570\u636e\u76ee\u5f55\u3002",
+            },
+            {
+                "id": "integrations",
+                "title": "\u811a\u672c\u96c6\u6210",
+                "description": "\u5bfc\u5165\u5916\u90e8\u811a\u672c\uff0c\u5e76\u63a7\u5236\u542f\u7528\u6216\u505c\u7528\u540c\u6b65\u811a\u672c\u3002",
+            },
+        ],
     },
 ]
+_SECTION_ITEMS = [item for group in _SECTION_GROUPS for item in group["items"]]
 
 
 def _required_capability(task_name: str) -> str:
@@ -206,6 +225,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
         return list(_SECTION_ITEMS)
+
+    @pyqtProperty("QVariantList", constant=True)
+    def sectionGroups(self):  # noqa: ANN201
+        return list(_SECTION_GROUPS)
 
     @pyqtProperty(str, notify=currentSectionChanged)
     def currentSection(self) -> str:

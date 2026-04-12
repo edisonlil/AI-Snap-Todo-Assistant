@@ -821,28 +821,59 @@ Rectangle {
                         }
 
                         Repeater {
-                            model: controlPanelBridge.sections
+                            model: controlPanelBridge.sectionGroups
 
-                            delegate: SectionCard {
+                            delegate: ColumnLayout {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 54
-                                color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
+                                Layout.topMargin: index === 0 ? 0 : 6
+                                spacing: 8
 
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 18
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.title
-                                    color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: controlPanelBridge.currentSection === modelData.id ? 800 : 700
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+
+                                    Text {
+                                        text: modelData.title
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: 800
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 1
+                                        radius: 1
+                                        color: root.panelLine
+                                        opacity: 0.9
+                                    }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: controlPanelBridge.setCurrentSection(modelData.id)
+                                Repeater {
+                                    model: modelData.items
+
+                                    delegate: SectionCard {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 54
+                                        color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
+
+                                        Text {
+                                            anchors.left: parent.left
+                                            anchors.leftMargin: 18
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: modelData.title
+                                            color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 800 : 700
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: controlPanelBridge.setCurrentSection(modelData.id)
+                                        }
+                                    }
                                 }
                             }
                         }
