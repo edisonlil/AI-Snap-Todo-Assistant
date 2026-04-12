@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 ColumnLayout {
@@ -8,6 +7,7 @@ ColumnLayout {
 
     visible: controlPanelBridge.currentSection === "tickets"
     spacing: 0
+    readonly property bool compactDetailLayout: ticketSection.width < 920
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -234,7 +234,7 @@ ColumnLayout {
             ColumnLayout {
                 visible: controlPanelBridge.selectedTicket.id.length > 0
                 Layout.fillWidth: true
-                spacing: 12
+                spacing: 18
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -253,283 +253,470 @@ ColumnLayout {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    radius: 18
-                    color: "#FFF9F1"
+                    radius: 22
+                    color: "#FFFCF8"
                     border.width: 1
-                    border.color: theme.panelLine
-                    implicitHeight: ticketDetailColumn.implicitHeight + 24
+                    border.color: "#ECE4D8"
+                    implicitHeight: ticketDetailColumn.implicitHeight + 40
 
                     ColumnLayout {
                         id: ticketDetailColumn
                         anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 10
+                        anchors.margins: 20
+                        spacing: 28
 
-                        RowLayout {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 10
+                            spacing: 12
 
                             Text {
                                 Layout.fillWidth: true
                                 text: controlPanelBridge.selectedTicket.title || "未分类任务"
                                 color: theme.titleInk
                                 font.family: theme.uiFont
-                                font.pixelSize: 15
+                                font.pixelSize: 25
                                 font.weight: 700
                                 wrapMode: Text.Wrap
                             }
 
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: controlPanelBridge.selectedTicket.statusLabel
-                                tone: controlPanelBridge.selectedTicket.statusTone
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                StatusPill {
+                                    theme: ticketSection.theme
+                                    label: controlPanelBridge.selectedTicket.statusLabel
+                                    tone: controlPanelBridge.selectedTicket.statusTone
+                                }
+
+                                StatusPill {
+                                    theme: ticketSection.theme
+                                    label: controlPanelBridge.selectedTicket.projectStatusLabel
+                                    tone: controlPanelBridge.selectedTicket.projectStatusTone
+                                }
+
+                                StatusPill {
+                                    theme: ticketSection.theme
+                                    label: controlPanelBridge.selectedTicket.ticketType || "未填写工单类型"
+                                    tone: "default"
+                                }
                             }
 
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: controlPanelBridge.selectedTicket.projectStatusLabel
-                                tone: controlPanelBridge.selectedTicket.projectStatusTone
-                            }
-                        }
-
-                        Text {
-                            text: "摘要"
-                            color: theme.titleInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 13
-                            font.weight: 700
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: (controlPanelBridge.selectedTicket.currentSummary || "").length > 0 ? controlPanelBridge.selectedTicket.currentSummary : "暂无摘要"
-                            color: theme.bodyInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 12
-                            wrapMode: Text.Wrap
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            width: parent.width
-                            spacing: 8
-
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: controlPanelBridge.selectedTicket.ticketType || "未填写工单类型"
-                                tone: "default"
-                            }
-
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: "群名: " + (controlPanelBridge.selectedTicket.groupName || "未填写")
-                                tone: "default"
-                            }
-
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: "环境: " + (controlPanelBridge.selectedTicket.environment || "未填写")
-                                tone: "default"
-                            }
-
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: "创建: " + (controlPanelBridge.selectedTicket.createdAtLabel || "未知")
-                                tone: "default"
-                            }
-
-                            StatusPill {
-                                theme: ticketSection.theme
-                                label: "更新: " + (controlPanelBridge.selectedTicket.updatedAtLabel || "未知")
-                                tone: "default"
+                            Text {
+                                Layout.fillWidth: true
+                                text: (controlPanelBridge.selectedTicket.currentSummary || "").length > 0 ? controlPanelBridge.selectedTicket.currentSummary : "暂无摘要"
+                                color: theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 13
+                                lineHeight: 1.35
+                                wrapMode: Text.Wrap
                             }
                         }
 
                         Rectangle {
                             Layout.fillWidth: true
-                            radius: 16
-                            color: "#FFFEFC"
-                            border.width: 1
-                            border.color: theme.panelLine
-                            implicitHeight: projectInfoColumn.implicitHeight + 20
+                            implicitHeight: 1
+                            color: "#E9E0D3"
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: ticketSection.compactDetailLayout ? 1 : 2
+                            columnSpacing: ticketSection.compactDetailLayout ? 0 : 40
+                            rowSpacing: 24
 
                             ColumnLayout {
-                                id: projectInfoColumn
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
-
-                                Text {
-                                    text: "项目关联"
-                                    color: theme.titleInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: 700
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: controlPanelBridge.selectedTicket.projectStatusDetail
-                                    color: theme.bodyInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 12
-                                    wrapMode: Text.Wrap
-                                }
-
-                                Text {
-                                    visible: (controlPanelBridge.selectedTicket.projectName || "").length > 0
-                                    Layout.fillWidth: true
-                                    text: "项目: " + controlPanelBridge.selectedTicket.projectName + ((controlPanelBridge.selectedTicket.taskOrderNo || "").length > 0 ? " / " + controlPanelBridge.selectedTicket.taskOrderNo : "")
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    ControlPanelSettingsInput {
-                                        id: ticketVersionInput
-                                        theme: ticketSection.theme
-                                        Layout.fillWidth: true
-                                        text: controlPanelBridge.selectedTicket.ticketVersion || ""
-                                        placeholderText: "工单版本"
-                                    }
-
-                                    ControlPanelPlainButton {
-                                        theme: ticketSection.theme
-                                        label: "保存版本"
-                                        onClicked: controlPanelBridge.saveSelectedTicketVersion(ticketVersionInput.text)
-                                    }
-                                }
-
-                                Text {
-                                    visible: (controlPanelBridge.selectedTicket.productLine || "").length > 0 || (controlPanelBridge.selectedTicket.ticketVersion || "").length > 0
-                                    Layout.fillWidth: true
-                                    text: "产品: " + (controlPanelBridge.selectedTicket.productLine || "未填写") + " / 工单版本: " + (controlPanelBridge.selectedTicket.ticketVersion || "未填写")
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-
-                                Text {
-                                    visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
-                                        && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
-                                    Layout.fillWidth: true
-                                    text: "关联项目快照版本: " + controlPanelBridge.selectedTicket.projectSnapshotVersion
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-
-                                Text {
-                                    visible: (controlPanelBridge.selectedTicket.projectManager || "").length > 0
-                                    Layout.fillWidth: true
-                                    text: "项目经理: " + controlPanelBridge.selectedTicket.projectManager
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "历史跟进"
-                            color: theme.titleInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 13
-                            font.weight: 700
-                        }
-
-                        Repeater {
-                            model: controlPanelBridge.selectedTicket.timeline
-
-                            delegate: Rectangle {
                                 Layout.fillWidth: true
-                                radius: 16
-                                color: "#FFFEFC"
-                                border.width: 1
-                                border.color: theme.panelLine
-                                implicitHeight: timelineColumn.implicitHeight + 20
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 18
 
                                 ColumnLayout {
-                                    id: timelineColumn
-                                    anchors.fill: parent
-                                    anchors.margins: 10
-                                    spacing: 8
+                                    Layout.fillWidth: true
+                                    spacing: 4
 
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 10
-
-                                        Text {
-                                            text: modelData.timestampLabel || modelData.timestamp
-                                            color: theme.titleInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            font.weight: 700
-                                        }
-
-                                        Text {
-                                            text: modelData.scenario
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                        }
-
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
+                                    Text {
+                                        text: "历史跟进"
+                                        color: theme.titleInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 14
+                                        font.weight: 700
                                     }
 
                                     Text {
-                                        Layout.fillWidth: true
-                                        text: modelData.content
-                                        color: theme.bodyInk
+                                        text: controlPanelBridge.selectedTicket.timelineCount + " 条记录，按最近更新排序"
+                                        color: theme.labelInk
                                         font.family: theme.uiFont
-                                        font.pixelSize: 12
-                                        wrapMode: Text.Wrap
+                                        font.pixelSize: 11
                                     }
+                                }
 
-                                    Flow {
-                                        visible: modelData.attachments.length > 0
+                                Repeater {
+                                    model: controlPanelBridge.selectedTicket.timeline
+
+                                    delegate: Item {
                                         Layout.fillWidth: true
-                                        width: parent.width
-                                        spacing: 8
+                                        implicitHeight: timelineEntryRow.implicitHeight
 
-                                        Repeater {
-                                            model: modelData.attachments
+                                        RowLayout {
+                                            id: timelineEntryRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            spacing: 16
 
-                                            delegate: Rectangle {
-                                                radius: 14
-                                                color: "#F4F7FB"
-                                                border.width: 1
-                                                border.color: "#D8E1EF"
-                                                width: attachmentText.implicitWidth + 24
-                                                height: 30
+                                            Item {
+                                                Layout.preferredWidth: 16
+                                                Layout.alignment: Qt.AlignTop
+                                                implicitWidth: 16
+                                                implicitHeight: timelineEntryContent.implicitHeight
+
+                                                Rectangle {
+                                                    x: 4
+                                                    y: 8
+                                                    width: 8
+                                                    height: 8
+                                                    radius: 4
+                                                    color: theme.accent
+                                                }
+
+                                                Rectangle {
+                                                    visible: index < controlPanelBridge.selectedTicket.timeline.length - 1
+                                                    x: 7
+                                                    y: 24
+                                                    width: 2
+                                                    height: Math.max(0, parent.height - 24)
+                                                    radius: 1
+                                                    color: "#E4DCCF"
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                id: timelineEntryContent
+                                                Layout.fillWidth: true
+                                                spacing: 8
+
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 10
+
+                                                    Text {
+                                                        text: modelData.timestampLabel || modelData.timestamp
+                                                        color: theme.titleInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 12
+                                                        font.weight: 700
+                                                    }
+
+                                                    Text {
+                                                        text: modelData.scenario
+                                                        color: theme.labelInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 11
+                                                    }
+
+                                                    Item {
+                                                        Layout.fillWidth: true
+                                                    }
+                                                }
 
                                                 Text {
-                                                    id: attachmentText
-                                                    anchors.centerIn: parent
-                                                    text: modelData.name + " (" + modelData.sizeLabel + ")"
+                                                    Layout.fillWidth: true
+                                                    text: modelData.content
                                                     color: theme.bodyInk
                                                     font.family: theme.uiFont
-                                                    font.pixelSize: 11
+                                                    font.pixelSize: 12
+                                                    lineHeight: 1.45
+                                                    wrapMode: Text.Wrap
+                                                }
+
+                                                Flow {
+                                                    visible: modelData.attachments.length > 0
+                                                    Layout.fillWidth: true
+                                                    spacing: 8
+
+                                                    Repeater {
+                                                        model: modelData.attachments
+
+                                                        delegate: Rectangle {
+                                                            radius: 14
+                                                            color: "#F6F2EA"
+                                                            border.width: 1
+                                                            border.color: "#E5DCD0"
+                                                            width: attachmentText.implicitWidth + 24
+                                                            height: 30
+
+                                                            Text {
+                                                                id: attachmentText
+                                                                anchors.centerIn: parent
+                                                                text: modelData.name + " (" + modelData.sizeLabel + ")"
+                                                                color: theme.bodyInk
+                                                                font.family: theme.uiFont
+                                                                font.pixelSize: 11
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    visible: index < controlPanelBridge.selectedTicket.timeline.length - 1
+                                                    Layout.fillWidth: true
+                                                    implicitHeight: 1
+                                                    color: "#EEE5D8"
+                                                    Layout.topMargin: 8
                                                 }
                                             }
                                         }
                                     }
                                 }
+
+                                Text {
+                                    visible: controlPanelBridge.selectedTicket.timeline.length === 0
+                                    Layout.fillWidth: true
+                                    text: "暂无跟进记录"
+                                    color: theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                }
                             }
-                        }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 288
+                                Layout.alignment: Qt.AlignTop
+                                radius: 18
+                                color: "#FBF8F2"
+                                border.width: 1
+                                border.color: "#EEE4D8"
+                                implicitHeight: detailSidebar.implicitHeight + 28
+
+                                ColumnLayout {
+                                    id: detailSidebar
+                                    anchors.fill: parent
+                                    anchors.margins: 14
+                                    spacing: 18
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 12
+
+                                        Text {
+                                            text: "基本信息"
+                                            color: theme.titleInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            Text {
+                                                text: "群名"
+                                                color: theme.labelInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.selectedTicket.groupName || "未填写"
+                                                color: theme.bodyInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+
+                                            Text {
+                                                text: "环境"
+                                                color: theme.labelInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.selectedTicket.environment || "未填写"
+                                                color: theme.bodyInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+
+                                            Text {
+                                                text: "创建时间"
+                                                color: theme.labelInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.selectedTicket.createdAtLabel || "未知"
+                                                color: theme.bodyInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+
+                                            Text {
+                                                text: "最近更新"
+                                                color: theme.labelInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.selectedTicket.updatedAtLabel || "未知"
+                                                color: theme.bodyInk
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 1
+                                        color: "#E9E0D3"
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 12
+
+                                        Text {
+                                            text: "项目关联"
+                                            color: theme.titleInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.selectedTicket.projectStatusDetail
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                            lineHeight: 1.35
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectName || "").length > 0
+                                            text: "项目"
+                                            color: theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectName || "").length > 0
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.selectedTicket.projectName + ((controlPanelBridge.selectedTicket.taskOrderNo || "").length > 0 ? " / " + controlPanelBridge.selectedTicket.taskOrderNo : "")
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            text: "产品线"
+                                            color: theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.selectedTicket.productLine || "未填写"
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            text: "工单版本"
+                                            color: theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+
+                                            ControlPanelSettingsInput {
+                                                id: ticketVersionInput
+                                                theme: ticketSection.theme
+                                                Layout.fillWidth: true
+                                                text: controlPanelBridge.selectedTicket.ticketVersion || ""
+                                                placeholderText: "工单版本"
+                                            }
+
+                                            ControlPanelPlainButton {
+                                                theme: ticketSection.theme
+                                                label: "保存"
+                                                onClicked: controlPanelBridge.saveSelectedTicketVersion(ticketVersionInput.text)
+                                            }
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
+                                                && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
+                                            text: "关联项目快照版本"
+                                            color: theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
+                                                && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.selectedTicket.projectSnapshotVersion
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectManager || "").length > 0
+                                            text: "项目经理"
+                                            color: theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        Text {
+                                            visible: (controlPanelBridge.selectedTicket.projectManager || "").length > 0
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.selectedTicket.projectManager
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+                                }
+                            }
                     }
                 }
             }
         }
     }
+}
 }
