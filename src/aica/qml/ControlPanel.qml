@@ -29,6 +29,7 @@ Rectangle {
     ]
     property var projectDraft: emptyProjectDraft()
     property string projectAliasInput: ""
+    property string projectViewMode: "list"
 
     function optionIndex(options, value) {
         for (var index = 0; index < options.length; index += 1) {
@@ -100,20 +101,42 @@ Rectangle {
         }
     }
 
+    function showProjectList() {
+        projectViewMode = "list"
+        projectAliasInput = ""
+    }
+
     function startNewProjectDraft() {
         projectDraft = emptyProjectDraft()
         projectAliasInput = ""
+        projectViewMode = "detail"
     }
 
     function loadProjectDraft(projectItem) {
         projectDraft = copyProjectDraft(projectItem || emptyProjectDraft())
         projectAliasInput = ""
+        projectViewMode = "detail"
     }
 
     function updateProjectDraft(fieldName, value) {
         var next = copyProjectDraft(projectDraft)
         next[fieldName] = value || ""
         projectDraft = next
+    }
+
+    function findProjectPayload(projectId, taskOrderNo) {
+        var normalizedId = (projectId || "").toString().trim()
+        var normalizedTaskOrderNo = (taskOrderNo || "").toString().trim()
+        for (var index = 0; index < controlPanelBridge.projects.length; index += 1) {
+            var item = controlPanelBridge.projects[index]
+            if (normalizedId.length && item.id === normalizedId) {
+                return item
+            }
+            if (normalizedTaskOrderNo.length && item.taskOrderNo === normalizedTaskOrderNo) {
+                return item
+            }
+        }
+        return null
     }
 
     function normalizedProjectLevel(value) {
@@ -164,6 +187,31 @@ Rectangle {
         }
         next.aliases = updatedAliases
         projectDraft = next
+    }
+
+    function saveCurrentProject() {
+        var payload = copyProjectDraft(projectDraft)
+        controlPanelBridge.saveProject(payload)
+        if (controlPanelBridge.hasError) {
+            return
+        }
+        var refreshed = findProjectPayload(payload.id, payload.taskOrderNo)
+        if (refreshed) {
+            projectDraft = copyProjectDraft(refreshed)
+        }
+        projectAliasInput = ""
+        projectViewMode = "detail"
+    }
+
+    function deleteCurrentProject() {
+        if (!projectDraft.id.length) {
+            showProjectList()
+            return
+        }
+        controlPanelBridge.deleteProject(projectDraft.id)
+        projectDraft = emptyProjectDraft()
+        projectAliasInput = ""
+        projectViewMode = "list"
     }
 
     Connections {
@@ -1566,6 +1614,7 @@ Rectangle {
                                         spacing: 14
 
                                         RowLayout {
+                                            visible: root.projectViewMode === "list"
                                             Layout.fillWidth: true
                                             spacing: 10
 
@@ -1587,6 +1636,7 @@ Rectangle {
                                         }
 
                                         RowLayout {
+                                            visible: root.projectViewMode === "list"
                                             Layout.fillWidth: true
                                             spacing: 10
 
@@ -1612,7 +1662,7 @@ Rectangle {
                                         }
 
                                         Text {
-                                            visible: controlPanelBridge.lastProjectImportSummary.length > 0
+                                            visible: root.projectViewMode === "list" && controlPanelBridge.lastProjectImportSummary.length > 0
                                             Layout.fillWidth: true
                                             text: controlPanelBridge.lastProjectImportSummary
                                             color: root.labelInk
@@ -1626,6 +1676,8 @@ Rectangle {
                                             spacing: 14
 
                                             Rectangle {
+                                                visible: root.projectViewMode === "list"
+                                                Layout.fillWidth: true
                                                 Layout.preferredWidth: 340
                                                 implicitHeight: 520
                                                 radius: 18
@@ -1654,28 +1706,58 @@ Rectangle {
                                                         model: controlPanelBridge.projects
 
                                                         delegate: Rectangle {
+                                                            id: projectCard
+                                                            property bool currentProject: root.projectDraft.id === modelData.id
                                                             width: ListView.view.width
-                                                            height: projectItemColumn.implicitHeight + 18
+                                                            height: projectInfoColumn.implicitHeight + 20
                                                             radius: 14
-                                                            color: root.projectDraft.id === modelData.id ? root.accentSoft : "#FFFCF7"
+                                                            color: currentProject ? root.accentSoft : "#FFFCF7"
                                                             border.width: 1
-                                                            border.color: root.projectDraft.id === modelData.id ? root.accent : root.panelLine
+                                                            border.color: currentProject ? root.accent : root.panelLine
 
                                                             Column {
-                                                                id: projectItemColumn
+                                                                id: projectInfoColumn
                                                                 anchors.fill: parent
                                                                 anchors.margins: 10
-                                                                spacing: 4
+                                                                spacing: 6
 
-                                                                Text {
-                                                                    text: modelData.projectName
-                                                                    color: root.titleInk
-                                                                    font.family: root.uiFont
-                                                                    font.pixelSize: 13
-                                                                    font.weight: 700
+                                                                Row {
+                                                                    width: parent.width
+                                                                    spacing: 8
+
+                                                                    Text {
+                                                                        width: parent.width - expireBadge.width - parent.spacing
+                                                                        text: modelData.projectName
+                                                                        color: root.titleInk
+                                                                        font.family: root.uiFont
+                                                                        font.pixelSize: 13
+                                                                        font.weight: 700
+                                                                        elide: Text.ElideRight
+                                                                    }
+
+                                                                    Rectangle {
+                                                                        id: expireBadge
+                                                                        radius: 10
+                                                                        color: modelData.isExpired ? "#FFF1ED" : "#E9F7EF"
+                                                                        border.width: 1
+                                                                        border.color: modelData.isExpired ? "#F4C7BC" : "#B6DEC5"
+                                                                        implicitWidth: expireBadgeText.implicitWidth + 18
+                                                                        implicitHeight: 24
+
+                                                                        Text {
+                                                                            id: expireBadgeText
+                                                                            anchors.centerIn: parent
+                                                                            text: modelData.isExpired ? "已过期" : "未过期"
+                                                                            color: modelData.isExpired ? "#9A3412" : "#17663A"
+                                                                            font.family: root.uiFont
+                                                                            font.pixelSize: 11
+                                                                            font.weight: 700
+                                                                        }
+                                                                    }
                                                                 }
 
                                                                 Text {
+                                                                    width: parent.width
                                                                     text: "任务单号: " + modelData.taskOrderNo
                                                                     color: root.bodyInk
                                                                     font.family: root.uiFont
@@ -1684,15 +1766,8 @@ Rectangle {
                                                                 }
 
                                                                 Text {
-                                                                    text: "项目经理: " + (modelData.projectManager || "未填写")
-                                                                    color: root.labelInk
-                                                                    font.family: root.uiFont
-                                                                    font.pixelSize: 11
-                                                                    wrapMode: Text.Wrap
-                                                                }
-
-                                                                Text {
-                                                                    text: "群名别名: " + modelData.aliasCount + " 个" + (modelData.isExpired ? " · 已过保" : "")
+                                                                    width: parent.width
+                                                                    text: "过保日期: " + (root.displayProjectDate(modelData.supportEndedAt) || "未填写")
                                                                     color: root.labelInk
                                                                     font.family: root.uiFont
                                                                     font.pixelSize: 11
@@ -1710,8 +1785,9 @@ Rectangle {
                                             }
 
                                             Rectangle {
+                                                visible: root.projectViewMode === "detail"
                                                 Layout.fillWidth: true
-                                                implicitHeight: 520
+                                                implicitHeight: projectFormColumn.implicitHeight + 24
                                                 radius: 18
                                                 color: "#FFF9F1"
                                                 border.width: 1
@@ -1719,9 +1795,25 @@ Rectangle {
 
                                                 ColumnLayout {
                                                     id: projectFormColumn
-                                                    anchors.fill: parent
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    anchors.top: parent.top
                                                     anchors.margins: 12
                                                     spacing: 8
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        PlainButton {
+                                                            label: "返回列表"
+                                                            onClicked: root.showProjectList()
+                                                        }
+
+                                                        Item {
+                                                            Layout.fillWidth: true
+                                                        }
+                                                    }
 
                                                     Text {
                                                         text: root.projectDraft.id.length > 0 ? "编辑项目" : "新建项目"
@@ -1973,10 +2065,7 @@ Rectangle {
                                                             label: "删除项目"
                                                             fillColor: "#FFF3F1"
                                                             inkColor: "#8B3A2C"
-                                                            onClicked: {
-                                                                controlPanelBridge.deleteProject(root.projectDraft.id)
-                                                                root.startNewProjectDraft()
-                                                            }
+                                                            onClicked: root.deleteCurrentProject()
                                                         }
 
                                                         PlainButton {
@@ -1984,7 +2073,7 @@ Rectangle {
                                                             fillColor: root.accent
                                                             inkColor: "#FFFFFF"
                                                             strokeWidth: 0
-                                                            onClicked: controlPanelBridge.saveProject(root.projectDraft)
+                                                            onClicked: root.saveCurrentProject()
                                                         }
                                                     }
                                                 }
