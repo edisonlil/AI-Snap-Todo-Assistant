@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 ColumnLayout {
@@ -7,7 +8,13 @@ ColumnLayout {
 
     visible: controlPanelBridge.currentSection === "tickets"
     spacing: 0
+    readonly property int detailGridColumns: ticketSection.width < 920 ? 1 : ticketSection.width < 1280 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
+    property bool ticketVersionEditing: false
+    property bool ticketVersionSaving: false
+    property string ticketVersionDraft: ""
+    property string ticketVersionOriginal: ""
+    property string ticketVersionPending: ""
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -21,6 +28,68 @@ ColumnLayout {
             return "open"
         }
         return statusOptions[index].value
+    }
+
+    function currentTicketVersion() {
+        return controlPanelBridge.selectedTicket.ticketVersion || ""
+    }
+
+    function syncTicketVersionState() {
+        var currentValue = currentTicketVersion()
+        if (ticketVersionSaving) {
+            if (currentValue === ticketVersionPending) {
+                ticketVersionOriginal = currentValue
+                ticketVersionDraft = currentValue
+                ticketVersionPending = ""
+                ticketVersionSaving = false
+                ticketVersionEditing = false
+            } else if (currentValue === ticketVersionOriginal) {
+                ticketVersionDraft = currentValue
+                ticketVersionPending = ""
+                ticketVersionSaving = false
+                ticketVersionEditing = false
+            }
+            return
+        }
+        ticketVersionOriginal = currentValue
+        if (!ticketVersionEditing) {
+            ticketVersionDraft = currentValue
+        }
+    }
+
+    function beginTicketVersionEdit() {
+        if (ticketVersionSaving) {
+            return
+        }
+        ticketVersionOriginal = currentTicketVersion()
+        ticketVersionDraft = ticketVersionOriginal
+        ticketVersionEditing = true
+    }
+
+    function cancelTicketVersionEdit() {
+        ticketVersionEditing = false
+        ticketVersionSaving = false
+        ticketVersionPending = ""
+        ticketVersionDraft = ticketVersionOriginal
+    }
+
+    function commitTicketVersionEdit() {
+        if (!ticketVersionEditing || ticketVersionSaving) {
+            return
+        }
+        var nextValue = (ticketVersionDraft || "").trim()
+        if (nextValue === ticketVersionOriginal) {
+            ticketVersionEditing = false
+            return
+        }
+        ticketVersionPending = nextValue
+        ticketVersionSaving = true
+        ticketVersionEditing = false
+        Qt.callLater(function() {
+            if (ticketVersionSaving && ticketVersionPending === nextValue) {
+                controlPanelBridge.saveSelectedTicketVersion(nextValue)
+            }
+        })
     }
 
     component StatusPill: Rectangle {
@@ -54,6 +123,128 @@ ColumnLayout {
             font.family: theme.uiFont
             font.pixelSize: 11
             font.weight: 700
+        }
+    }
+
+    component DetailField: Rectangle {
+        id: fieldRoot
+        required property var theme
+        property string label: ""
+        property string value: ""
+        property string placeholderText: "未填写"
+        property bool editable: false
+        property bool editing: false
+        property bool saving: false
+        property bool multiline: false
+        property bool compact: false
+        signal clicked
+        signal accepted
+        signal canceled
+
+        radius: 16
+        color: editing ? "#FFF8EF" : "#FFFDF9"
+        border.width: 1
+        border.color: editing ? theme.accent : "#E8DDD0"
+        implicitHeight: fieldColumn.implicitHeight + 22
+
+        ColumnLayout {
+            id: fieldColumn
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 6
+
+            Text {
+                Layout.fillWidth: true
+                text: fieldRoot.label
+                color: theme.labelInk
+                font.family: theme.uiFont
+                font.pixelSize: 10
+                font.weight: 700
+                elide: Text.ElideRight
+                opacity: 0.9
+            }
+
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: fieldValueRow.implicitHeight
+
+                RowLayout {
+                    id: fieldValueRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: 8
+
+                    BusyIndicator {
+                        visible: fieldRoot.saving
+                        running: fieldRoot.saving
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                    }
+
+                    ControlPanelSettingsInput {
+                        id: inlineEditor
+                        visible: fieldRoot.editable && fieldRoot.editing
+                        theme: fieldRoot.theme
+                        Layout.fillWidth: true
+                        text: ticketSection.ticketVersionDraft
+                        placeholderText: fieldRoot.placeholderText
+                        leftPadding: 0
+                        rightPadding: 0
+                        topPadding: 0
+                        bottomPadding: 0
+                        background: Rectangle {
+                            radius: 10
+                            color: "#FFFBF5"
+                            border.width: 1
+                            border.color: inlineEditor.activeFocus ? fieldRoot.theme.accent : "#D9CDBE"
+                        }
+
+                        onTextEdited: ticketSection.ticketVersionDraft = text
+                        onAccepted: fieldRoot.accepted()
+                        Keys.onEscapePressed: fieldRoot.canceled()
+                    }
+
+                    Item {
+                        visible: !fieldRoot.editing
+                        Layout.fillWidth: true
+                        implicitHeight: fieldText.implicitHeight + (fieldRoot.multiline ? 4 : 0)
+
+                        Text {
+                            id: fieldText
+                            anchors.left: parent.left
+                            anchors.right: fieldAction.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: 8
+                            text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
+                            color: fieldRoot.value.length > 0 ? theme.bodyInk : "#A39078"
+                            font.family: theme.uiFont
+                            font.pixelSize: fieldRoot.compact ? 11 : 12
+                            wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
+                            elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
+                        }
+
+                        Text {
+                            id: fieldAction
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: fieldRoot.editable && fieldHover.containsMouse && !fieldRoot.saving
+                            text: "✎"
+                            color: theme.accent
+                            font.family: theme.uiFont
+                            font.pixelSize: 12
+                        }
+
+                        MouseArea {
+                            id: fieldHover
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: fieldRoot.editable && !fieldRoot.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            enabled: fieldRoot.editable && !fieldRoot.saving
+                            onClicked: fieldRoot.clicked()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -236,6 +427,15 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 18
 
+                Connections {
+                    target: controlPanelBridge
+                    function onDataChanged() {
+                        ticketSection.syncTicketVersionState()
+                    }
+                }
+
+                Component.onCompleted: ticketSection.syncTicketVersionState()
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -321,11 +521,13 @@ ColumnLayout {
 
                         GridLayout {
                             Layout.fillWidth: true
-                            columns: ticketSection.compactDetailLayout ? 1 : 2
-                            columnSpacing: ticketSection.compactDetailLayout ? 0 : 40
-                            rowSpacing: 24
+                            columns: ticketSection.detailGridColumns
+                            columnSpacing: 12
+                            rowSpacing: 12
 
                             ColumnLayout {
+                                Layout.row: 1
+                                Layout.columnSpan: ticketSection.detailGridColumns
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignTop
                                 spacing: 18
@@ -479,8 +681,9 @@ ColumnLayout {
                             }
 
                             Rectangle {
+                                Layout.row: 0
+                                Layout.columnSpan: ticketSection.detailGridColumns
                                 Layout.fillWidth: true
-                                Layout.preferredWidth: 288
                                 Layout.alignment: Qt.AlignTop
                                 radius: 18
                                 color: "#FBF8F2"
@@ -492,223 +695,114 @@ ColumnLayout {
                                     id: detailSidebar
                                     anchors.fill: parent
                                     anchors.margins: 14
-                                    spacing: 18
+                                    spacing: 14
 
-                                    ColumnLayout {
+                                    Text {
                                         Layout.fillWidth: true
-                                        spacing: 12
-
-                                        Text {
-                                            text: "基本信息"
-                                            color: theme.titleInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: 700
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 10
-
-                                            Text {
-                                                text: "群名"
-                                                color: theme.labelInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: controlPanelBridge.selectedTicket.groupName || "未填写"
-                                                color: theme.bodyInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 12
-                                                wrapMode: Text.Wrap
-                                            }
-
-                                            Text {
-                                                text: "环境"
-                                                color: theme.labelInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: controlPanelBridge.selectedTicket.environment || "未填写"
-                                                color: theme.bodyInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 12
-                                                wrapMode: Text.Wrap
-                                            }
-
-                                            Text {
-                                                text: "创建时间"
-                                                color: theme.labelInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: controlPanelBridge.selectedTicket.createdAtLabel || "未知"
-                                                color: theme.bodyInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 12
-                                                wrapMode: Text.Wrap
-                                            }
-
-                                            Text {
-                                                text: "最近更新"
-                                                color: theme.labelInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: controlPanelBridge.selectedTicket.updatedAtLabel || "未知"
-                                                color: theme.bodyInk
-                                                font.family: theme.uiFont
-                                                font.pixelSize: 12
-                                                wrapMode: Text.Wrap
-                                            }
-                                        }
+                                        text: "关键信息"
+                                        color: theme.titleInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: 700
                                     }
 
-                                    Rectangle {
+                                    GridLayout {
                                         Layout.fillWidth: true
-                                        implicitHeight: 1
-                                        color: "#E9E0D3"
-                                    }
+                                        columns: ticketSection.detailGridColumns
+                                        columnSpacing: 12
+                                        rowSpacing: 12
 
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 12
-
-                                        Text {
-                                            text: "项目关联"
-                                            color: theme.titleInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: 700
-                                        }
-
-                                        Text {
+                                        DetailField {
+                                            theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            text: controlPanelBridge.selectedTicket.projectStatusDetail
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            lineHeight: 1.35
-                                            wrapMode: Text.Wrap
+                                            Layout.columnSpan: ticketSection.detailGridColumns
+                                            label: "项目关联"
+                                            value: controlPanelBridge.selectedTicket.projectStatusDetail
+                                            placeholderText: "暂无项目关联信息"
+                                            multiline: true
                                         }
 
-                                        Text {
-                                            visible: (controlPanelBridge.selectedTicket.projectName || "").length > 0
-                                            text: "项目"
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                        }
-
-                                        Text {
-                                            visible: (controlPanelBridge.selectedTicket.projectName || "").length > 0
+                                        DetailField {
+                                            theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            text: controlPanelBridge.selectedTicket.projectName + ((controlPanelBridge.selectedTicket.taskOrderNo || "").length > 0 ? " / " + controlPanelBridge.selectedTicket.taskOrderNo : "")
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            wrapMode: Text.Wrap
+                                            label: "群名"
+                                            value: controlPanelBridge.selectedTicket.groupName
+                                            placeholderText: "未填写"
                                         }
 
-                                        Text {
-                                            text: "产品线"
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                        }
-
-                                        Text {
+                                        DetailField {
+                                            theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            text: controlPanelBridge.selectedTicket.productLine || "未填写"
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            wrapMode: Text.Wrap
+                                            label: "环境"
+                                            value: controlPanelBridge.selectedTicket.environment
+                                            placeholderText: "未填写"
                                         }
 
-                                        Text {
-                                            text: "工单版本"
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                        }
-
-                                        RowLayout {
+                                        DetailField {
+                                            theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            spacing: 8
-
-                                            ControlPanelSettingsInput {
-                                                id: ticketVersionInput
-                                                theme: ticketSection.theme
-                                                Layout.fillWidth: true
-                                                text: controlPanelBridge.selectedTicket.ticketVersion || ""
-                                                placeholderText: "工单版本"
-                                            }
-
-                                            ControlPanelPlainButton {
-                                                theme: ticketSection.theme
-                                                label: "保存"
-                                                onClicked: controlPanelBridge.saveSelectedTicketVersion(ticketVersionInput.text)
-                                            }
+                                            label: "工单类型"
+                                            value: controlPanelBridge.selectedTicket.ticketType
+                                            placeholderText: "未填写"
                                         }
 
-                                        Text {
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "产品线"
+                                            value: controlPanelBridge.selectedTicket.productLine
+                                            placeholderText: "未填写"
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "项目经理"
+                                            value: controlPanelBridge.selectedTicket.projectManager
+                                            placeholderText: "未填写"
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "创建时间"
+                                            value: controlPanelBridge.selectedTicket.createdAtLabel
+                                            placeholderText: "未知"
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "最近更新"
+                                            value: controlPanelBridge.selectedTicket.updatedAtLabel
+                                            placeholderText: "未知"
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "工单版本"
+                                            value: ticketSection.ticketVersionEditing ? ticketSection.ticketVersionDraft : controlPanelBridge.selectedTicket.ticketVersion
+                                            placeholderText: "未填写"
+                                            editable: true
+                                            editing: ticketSection.ticketVersionEditing
+                                            saving: ticketSection.ticketVersionSaving
+                                            compact: ticketSection.detailGridColumns === 1
+                                            onClicked: ticketSection.beginTicketVersionEdit()
+                                            onAccepted: ticketSection.commitTicketVersionEdit()
+                                            onCanceled: ticketSection.cancelTicketVersionEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            Layout.columnSpan: ticketSection.detailGridColumns
                                             visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
                                                 && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
-                                            text: "关联项目快照版本"
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                        }
-
-                                        Text {
-                                            visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
-                                                && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
-                                            Layout.fillWidth: true
-                                            text: controlPanelBridge.selectedTicket.projectSnapshotVersion
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            wrapMode: Text.Wrap
-                                        }
-
-                                        Text {
-                                            visible: (controlPanelBridge.selectedTicket.projectManager || "").length > 0
-                                            text: "项目经理"
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                        }
-
-                                        Text {
-                                            visible: (controlPanelBridge.selectedTicket.projectManager || "").length > 0
-                                            Layout.fillWidth: true
-                                            text: controlPanelBridge.selectedTicket.projectManager
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            wrapMode: Text.Wrap
+                                            label: "关联项目快照版本"
+                                            value: controlPanelBridge.selectedTicket.projectSnapshotVersion
+                                            placeholderText: "未填写"
+                                            multiline: true
                                         }
                                     }
                                 }
