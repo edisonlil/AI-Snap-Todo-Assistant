@@ -386,10 +386,40 @@ ColumnLayout {
                                     wrapMode: Text.Wrap
                                 }
 
-                                Text {
-                                    visible: (controlPanelBridge.selectedTicket.productLine || "").length > 0 || (controlPanelBridge.selectedTicket.productVersion || "").length > 0
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: "产品: " + (controlPanelBridge.selectedTicket.productLine || "未填写") + " / 版本: " + (controlPanelBridge.selectedTicket.productVersion || "未填写")
+                                    spacing: 8
+
+                                    ControlPanelSettingsInput {
+                                        id: ticketVersionInput
+                                        theme: ticketSection.theme
+                                        Layout.fillWidth: true
+                                        text: controlPanelBridge.selectedTicket.ticketVersion || ""
+                                        placeholderText: "工单版本"
+                                    }
+
+                                    ControlPanelPlainButton {
+                                        theme: ticketSection.theme
+                                        label: "保存版本"
+                                        onClicked: controlPanelBridge.saveSelectedTicketVersion(ticketVersionInput.text)
+                                    }
+                                }
+
+                                Text {
+                                    visible: (controlPanelBridge.selectedTicket.productLine || "").length > 0 || (controlPanelBridge.selectedTicket.ticketVersion || "").length > 0
+                                    Layout.fillWidth: true
+                                    text: "产品: " + (controlPanelBridge.selectedTicket.productLine || "未填写") + " / 工单版本: " + (controlPanelBridge.selectedTicket.ticketVersion || "未填写")
+                                    color: theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+
+                                Text {
+                                    visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
+                                        && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
+                                    Layout.fillWidth: true
+                                    text: "关联项目快照版本: " + controlPanelBridge.selectedTicket.projectSnapshotVersion
                                     color: theme.labelInk
                                     font.family: theme.uiFont
                                     font.pixelSize: 11

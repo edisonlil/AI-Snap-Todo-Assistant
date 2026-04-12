@@ -67,6 +67,7 @@ def build_summary_fields(
     group_name: str,
     environment: str,
     ticket_type: str,
+    ticket_version: str = "",
     project_snapshot: dict[str, str] | None = None,
 ) -> TicketSummaryFields:
     fields = TicketSummaryFields(
@@ -74,6 +75,7 @@ def build_summary_fields(
         environment=environment,
         product_line="",
         ticket_type=ticket_type,
+        ticket_version=ticket_version,
     )
     product_line = sanitize_text((project_snapshot or {}).get("product_line", ""))
     fields.product_line = product_line or UNKNOWN_TEXT
@@ -110,6 +112,7 @@ def build_todo_item(
         group_name=str(todo_row.get("group_name", "")),
         environment=str(todo_row.get("environment", "")),
         ticket_type=str(todo_row.get("ticket_type", "")),
+        ticket_version=str(todo_row.get("ticket_version", "")),
         project_snapshot=project_link.project_snapshot,
     )
 

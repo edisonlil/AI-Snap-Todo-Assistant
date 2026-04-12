@@ -271,6 +271,7 @@ from aica.paths import (
     storage_config_file,
     qml_dir,
 )
+from aica.models import TicketSummaryFields
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
@@ -931,6 +932,8 @@ class _ControlPanelBridge(QObject):
 
     def _build_ticket_detail_payload(self, todo: TodoItem) -> dict[str, object]:
         snapshot = todo.project_link.project_snapshot
+        ticket_version = str(todo.summary_fields.ticket_version or "").strip()
+        project_snapshot_version = str(snapshot.get("product_version") or "").strip()
         timeline_payload = []
         for event in reversed(todo.timeline):
             attachments = [
@@ -965,7 +968,8 @@ class _ControlPanelBridge(QObject):
             "projectName": str(snapshot.get("project_name") or "").strip(),
             "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
             "productLine": str(snapshot.get("product_line") or "").strip(),
-            "productVersion": str(snapshot.get("product_version") or "").strip(),
+            "ticketVersion": ticket_version,
+            "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
             "timeline": timeline_payload,
         }
@@ -991,7 +995,8 @@ class _ControlPanelBridge(QObject):
             "projectName": "",
             "taskOrderNo": "",
             "productLine": "",
-            "productVersion": "",
+            "ticketVersion": "",
+            "projectSnapshotVersion": "",
             "projectManager": "",
             "createdAt": "",
             "createdAtLabel": "",
@@ -1589,6 +1594,37 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def saveSelectedTicketVersion(self, value: str) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            self._error_message = "该工单不存在或已被删除。"
+            self._emit_data_changed()
+            return
+        updated = self._todo_store.update_todo(
+            todo.id,
+            summary_fields=TicketSummaryFields(
+                group_name=todo.summary_fields.group_name,
+                environment=todo.summary_fields.environment,
+                product_line=todo.summary_fields.product_line,
+                ticket_type=todo.summary_fields.ticket_type,
+                ticket_version=str(value or "").strip(),
+            ),
+        )
+        if updated is None:
+            self._error_message = "工单版本保存失败。"
+            self._emit_data_changed()
+            return
+        self._refresh_ticket_payloads()
+        self._selected_ticket = self._build_ticket_detail_payload(updated)
+        self._status_message = "工单版本已保存。"
         self._emit_data_changed()
 
     @pyqtSlot(str, str)

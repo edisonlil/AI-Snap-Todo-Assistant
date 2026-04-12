@@ -24,7 +24,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -56,6 +56,11 @@ def _resolve_legacy_bindings_path(path_hint: str | None = None) -> Path | None:
 
 def _load_schema_sql() -> str:
     return Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
+
+
+def _has_column(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(str(row["name"] or "") == column_name for row in rows)
 
 
 def _is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
@@ -110,6 +115,7 @@ class SQLiteStorageMigrator:
     def ensure_schema(self) -> None:
         with self._connect() as connection:
             connection.executescript(_load_schema_sql())
+            self._migrate_schema(connection)
             connection.execute(
                 """
                 INSERT INTO schema_meta(key, value)
@@ -117,6 +123,12 @@ class SQLiteStorageMigrator:
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value
                 """,
                 (SCHEMA_VERSION,),
+            )
+
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        if not _has_column(connection, "todos", "ticket_version"):
+            connection.execute(
+                "ALTER TABLE todos ADD COLUMN ticket_version TEXT NOT NULL DEFAULT ''"
             )
 
     def get_schema_version(self) -> str:
@@ -132,6 +144,7 @@ class SQLiteStorageMigrator:
         with self._connect() as connection:
             self._migrate_legacy_todos(connection)
             self._migrate_legacy_bindings(connection)
+            self._backfill_ticket_versions(connection)
 
     def _meta_value(self, connection: sqlite3.Connection, key: str) -> str:
         row = connection.execute(
@@ -226,6 +239,47 @@ class SQLiteStorageMigrator:
                         ),
                     )
         self._set_meta_value(connection, "legacy_bindings_migrated", "1")
+
+    def _backfill_ticket_versions(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            UPDATE todos
+            SET ticket_version = (
+              SELECT COALESCE(
+                NULLIF(
+                  json_extract(
+                    COALESCE(todo_project_links.project_snapshot_json, '{}'),
+                    '$.product_version'
+                  ),
+                  ''
+                ),
+                ''
+              )
+              FROM todo_project_links
+              WHERE todo_project_links.todo_id = todos.id
+            )
+            WHERE EXISTS (
+              SELECT 1
+              FROM todo_project_links
+              WHERE todo_project_links.todo_id = todos.id
+            )
+              AND COALESCE(todos.ticket_version, '') = ''
+              AND COALESCE(
+                (
+                  SELECT NULLIF(
+                    json_extract(
+                      COALESCE(todo_project_links.project_snapshot_json, '{}'),
+                      '$.product_version'
+                    ),
+                    ''
+                  )
+                  FROM todo_project_links
+                  WHERE todo_project_links.todo_id = todos.id
+                ),
+                ''
+              ) <> ''
+            """
+        )
 
 
 class SQLiteProjectRepository:
@@ -639,7 +693,7 @@ class SQLiteTodoRepository:
         sql = """
             SELECT DISTINCT
               todos.id, todos.title, todos.current_summary, todos.group_name, todos.environment,
-              todos.ticket_type, todos.status, todos.created_at, todos.updated_at
+              todos.ticket_type, todos.ticket_version, todos.status, todos.created_at, todos.updated_at
             FROM todos
             LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
             WHERE 1 = 1
@@ -656,13 +710,14 @@ class SQLiteTodoRepository:
                 OR LOWER(todos.group_name) LIKE ?
                 OR LOWER(todos.environment) LIKE ?
                 OR LOWER(todos.ticket_type) LIKE ?
+                OR LOWER(todos.ticket_version) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.matched_alias, '')) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.match_reason, '')) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.project_snapshot_json, '')) LIKE ?
               )
             """
             pattern = f"%{normalized_query}%"
-            params.extend([pattern] * 8)
+            params.extend([pattern] * 9)
         sql += " ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC"
 
         with self._connect() as connection:
@@ -725,7 +780,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, status, created_at, updated_at
+                       ticket_type, ticket_version, status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -747,8 +802,8 @@ class SQLiteTodoRepository:
                 """
                 INSERT INTO todos(
                   id, title, current_summary, group_name,
-                  environment, ticket_type, status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  environment, ticket_type, ticket_version, status, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -757,6 +812,7 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.group_name),
                     sanitize_text(snapshot.fields.environment),
                     sanitize_text(snapshot.fields.ticket_type),
+                    sanitize_text(snapshot.fields.ticket_version),
                     TodoStatus.OPEN,
                     stamp,
                     stamp,
@@ -777,7 +833,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, status, created_at, updated_at
+                       ticket_type, ticket_version, status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -790,13 +846,14 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET group_name = ?, environment = ?, ticket_type = ?, updated_at = ?
+                SET group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     sanitize_text(merged_fields.group_name),
                     sanitize_text(merged_fields.environment),
                     sanitize_text(merged_fields.ticket_type),
+                    sanitize_text(merged_fields.ticket_version),
                     now_iso(),
                     sanitized_id,
                 ),
@@ -842,7 +899,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, status, created_at, updated_at
+                       ticket_type, ticket_version, status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -855,10 +912,15 @@ class SQLiteTodoRepository:
             updated_group_name = sanitize_text(summary_fields.group_name) if summary_fields is not None else str(row["group_name"])
             updated_environment = sanitize_text(summary_fields.environment) if summary_fields is not None else str(row["environment"])
             updated_ticket_type = sanitize_text(summary_fields.ticket_type) if summary_fields is not None else str(row["ticket_type"])
+            updated_ticket_version = (
+                sanitize_text(summary_fields.ticket_version)
+                if summary_fields is not None
+                else str(row["ticket_version"])
+            )
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, updated_at = ?
+                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -867,6 +929,7 @@ class SQLiteTodoRepository:
                     updated_group_name,
                     updated_environment,
                     updated_ticket_type,
+                    updated_ticket_version,
                     now_iso(),
                     sanitized_id,
                 ),
@@ -878,7 +941,7 @@ class SQLiteTodoRepository:
                 )
                 for event in timeline:
                     self._insert_timeline_event(connection, sanitized_id, event)
-        if summary_fields is not None:
+        if summary_fields is not None and updated_group_name != str(row["group_name"]):
             self._refresh_project_link(sanitized_id, updated_group_name)
         return self.get_todo(sanitized_id)
 
@@ -926,7 +989,7 @@ class SQLiteTodoRepository:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   ticket_type, status, created_at, updated_at
+                   ticket_type, ticket_version, status, created_at, updated_at
             FROM todos
             WHERE id = ?
             """,
@@ -988,6 +1051,27 @@ class SQLiteTodoRepository:
     def _refresh_project_link(self, todo_id: str, group_name: str) -> None:
         match_result = self._project_repository.match_project_by_group_name(group_name)
         self._project_repository.bind_todo_to_project(todo_id, match_result)
+        self._initialize_ticket_version(todo_id, match_result.project_snapshot)
+
+    def _initialize_ticket_version(self, todo_id: str, project_snapshot: dict[str, str] | None) -> None:
+        ticket_version = sanitize_text((project_snapshot or {}).get("product_version", ""))
+        if not ticket_version:
+            return
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT ticket_version FROM todos WHERE id = ?",
+                (sanitize_text(todo_id),),
+            ).fetchone()
+            if row is None or sanitize_text(row["ticket_version"]):
+                return
+            connection.execute(
+                "UPDATE todos SET ticket_version = ?, updated_at = ? WHERE id = ?",
+                (
+                    ticket_version,
+                    now_iso(),
+                    sanitize_text(todo_id),
+                ),
+            )
 
     def _relink_rows(self, rows: list[sqlite3.Row]) -> int:
         relinked_count = 0
@@ -1222,14 +1306,15 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         """
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
-          ticket_type, status, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ticket_type, ticket_version, status, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
           group_name=excluded.group_name,
           environment=excluded.environment,
           ticket_type=excluded.ticket_type,
+          ticket_version=excluded.ticket_version,
           status=excluded.status,
           updated_at=excluded.updated_at
         """,
@@ -1240,6 +1325,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.group_name),
             sanitize_text(todo.summary_fields.environment),
             sanitize_text(todo.summary_fields.ticket_type),
+            sanitize_text(todo.summary_fields.ticket_version),
             sanitize_text(todo.status) or TodoStatus.OPEN,
             sanitize_text(todo.created_at) or now_iso(),
             sanitize_text(todo.updated_at) or now_iso(),

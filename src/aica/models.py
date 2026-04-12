@@ -257,12 +257,14 @@ class TicketSummaryFields:
     environment: str = UNKNOWN_TEXT
     product_line: str = UNKNOWN_TEXT
     ticket_type: str = UNKNOWN_TEXT
+    ticket_version: str = ""
 
     def __post_init__(self) -> None:
         self.group_name = _clean(self.group_name)
         self.environment = _clean(self.environment)
         self.product_line = resolve_product_line(raw_value=self.product_line)
         self.ticket_type = normalize_ticket_type(self.ticket_type)
+        self.ticket_version = _clean_free_text(self.ticket_version)
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -275,6 +277,7 @@ class TicketSummaryFields:
             environment=_clean(payload.get("environment")),
             product_line=payload.get("product_line"),
             ticket_type=payload.get("ticket_type"),
+            ticket_version=payload.get("ticket_version"),
         )
 
 
@@ -372,6 +375,7 @@ def merge_summary_fields_for_append(
         environment=_merge_value(existing.environment, incoming.environment),
         product_line=_merge_value(existing.product_line, incoming.product_line),
         ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
+        ticket_version=_merge_value(existing.ticket_version, incoming.ticket_version),
     )
 
 
@@ -390,6 +394,7 @@ class TicketSnapshot:
             "environment": self.fields.environment,
             "product_line": self.fields.product_line,
             "ticket_type": self.fields.ticket_type,
+            "ticket_version": self.fields.ticket_version,
             "current_summary": self.current_summary,
             "timeline_entry": self.timeline_entry,
         }
@@ -427,6 +432,7 @@ class TicketSnapshot:
                     payload.get("ticket_type"),
                     summary_text=ticket_context,
                 ),
+                "ticket_version": payload.get("ticket_version"),
             }
         )
         evidence_payload = payload.get("evidence_items", [])
@@ -471,6 +477,7 @@ class TicketSnapshot:
             f"环境: {strip_invalid_surrogates(self.fields.environment)}\n"
             f"产品线: {strip_invalid_surrogates(self.fields.product_line)}\n"
             f"工单类型: {strip_invalid_surrogates(self.fields.ticket_type)}\n"
+            f"工单版本: {strip_invalid_surrogates(self.fields.ticket_version)}\n"
             f"当前摘要: {strip_invalid_surrogates(self.current_summary)}\n"
             f"跟进记录: {strip_invalid_surrogates(self.timeline_entry)}\n"
             f"关键证据:\n{evidence_text}"

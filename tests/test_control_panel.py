@@ -82,6 +82,7 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
             id="project-1",
             project_name="Phoenix Project",
             task_order_no="WO-1",
+            product_version="v1",
             support_ended_at="2099-01-01T00:00:00",
             aliases=("support-room",),
         )
@@ -115,4 +116,15 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     assert bridge.selectedTicket["id"] == open_todo.id
     assert bridge.selectedTicket["projectName"] == "Phoenix Project"
     assert bridge.selectedTicket["projectStatus"] == "matched"
+    assert bridge.selectedTicket["ticketVersion"] == "v1"
+    assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
     assert bridge.selectedTicket["timeline"][0]["content"] == "first timeline"
+
+    bridge.saveSelectedTicketVersion("v1-hotfix")
+    assert bridge.selectedTicket["ticketVersion"] == "v1-hotfix"
+    assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
+
+    saved_todo = store.get_todo(open_todo.id)
+    assert saved_todo is not None
+    assert saved_todo.summary_fields.ticket_version == "v1-hotfix"
+    assert repository.get_project_by_task_order_no("WO-1").product_version == "v1"
