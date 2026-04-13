@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS todos (
   group_name TEXT NOT NULL DEFAULT '',
   environment TEXT NOT NULL DEFAULT '',
   ticket_type TEXT NOT NULL DEFAULT '',
+  ach_no TEXT NOT NULL DEFAULT '',
   ticket_version TEXT NOT NULL DEFAULT '',
   feature_point TEXT NOT NULL DEFAULT '',
   feature_point_source TEXT NOT NULL DEFAULT '',

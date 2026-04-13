@@ -117,11 +117,14 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     assert bridge.selectedTicket["projectName"] == "Phoenix Project"
     assert bridge.selectedTicket["projectStatus"] == "matched"
     assert bridge.selectedTicket["ticketVersion"] == "v1"
+    assert bridge.selectedTicket["achNo"] == ""
     assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
     assert bridge.selectedTicket["timeline"][0]["content"] == "first timeline"
 
+    bridge.saveSelectedTicketField("ach_no", "ACH-2026-001")
     bridge.saveSelectedTicketVersion("v1-hotfix")
     assert bridge.selectedTicket["ticketVersion"] == "v1-hotfix"
+    assert bridge.selectedTicket["achNo"] == "ACH-2026-001"
     assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
 
     bridge.saveSelectedTicketField("feature_point", "导出模块")
@@ -134,6 +137,7 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
 
     saved_todo = store.get_todo(open_todo.id)
     assert saved_todo is not None
+    assert saved_todo.summary_fields.ach_no == "ACH-2026-001"
     assert saved_todo.summary_fields.ticket_version == "v1-hotfix"
     assert saved_todo.summary_fields.feature_point == "导出模块"
     assert saved_todo.summary_fields.feature_point_source == "manual"

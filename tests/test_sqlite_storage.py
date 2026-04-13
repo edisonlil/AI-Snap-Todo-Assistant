@@ -18,6 +18,7 @@ def _snapshot(
     environment: str = "prod",
     product_line: str = "",
     ticket_type: str = "incident",
+    ach_no: str = "",
     ticket_version: str = "",
     feature_point: str = "",
     root_cause_desc: str = "",
@@ -30,6 +31,7 @@ def _snapshot(
             environment=environment,
             product_line=product_line,
             ticket_type=ticket_type,
+            ach_no=ach_no,
             ticket_version=ticket_version,
             feature_point=feature_point,
             root_cause_desc=root_cause_desc,
@@ -520,3 +522,160 @@ def test_relink_open_unresolved_todos_skips_done_and_matched_todos(tmp_path: Pat
     assert matched_after.project_link.project_id == "project-1"
     assert done_after is not None
     assert done_after.project_link.match_status == "unmatched"
+
+
+def test_todo_store_persists_ach_no(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", ach_no="ACH-INIT-001"),
+        "todo assistant",
+    )
+
+    updated = store.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields(
+            group_name=todo.summary_fields.group_name,
+            environment=todo.summary_fields.environment,
+            product_line=todo.summary_fields.product_line,
+            ticket_type=todo.summary_fields.ticket_type,
+            ach_no="ACH-2026-001",
+            ticket_version=todo.summary_fields.ticket_version,
+            feature_point=todo.summary_fields.feature_point,
+            feature_point_source=todo.summary_fields.feature_point_source,
+            root_cause_desc=todo.summary_fields.root_cause_desc,
+            root_cause_desc_source=todo.summary_fields.root_cause_desc_source,
+            root_cause=todo.summary_fields.root_cause,
+            root_cause_source=todo.summary_fields.root_cause_source,
+        ),
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.ach_no == "ACH-2026-001"
+
+
+def test_schema_migration_adds_ach_no_column(tmp_path: Path):
+    db_path = tmp_path / "aica.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE todos (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              current_summary TEXT NOT NULL DEFAULT '',
+              group_name TEXT NOT NULL DEFAULT '',
+              environment TEXT NOT NULL DEFAULT '',
+              ticket_type TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE todo_timeline_events (
+              id TEXT PRIMARY KEY,
+              todo_id TEXT NOT NULL,
+              timestamp TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'analysis',
+              scenario TEXT NOT NULL DEFAULT '',
+              content TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE todo_timeline_attachments (
+              id TEXT PRIMARY KEY,
+              event_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              path TEXT NOT NULL,
+              size_bytes INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE todo_project_links (
+              todo_id TEXT PRIMARY KEY,
+              project_id TEXT,
+              match_status TEXT NOT NULL,
+              match_reason TEXT NOT NULL DEFAULT '',
+              matched_group_name TEXT NOT NULL DEFAULT '',
+              matched_alias TEXT NOT NULL DEFAULT '',
+              project_snapshot_json TEXT NOT NULL DEFAULT '{}',
+              matched_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE todo_bindings (
+              todo_id TEXT NOT NULL,
+              integration_id TEXT NOT NULL,
+              external_id TEXT NOT NULL DEFAULT '',
+              external_url TEXT NOT NULL DEFAULT '',
+              last_event_id TEXT NOT NULL DEFAULT '',
+              last_event_type TEXT NOT NULL DEFAULT '',
+              last_sync_status TEXT NOT NULL DEFAULT '',
+              metadata_json TEXT NOT NULL DEFAULT '{}',
+              deleted_locally INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(todo_id, integration_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              project_name TEXT NOT NULL,
+              customer_name TEXT NOT NULL DEFAULT '',
+              task_order_no TEXT NOT NULL DEFAULT '',
+              follow_up_started_at TEXT NOT NULL DEFAULT '',
+              support_ended_at TEXT NOT NULL DEFAULT '',
+              product_line TEXT NOT NULL DEFAULT '',
+              product_version TEXT NOT NULL DEFAULT '',
+              project_manager TEXT NOT NULL DEFAULT '',
+              project_level TEXT NOT NULL DEFAULT 'normal',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("INSERT INTO schema_meta(key, value) VALUES('schema_version', '1')")
+
+    store = TodoStore(str(db_path))
+    migrated_todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", ach_no="ACH-MIGRATE-001"),
+        "todo assistant",
+    )
+
+    assert migrated_todo.summary_fields.ach_no == "ACH-MIGRATE-001"
+    with sqlite3.connect(db_path) as connection:
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(todos)").fetchall()]
+        stored_ach = connection.execute(
+            "SELECT ach_no FROM todos WHERE id = ?",
+            (migrated_todo.id,),
+        ).fetchone()[0]
+
+    assert "ach_no" in columns
+    assert stored_ach == "ACH-MIGRATE-001"
+
+
+def test_list_todos_search_matches_ach_no(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", ach_no="ACH-SEARCH-007"),
+        "todo assistant",
+    )
+
+    matched = store.list_todos(query="search-007", status="all")
+
+    assert [item.id for item in matched] == [todo.id]

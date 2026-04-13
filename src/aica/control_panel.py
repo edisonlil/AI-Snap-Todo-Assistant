@@ -921,6 +921,7 @@ class _ControlPanelBridge(QObject):
             "groupName": str(todo.summary_fields.group_name or "").strip(),
             "environment": str(todo.summary_fields.environment or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
+            "achNo": str(todo.summary_fields.ach_no or "").strip(),
             "status": str(todo.status or TodoStatus.OPEN),
             "statusLabel": _todo_status_label(todo.status),
             "statusTone": _todo_status_tone(todo.status),
@@ -971,6 +972,7 @@ class _ControlPanelBridge(QObject):
             "featurePoint": str(todo.summary_fields.feature_point or "").strip(),
             "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
             "rootCause": str(todo.summary_fields.root_cause or "").strip(),
+            "achNo": str(todo.summary_fields.ach_no or "").strip(),
             "projectLinkReason": str(todo.project_link.match_reason or "").strip(),
             "projectAlias": str(todo.project_link.matched_alias or "").strip(),
             "projectName": str(snapshot.get("project_name") or "").strip(),
@@ -994,6 +996,7 @@ class _ControlPanelBridge(QObject):
             "groupName": "",
             "environment": "",
             "ticketType": "",
+            "achNo": "",
             "status": "",
             "statusLabel": "",
             "statusTone": "open",
@@ -1616,7 +1619,7 @@ class _ControlPanelBridge(QObject):
         if not self._selected_ticket_id:
             return
         normalized_field = str(field_name or "").strip()
-        if normalized_field not in {"ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
+        if normalized_field not in {"ach_no", "ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
             return
         self._clear_messages()
         todo = self._todo_store.get_todo(self._selected_ticket_id)
@@ -1634,6 +1637,7 @@ class _ControlPanelBridge(QObject):
                 environment=todo.summary_fields.environment,
                 product_line=todo.summary_fields.product_line,
                 ticket_type=todo.summary_fields.ticket_type,
+                ach_no=next_value if normalized_field == "ach_no" else todo.summary_fields.ach_no,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
                 feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
                 feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
@@ -1650,6 +1654,7 @@ class _ControlPanelBridge(QObject):
         self._refresh_ticket_payloads()
         self._selected_ticket = self._build_ticket_detail_payload(updated)
         field_labels = {
+            "ach_no": "ach单号",
             "ticket_version": "\u7248\u672c\u53f7",
             "feature_point": "\u529f\u80fd\u70b9",
             "root_cause": "\u95ee\u9898\u6839\u56e0",
