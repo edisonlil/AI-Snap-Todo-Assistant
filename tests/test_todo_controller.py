@@ -290,3 +290,32 @@ def test_update_todo_appends_conclusion_history_and_enrichment_fields(tmp_path: 
     assert updated.conclusion.content == "确认是生产配置缺失"
     assert updated.timeline[-1].kind == "conclusion"
     assert "确认是生产配置缺失" in updated.timeline[-1].content
+
+
+def test_update_todo_does_not_duplicate_existing_conclusion_timeline_event(tmp_path: Path):
+    controller = _build_controller(tmp_path)
+    created = controller.save_analysis_result(
+        _snapshot("title", "summary", "timeline"),
+        "todo assistant",
+    )
+    existing_timeline = [
+        TimelineEvent(content="timeline"),
+        TimelineEvent(
+            kind="conclusion",
+            scenario="结论更新",
+            content="确认是生产配置缺失",
+        ),
+    ]
+
+    updated = controller.update_todo(
+        created.todo.id,
+        timeline=existing_timeline,
+        conclusion=TodoConclusion(
+            content="确认是生产配置缺失",
+            updated_at="2026-04-13T12:00:00",
+        ),
+    )
+
+    assert updated is not None
+    conclusion_events = [event for event in updated.timeline if event.kind == "conclusion"]
+    assert len(conclusion_events) == 1

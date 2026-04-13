@@ -6,6 +6,11 @@ Rectangle {
     height: 760
     color: "transparent"
     focus: true
+    onTimelineCommandMenuVisibleChanged: {
+        if (timelineCommandMenuVisible) {
+            updateTimelineCommandMenuGeometry()
+        }
+    }
 
     readonly property color shellBg: "#F1F0EC"
     readonly property color panelBg: "#F1F0EC"
@@ -38,6 +43,156 @@ Rectangle {
     readonly property int actionButtonWidth: 62
     property bool syncingFields: false
     property string activeAttachmentEventId: ""
+    property string timelineEntryType: "follow_up"
+    property bool timelineEntryTypeSelected: false
+    property bool timelineCommandMenuVisible: false
+    property int timelineCommandSelectedIndex: 0
+    property real timelineCommandMenuX: 0
+    property real timelineCommandMenuY: 0
+    property real timelineCommandMenuWidth: 0
+    property var timelineCommandOptions: [
+        { "value": "follow_up", "label": "问题反馈", "detail": "写入时间线" },
+        { "value": "conclusion", "label": "问题结论", "detail": "写入问题结论并保留结论记录" }
+    ]
+
+    function timelineEntryLabel(entryType) {
+        return entryType === "conclusion" ? "问题结论" : "问题反馈"
+    }
+
+    function timelineEntryPlaceholder() {
+        return "输入 / 选择问题反馈或问题结论"
+    }
+
+    function stripTimelineCommandPrefix(text) {
+        var trimmed = text.trim()
+        var prefixes = ["/问题反馈", "/问题跟进", "/问题结论"]
+        for (var index = 0; index < prefixes.length; index += 1) {
+            var prefix = prefixes[index]
+            if (trimmed === prefix) {
+                return ""
+            }
+            if (trimmed.indexOf(prefix + " ") === 0 || trimmed.indexOf(prefix + "\n") === 0) {
+                return trimmed.slice(prefix.length).trim()
+            }
+        }
+        if (trimmed === "/") {
+            return ""
+        }
+        return text
+    }
+
+    function clearTimelineEntryType() {
+        timelineEntryType = "follow_up"
+        timelineEntryTypeSelected = false
+        timelineCommandSelectedIndex = 0
+        timelineCommandMenuVisible = false
+        addTimelineEdit.forceActiveFocus()
+    }
+
+    function selectTimelineEntryType(entryType) {
+        timelineEntryType = entryType === "conclusion" ? "conclusion" : "follow_up"
+        timelineEntryTypeSelected = true
+        timelineCommandMenuVisible = false
+        syncTimelineCommandSelection()
+        addTimelineEdit.text = stripTimelineCommandPrefix(addTimelineEdit.text)
+        addTimelineEdit.forceActiveFocus()
+    }
+
+    function syncTimelineCommandSelection() {
+        for (var index = 0; index < timelineCommandOptions.length; index += 1) {
+            if (timelineCommandOptions[index].value === timelineEntryType) {
+                timelineCommandSelectedIndex = index
+                return
+            }
+        }
+        timelineCommandSelectedIndex = 0
+    }
+
+    function moveTimelineCommandSelection(step) {
+        if (!timelineCommandMenuVisible) {
+            timelineCommandMenuVisible = true
+            syncTimelineCommandSelection()
+            updateTimelineCommandMenuGeometry()
+            return
+        }
+        var total = timelineCommandOptions.length
+        if (total <= 0) {
+            return
+        }
+        timelineCommandSelectedIndex = (timelineCommandSelectedIndex + step + total) % total
+    }
+
+    function confirmTimelineCommandSelection() {
+        if (!timelineCommandMenuVisible) {
+            return false
+        }
+        if (timelineCommandSelectedIndex < 0 || timelineCommandSelectedIndex >= timelineCommandOptions.length) {
+            return false
+        }
+        selectTimelineEntryType(timelineCommandOptions[timelineCommandSelectedIndex].value)
+        return true
+    }
+
+    function syncTimelineCommandState() {
+        var trimmed = addTimelineEdit.text.trim()
+        if (timelineEntryTypeSelected) {
+            timelineCommandMenuVisible = false
+            return
+        }
+
+        if (trimmed.indexOf("/问题结论") === 0) {
+            selectTimelineEntryType("conclusion")
+            return
+        }
+        if (trimmed.indexOf("/问题反馈") === 0 || trimmed.indexOf("/问题跟进") === 0) {
+            selectTimelineEntryType("follow_up")
+            return
+        }
+
+        if (trimmed === "/" || trimmed.indexOf("/问题") === 0) {
+            timelineCommandMenuVisible = true
+            syncTimelineCommandSelection()
+            updateTimelineCommandMenuGeometry()
+        } else if (trimmed.length === 0 || trimmed.charAt(0) !== "/") {
+            timelineCommandMenuVisible = false
+        }
+    }
+
+    function submitTimelineEntry() {
+        if (addTimelineEdit.text.trim().length === 0) {
+            return
+        }
+        todoDetailBridge.addTimelineEntry(addTimelineEdit.text, timelineEntryType)
+        addTimelineEdit.text = ""
+        clearTimelineEntryType()
+    }
+
+    function updateTimelineCommandMenuGeometry() {
+        if (!timelineCommandMenuVisible || !addTimelineEdit || !timelineCommandOverlayLayer) {
+            return
+        }
+        var topLeft = addTimelineEdit.mapToItem(timelineCommandOverlayLayer, 0, 0)
+        timelineCommandMenuX = topLeft.x
+        timelineCommandMenuY = topLeft.y + addTimelineEdit.height + 6
+        timelineCommandMenuWidth = addTimelineEdit.width
+    }
+
+    function handleTimelineCommandRemoval() {
+        if (!timelineEntryTypeSelected) {
+            return false
+        }
+        if (addTimelineEdit.text.length > 0) {
+            return false
+        }
+        if (addTimelineEdit.selectionStart !== addTimelineEdit.selectionEnd) {
+            return false
+        }
+        if (addTimelineEdit.cursorPosition !== 0) {
+            return false
+        }
+        clearTimelineEntryType()
+        return true
+    }
 
     function syncFields() {
         syncingFields = true
@@ -48,7 +203,6 @@ Rectangle {
         productLineEdit.text = todoDetailBridge.productLine
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
-        conclusionEdit.text = todoDetailBridge.conclusionContent
         syncingFields = false
     }
 
@@ -85,6 +239,19 @@ Rectangle {
             if (root.activeAttachmentEventId.length === 0 && todoDetailBridge.timelineCount > 0) {
                 root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
             }
+        }
+    }
+
+    Connections {
+        target: flick
+        function onContentYChanged() {
+            root.updateTimelineCommandMenuGeometry()
+        }
+        function onHeightChanged() {
+            root.updateTimelineCommandMenuGeometry()
+        }
+        function onWidthChanged() {
+            root.updateTimelineCommandMenuGeometry()
         }
     }
 
@@ -486,231 +653,10 @@ Rectangle {
                         }
                     }
 
-                    Column {
+                    Item {
                         width: parent.width
-                        spacing: root.labelGap
-
-                        Item {
-                            width: parent.width
-                            height: 22
-
-                            Text {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "结论"
-                                color: root.labelInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                font.weight: root.sectionWeight
-                            }
-
-                            Row {
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 12
-
-                                Text {
-                                    text: "上传附件"
-                                    color: root.accent
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.markAttachmentTarget("__conclusion__")
-                                            todoDetailBridge.requestAttachmentSelection("__conclusion__")
-                                        }
-                                    }
-                                }
-
-                                Text {
-                                    text: "粘贴截图"
-                                    color: root.accent
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.markAttachmentTarget("__conclusion__")
-                                            todoDetailBridge.requestClipboardImagePaste("__conclusion__")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            width: parent.width
-                            height: 108
-                            radius: 18
-                            color: "#FFFFFF"
-                            border.width: 0
-                            border.color: root.fieldLine
-
-                            Flickable {
-                                anchors.fill: parent
-                                anchors.margins: 14
-                                clip: true
-                                contentWidth: width
-                                contentHeight: Math.max(height, conclusionEdit.contentHeight + 4)
-                                boundsBehavior: Flickable.StopAtBounds
-
-                                TextEdit {
-                                    id: conclusionEdit
-                                    width: parent.width
-                                    wrapMode: TextEdit.Wrap
-                                    selectByMouse: true
-                                    textFormat: TextEdit.PlainText
-                                    color: root.bodyInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 12
-                                    font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("conclusion_content", text)
-                                }
-                            }
-                        }
-
-                        Column {
-                            width: parent.width
-                            spacing: 8
-                            visible: todoDetailBridge.conclusionAttachmentCount > 0
-
-                            Repeater {
-                                model: todoDetailBridge.conclusionAttachments
-
-                                delegate: Rectangle {
-                                    width: contentColumn.width
-                                    height: modelData.isImage ? 74 : 42
-                                    radius: 12
-                                    color: "#FFFFFF"
-                                    border.width: 0
-                                    border.color: root.fieldLine
-
-                                    Item {
-                                        anchors.fill: parent
-                                        anchors.margins: 8
-
-                                        Rectangle {
-                                            id: conclusionThumb
-                                            width: modelData.isImage ? 58 : 48
-                                            height: modelData.isImage ? 58 : 26
-                                            anchors.left: parent.left
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            radius: modelData.isImage ? 10 : 8
-                                            color: modelData.isPreviewable ? root.accentTint : root.fieldBg
-                                            visible: modelData.isPreviewable
-
-                                            Image {
-                                                anchors.fill: parent
-                                                anchors.margins: 1
-                                                fillMode: Image.PreserveAspectCrop
-                                                visible: modelData.isImage
-                                                source: modelData.fileUrl
-                                                asynchronous: true
-                                                cache: false
-                                                smooth: true
-                                                clip: true
-                                            }
-
-                                            Text {
-                                                anchors.centerIn: parent
-                                                visible: modelData.isVideo
-                                                text: "视频"
-                                                color: root.accent
-                                                font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.labelWeight
-                                            }
-                                        }
-
-                                        Column {
-                                            anchors.left: conclusionThumb.visible ? conclusionThumb.right : parent.left
-                                            anchors.leftMargin: conclusionThumb.visible ? 12 : 4
-                                            anchors.right: conclusionActionRow.left
-                                            anchors.rightMargin: 8
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 4
-
-                                            Text {
-                                                width: parent.width
-                                                elide: Text.ElideMiddle
-                                                text: modelData.name
-                                                color: root.bodyInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.bodyWeight
-                                            }
-
-                                            Text {
-                                                width: parent.width
-                                                elide: Text.ElideRight
-                                                text: root.formatFileSize(modelData.sizeBytes)
-                                                color: root.mutedInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 10
-                                                font.weight: root.bodyWeight
-                                            }
-                                        }
-
-                                        Row {
-                                            id: conclusionActionRow
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 10
-
-                                            Text {
-                                                text: modelData.isPreviewable ? "预览" : "下载"
-                                                color: root.accent
-                                                font.family: root.uiFont
-                                                font.pixelSize: 10
-                                                font.weight: root.labelWeight
-
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        root.markAttachmentTarget("__conclusion__")
-                                                        if (modelData.isPreviewable) {
-                                                            todoDetailBridge.previewAttachment(modelData.path)
-                                                        } else {
-                                                            todoDetailBridge.activateAttachment(
-                                                                modelData.path,
-                                                                modelData.isImage,
-                                                                modelData.isVideo,
-                                                                modelData.name
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            Text {
-                                                text: "移除"
-                                                color: "#E35B66"
-                                                font.family: root.uiFont
-                                                font.pixelSize: 10
-                                                font.weight: root.labelWeight
-
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        root.markAttachmentTarget("__conclusion__")
-                                                        todoDetailBridge.removeConclusionAttachment(modelData.id)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        height: 0
+                        visible: false
                     }
 
                     Column {
@@ -1053,28 +999,19 @@ Rectangle {
                             visible: todoDetailBridge.timelineExpanded
 
                             Rectangle {
+                                id: composerCard
                                 width: parent.width
-                                height: Math.max(112, addTimelineEdit.contentHeight + 58)
+                                height: Math.max(88, addTimelineEdit.contentHeight + 34)
                                 radius: 18
                                 color: "#FFFFFF"
-                                border.width: 0
-                                border.color: root.fieldLine
-
-                                Text {
-                                    x: 16
-                                    y: 14
-                                    text: "手动跟进"
-                                    color: root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
+                                border.width: addTimelineEdit.activeFocus ? 1 : 0
+                                border.color: addTimelineEdit.activeFocus ? "#D7E5FF" : "transparent"
 
                                 TextEdit {
                                     id: addTimelineEdit
-                                    x: 16
-                                    y: 36
-                                    width: parent.width - 96
+                                    x: root.timelineEntryTypeSelected ? composerTypeTag.x + composerTypeTag.width + 10 : 16
+                                    y: 16
+                                    width: parent.width - x - 82
                                     wrapMode: TextEdit.Wrap
                                     selectByMouse: true
                                     textFormat: TextEdit.PlainText
@@ -1082,19 +1019,86 @@ Rectangle {
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
+                                    onTextChanged: root.syncTimelineCommandState()
+                                    onXChanged: root.updateTimelineCommandMenuGeometry()
+                                    onYChanged: root.updateTimelineCommandMenuGeometry()
+                                    onWidthChanged: root.updateTimelineCommandMenuGeometry()
+                                    onHeightChanged: root.updateTimelineCommandMenuGeometry()
+                                    Keys.onUpPressed: function(event) {
+                                        if (!root.timelineCommandMenuVisible) {
+                                            return
+                                        }
+                                        root.moveTimelineCommandSelection(-1)
+                                        event.accepted = true
+                                    }
+                                    Keys.onDownPressed: function(event) {
+                                        if (!root.timelineCommandMenuVisible) {
+                                            return
+                                        }
+                                        root.moveTimelineCommandSelection(1)
+                                        event.accepted = true
+                                    }
+                                    Keys.onReturnPressed: function(event) {
+                                        if (root.confirmTimelineCommandSelection()) {
+                                            event.accepted = true
+                                        }
+                                    }
+                                    Keys.onEnterPressed: function(event) {
+                                        if (root.confirmTimelineCommandSelection()) {
+                                            event.accepted = true
+                                        }
+                                    }
+                                    Keys.onPressed: function(event) {
+                                        if (event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Delete) {
+                                            return
+                                        }
+                                        if (root.handleTimelineCommandRemoval()) {
+                                            event.accepted = true
+                                        }
+                                    }
                                 }
 
                                 Text {
-                                    x: 16
-                                    y: 36
-                                    width: parent.width - 96
+                                    x: addTimelineEdit.x
+                                    y: 16
+                                    width: addTimelineEdit.width
                                     visible: addTimelineEdit.text.length === 0 && !addTimelineEdit.activeFocus
-                                    text: "输入最新跟进、结论或待办，点击后可添加到时间线"
+                                    text: root.timelineEntryPlaceholder()
                                     wrapMode: Text.Wrap
                                     color: root.mutedInk
                                     font.family: root.uiFont
                                     font.pixelSize: 12
                                     font.weight: root.bodyWeight
+                                }
+
+                                Item {
+                                    id: composerTypeTag
+                                    x: 16
+                                    y: 14
+                                    width: composerTypeTagText.implicitWidth
+                                    height: 24
+                                    visible: root.timelineEntryTypeSelected
+
+                                    Text {
+                                        id: composerTypeTagText
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.timelineEntryLabel(root.timelineEntryType)
+                                        color: root.accent
+                                        font.family: root.uiFont
+                                        font.pixelSize: 10
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.timelineCommandMenuVisible = !root.timelineCommandMenuVisible
+                                            root.syncTimelineCommandSelection()
+                                            root.updateTimelineCommandMenuGeometry()
+                                        }
+                                    }
                                 }
 
                                 Rectangle {
@@ -1122,12 +1126,10 @@ Rectangle {
                                         anchors.fill: parent
                                         enabled: addTimelineEdit.text.trim().length > 0
                                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: {
-                                            todoDetailBridge.addTimelineEntry(addTimelineEdit.text)
-                                            addTimelineEdit.text = ""
-                                        }
+                                        onClicked: root.submitTimelineEntry()
                                     }
                                 }
+
                             }
 
                             Repeater {
@@ -1635,6 +1637,71 @@ Rectangle {
                     height: Math.max(48, (flick.height / Math.max(flick.contentHeight, 1)) * (parent.height - 16))
                     radius: 2
                     color: "#BEC6D2"
+                }
+
+                Item {
+                    id: timelineCommandOverlayLayer
+                    anchors.fill: parent
+                    z: 50
+                    visible: root.timelineCommandMenuVisible
+
+                    Rectangle {
+                        x: root.timelineCommandMenuX
+                        y: root.timelineCommandMenuY
+                        width: root.timelineCommandMenuWidth
+                        height: 76
+                        radius: 14
+                        color: "#FFFFFF"
+                        border.width: 1
+                        border.color: "#D7E5FF"
+
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 8
+
+                            Repeater {
+                                model: root.timelineCommandOptions
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    height: 24
+                                    radius: 10
+                                    color: index === root.timelineCommandSelectedIndex ? root.accentTint : "transparent"
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "/" + modelData.label
+                                        color: root.titleInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: modelData.detail
+                                        color: root.mutedInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 10
+                                        font.weight: root.bodyWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onEntered: root.timelineCommandSelectedIndex = index
+                                        onClicked: root.selectTimelineEntryType(modelData.value)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

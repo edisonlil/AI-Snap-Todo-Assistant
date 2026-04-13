@@ -242,9 +242,11 @@ class TodoController:
             resolved_summary = enrichment.summary_fields
 
         if self._conclusion_changed(existing.conclusion, resolved_conclusion):
-            resolved_timeline = list(resolved_timeline) + [self._build_conclusion_timeline_event(resolved_conclusion)]
-            if "timeline" not in changed_fields:
-                changed_fields.append("timeline")
+            conclusion_event = self._build_conclusion_timeline_event(resolved_conclusion)
+            if not self._contains_equivalent_conclusion_event(resolved_timeline, conclusion_event):
+                resolved_timeline = list(resolved_timeline) + [conclusion_event]
+                if "timeline" not in changed_fields:
+                    changed_fields.append("timeline")
 
         updated = self._store.update_todo(
             todo_id,
@@ -289,6 +291,24 @@ class TodoController:
             content=f"{content}{suffix}".strip(),
             attachments=[],
         )
+
+    @staticmethod
+    def _contains_equivalent_conclusion_event(
+        timeline: list[TimelineEvent],
+        conclusion_event: TimelineEvent,
+    ) -> bool:
+        expected_kind = str(conclusion_event.kind or "").strip()
+        expected_scenario = str(conclusion_event.scenario or "").strip()
+        expected_content = str(conclusion_event.content or "").strip()
+        for event in timeline:
+            if str(event.kind or "").strip() != expected_kind:
+                continue
+            if str(event.scenario or "").strip() != expected_scenario:
+                continue
+            if str(event.content or "").strip() != expected_content:
+                continue
+            return True
+        return False
 
     def build_manual_sync_event(self, todo_id: str) -> TodoDomainEvent | None:
         todo = self._store.get_todo(todo_id)

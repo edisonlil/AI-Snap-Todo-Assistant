@@ -1,6 +1,8 @@
 from aica import todo_detail_panel as module
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import (
+    _ENTRY_TYPE_CONCLUSION,
+    _ENTRY_TYPE_FOLLOW_UP,
     _MANUAL_SCENARIO,
     _TodoDetailBridge,
     _attachment_kind,
@@ -35,7 +37,7 @@ def test_add_timeline_entry_expands_empty_timeline_and_persists() -> None:
         captured["payload"] = payload
 
     bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual follow-up")
+    bridge.addTimelineEntry("manual follow-up", _ENTRY_TYPE_FOLLOW_UP)
 
     assert bridge.timelineCount == 1
     assert bridge.timelineExpanded is True
@@ -68,7 +70,7 @@ def test_add_timeline_entry_sanitizes_invalid_surrogates() -> None:
         captured["payload"] = payload
 
     bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual \udcaa follow-up")
+    bridge.addTimelineEntry("manual \udcaa follow-up", _ENTRY_TYPE_FOLLOW_UP)
 
     assert bridge.timeline[0]["content"] == "manual \ufffd follow-up"
     payload = captured["payload"]
@@ -96,7 +98,7 @@ def test_commit_timeline_content_persists_manual_edits() -> None:
         captured["payload"] = payload
 
     bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual follow-up")
+    bridge.addTimelineEntry("manual follow-up", _ENTRY_TYPE_FOLLOW_UP)
     manual_id = bridge.timeline[0]["id"]
     bridge.commitTimelineContent(manual_id, "manual follow-up updated")
 
@@ -595,6 +597,86 @@ def test_save_todo_emits_conclusion_and_root_cause_payload() -> None:
     assert summary_fields["root_cause_source"] == "manual"
     conclusion = payload["conclusion"]
     assert conclusion.content == "确认是生产配置缺失"
+
+
+def test_add_timeline_entry_with_conclusion_type_updates_conclusion_only() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            id="todo-123",
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+
+    captured: dict[str, object] = {}
+
+    def _capture(todo_id: str, payload: object) -> None:
+        captured["todo_id"] = todo_id
+        captured["payload"] = payload
+
+    bridge.saveRequested.connect(_capture)
+    bridge.addTimelineEntry("确认是生产配置缺失", _ENTRY_TYPE_CONCLUSION)
+
+    assert bridge.timelineCount == 0
+    assert bridge.conclusionContent == "确认是生产配置缺失"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    conclusion = payload["conclusion"]
+    assert conclusion.content == "确认是生产配置缺失"
+    assert payload["timeline"] == []
+
+
+def test_add_timeline_entry_strips_conclusion_command_prefix() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            id="todo-123",
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+
+    captured: dict[str, object] = {}
+
+    def _capture(todo_id: str, payload: object) -> None:
+        captured["todo_id"] = todo_id
+        captured["payload"] = payload
+
+    bridge.saveRequested.connect(_capture)
+    bridge.addTimelineEntry("/问题结论 确认是生产配置缺失", _ENTRY_TYPE_FOLLOW_UP)
+
+    assert bridge.conclusionContent == "确认是生产配置缺失"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    conclusion = payload["conclusion"]
+    assert conclusion.content == "确认是生产配置缺失"
+
+
+def test_add_timeline_entry_ignores_command_without_body() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            id="todo-123",
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+
+    captured: list[object] = []
+    bridge.saveRequested.connect(lambda _todo_id, payload: captured.append(payload))
+
+    bridge.addTimelineEntry("/问题结论", _ENTRY_TYPE_CONCLUSION)
+
+    assert captured == []
+    assert bridge.timelineCount == 0
+    assert bridge.conclusionContent == ""
 
 
 def test_set_todo_exposes_project_match_status_fields() -> None:

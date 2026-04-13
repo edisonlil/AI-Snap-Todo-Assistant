@@ -237,6 +237,13 @@ _MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
 _CONCLUSION_SCENARIO = "\u7ed3\u8bba\u66f4\u65b0"
 _CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
+_ENTRY_TYPE_FOLLOW_UP = "follow_up"
+_ENTRY_TYPE_CONCLUSION = "conclusion"
+_ENTRY_COMMAND_PREFIXES = {
+    "/问题反馈": _ENTRY_TYPE_FOLLOW_UP,
+    "/问题跟进": _ENTRY_TYPE_FOLLOW_UP,
+    "/问题结论": _ENTRY_TYPE_CONCLUSION,
+}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
@@ -257,6 +264,27 @@ def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
     if kind == "manual":
         return _MANUAL_SCENARIO
     return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
+
+
+def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
+    content = sanitize_text(value).strip()
+    normalized_type = (
+        entry_type
+        if entry_type in {_ENTRY_TYPE_FOLLOW_UP, _ENTRY_TYPE_CONCLUSION}
+        else _ENTRY_TYPE_FOLLOW_UP
+    )
+    if not content:
+        return "", normalized_type
+
+    for prefix, prefix_type in _ENTRY_COMMAND_PREFIXES.items():
+        if content == prefix:
+            return "", prefix_type
+        if content.startswith(f"{prefix} ") or content.startswith(f"{prefix}\n"):
+            return content[len(prefix):].strip(), prefix_type
+
+    if content == "/":
+        return "", normalized_type
+    return content, normalized_type
 
 
 def _project_status_label(status: str) -> str:
@@ -733,10 +761,16 @@ class _TodoDetailBridge(QObject):
             return
         self._download_attachment(path, str(file_name or path.name).strip() or path.name)
 
-    @pyqtSlot(str)
-    def addTimelineEntry(self, value: str) -> None:
-        content = sanitize_text(value)
+    @pyqtSlot(str, str)
+    def addTimelineEntry(self, value: str, entry_type: str = _ENTRY_TYPE_FOLLOW_UP) -> None:
+        content, resolved_type = _normalize_entry_submission(value, entry_type)
         if not content:
+            return
+        if resolved_type == _ENTRY_TYPE_CONCLUSION:
+            self._conclusion_content = content
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+            self._emit_save_request()
             return
         timestamp = datetime.now().isoformat()
         self._timeline.insert(
