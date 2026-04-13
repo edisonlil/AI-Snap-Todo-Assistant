@@ -222,18 +222,21 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
 from .models import TicketSummaryFields
 from .paths import todo_attachments_dir
+from .ticket_enrichment import ROOT_CAUSE_OPTIONS
 from .ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
     resolve_product_line,
 )
 from .text_sanitize import sanitize_text
-from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
+from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
 _MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
+_CONCLUSION_SCENARIO = "\u7ed3\u8bba\u66f4\u65b0"
+_CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
@@ -415,7 +418,16 @@ class _TodoDetailBridge(QObject):
         self._environment = _EMPTY_TEXT
         self._product_line = _EMPTY_TEXT
         self._ticket_type = _EMPTY_TEXT
+        self._feature_point = ""
+        self._feature_point_source = ""
+        self._root_cause_desc = ""
+        self._root_cause_desc_source = ""
+        self._root_cause = ""
+        self._root_cause_source = ""
         self._current_summary = ""
+        self._conclusion_content = ""
+        self._conclusion_updated_at = ""
+        self._conclusion_attachments: list[dict[str, object]] = []
         self._overview = ""
         self._created_at = ""
         self._updated_at = ""
@@ -464,8 +476,52 @@ class _TodoDetailBridge(QObject):
         return list(TICKET_TYPE_OPTIONS)
 
     @pyqtProperty(str, notify=dataChanged)
+    def featurePoint(self) -> str:
+        return self._feature_point
+
+    @pyqtProperty(str, notify=dataChanged)
+    def featurePointSource(self) -> str:
+        return self._feature_point_source
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseDesc(self) -> str:
+        return self._root_cause_desc
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseDescSource(self) -> str:
+        return self._root_cause_desc_source
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCause(self) -> str:
+        return self._root_cause
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseSource(self) -> str:
+        return self._root_cause_source
+
+    @pyqtProperty("QVariantList", constant=True)
+    def rootCauseOptions(self):  # noqa: ANN201
+        return list(ROOT_CAUSE_OPTIONS)
+
+    @pyqtProperty(str, notify=dataChanged)
     def currentSummary(self) -> str:
         return self._current_summary
+
+    @pyqtProperty(str, notify=dataChanged)
+    def conclusionContent(self) -> str:
+        return self._conclusion_content
+
+    @pyqtProperty(str, notify=dataChanged)
+    def conclusionUpdatedAtLabel(self) -> str:
+        return _format_ts(self._conclusion_updated_at) if self._conclusion_updated_at else ""
+
+    @pyqtProperty(int, notify=dataChanged)
+    def conclusionAttachmentCount(self) -> int:
+        return len(self._conclusion_attachments)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def conclusionAttachments(self):  # noqa: ANN201
+        return self._conclusion_attachments
 
     @pyqtProperty(str, notify=dataChanged)
     def createdAtLabel(self) -> str:
@@ -552,7 +608,16 @@ class _TodoDetailBridge(QObject):
             todo.summary_fields.ticket_type,
             summary_text=todo.current_summary,
         )
+        self._feature_point = str(todo.summary_fields.feature_point or "").strip()
+        self._feature_point_source = str(todo.summary_fields.feature_point_source or "").strip()
+        self._root_cause_desc = str(todo.summary_fields.root_cause_desc or "").strip()
+        self._root_cause_desc_source = str(todo.summary_fields.root_cause_desc_source or "").strip()
+        self._root_cause = str(todo.summary_fields.root_cause or "").strip()
+        self._root_cause_source = str(todo.summary_fields.root_cause_source or "").strip()
         self._current_summary = todo.current_summary.strip()
+        self._conclusion_content = str(todo.conclusion.content or "").strip()
+        self._conclusion_updated_at = str(todo.conclusion.updated_at or "").strip()
+        self._conclusion_attachments = [self._attachment_to_dict(item) for item in todo.conclusion.attachments]
         self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
         self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
@@ -599,8 +664,20 @@ class _TodoDetailBridge(QObject):
             self._product_line = resolve_product_line(raw_value=text)
         elif name == "ticket_type":
             self._ticket_type = normalize_ticket_type(text, summary_text=self._current_summary)
+        elif name == "feature_point":
+            self._feature_point = text
+            self._feature_point_source = "manual"
+        elif name == "root_cause_desc":
+            self._root_cause_desc = text
+            self._root_cause_desc_source = "manual"
+        elif name == "root_cause":
+            self._root_cause = text
+            self._root_cause_source = "manual"
         elif name == "current_summary":
             self._current_summary = text
+        elif name == "conclusion_content":
+            self._conclusion_content = text
+            self._conclusion_updated_at = datetime.now().isoformat()
         else:
             return
         self.dataChanged.emit()
@@ -619,13 +696,13 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def requestAttachmentSelection(self, event_id: str) -> None:
-        if self._find_timeline_item(event_id) is None:
+        if not self._is_valid_attachment_target(event_id):
             return
         self.attachmentSelectionRequested.emit(event_id)
 
     @pyqtSlot(str)
     def requestClipboardImagePaste(self, event_id: str) -> None:
-        if self._find_timeline_item(event_id) is None:
+        if not self._is_valid_attachment_target(event_id):
             return
         self.clipboardImagePasteRequested.emit(event_id)
 
@@ -695,6 +772,9 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str, str)
     def removeTimelineAttachment(self, event_id: str, attachment_id: str) -> None:
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self.removeConclusionAttachment(attachment_id)
+            return
         item = self._find_timeline_item(event_id)
         if item is None:
             return
@@ -717,6 +797,26 @@ class _TodoDetailBridge(QObject):
         if removed_path:
             self._remove_attachment_file(removed_path)
         self.timelineChanged.emit()
+        self._emit_save_request()
+
+    @pyqtSlot(str)
+    def removeConclusionAttachment(self, attachment_id: str) -> None:
+        remaining: list[dict[str, object]] = []
+        removed_path = ""
+        for attachment in self._conclusion_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("id") == attachment_id:
+                removed_path = str(attachment.get("path", ""))
+                continue
+            remaining.append(attachment)
+        if len(remaining) == len(self._conclusion_attachments):
+            return
+        self._conclusion_attachments = remaining
+        self._conclusion_updated_at = datetime.now().isoformat()
+        if removed_path:
+            self._remove_attachment_file(removed_path)
+        self.dataChanged.emit()
         self._emit_save_request()
 
     @pyqtSlot()
@@ -777,7 +877,27 @@ class _TodoDetailBridge(QObject):
                         if part
                     ),
                 ),
+                feature_point=self._feature_point.strip(),
+                feature_point_source=self._feature_point_source,
+                root_cause_desc=self._root_cause_desc.strip(),
+                root_cause_desc_source=self._root_cause_desc_source,
+                root_cause=self._root_cause.strip(),
+                root_cause_source=self._root_cause_source,
             ).to_dict(),
+            "conclusion": TodoConclusion(
+                content=self._conclusion_content.strip(),
+                updated_at=self._conclusion_updated_at or datetime.now().isoformat(),
+                attachments=[
+                    TimelineAttachment(
+                        id=str(attachment.get("id", str(uuid.uuid4()))),
+                        name=str(attachment.get("name", "")).strip(),
+                        path=str(attachment.get("path", "")).strip(),
+                        size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                    )
+                    for attachment in self._conclusion_attachments
+                    if isinstance(attachment, dict)
+                ],
+            ),
             "timeline": [
                 TimelineEvent(
                     id=item["id"],
@@ -801,13 +921,18 @@ class _TodoDetailBridge(QObject):
         }
 
     def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
-        item = self._find_timeline_item(event_id)
-        if item is None or self._todo_id is None:
+        if self._todo_id is None:
             return
-        attachments = item.setdefault("attachments", [])
-        if not isinstance(attachments, list):
-            attachments = []
-            item["attachments"] = attachments
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            attachments = self._conclusion_attachments
+        else:
+            item = self._find_timeline_item(event_id)
+            if item is None:
+                return
+            attachments = item.setdefault("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+                item["attachments"] = attachments
         added = False
         for file_path in file_paths:
             attachment = self._copy_attachment(file_path, event_id)
@@ -817,8 +942,13 @@ class _TodoDetailBridge(QObject):
             added = True
         if not added:
             return
-        item["attachmentCount"] = len(attachments)
-        self.timelineChanged.emit()
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self._conclusion_attachments = list(attachments)
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+        else:
+            item["attachmentCount"] = len(attachments)
+            self.timelineChanged.emit()
         self._emit_save_request()
 
     def _emit_save_request(self) -> None:
@@ -866,6 +996,10 @@ class _TodoDetailBridge(QObject):
         return None
 
     @staticmethod
+    def _is_valid_attachment_target(event_id: str) -> bool:
+        return bool(event_id)
+
+    @staticmethod
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
         kind = _attachment_kind(attachment.path, attachment.name)
         return {
@@ -884,7 +1018,8 @@ class _TodoDetailBridge(QObject):
         source = Path(str(file_path or "")).expanduser()
         if not source.is_file() or self._todo_id is None:
             return None
-        target_dir = self._attachment_root / self._todo_id / event_id
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        target_dir = self._attachment_root / self._todo_id / target_name
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / source.name
         counter = 1
@@ -895,10 +1030,13 @@ class _TodoDetailBridge(QObject):
         return self._build_attachment_payload(target)
 
     def attach_clipboard_image_to_event(self, event_id: str, image: QImage) -> bool:
-        item = self._find_timeline_item(event_id)
-        if item is None or self._todo_id is None or image.isNull():
+        if self._todo_id is None or image.isNull():
             return False
-        target_dir = self._attachment_root / self._todo_id / event_id
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        item = self._find_timeline_item(event_id) if event_id != _CONCLUSION_ATTACHMENT_TARGET else None
+        if event_id != _CONCLUSION_ATTACHMENT_TARGET and item is None:
+            return False
+        target_dir = self._attachment_root / self._todo_id / target_name
         target_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         target = target_dir / f"clipboard_{stamp}.png"
@@ -908,13 +1046,21 @@ class _TodoDetailBridge(QObject):
             counter += 1
         if not image.save(str(target), "PNG"):
             return False
-        attachments = item.setdefault("attachments", [])
-        if not isinstance(attachments, list):
-            attachments = []
-            item["attachments"] = attachments
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            attachments = self._conclusion_attachments
+        else:
+            attachments = item.setdefault("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+                item["attachments"] = attachments
         attachments.append(self._build_attachment_payload(target))
-        item["attachmentCount"] = len(attachments)
-        self.timelineChanged.emit()
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self._conclusion_attachments = list(attachments)
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+        else:
+            item["attachmentCount"] = len(attachments)
+            self.timelineChanged.emit()
         self._emit_save_request()
         return True
 
@@ -1016,7 +1162,32 @@ class _TodoDetailBridge(QObject):
                         if part
                     ),
                 ),
+                feature_point=self._feature_point.strip(),
+                feature_point_source=self._feature_point_source,
+                root_cause_desc=self._root_cause_desc.strip(),
+                root_cause_desc_source=self._root_cause_desc_source,
+                root_cause=self._root_cause.strip(),
+                root_cause_source=self._root_cause_source,
             ).to_dict(),
+            "conclusion": {
+                "content": self._conclusion_content.strip(),
+                "updatedAt": self._conclusion_updated_at,
+                "attachments": [
+                    {
+                        "id": str(attachment.get("id", "")),
+                        "name": str(attachment.get("name", "")).strip(),
+                        "path": str(attachment.get("path", "")).strip(),
+                        "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        "kind": str(attachment.get("kind", "")),
+                        "isImage": bool(attachment.get("isImage", False)),
+                        "isVideo": bool(attachment.get("isVideo", False)),
+                        "isPreviewable": bool(attachment.get("isPreviewable", False)),
+                        "fileUrl": str(attachment.get("fileUrl", "")),
+                    }
+                    for attachment in self._conclusion_attachments
+                    if isinstance(attachment, dict)
+                ],
+            },
             "timeline": [
                 {
                     "id": item["id"],

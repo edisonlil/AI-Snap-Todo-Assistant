@@ -48,6 +48,7 @@ Rectangle {
         productLineEdit.text = todoDetailBridge.productLine
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
+        conclusionEdit.text = todoDetailBridge.conclusionContent
         syncingFields = false
     }
 
@@ -481,6 +482,233 @@ Rectangle {
                                 radius: 2
                                 color: "#C3CAD6"
                                 visible: summaryFlick.contentHeight > summaryFlick.height + 2
+                            }
+                        }
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: root.labelGap
+
+                        Item {
+                            width: parent.width
+                            height: 22
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "结论"
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: root.sectionWeight
+                            }
+
+                            Row {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 12
+
+                                Text {
+                                    text: "上传附件"
+                                    color: root.accent
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.markAttachmentTarget("__conclusion__")
+                                            todoDetailBridge.requestAttachmentSelection("__conclusion__")
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "粘贴截图"
+                                    color: root.accent
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: root.labelWeight
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.markAttachmentTarget("__conclusion__")
+                                            todoDetailBridge.requestClipboardImagePaste("__conclusion__")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: 108
+                            radius: 18
+                            color: "#FFFFFF"
+                            border.width: 0
+                            border.color: root.fieldLine
+
+                            Flickable {
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                clip: true
+                                contentWidth: width
+                                contentHeight: Math.max(height, conclusionEdit.contentHeight + 4)
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                TextEdit {
+                                    id: conclusionEdit
+                                    width: parent.width
+                                    wrapMode: TextEdit.Wrap
+                                    selectByMouse: true
+                                    textFormat: TextEdit.PlainText
+                                    color: root.bodyInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: root.bodyWeight
+                                    onTextChanged: root.pushField("conclusion_content", text)
+                                }
+                            }
+                        }
+
+                        Column {
+                            width: parent.width
+                            spacing: 8
+                            visible: todoDetailBridge.conclusionAttachmentCount > 0
+
+                            Repeater {
+                                model: todoDetailBridge.conclusionAttachments
+
+                                delegate: Rectangle {
+                                    width: contentColumn.width
+                                    height: modelData.isImage ? 74 : 42
+                                    radius: 12
+                                    color: "#FFFFFF"
+                                    border.width: 0
+                                    border.color: root.fieldLine
+
+                                    Item {
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+
+                                        Rectangle {
+                                            id: conclusionThumb
+                                            width: modelData.isImage ? 58 : 48
+                                            height: modelData.isImage ? 58 : 26
+                                            anchors.left: parent.left
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            radius: modelData.isImage ? 10 : 8
+                                            color: modelData.isPreviewable ? root.accentTint : root.fieldBg
+                                            visible: modelData.isPreviewable
+
+                                            Image {
+                                                anchors.fill: parent
+                                                anchors.margins: 1
+                                                fillMode: Image.PreserveAspectCrop
+                                                visible: modelData.isImage
+                                                source: modelData.fileUrl
+                                                asynchronous: true
+                                                cache: false
+                                                smooth: true
+                                                clip: true
+                                            }
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                visible: modelData.isVideo
+                                                text: "视频"
+                                                color: root.accent
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: root.labelWeight
+                                            }
+                                        }
+
+                                        Column {
+                                            anchors.left: conclusionThumb.visible ? conclusionThumb.right : parent.left
+                                            anchors.leftMargin: conclusionThumb.visible ? 12 : 4
+                                            anchors.right: conclusionActionRow.left
+                                            anchors.rightMargin: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 4
+
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideMiddle
+                                                text: modelData.name
+                                                color: root.bodyInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: root.bodyWeight
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                elide: Text.ElideRight
+                                                text: root.formatFileSize(modelData.sizeBytes)
+                                                color: root.mutedInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 10
+                                                font.weight: root.bodyWeight
+                                            }
+                                        }
+
+                                        Row {
+                                            id: conclusionActionRow
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 10
+
+                                            Text {
+                                                text: modelData.isPreviewable ? "预览" : "下载"
+                                                color: root.accent
+                                                font.family: root.uiFont
+                                                font.pixelSize: 10
+                                                font.weight: root.labelWeight
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.markAttachmentTarget("__conclusion__")
+                                                        if (modelData.isPreviewable) {
+                                                            todoDetailBridge.previewAttachment(modelData.path)
+                                                        } else {
+                                                            todoDetailBridge.activateAttachment(
+                                                                modelData.path,
+                                                                modelData.isImage,
+                                                                modelData.isVideo,
+                                                                modelData.name
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Text {
+                                                text: "移除"
+                                                color: "#E35B66"
+                                                font.family: root.uiFont
+                                                font.pixelSize: 10
+                                                font.weight: root.labelWeight
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.markAttachmentTarget("__conclusion__")
+                                                        todoDetailBridge.removeConclusionAttachment(modelData.id)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from aica.models import TicketSnapshot, TicketSummaryFields
-    from aica.todo_models import TimelineEvent, TodoItem, TodoProjectLink
+    from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
 def _now_iso() -> str:
@@ -89,6 +89,7 @@ class TodoRepository(Protocol):
         current_summary: str | None = None,
         summary_fields: "TicketSummaryFields | None" = None,
         timeline: list["TimelineEvent"] | None = None,
+        conclusion: "TodoConclusion | None" = None,
     ) -> "TodoItem | None":
         """Update editable Todo fields."""
 

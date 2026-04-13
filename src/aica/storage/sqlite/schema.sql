@@ -13,6 +13,14 @@ CREATE TABLE IF NOT EXISTS todos (
   environment TEXT NOT NULL DEFAULT '',
   ticket_type TEXT NOT NULL DEFAULT '',
   ticket_version TEXT NOT NULL DEFAULT '',
+  feature_point TEXT NOT NULL DEFAULT '',
+  feature_point_source TEXT NOT NULL DEFAULT '',
+  root_cause_desc TEXT NOT NULL DEFAULT '',
+  root_cause_desc_source TEXT NOT NULL DEFAULT '',
+  root_cause TEXT NOT NULL DEFAULT '',
+  root_cause_source TEXT NOT NULL DEFAULT '',
+  conclusion_content TEXT NOT NULL DEFAULT '',
+  conclusion_updated_at TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -50,6 +58,19 @@ CREATE TABLE IF NOT EXISTS todo_timeline_attachments (
 
 CREATE INDEX IF NOT EXISTS idx_attachments_event
 ON todo_timeline_attachments(event_id);
+
+CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
+  id TEXT PRIMARY KEY,
+  todo_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_conclusion_attachments_todo
+ON todo_conclusion_attachments(todo_id);
 
 CREATE TABLE IF NOT EXISTS todo_bindings (
   todo_id TEXT NOT NULL,

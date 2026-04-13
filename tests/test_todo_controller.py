@@ -1,10 +1,11 @@
 from pathlib import Path
 
 from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
+from aica.ticket_enrichment import EnrichmentOutcome
 from aica.ticket_field_resolver import TICKET_TYPE_OPTIONS
 from aica.todo_controller import TodoController
 from aica.todo_events import TodoDomainEvent, TodoDomainEventType
-from aica.todo_store import TimelineEvent, TodoStore
+from aica.todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoStore
 
 
 def _build_controller(tmp_path: Path) -> TodoController:
@@ -18,6 +19,27 @@ class _Publisher:
 
     def publish(self, event: TodoDomainEvent) -> None:
         self.events.append(event)
+
+
+class _EnrichmentService:
+    def enrich_for_update(self, **kwargs):
+        current_fields = kwargs["current_fields"]
+        return EnrichmentOutcome(
+            summary_fields=TicketSummaryFields(
+                group_name=current_fields.group_name,
+                environment=current_fields.environment,
+                product_line=current_fields.product_line,
+                ticket_type=current_fields.ticket_type,
+                ticket_version=current_fields.ticket_version,
+                feature_point="导出模块",
+                feature_point_source="auto",
+                root_cause_desc="接口参数错误",
+                root_cause_desc_source="auto",
+                root_cause="配置错误",
+                root_cause_source="auto",
+            ),
+            errors=[],
+        )
 
 
 def _snapshot(
@@ -228,3 +250,43 @@ def test_build_manual_sync_event_uses_current_todo_snapshot(tmp_path: Path):
     assert event.event_type == TodoDomainEventType.MANUAL_SYNC
     assert event.todo_id == created.todo.id
     assert event.delta == {"trigger": "manual"}
+
+
+def test_update_todo_appends_conclusion_history_and_enrichment_fields(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    controller = TodoController(store, enrichment_service=_EnrichmentService())
+    created = controller.save_analysis_result(
+        _snapshot("title", "summary", "timeline"),
+        "todo assistant",
+    )
+
+    updated = controller.update_todo(
+        created.todo.id,
+        current_summary="new summary",
+        summary_fields=TicketSummaryFields(
+            group_name="group-a",
+            environment="prod",
+            product_line="line-a",
+            ticket_type=TICKET_TYPE_OPTIONS[0],
+        ),
+        conclusion=TodoConclusion(
+            content="确认是生产配置缺失",
+            updated_at="2026-04-13T12:00:00",
+            attachments=[
+                TimelineAttachment(
+                    id="attachment-1",
+                    name="evidence.png",
+                    path=str(tmp_path / "evidence.png"),
+                    size_bytes=32,
+                )
+            ],
+        ),
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.feature_point == "导出模块"
+    assert updated.summary_fields.root_cause_desc == "接口参数错误"
+    assert updated.summary_fields.root_cause == "配置错误"
+    assert updated.conclusion.content == "确认是生产配置缺失"
+    assert updated.timeline[-1].kind == "conclusion"
+    assert "确认是生产配置缺失" in updated.timeline[-1].content

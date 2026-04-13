@@ -124,7 +124,21 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     assert bridge.selectedTicket["ticketVersion"] == "v1-hotfix"
     assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
 
+    bridge.saveSelectedTicketField("feature_point", "导出模块")
+    bridge.saveSelectedTicketField("root_cause", "配置错误")
+    bridge.saveSelectedTicketField("root_cause_desc", "导出接口参数错误")
+
+    assert bridge.selectedTicket["featurePoint"] == "导出模块"
+    assert bridge.selectedTicket["rootCause"] == "配置错误"
+    assert bridge.selectedTicket["rootCauseDesc"] == "导出接口参数错误"
+
     saved_todo = store.get_todo(open_todo.id)
     assert saved_todo is not None
     assert saved_todo.summary_fields.ticket_version == "v1-hotfix"
+    assert saved_todo.summary_fields.feature_point == "导出模块"
+    assert saved_todo.summary_fields.feature_point_source == "manual"
+    assert saved_todo.summary_fields.root_cause == "配置错误"
+    assert saved_todo.summary_fields.root_cause_source == "manual"
+    assert saved_todo.summary_fields.root_cause_desc == "导出接口参数错误"
+    assert saved_todo.summary_fields.root_cause_desc_source == "manual"
     assert repository.get_project_by_task_order_no("WO-1").product_version == "v1"

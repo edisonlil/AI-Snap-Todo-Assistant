@@ -963,6 +963,9 @@ class _ControlPanelBridge(QObject):
             "createdAt": str(todo.created_at or ""),
             "createdAtLabel": _format_display_timestamp(todo.created_at),
             "currentSummary": str(todo.current_summary or "").strip(),
+            "featurePoint": str(todo.summary_fields.feature_point or "").strip(),
+            "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
+            "rootCause": str(todo.summary_fields.root_cause or "").strip(),
             "projectLinkReason": str(todo.project_link.match_reason or "").strip(),
             "projectAlias": str(todo.project_link.matched_alias or "").strip(),
             "projectName": str(snapshot.get("project_name") or "").strip(),
@@ -980,6 +983,9 @@ class _ControlPanelBridge(QObject):
             "title": "",
             "summary": "",
             "currentSummary": "",
+            "featurePoint": "",
+            "rootCauseDesc": "",
+            "rootCause": "",
             "groupName": "",
             "environment": "",
             "ticketType": "",
@@ -1598,16 +1604,24 @@ class _ControlPanelBridge(QObject):
 
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:
+        self.saveSelectedTicketField("ticket_version", value)
+
+    @pyqtSlot(str, str)
+    def saveSelectedTicketField(self, field_name: str, value: str) -> None:
         if not self._selected_ticket_id:
+            return
+        normalized_field = str(field_name or "").strip()
+        if normalized_field not in {"ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
             return
         self._clear_messages()
         todo = self._todo_store.get_todo(self._selected_ticket_id)
         if todo is None:
             self._selected_ticket_id = ""
             self._selected_ticket = self._empty_ticket_detail_payload()
-            self._error_message = "该工单不存在或已被删除。"
+            self._error_message = "????????????"
             self._emit_data_changed()
             return
+        next_value = str(value or "").strip()
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=TicketSummaryFields(
@@ -1615,16 +1629,28 @@ class _ControlPanelBridge(QObject):
                 environment=todo.summary_fields.environment,
                 product_line=todo.summary_fields.product_line,
                 ticket_type=todo.summary_fields.ticket_type,
-                ticket_version=str(value or "").strip(),
+                ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
+                feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
+                feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
+                root_cause_desc=next_value if normalized_field == "root_cause_desc" else todo.summary_fields.root_cause_desc,
+                root_cause_desc_source="manual" if normalized_field == "root_cause_desc" else todo.summary_fields.root_cause_desc_source,
+                root_cause=next_value if normalized_field == "root_cause" else todo.summary_fields.root_cause,
+                root_cause_source="manual" if normalized_field == "root_cause" else todo.summary_fields.root_cause_source,
             ),
         )
         if updated is None:
-            self._error_message = "工单版本保存失败。"
+            self._error_message = "?????????"
             self._emit_data_changed()
             return
         self._refresh_ticket_payloads()
         self._selected_ticket = self._build_ticket_detail_payload(updated)
-        self._status_message = "工单版本已保存。"
+        field_labels = {
+            "ticket_version": "????",
+            "feature_point": "???",
+            "root_cause": "????",
+            "root_cause_desc": "????",
+        }
+        self._status_message = f"{field_labels.get(normalized_field, '????')}????"
         self._emit_data_changed()
 
     @pyqtSlot(str, str)

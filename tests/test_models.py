@@ -1,4 +1,4 @@
-from aica.models import TicketSnapshot, summarize_issue_title
+from aica.models import TicketSnapshot, TicketSummaryFields, summarize_issue_title
 
 
 def test_summarize_issue_title_uses_problem_summary_within_20_chars():
@@ -103,3 +103,29 @@ def test_ticket_snapshot_from_dict_replaces_invalid_surrogates():
     assert snapshot.title == "排查💡�"
     assert snapshot.current_summary == "摘要包含异常代理项�"
     assert snapshot.timeline_entry == "跟进内容�"
+
+
+
+def test_ticket_summary_fields_round_trip_preserves_enrichment_fields():
+    fields = TicketSummaryFields(
+        group_name="group-a",
+        environment="prod",
+        product_line="Docs",
+        ticket_type="???",
+        ticket_version="v1",
+        feature_point="????",
+        feature_point_source="auto",
+        root_cause_desc="??????",
+        root_cause_desc_source="manual",
+        root_cause="????",
+        root_cause_source="auto",
+    )
+
+    restored = TicketSummaryFields.from_dict(fields.to_dict())
+
+    assert restored.feature_point == "????"
+    assert restored.feature_point_source == "auto"
+    assert restored.root_cause_desc == "??????"
+    assert restored.root_cause_desc_source == "manual"
+    assert restored.root_cause == "????"
+    assert restored.root_cause_source == "auto"

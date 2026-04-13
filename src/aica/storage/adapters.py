@@ -20,6 +20,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import (
     TimelineAttachment,
     TimelineEvent,
+    TodoConclusion,
     TodoItem,
     TodoProjectLink,
     TodoStatus,
@@ -68,6 +69,12 @@ def build_summary_fields(
     environment: str,
     ticket_type: str,
     ticket_version: str = "",
+    feature_point: str = "",
+    feature_point_source: str = "",
+    root_cause_desc: str = "",
+    root_cause_desc_source: str = "",
+    root_cause: str = "",
+    root_cause_source: str = "",
     project_snapshot: dict[str, str] | None = None,
 ) -> TicketSummaryFields:
     fields = TicketSummaryFields(
@@ -76,6 +83,12 @@ def build_summary_fields(
         product_line="",
         ticket_type=ticket_type,
         ticket_version=ticket_version,
+        feature_point=feature_point,
+        feature_point_source=feature_point_source,
+        root_cause_desc=root_cause_desc,
+        root_cause_desc_source=root_cause_desc_source,
+        root_cause=root_cause,
+        root_cause_source=root_cause_source,
     )
     product_line = sanitize_text((project_snapshot or {}).get("product_line", ""))
     fields.product_line = product_line or UNKNOWN_TEXT
@@ -91,6 +104,7 @@ def build_todo_item(
     todo_row: dict[str, Any],
     timeline_rows: list[dict[str, Any]],
     attachment_rows: list[dict[str, Any]],
+    conclusion_attachment_rows: list[dict[str, Any]] | None = None,
     project_link_row: dict[str, Any] | None = None,
 ) -> TodoItem:
     grouped_attachments: dict[str, list[TimelineAttachment]] = defaultdict(list)
@@ -113,6 +127,12 @@ def build_todo_item(
         environment=str(todo_row.get("environment", "")),
         ticket_type=str(todo_row.get("ticket_type", "")),
         ticket_version=str(todo_row.get("ticket_version", "")),
+        feature_point=str(todo_row.get("feature_point", "")),
+        feature_point_source=str(todo_row.get("feature_point_source", "")),
+        root_cause_desc=str(todo_row.get("root_cause_desc", "")),
+        root_cause_desc_source=str(todo_row.get("root_cause_desc_source", "")),
+        root_cause=str(todo_row.get("root_cause", "")),
+        root_cause_source=str(todo_row.get("root_cause_source", "")),
         project_snapshot=project_link.project_snapshot,
     )
 
@@ -127,6 +147,15 @@ def build_todo_item(
         )
         for row in timeline_rows
     ]
+    conclusion_attachments = [
+        TimelineAttachment(
+            id=str(row.get("id", str(uuid.uuid4()))),
+            name=row.get("name", ""),
+            path=row.get("path", ""),
+            size_bytes=row.get("size_bytes", 0),
+        )
+        for row in (conclusion_attachment_rows or [])
+    ]
     return TodoItem(
         id=str(todo_row.get("id", str(uuid.uuid4()))),
         title=str(todo_row.get("title", "")),
@@ -136,6 +165,11 @@ def build_todo_item(
         updated_at=str(todo_row.get("updated_at", now_iso())),
         status=str(todo_row.get("status", TodoStatus.OPEN)),
         timeline=timeline,
+        conclusion=TodoConclusion(
+            content=str(todo_row.get("conclusion_content", "")),
+            updated_at=str(todo_row.get("conclusion_updated_at", "")),
+            attachments=conclusion_attachments,
+        ),
         project_link=project_link,
     )
 
@@ -165,6 +199,13 @@ def deserialize_legacy_todo_item(payload: dict[str, Any]) -> TodoItem:
         updated_at=str(payload.get("updated_at", now_iso())),
         status=str(payload.get("status", TodoStatus.OPEN)),
         timeline=timeline,
+        conclusion=TodoConclusion(
+            content=str(payload.get("conclusion", {}).get("content", "") if isinstance(payload.get("conclusion"), dict) else ""),
+            updated_at=str(payload.get("conclusion", {}).get("updated_at", "") if isinstance(payload.get("conclusion"), dict) else ""),
+            attachments=deserialize_legacy_timeline_attachments(
+                payload.get("conclusion", {}).get("attachments", []) if isinstance(payload.get("conclusion"), dict) else []
+            ),
+        ),
         project_link=TodoProjectLink.from_dict(payload.get("project_link")),
     )
 

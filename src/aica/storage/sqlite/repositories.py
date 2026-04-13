@@ -21,10 +21,10 @@ from aica.storage.adapters import (
 )
 from aica.storage.contracts import ProjectMatchResult, ProjectRecord
 from aica.text_sanitize import sanitize_text
-from aica.todo_models import TimelineAttachment, TimelineEvent, TodoItem, TodoProjectLink, TodoStatus
+from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -130,6 +130,19 @@ class SQLiteStorageMigrator:
             connection.execute(
                 "ALTER TABLE todos ADD COLUMN ticket_version TEXT NOT NULL DEFAULT ''"
             )
+        todo_columns = {
+            "feature_point": "TEXT NOT NULL DEFAULT ''",
+            "feature_point_source": "TEXT NOT NULL DEFAULT ''",
+            "root_cause_desc": "TEXT NOT NULL DEFAULT ''",
+            "root_cause_desc_source": "TEXT NOT NULL DEFAULT ''",
+            "root_cause": "TEXT NOT NULL DEFAULT ''",
+            "root_cause_source": "TEXT NOT NULL DEFAULT ''",
+            "conclusion_content": "TEXT NOT NULL DEFAULT ''",
+            "conclusion_updated_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_def in todo_columns.items():
+            if not _has_column(connection, "todos", column_name):
+                connection.execute(f"ALTER TABLE todos ADD COLUMN {column_name} {column_def}")
 
     def get_schema_version(self) -> str:
         self.ensure_schema()
@@ -693,7 +706,12 @@ class SQLiteTodoRepository:
         sql = """
             SELECT DISTINCT
               todos.id, todos.title, todos.current_summary, todos.group_name, todos.environment,
-              todos.ticket_type, todos.ticket_version, todos.status, todos.created_at, todos.updated_at
+              todos.ticket_type, todos.ticket_version,
+              todos.feature_point, todos.feature_point_source,
+              todos.root_cause_desc, todos.root_cause_desc_source,
+              todos.root_cause, todos.root_cause_source,
+              todos.conclusion_content, todos.conclusion_updated_at,
+              todos.status, todos.created_at, todos.updated_at
             FROM todos
             LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
             WHERE 1 = 1
@@ -711,13 +729,16 @@ class SQLiteTodoRepository:
                 OR LOWER(todos.environment) LIKE ?
                 OR LOWER(todos.ticket_type) LIKE ?
                 OR LOWER(todos.ticket_version) LIKE ?
+                OR LOWER(todos.feature_point) LIKE ?
+                OR LOWER(todos.root_cause_desc) LIKE ?
+                OR LOWER(todos.root_cause) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.matched_alias, '')) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.match_reason, '')) LIKE ?
                 OR LOWER(COALESCE(todo_project_links.project_snapshot_json, '')) LIKE ?
               )
             """
             pattern = f"%{normalized_query}%"
-            params.extend([pattern] * 9)
+            params.extend([pattern] * 12)
         sql += " ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC"
 
         with self._connect() as connection:
@@ -780,7 +801,12 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ticket_version, status, created_at, updated_at
+                       ticket_type, ticket_version,
+                       feature_point, feature_point_source,
+                       root_cause_desc, root_cause_desc_source,
+                       root_cause, root_cause_source,
+                       conclusion_content, conclusion_updated_at,
+                       status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -802,8 +828,13 @@ class SQLiteTodoRepository:
                 """
                 INSERT INTO todos(
                   id, title, current_summary, group_name,
-                  environment, ticket_type, ticket_version, status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  environment, ticket_type, ticket_version,
+                  feature_point, feature_point_source,
+                  root_cause_desc, root_cause_desc_source,
+                  root_cause, root_cause_source,
+                  conclusion_content, conclusion_updated_at,
+                  status, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -813,6 +844,14 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.environment),
                     sanitize_text(snapshot.fields.ticket_type),
                     sanitize_text(snapshot.fields.ticket_version),
+                    sanitize_text(snapshot.fields.feature_point),
+                    sanitize_text(snapshot.fields.feature_point_source),
+                    sanitize_text(snapshot.fields.root_cause_desc),
+                    sanitize_text(snapshot.fields.root_cause_desc_source),
+                    sanitize_text(snapshot.fields.root_cause),
+                    sanitize_text(snapshot.fields.root_cause_source),
+                    "",
+                    "",
                     TodoStatus.OPEN,
                     stamp,
                     stamp,
@@ -833,7 +872,12 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ticket_version, status, created_at, updated_at
+                       ticket_type, ticket_version,
+                       feature_point, feature_point_source,
+                       root_cause_desc, root_cause_desc_source,
+                       root_cause, root_cause_source,
+                       conclusion_content, conclusion_updated_at,
+                       status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -846,7 +890,11 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?, updated_at = ?
+                SET group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?,
+                    feature_point = ?, feature_point_source = ?,
+                    root_cause_desc = ?, root_cause_desc_source = ?,
+                    root_cause = ?, root_cause_source = ?,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -854,6 +902,12 @@ class SQLiteTodoRepository:
                     sanitize_text(merged_fields.environment),
                     sanitize_text(merged_fields.ticket_type),
                     sanitize_text(merged_fields.ticket_version),
+                    sanitize_text(merged_fields.feature_point),
+                    sanitize_text(merged_fields.feature_point_source),
+                    sanitize_text(merged_fields.root_cause_desc),
+                    sanitize_text(merged_fields.root_cause_desc_source),
+                    sanitize_text(merged_fields.root_cause),
+                    sanitize_text(merged_fields.root_cause_source),
                     now_iso(),
                     sanitized_id,
                 ),
@@ -893,13 +947,19 @@ class SQLiteTodoRepository:
         current_summary: str | None = None,
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
+        conclusion: TodoConclusion | None = None,
     ) -> TodoItem | None:
         sanitized_id = sanitize_text(todo_id)
         with self._connect() as connection:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ticket_version, status, created_at, updated_at
+                       ticket_type, ticket_version,
+                       feature_point, feature_point_source,
+                       root_cause_desc, root_cause_desc_source,
+                       root_cause, root_cause_source,
+                       conclusion_content, conclusion_updated_at,
+                       status, created_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -917,10 +977,55 @@ class SQLiteTodoRepository:
                 if summary_fields is not None
                 else str(row["ticket_version"])
             )
+            updated_feature_point = (
+                sanitize_text(summary_fields.feature_point)
+                if summary_fields is not None
+                else str(row["feature_point"])
+            )
+            updated_feature_point_source = (
+                sanitize_text(summary_fields.feature_point_source)
+                if summary_fields is not None
+                else str(row["feature_point_source"])
+            )
+            updated_root_cause_desc = (
+                sanitize_text(summary_fields.root_cause_desc)
+                if summary_fields is not None
+                else str(row["root_cause_desc"])
+            )
+            updated_root_cause_desc_source = (
+                sanitize_text(summary_fields.root_cause_desc_source)
+                if summary_fields is not None
+                else str(row["root_cause_desc_source"])
+            )
+            updated_root_cause = (
+                sanitize_text(summary_fields.root_cause)
+                if summary_fields is not None
+                else str(row["root_cause"])
+            )
+            updated_root_cause_source = (
+                sanitize_text(summary_fields.root_cause_source)
+                if summary_fields is not None
+                else str(row["root_cause_source"])
+            )
+            updated_conclusion_content = (
+                sanitize_text(conclusion.content)
+                if conclusion is not None
+                else str(row["conclusion_content"])
+            )
+            updated_conclusion_at = (
+                sanitize_text(conclusion.updated_at) or now_iso()
+                if conclusion is not None
+                else str(row["conclusion_updated_at"])
+            )
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?, updated_at = ?
+                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, ticket_version = ?,
+                    feature_point = ?, feature_point_source = ?,
+                    root_cause_desc = ?, root_cause_desc_source = ?,
+                    root_cause = ?, root_cause_source = ?,
+                    conclusion_content = ?, conclusion_updated_at = ?,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -930,6 +1035,14 @@ class SQLiteTodoRepository:
                     updated_environment,
                     updated_ticket_type,
                     updated_ticket_version,
+                    updated_feature_point,
+                    updated_feature_point_source,
+                    updated_root_cause_desc,
+                    updated_root_cause_desc_source,
+                    updated_root_cause,
+                    updated_root_cause_source,
+                    updated_conclusion_content,
+                    updated_conclusion_at,
                     now_iso(),
                     sanitized_id,
                 ),
@@ -941,6 +1054,13 @@ class SQLiteTodoRepository:
                 )
                 for event in timeline:
                     self._insert_timeline_event(connection, sanitized_id, event)
+            if conclusion is not None:
+                connection.execute(
+                    "DELETE FROM todo_conclusion_attachments WHERE todo_id = ?",
+                    (sanitized_id,),
+                )
+                for attachment in conclusion.attachments:
+                    self._insert_conclusion_attachment(connection, sanitized_id, attachment)
         if summary_fields is not None and updated_group_name != str(row["group_name"]):
             self._refresh_project_link(sanitized_id, updated_group_name)
         return self.get_todo(sanitized_id)
@@ -977,11 +1097,24 @@ class SQLiteTodoRepository:
                 (str(row["id"]),),
             ).fetchall()
         ]
+        conclusion_attachment_rows = [
+            dict(item)
+            for item in connection.execute(
+                """
+                SELECT id, todo_id, name, path, size_bytes, created_at
+                FROM todo_conclusion_attachments
+                WHERE todo_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (str(row["id"]),),
+            ).fetchall()
+        ]
         project_link = self._project_repository.get_project_link(str(row["id"]))
         return build_todo_item(
             todo_row=dict(row),
             timeline_rows=timeline_rows,
             attachment_rows=attachment_rows,
+            conclusion_attachment_rows=conclusion_attachment_rows,
             project_link_row=project_link.to_dict() if project_link is not None else None,
         )
 
@@ -989,7 +1122,12 @@ class SQLiteTodoRepository:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   ticket_type, ticket_version, status, created_at, updated_at
+                   ticket_type, ticket_version,
+                   feature_point, feature_point_source,
+                   root_cause_desc, root_cause_desc_source,
+                   root_cause, root_cause_source,
+                   conclusion_content, conclusion_updated_at,
+                   status, created_at, updated_at
             FROM todos
             WHERE id = ?
             """,
@@ -1041,6 +1179,28 @@ class SQLiteTodoRepository:
             (
                 sanitize_text(attachment.id) or str(uuid.uuid4()),
                 sanitize_text(event_id),
+                sanitize_text(attachment.name),
+                sanitize_text(attachment.path),
+                max(0, int(attachment.size_bytes)),
+                now_iso(),
+            ),
+        )
+
+    def _insert_conclusion_attachment(
+        self,
+        connection: sqlite3.Connection,
+        todo_id: str,
+        attachment: TimelineAttachment,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO todo_conclusion_attachments(
+              id, todo_id, name, path, size_bytes, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sanitize_text(attachment.id) or str(uuid.uuid4()),
+                sanitize_text(todo_id),
                 sanitize_text(attachment.name),
                 sanitize_text(attachment.path),
                 max(0, int(attachment.size_bytes)),
@@ -1306,8 +1466,13 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         """
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
-          ticket_type, ticket_version, status, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ticket_type, ticket_version,
+          feature_point, feature_point_source,
+          root_cause_desc, root_cause_desc_source,
+          root_cause, root_cause_source,
+          conclusion_content, conclusion_updated_at,
+          status, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
@@ -1315,6 +1480,14 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           environment=excluded.environment,
           ticket_type=excluded.ticket_type,
           ticket_version=excluded.ticket_version,
+          feature_point=excluded.feature_point,
+          feature_point_source=excluded.feature_point_source,
+          root_cause_desc=excluded.root_cause_desc,
+          root_cause_desc_source=excluded.root_cause_desc_source,
+          root_cause=excluded.root_cause,
+          root_cause_source=excluded.root_cause_source,
+          conclusion_content=excluded.conclusion_content,
+          conclusion_updated_at=excluded.conclusion_updated_at,
           status=excluded.status,
           updated_at=excluded.updated_at
         """,
@@ -1326,15 +1499,26 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.environment),
             sanitize_text(todo.summary_fields.ticket_type),
             sanitize_text(todo.summary_fields.ticket_version),
+            sanitize_text(todo.summary_fields.feature_point),
+            sanitize_text(todo.summary_fields.feature_point_source),
+            sanitize_text(todo.summary_fields.root_cause_desc),
+            sanitize_text(todo.summary_fields.root_cause_desc_source),
+            sanitize_text(todo.summary_fields.root_cause),
+            sanitize_text(todo.summary_fields.root_cause_source),
+            sanitize_text(todo.conclusion.content),
+            sanitize_text(todo.conclusion.updated_at),
             sanitize_text(todo.status) or TodoStatus.OPEN,
             sanitize_text(todo.created_at) or now_iso(),
             sanitize_text(todo.updated_at) or now_iso(),
         ),
     )
     connection.execute("DELETE FROM todo_timeline_events WHERE todo_id = ?", (sanitize_text(todo.id),))
+    connection.execute("DELETE FROM todo_conclusion_attachments WHERE todo_id = ?", (sanitize_text(todo.id),))
     repository = SQLiteTodoRepository.__new__(SQLiteTodoRepository)
     for event in todo.timeline:
         SQLiteTodoRepository._insert_timeline_event(repository, connection, todo.id, event)
+    for attachment in todo.conclusion.attachments:
+        SQLiteTodoRepository._insert_conclusion_attachment(repository, connection, todo.id, attachment)
     if todo.project_link.match_status:
         connection.execute(
             """

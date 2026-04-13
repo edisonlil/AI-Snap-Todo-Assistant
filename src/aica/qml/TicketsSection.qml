@@ -10,11 +10,11 @@ ColumnLayout {
     spacing: 0
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
-    property bool ticketVersionEditing: false
-    property bool ticketVersionSaving: false
-    property string ticketVersionDraft: ""
-    property string ticketVersionOriginal: ""
-    property string ticketVersionPending: ""
+    property string ticketFieldEditingName: ""
+    property string ticketFieldSavingName: ""
+    property string ticketFieldDraft: ""
+    property string ticketFieldOriginal: ""
+    property string ticketFieldPending: ""
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -30,64 +30,74 @@ ColumnLayout {
         return statusOptions[index].value
     }
 
-    function currentTicketVersion() {
-        return controlPanelBridge.selectedTicket.ticketVersion || ""
+    function currentTicketFieldValue(fieldName) {
+        if (fieldName === "ticketVersion") {
+            return controlPanelBridge.selectedTicket.ticketVersion || ""
+        }
+        if (fieldName === "featurePoint") {
+            return controlPanelBridge.selectedTicket.featurePoint || ""
+        }
+        if (fieldName === "rootCause") {
+            return controlPanelBridge.selectedTicket.rootCause || ""
+        }
+        if (fieldName === "rootCauseDesc") {
+            return controlPanelBridge.selectedTicket.rootCauseDesc || ""
+        }
+        return ""
     }
 
-    function syncTicketVersionState() {
-        var currentValue = currentTicketVersion()
-        if (ticketVersionSaving) {
-            if (currentValue === ticketVersionPending) {
-                ticketVersionOriginal = currentValue
-                ticketVersionDraft = currentValue
-                ticketVersionPending = ""
-                ticketVersionSaving = false
-                ticketVersionEditing = false
-            } else if (currentValue === ticketVersionOriginal) {
-                ticketVersionDraft = currentValue
-                ticketVersionPending = ""
-                ticketVersionSaving = false
-                ticketVersionEditing = false
-            }
+    function syncTicketFieldState() {
+        var currentName = ticketFieldSavingName || ticketFieldEditingName
+        if (!currentName || ticketFieldEditingName.length > 0) {
             return
         }
-        ticketVersionOriginal = currentValue
-        if (!ticketVersionEditing) {
-            ticketVersionDraft = currentValue
+        var currentValue = currentTicketFieldValue(currentName)
+        if (currentValue === ticketFieldPending || currentValue === ticketFieldOriginal) {
+            ticketFieldEditingName = ""
+            ticketFieldSavingName = ""
+            ticketFieldDraft = currentValue
+            ticketFieldOriginal = currentValue
+            ticketFieldPending = ""
         }
     }
 
-    function beginTicketVersionEdit() {
-        if (ticketVersionSaving) {
+    function beginTicketFieldEdit(fieldName) {
+        if (ticketFieldSavingName.length > 0) {
             return
         }
-        ticketVersionOriginal = currentTicketVersion()
-        ticketVersionDraft = ticketVersionOriginal
-        ticketVersionEditing = true
+        ticketFieldEditingName = fieldName
+        ticketFieldOriginal = currentTicketFieldValue(fieldName)
+        ticketFieldDraft = ticketFieldOriginal
+        ticketFieldPending = ""
     }
 
-    function cancelTicketVersionEdit() {
-        ticketVersionEditing = false
-        ticketVersionSaving = false
-        ticketVersionPending = ""
-        ticketVersionDraft = ticketVersionOriginal
+    function cancelTicketFieldEdit() {
+        ticketFieldEditingName = ""
+        ticketFieldSavingName = ""
+        ticketFieldPending = ""
+        ticketFieldDraft = ticketFieldOriginal
     }
 
-    function commitTicketVersionEdit() {
-        if (!ticketVersionEditing || ticketVersionSaving) {
+    function commitTicketFieldEdit(saveAction) {
+        if (!ticketFieldEditingName || ticketFieldSavingName.length > 0) {
             return
         }
-        var nextValue = (ticketVersionDraft || "").trim()
-        if (nextValue === ticketVersionOriginal) {
-            ticketVersionEditing = false
+        var nextValue = (ticketFieldDraft || "").trim()
+        if (nextValue === ticketFieldOriginal) {
+            ticketFieldEditingName = ""
             return
         }
-        ticketVersionPending = nextValue
-        ticketVersionSaving = true
-        ticketVersionEditing = false
+        ticketFieldPending = nextValue
+        ticketFieldSavingName = ticketFieldEditingName
+        ticketFieldEditingName = ""
         Qt.callLater(function() {
-            if (ticketVersionSaving && ticketVersionPending === nextValue) {
+            if (ticketFieldSavingName.length === 0 || ticketFieldPending !== nextValue) {
+                return
+            }
+            if (saveAction === "ticket_version") {
                 controlPanelBridge.saveSelectedTicketVersion(nextValue)
+            } else {
+                controlPanelBridge.saveSelectedTicketField(saveAction, nextValue)
             }
         })
     }
@@ -132,13 +142,14 @@ ColumnLayout {
         property string label: ""
         property string value: ""
         property string placeholderText: "未填写"
+        property string draftValue: ""
         property bool editable: false
         property bool editing: false
         property bool saving: false
         property bool multiline: false
         property bool compact: false
         signal clicked
-        signal accepted
+        signal accepted(string value)
         signal canceled
 
         radius: 0
@@ -188,7 +199,7 @@ ColumnLayout {
                         visible: fieldRoot.editable && fieldRoot.editing
                         theme: fieldRoot.theme
                         Layout.fillWidth: true
-                        text: ticketSection.ticketVersionDraft
+                        text: fieldRoot.draftValue
                         placeholderText: fieldRoot.placeholderText
                         leftPadding: 0
                         rightPadding: 0
@@ -208,8 +219,8 @@ ColumnLayout {
                             }
                         }
 
-                        onTextEdited: ticketSection.ticketVersionDraft = text
-                        onAccepted: fieldRoot.accepted()
+                        onTextEdited: fieldRoot.draftValue = text
+                        onAccepted: fieldRoot.accepted(fieldRoot.draftValue)
                         Keys.onEscapePressed: fieldRoot.canceled()
                     }
 
@@ -271,7 +282,7 @@ ColumnLayout {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: fieldRoot.accepted()
+                                onClicked: fieldRoot.accepted(fieldRoot.draftValue)
                             }
                         }
 
@@ -485,11 +496,11 @@ ColumnLayout {
                 Connections {
                     target: controlPanelBridge
                     function onDataChanged() {
-                        ticketSection.syncTicketVersionState()
+                        ticketSection.syncTicketFieldState()
                     }
                 }
 
-                Component.onCompleted: ticketSection.syncTicketVersionState()
+                Component.onCompleted: ticketSection.syncTicketFieldState()
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -801,6 +812,44 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
+                                            label: "\u529f\u80fd\u70b9"
+                                            value: ticketSection.ticketFieldEditingName === "featurePoint" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.featurePoint
+                                            placeholderText: "\u672a\u751f\u6210"
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "featurePoint"
+                                            saving: ticketSection.ticketFieldSavingName === "featurePoint"
+                                            compact: ticketSection.detailGridColumns === 1
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("featurePoint")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("feature_point")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "\u95ee\u9898\u6839\u56e0"
+                                            value: ticketSection.ticketFieldEditingName === "rootCause" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCause
+                                            placeholderText: "\u672a\u751f\u6210"
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "rootCause"
+                                            saving: ticketSection.ticketFieldSavingName === "rootCause"
+                                            compact: ticketSection.detailGridColumns === 1
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("rootCause")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("root_cause")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
                                             label: "产品线"
                                             value: controlPanelBridge.selectedTicket.productLine
                                             placeholderText: "未填写"
@@ -833,16 +882,40 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            label: "工单版本"
-                                            value: ticketSection.ticketVersionEditing ? ticketSection.ticketVersionDraft : controlPanelBridge.selectedTicket.ticketVersion
+                                            label: "版本号"
+                                            value: ticketSection.ticketFieldEditingName === "ticketVersion" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.ticketVersion
                                             placeholderText: "未填写"
                                             editable: true
-                                            editing: ticketSection.ticketVersionEditing
-                                            saving: ticketSection.ticketVersionSaving
+                                            editing: ticketSection.ticketFieldEditingName === "ticketVersion"
+                                            saving: ticketSection.ticketFieldSavingName === "ticketVersion"
                                             compact: ticketSection.detailGridColumns === 1
-                                            onClicked: ticketSection.beginTicketVersionEdit()
-                                            onAccepted: ticketSection.commitTicketVersionEdit()
-                                            onCanceled: ticketSection.cancelTicketVersionEdit()
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("ticketVersion")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("ticket_version")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            Layout.columnSpan: ticketSection.detailGridColumns
+                                            label: "\u6839\u56e0\u63cf\u8ff0"
+                                            value: ticketSection.ticketFieldEditingName === "rootCauseDesc" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCauseDesc
+                                            placeholderText: "\u672a\u751f\u6210"
+                                            multiline: true
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "rootCauseDesc"
+                                            saving: ticketSection.ticketFieldSavingName === "rootCauseDesc"
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("rootCauseDesc")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("root_cause_desc")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
                                         }
 
                                         DetailField {

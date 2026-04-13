@@ -563,6 +563,40 @@ def test_request_manual_sync_emits_current_todo_id() -> None:
     assert captured == ["todo-123"]
 
 
+def test_save_todo_emits_conclusion_and_root_cause_payload() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            id="todo-123",
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[],
+        )
+    )
+    captured: dict[str, object] = {}
+
+    def _capture(todo_id: str, payload: object) -> None:
+        captured["todo_id"] = todo_id
+        captured["payload"] = payload
+
+    bridge.saveRequested.connect(_capture)
+    bridge.updateField("root_cause_desc", "接口参数错误")
+    bridge.updateField("root_cause", "配置错误")
+    bridge.updateField("conclusion_content", "确认是生产配置缺失")
+    bridge.saveTodo()
+
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    summary_fields = payload["summary_fields"]
+    assert summary_fields["root_cause_desc"] == "接口参数错误"
+    assert summary_fields["root_cause_desc_source"] == "manual"
+    assert summary_fields["root_cause"] == "配置错误"
+    assert summary_fields["root_cause_source"] == "manual"
+    conclusion = payload["conclusion"]
+    assert conclusion.content == "确认是生产配置缺失"
+
+
 def test_set_todo_exposes_project_match_status_fields() -> None:
     bridge = _TodoDetailBridge()
     bridge.set_todo(

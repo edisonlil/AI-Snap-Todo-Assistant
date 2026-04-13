@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .models import TicketSnapshot, TicketSummaryFields
 from .storage.sqlite.repositories import SQLiteTodoRepository
-from .todo_models import TimelineAttachment, TimelineEvent, TodoItem, TodoProjectLink, TodoStatus
+from .todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
 class TodoStore:
@@ -56,6 +56,7 @@ class TodoStore:
         current_summary: str | None = None,
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
+        conclusion: TodoConclusion | None = None,
     ) -> TodoItem | None:
         return self._repository.update_todo(
             todo_id,
@@ -63,4 +64,5 @@ class TodoStore:
             current_summary=current_summary,
             summary_fields=summary_fields,
             timeline=timeline,
+            conclusion=conclusion,
         )

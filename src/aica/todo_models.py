@@ -55,6 +55,23 @@ class TimelineEvent:
 
 
 @dataclass
+class TodoConclusion:
+    content: str = ""
+    updated_at: str = ""
+    attachments: list[TimelineAttachment] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.content = sanitize_text(self.content)
+        self.updated_at = sanitize_text(self.updated_at)
+        self.attachments = [
+            attachment
+            if isinstance(attachment, TimelineAttachment)
+            else TimelineAttachment(**dict(attachment or {}))
+            for attachment in list(self.attachments or [])
+        ]
+
+
+@dataclass
 class TodoProjectLink:
     todo_id: str = ""
     project_id: str = ""
@@ -120,6 +137,7 @@ class TodoItem:
     updated_at: str = field(default_factory=_now_iso)
     status: str = TodoStatus.OPEN
     timeline: list[TimelineEvent] = field(default_factory=list)
+    conclusion: TodoConclusion = field(default_factory=TodoConclusion)
     project_link: TodoProjectLink = field(default_factory=TodoProjectLink)
 
     def __post_init__(self) -> None:
@@ -129,6 +147,8 @@ class TodoItem:
         self.created_at = sanitize_text(self.created_at) or _now_iso()
         self.updated_at = sanitize_text(self.updated_at) or _now_iso()
         self.status = sanitize_text(self.status) or TodoStatus.OPEN
+        if not isinstance(self.conclusion, TodoConclusion):
+            self.conclusion = TodoConclusion(**dict(self.conclusion or {}))
         if not isinstance(self.project_link, TodoProjectLink):
             self.project_link = TodoProjectLink.from_dict(self.project_link)
 

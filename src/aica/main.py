@@ -26,11 +26,12 @@ from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
 from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
+from aica.ticket_enrichment import TicketEnrichmentService, build_feature_point_provider
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
 from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo_panel import TodoPanel
-from aica.todo_store import TodoStore
+from aica.todo_store import TodoConclusion, TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
@@ -308,6 +309,18 @@ def main() -> None:
             plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
         )
 
+    def _build_ticket_enrichment_service(config):
+        runtime_config = None
+        try:
+            runtime_config = _build_runtime_config(config)
+        except ModelResolutionError:
+            runtime_config = None
+        llm_service = runtime_config.llm_service if runtime_config is not None else None
+        return TicketEnrichmentService(
+            feature_point_provider=build_feature_point_provider(config.ticket_enrichment.feature_point),
+            llm_service=llm_service,
+        )
+
     def _on_plan_export_finished(export_path: str) -> None:
         sender = app.sender()
         if isinstance(sender, PlanExportWorker):
@@ -486,7 +499,14 @@ def main() -> None:
     def _on_todo_detail_saved(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):
             return
+        todo_controller.set_enrichment_service(_build_ticket_enrichment_service(config_mgr.load()))
         summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
+        conclusion_payload = payload.get("conclusion")
+        conclusion = (
+            conclusion_payload
+            if isinstance(conclusion_payload, TodoConclusion)
+            else TodoConclusion(**dict(conclusion_payload or {}))
+        )
         timeline_payload = payload.get("timeline", [])
         updated = todo_controller.update_todo(
             todo_id,
@@ -494,6 +514,7 @@ def main() -> None:
             current_summary=str(payload.get("current_summary", "")),
             summary_fields=summary_fields,
             timeline=timeline_payload,
+            conclusion=conclusion,
         )
         if updated is None:
             return

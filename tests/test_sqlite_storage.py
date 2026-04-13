@@ -6,7 +6,7 @@ from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.todo_events import TodoBindingStore
-from aica.todo_store import TodoStore
+from aica.todo_store import TimelineAttachment, TodoConclusion, TodoStore
 
 
 def _snapshot(
@@ -19,6 +19,9 @@ def _snapshot(
     product_line: str = "",
     ticket_type: str = "incident",
     ticket_version: str = "",
+    feature_point: str = "",
+    root_cause_desc: str = "",
+    root_cause: str = "",
 ) -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
@@ -28,6 +31,9 @@ def _snapshot(
             product_line=product_line,
             ticket_type=ticket_type,
             ticket_version=ticket_version,
+            feature_point=feature_point,
+            root_cause_desc=root_cause_desc,
+            root_cause=root_cause,
         ),
         current_summary=summary,
         timeline_entry=timeline,
@@ -82,6 +88,60 @@ def test_todo_store_initializes_ticket_version_from_project_snapshot(tmp_path: P
 
     assert todo.summary_fields.ticket_version == "v1.2.3"
     assert todo.project_link.project_snapshot["product_version"] == "v1.2.3"
+
+
+def test_todo_store_persists_enrichment_fields_and_conclusion(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot(
+            "upload failed",
+            "summary",
+            "timeline",
+            feature_point="导出模块",
+            root_cause_desc="导出接口参数错误",
+            root_cause="配置错误",
+        ),
+        "todo assistant",
+    )
+
+    updated = store.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields(
+            group_name=todo.summary_fields.group_name,
+            environment=todo.summary_fields.environment,
+            product_line=todo.summary_fields.product_line,
+            ticket_type=todo.summary_fields.ticket_type,
+            ticket_version=todo.summary_fields.ticket_version,
+            feature_point="导出模块",
+            feature_point_source="auto",
+            root_cause_desc="导出接口参数错误",
+            root_cause_desc_source="auto",
+            root_cause="配置错误",
+            root_cause_source="manual",
+        ),
+        conclusion=TodoConclusion(
+            content="确认是生产配置缺失导致报错",
+            updated_at="2026-04-13T12:00:00",
+            attachments=[
+                TimelineAttachment(
+                    id="attachment-1",
+                    name="evidence.png",
+                    path=str(tmp_path / "evidence.png"),
+                    size_bytes=128,
+                )
+            ],
+        ),
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.feature_point == "导出模块"
+    assert updated.summary_fields.feature_point_source == "auto"
+    assert updated.summary_fields.root_cause_desc == "导出接口参数错误"
+    assert updated.summary_fields.root_cause == "配置错误"
+    assert updated.summary_fields.root_cause_source == "manual"
+    assert updated.conclusion.content == "确认是生产配置缺失导致报错"
+    assert updated.conclusion.updated_at == "2026-04-13T12:00:00"
+    assert updated.conclusion.attachments[0].name == "evidence.png"
 
 
 def test_legacy_json_data_migrates_to_sqlite_once(tmp_path: Path):
