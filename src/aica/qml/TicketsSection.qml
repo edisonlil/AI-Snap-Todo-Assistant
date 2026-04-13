@@ -876,6 +876,25 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
+                                            label: "\u6839\u56e0\u63cf\u8ff0"
+                                            value: ticketSection.ticketFieldEditingName === "rootCauseDesc" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCauseDesc
+                                            placeholderText: "\u672a\u751f\u6210"
+                                            compact: ticketSection.detailGridColumns === 1
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "rootCauseDesc"
+                                            saving: ticketSection.ticketFieldSavingName === "rootCauseDesc"
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("rootCauseDesc")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("root_cause_desc")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
                                             label: "项目经理"
                                             value: controlPanelBridge.selectedTicket.projectManager
                                             placeholderText: "未填写"
@@ -895,26 +914,6 @@ ColumnLayout {
                                             label: "最近更新"
                                             value: controlPanelBridge.selectedTicket.updatedAtLabel
                                             placeholderText: "未知"
-                                        }
-
-                                        DetailField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            Layout.columnSpan: ticketSection.detailGridColumns
-                                            label: "\u6839\u56e0\u63cf\u8ff0"
-                                            value: ticketSection.ticketFieldEditingName === "rootCauseDesc" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCauseDesc
-                                            placeholderText: "\u672a\u751f\u6210"
-                                            multiline: true
-                                            editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "rootCauseDesc"
-                                            saving: ticketSection.ticketFieldSavingName === "rootCauseDesc"
-                                            draftValue: ticketSection.ticketFieldDraft
-                                            onClicked: ticketSection.beginTicketFieldEdit("rootCauseDesc")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("root_cause_desc")
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
                                         }
 
                                         DetailField {
