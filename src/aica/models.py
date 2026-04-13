@@ -265,6 +265,7 @@ class TicketSummaryFields:
     product_line: str = UNKNOWN_TEXT
     ticket_type: str = UNKNOWN_TEXT
     ach_no: str = ""
+    ach_filled_at: str = ""
     ticket_version: str = ""
     feature_point: str = ""
     feature_point_source: str = ""
@@ -279,6 +280,7 @@ class TicketSummaryFields:
         self.product_line = resolve_product_line(raw_value=self.product_line)
         self.ticket_type = normalize_ticket_type(self.ticket_type)
         self.ach_no = _clean_free_text(self.ach_no)
+        self.ach_filled_at = _clean_free_text(self.ach_filled_at)
         self.ticket_version = _clean_free_text(self.ticket_version)
         self.feature_point = _clean_free_text(self.feature_point)
         self.feature_point_source = _normalize_field_source(self.feature_point_source)
@@ -299,6 +301,7 @@ class TicketSummaryFields:
             product_line=payload.get("product_line"),
             ticket_type=payload.get("ticket_type"),
             ach_no=payload.get("ach_no"),
+            ach_filled_at=payload.get("ach_filled_at"),
             ticket_version=payload.get("ticket_version"),
             feature_point=payload.get("feature_point"),
             feature_point_source=payload.get("feature_point_source"),
@@ -404,6 +407,7 @@ def merge_summary_fields_for_append(
         product_line=_merge_value(existing.product_line, incoming.product_line),
         ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
         ach_no=_merge_value(existing.ach_no, incoming.ach_no),
+        ach_filled_at=_merge_value(existing.ach_filled_at, incoming.ach_filled_at),
         ticket_version=_merge_value(existing.ticket_version, incoming.ticket_version),
         feature_point=_merge_value(existing.feature_point, incoming.feature_point),
         feature_point_source=incoming.feature_point_source or existing.feature_point_source,
@@ -430,6 +434,7 @@ class TicketSnapshot:
             "product_line": self.fields.product_line,
             "ticket_type": self.fields.ticket_type,
             "ach_no": self.fields.ach_no,
+            "ach_filled_at": self.fields.ach_filled_at,
             "ticket_version": self.fields.ticket_version,
             "feature_point": self.fields.feature_point,
             "feature_point_source": self.fields.feature_point_source,
@@ -475,6 +480,7 @@ class TicketSnapshot:
                     summary_text=ticket_context,
                 ),
                 "ach_no": payload.get("ach_no"),
+                "ach_filled_at": payload.get("ach_filled_at"),
                 "ticket_version": payload.get("ticket_version"),
                 "feature_point": payload.get("feature_point"),
                 "feature_point_source": payload.get("feature_point_source"),
@@ -527,6 +533,7 @@ class TicketSnapshot:
             f"产品线: {strip_invalid_surrogates(self.fields.product_line)}\n"
             f"工单类型: {strip_invalid_surrogates(self.fields.ticket_type)}\n"
             f"ACH单号: {strip_invalid_surrogates(self.fields.ach_no)}\n"
+            f"ACH填写时间: {strip_invalid_surrogates(self.fields.ach_filled_at)}\n"
             f"工单版本: {strip_invalid_surrogates(self.fields.ticket_version)}\n"
             f"当前摘要: {strip_invalid_surrogates(self.current_summary)}\n"
             f"跟进记录: {strip_invalid_surrogates(self.timeline_entry)}\n"

@@ -113,6 +113,7 @@ def test_ticket_summary_fields_round_trip_preserves_enrichment_fields():
         product_line="Docs",
         ticket_type="???",
         ach_no="ACH-001",
+        ach_filled_at="2026-04-13T10:00:00",
         ticket_version="v1",
         feature_point="????",
         feature_point_source="auto",
@@ -125,6 +126,7 @@ def test_ticket_summary_fields_round_trip_preserves_enrichment_fields():
     restored = TicketSummaryFields.from_dict(fields.to_dict())
 
     assert restored.ach_no == "ACH-001"
+    assert restored.ach_filled_at == "2026-04-13T10:00:00"
     assert restored.feature_point == "????"
     assert restored.feature_point_source == "auto"
     assert restored.root_cause_desc == "??????"

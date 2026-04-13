@@ -239,10 +239,12 @@ def test_list_todos_filters_by_status_and_project_name(tmp_path: Path):
 
     project_results = store.list_todos(query="phoenix", status="open")
     done_results = store.list_todos(query="closed", status="done")
+    done_missing_ach_results = store.list_todos(status="done_missing_ach")
     all_results = store.list_todos(status="all")
 
     assert [item.id for item in project_results] == [open_todo.id]
     assert [item.id for item in done_results] == [done_todo.id]
+    assert [item.id for item in done_missing_ach_results] == [done_todo.id]
     assert [item.id for item in all_results] == [done_todo.id, open_todo.id]
 
 

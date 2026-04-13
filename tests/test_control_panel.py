@@ -125,7 +125,13 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     bridge.saveSelectedTicketVersion("v1-hotfix")
     assert bridge.selectedTicket["ticketVersion"] == "v1-hotfix"
     assert bridge.selectedTicket["achNo"] == "ACH-2026-001"
+    assert bridge.selectedTicket["achFilledAt"]
+    first_ach_filled_at = bridge.selectedTicket["achFilledAt"]
     assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
+
+    bridge.saveSelectedTicketField("ach_no", "ACH-2026-002")
+    assert bridge.selectedTicket["achNo"] == "ACH-2026-002"
+    assert bridge.selectedTicket["achFilledAt"] == first_ach_filled_at
 
     bridge.saveSelectedTicketField("feature_point", "导出模块")
     bridge.saveSelectedTicketField("root_cause", "配置错误")
@@ -137,7 +143,8 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
 
     saved_todo = store.get_todo(open_todo.id)
     assert saved_todo is not None
-    assert saved_todo.summary_fields.ach_no == "ACH-2026-001"
+    assert saved_todo.summary_fields.ach_no == "ACH-2026-002"
+    assert saved_todo.summary_fields.ach_filled_at == first_ach_filled_at
     assert saved_todo.summary_fields.ticket_version == "v1-hotfix"
     assert saved_todo.summary_fields.feature_point == "导出模块"
     assert saved_todo.summary_fields.feature_point_source == "manual"
@@ -146,3 +153,10 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     assert saved_todo.summary_fields.root_cause_desc == "导出接口参数错误"
     assert saved_todo.summary_fields.root_cause_desc_source == "manual"
     assert repository.get_project_by_task_order_no("WO-1").product_version == "v1"
+
+    bridge.saveSelectedTicketField("ach_no", "")
+    assert bridge.selectedTicket["achNo"] == ""
+    assert bridge.selectedTicket["achFilledAt"] == ""
+
+    bridge.listTickets("", "done_missing_ach")
+    assert [item["id"] for item in bridge.tickets] == [done_todo.id]

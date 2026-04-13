@@ -272,6 +272,7 @@ from aica.paths import (
     qml_dir,
 )
 from aica.models import TicketSummaryFields
+from aica.storage.adapters import now_iso
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS
 from aica.todo_models import TodoItem, TodoStatus
@@ -922,6 +923,8 @@ class _ControlPanelBridge(QObject):
             "environment": str(todo.summary_fields.environment or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
+            "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
+            "achFilledAtLabel": _format_display_timestamp(todo.summary_fields.ach_filled_at),
             "status": str(todo.status or TodoStatus.OPEN),
             "statusLabel": _todo_status_label(todo.status),
             "statusTone": _todo_status_tone(todo.status),
@@ -973,6 +976,8 @@ class _ControlPanelBridge(QObject):
             "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
             "rootCause": str(todo.summary_fields.root_cause or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
+            "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
+            "achFilledAtLabel": _format_display_timestamp(todo.summary_fields.ach_filled_at),
             "projectLinkReason": str(todo.project_link.match_reason or "").strip(),
             "projectAlias": str(todo.project_link.matched_alias or "").strip(),
             "projectName": str(snapshot.get("project_name") or "").strip(),
@@ -997,6 +1002,8 @@ class _ControlPanelBridge(QObject):
             "environment": "",
             "ticketType": "",
             "achNo": "",
+            "achFilledAt": "",
+            "achFilledAtLabel": "",
             "status": "",
             "statusLabel": "",
             "statusTone": "open",
@@ -1569,7 +1576,7 @@ class _ControlPanelBridge(QObject):
     def listTickets(self, query: str, status_filter: str) -> None:
         self._ticket_query = str(query or "").strip()
         normalized_status = str(status_filter or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
-        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all"}:
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach"}:
             normalized_status = TodoStatus.OPEN
         self._ticket_status_filter = normalized_status
         self._refresh_ticket_payloads()
@@ -1630,6 +1637,12 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
         next_value = str(value or "").strip()
+        ach_filled_at = todo.summary_fields.ach_filled_at
+        if normalized_field == "ach_no":
+            if next_value and not str(todo.summary_fields.ach_no or "").strip():
+                ach_filled_at = now_iso()
+            elif not next_value:
+                ach_filled_at = ""
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=TicketSummaryFields(
@@ -1638,6 +1651,7 @@ class _ControlPanelBridge(QObject):
                 product_line=todo.summary_fields.product_line,
                 ticket_type=todo.summary_fields.ticket_type,
                 ach_no=next_value if normalized_field == "ach_no" else todo.summary_fields.ach_no,
+                ach_filled_at=ach_filled_at,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
                 feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
                 feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,

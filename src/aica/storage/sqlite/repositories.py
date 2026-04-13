@@ -24,7 +24,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -132,6 +132,7 @@ class SQLiteStorageMigrator:
             )
         todo_columns = {
             "ach_no": "TEXT NOT NULL DEFAULT ''",
+            "ach_filled_at": "TEXT NOT NULL DEFAULT ''",
             "feature_point": "TEXT NOT NULL DEFAULT ''",
             "feature_point_source": "TEXT NOT NULL DEFAULT ''",
             "root_cause_desc": "TEXT NOT NULL DEFAULT ''",
@@ -701,13 +702,13 @@ class SQLiteTodoRepository:
     def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
         normalized_query = sanitize_text(query).lower()
         normalized_status = sanitize_text(status).lower() or TodoStatus.OPEN
-        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all"}:
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach"}:
             normalized_status = TodoStatus.OPEN
 
         sql = """
             SELECT DISTINCT
               todos.id, todos.title, todos.current_summary, todos.group_name, todos.environment,
-              todos.ticket_type, todos.ach_no, todos.ticket_version,
+              todos.ticket_type, todos.ach_no, todos.ach_filled_at, todos.ticket_version,
               todos.feature_point, todos.feature_point_source,
               todos.root_cause_desc, todos.root_cause_desc_source,
               todos.root_cause, todos.root_cause_source,
@@ -719,8 +720,12 @@ class SQLiteTodoRepository:
         """
         params: list[object] = []
         if normalized_status != "all":
-            sql += " AND todos.status = ?"
-            params.append(normalized_status)
+            if normalized_status == "done_missing_ach":
+                sql += " AND todos.status = ? AND TRIM(COALESCE(todos.ach_no, '')) = ''"
+                params.append(TodoStatus.DONE)
+            else:
+                sql += " AND todos.status = ?"
+                params.append(normalized_status)
         if normalized_query:
             sql += """
               AND (
@@ -803,7 +808,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ach_no, ticket_version,
+                       ticket_type, ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
@@ -825,18 +830,20 @@ class SQLiteTodoRepository:
             content=snapshot.timeline_entry,
         )
         stamp = now_iso()
+        ach_no = sanitize_text(snapshot.fields.ach_no)
+        ach_filled_at = sanitize_text(snapshot.fields.ach_filled_at) or (stamp if ach_no else "")
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO todos(
                   id, title, current_summary, group_name,
-                  environment, ticket_type, ach_no, ticket_version,
+                  environment, ticket_type, ach_no, ach_filled_at, ticket_version,
                   feature_point, feature_point_source,
                   root_cause_desc, root_cause_desc_source,
                   root_cause, root_cause_source,
                   conclusion_content, conclusion_updated_at,
                   status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -845,7 +852,8 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.group_name),
                     sanitize_text(snapshot.fields.environment),
                     sanitize_text(snapshot.fields.ticket_type),
-                    sanitize_text(snapshot.fields.ach_no),
+                    ach_no,
+                    ach_filled_at,
                     sanitize_text(snapshot.fields.ticket_version),
                     sanitize_text(snapshot.fields.feature_point),
                     sanitize_text(snapshot.fields.feature_point_source),
@@ -875,7 +883,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ach_no, ticket_version,
+                       ticket_type, ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
@@ -890,10 +898,12 @@ class SQLiteTodoRepository:
                 return None
             current_todo = self._build_todo_from_row(connection, row)
             merged_fields = merge_summary_fields_for_append(current_todo.summary_fields, snapshot.fields)
+            if merged_fields.ach_no and not merged_fields.ach_filled_at and not current_todo.summary_fields.ach_no:
+                merged_fields.ach_filled_at = now_iso()
             connection.execute(
                 """
                 UPDATE todos
-                SET group_name = ?, environment = ?, ticket_type = ?, ach_no = ?, ticket_version = ?,
+                SET group_name = ?, environment = ?, ticket_type = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -905,6 +915,7 @@ class SQLiteTodoRepository:
                     sanitize_text(merged_fields.environment),
                     sanitize_text(merged_fields.ticket_type),
                     sanitize_text(merged_fields.ach_no),
+                    sanitize_text(merged_fields.ach_filled_at),
                     sanitize_text(merged_fields.ticket_version),
                     sanitize_text(merged_fields.feature_point),
                     sanitize_text(merged_fields.feature_point_source),
@@ -958,7 +969,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ach_no, ticket_version,
+                       ticket_type, ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
@@ -981,6 +992,17 @@ class SQLiteTodoRepository:
                 if summary_fields is not None
                 else str(row["ach_no"])
             )
+            current_ach_no = str(row["ach_no"])
+            current_ach_filled_at = str(row["ach_filled_at"])
+            updated_ach_filled_at = current_ach_filled_at
+            if summary_fields is not None:
+                requested_ach_filled_at = sanitize_text(summary_fields.ach_filled_at)
+                if requested_ach_filled_at:
+                    updated_ach_filled_at = requested_ach_filled_at
+                elif not updated_ach_no:
+                    updated_ach_filled_at = ""
+                elif not sanitize_text(current_ach_no):
+                    updated_ach_filled_at = now_iso()
             updated_ticket_version = (
                 sanitize_text(summary_fields.ticket_version)
                 if summary_fields is not None
@@ -1029,7 +1051,7 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, ach_no = ?, ticket_version = ?,
+                SET title = ?, current_summary = ?, group_name = ?, environment = ?, ticket_type = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -1044,6 +1066,7 @@ class SQLiteTodoRepository:
                     updated_environment,
                     updated_ticket_type,
                     updated_ach_no,
+                    updated_ach_filled_at,
                     updated_ticket_version,
                     updated_feature_point,
                     updated_feature_point_source,
@@ -1132,7 +1155,7 @@ class SQLiteTodoRepository:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   ticket_type, ach_no, ticket_version,
+                   ticket_type, ach_no, ach_filled_at, ticket_version,
                    feature_point, feature_point_source,
                    root_cause_desc, root_cause_desc_source,
                    root_cause, root_cause_source,
@@ -1476,13 +1499,13 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         """
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
-          ticket_type, ach_no, ticket_version,
+          ticket_type, ach_no, ach_filled_at, ticket_version,
           feature_point, feature_point_source,
           root_cause_desc, root_cause_desc_source,
           root_cause, root_cause_source,
           conclusion_content, conclusion_updated_at,
           status, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
@@ -1490,6 +1513,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           environment=excluded.environment,
           ticket_type=excluded.ticket_type,
           ach_no=excluded.ach_no,
+          ach_filled_at=excluded.ach_filled_at,
           ticket_version=excluded.ticket_version,
           feature_point=excluded.feature_point,
           feature_point_source=excluded.feature_point_source,
@@ -1510,6 +1534,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.environment),
             sanitize_text(todo.summary_fields.ticket_type),
             sanitize_text(todo.summary_fields.ach_no),
+            sanitize_text(todo.summary_fields.ach_filled_at),
             sanitize_text(todo.summary_fields.ticket_version),
             sanitize_text(todo.summary_fields.feature_point),
             sanitize_text(todo.summary_fields.feature_point_source),

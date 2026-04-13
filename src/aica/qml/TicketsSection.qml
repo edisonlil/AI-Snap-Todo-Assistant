@@ -19,6 +19,7 @@ ColumnLayout {
     property var statusOptions: [
         { value: "open", text: "进行中" },
         { value: "done", text: "已完成" },
+        { value: "done_missing_ach", text: "已完成未填ACH" },
         { value: "all", text: "全部状态" }
     ]
 
@@ -1305,6 +1306,14 @@ ColumnLayout {
                                                 ticketSection.commitTicketFieldEdit("ach_no")
                                             }
                                             onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "ach填写时间"
+                                            value: controlPanelBridge.selectedTicket.achFilledAtLabel
+                                            placeholderText: "未填写"
                                         }
 
                                         DetailField {

@@ -539,6 +539,7 @@ def test_todo_store_persists_ach_no(tmp_path: Path):
             product_line=todo.summary_fields.product_line,
             ticket_type=todo.summary_fields.ticket_type,
             ach_no="ACH-2026-001",
+            ach_filled_at="2026-04-13T10:00:00",
             ticket_version=todo.summary_fields.ticket_version,
             feature_point=todo.summary_fields.feature_point,
             feature_point_source=todo.summary_fields.feature_point_source,
@@ -551,6 +552,7 @@ def test_todo_store_persists_ach_no(tmp_path: Path):
 
     assert updated is not None
     assert updated.summary_fields.ach_no == "ACH-2026-001"
+    assert updated.summary_fields.ach_filled_at == "2026-04-13T10:00:00"
 
 
 def test_schema_migration_adds_ach_no_column(tmp_path: Path):
