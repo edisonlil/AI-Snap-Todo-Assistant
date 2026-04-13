@@ -15,16 +15,75 @@ from aica.text_sanitize import sanitize_text
 
 
 ROOT_CAUSE_OPTIONS: tuple[str, ...] = (
-    "需求理解偏差",
-    "产品设计缺陷",
-    "配置错误",
-    "数据问题",
-    "权限问题",
-    "环境问题",
-    "接口/依赖异常",
-    "代码缺陷",
-    "操作不当",
-    "待确认",
+    "常规咨询/功能操作指引",
+    "常规咨询/其他常规咨询",
+    "集成问题/集成对接指导",
+    "集成问题/接口规范未遵循",
+    "集成问题/其他集成问题",
+    "集成问题/内部接口异常",
+    "产品设计如此/体验与交互类",
+    "产品设计如此/功能与逻辑类",
+    "产品设计如此/功能不支持",
+    "授权与许可问题/授权到期/失效",
+    "授权与许可问题/授权权限不足",
+    "授权与许可问题/授权证书异常",
+    "版本与兼容性问题/版本不兼容/低版本问题",
+    "版本与兼容性问题/微软不兼容问题",
+    "版本与兼容性问题/其他版本与兼容性问题",
+    "字体与渲染问题/服务端缺少字体",
+    "字体与渲染问题/客户端字体缺失",
+    "字体与渲染问题/字体渲染异常（跑版、模糊、多页）",
+    "字体与渲染问题/其他字体与渲染问题",
+    "环境问题/网络异常",
+    "环境问题/服务器宕机",
+    "环境问题/机房断电",
+    "环境问题/DNS解析失败",
+    "环境问题/时区不一致",
+    "环境问题/版本不兼容",
+    "环境问题/其他环境问题",
+    "资源问题/内存不足",
+    "资源问题/CPU占用过高",
+    "资源问题/并发冲突",
+    "资源问题/磁盘I/O瓶颈",
+    "资源问题/网络带宽耗尽",
+    "资源问题/连接池耗尽",
+    "资源问题/线程池阻塞",
+    "资源问题/其他资源问题",
+    "数据问题/特殊样张",
+    "数据问题/脏数据",
+    "数据问题/索引问题",
+    "数据问题/数据格式错误",
+    "数据问题/特殊字符",
+    "数据问题/数据缺失",
+    "数据问题/数据重复",
+    "数据问题/数据类型不匹配",
+    "数据问题/其他数据问题",
+    "配置问题/部署错误",
+    "配置问题/插件冲突",
+    "配置问题/版本不匹配",
+    "配置问题/配置项修改",
+    "配置问题/配置项缺失",
+    "配置问题/配置值错误",
+    "配置问题/动态配置未生效",
+    "配置问题/证书过期",
+    "配置问题/其他配置问题",
+    "外部干扰问题/第三方软件冲突",
+    "外部干扰问题/杀毒软件拦截",
+    "外部干扰问题/防火墙限制",
+    "外部干扰问题/第三方接口故障",
+    "外部干扰问题/依赖服务不可用",
+    "外部干扰问题/其他外部干扰问题",
+    "代码BUG/逻辑错误",
+    "代码BUG/内存泄漏",
+    "代码BUG/其他代码BUG",
+    "硬件故障问题/服务器硬盘损坏",
+    "硬件故障问题/内存条故障",
+    "硬件故障问题/网卡故障",
+    "硬件故障问题/交换机故障",
+    "硬件故障问题/存储设备故障",
+    "硬件故障问题/其他硬件故障问题",
+    "质量类其他问题",
+    "体验类其他问题",
 )
 
 
@@ -287,11 +346,19 @@ class TicketEnrichmentService:
     ) -> str:
         if self._llm_service is None:
             return ""
-        options = "、".join(ROOT_CAUSE_OPTIONS)
+        options = "\n".join(f"- {option}" for option in ROOT_CAUSE_OPTIONS)
         prompt = (
-            "请从给定枚举中选择一个最贴切的问题根因分类。"
-            f"可选值：{options}。"
-            "只输出枚举值本身，不要补充解释。"
+            "你是根因分类助手。请根据“根因描述”从以下固定可选根因分类中选择唯一一个最匹配的结果。\n\n"
+            "规则：\n"
+            "1. 只能从下面的固定可选根因分类中选择，禁止新增、改写、合并、拆分分类。\n"
+            "2. 输出必须与候选项完全一致。\n"
+            "3. 部分分类名称本身包含多个“/”，这也是分类名称的一部分，必须原样输出，例如“版本与兼容性问题/版本不兼容/低版本问题”。\n"
+            "4. 优先判断直接根因，不要按现象、影响或责任方分类。\n"
+            "5. 如果根因描述体现为配置未添加、漏配、缺少必要配置项、配置项不存在、未初始化、未下发，则优先输出“配置问题/配置项缺失”。\n"
+            "6. 如果信息不足无法准确判断，只能输出“质量类其他问题”或“体验类其他问题”中更合适的一项。\n"
+            "7. 只输出分类名称，不要输出解释、分析过程或其他内容。\n"
+            "固定可选根因分类：\n"
+            f"{options}"
         )
         try:
             result = self._llm_service.run_task(
@@ -311,7 +378,7 @@ class TicketEnrichmentService:
             )
         except Exception:  # noqa: BLE001
             return ""
-        normalized = _normalize_llm_text(result, limit=30)
+        normalized = _normalize_llm_text(result, limit=120)
         return _match_root_cause_option(normalized)
 
 
@@ -366,9 +433,24 @@ def _normalize_llm_text(value: str, *, limit: int) -> str:
 
 
 def _match_root_cause_option(value: str) -> str:
+    normalized_value = sanitize_text(value).strip()
+    if not normalized_value:
+        return ""
+    if normalized_value in ROOT_CAUSE_OPTIONS:
+        return normalized_value
+    value_compact = normalized_value.replace("/", "").replace(" ", "")
+    value_tail = normalized_value.split("/")[-1]
     if value in ROOT_CAUSE_OPTIONS:
         return value
     for option in ROOT_CAUSE_OPTIONS:
-        if option in value or value in option:
+        if option in normalized_value or normalized_value in option:
             return option
-    return "待确认" if value else ""
+        option_tail = option.split("/")[-1]
+        option_compact = option.replace("/", "").replace(" ", "")
+        if option_tail and option_tail in normalized_value:
+            return option
+        if value_tail and value_tail in option:
+            return option
+        if value_compact and value_compact in option_compact:
+            return option
+    return "质量类其他问题"

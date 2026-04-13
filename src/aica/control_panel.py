@@ -273,6 +273,7 @@ from aica.paths import (
 )
 from aica.models import TicketSummaryFields
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
+from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS
 from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
 
@@ -692,6 +693,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty("QVariantList", constant=True)
     def analysisRuleScenes(self):  # noqa: ANN201
         return build_scene_options_payload()
+
+    @pyqtProperty("QVariantList", constant=True)
+    def rootCauseOptions(self):  # noqa: ANN201
+        return list(ROOT_CAUSE_OPTIONS)
 
     @pyqtProperty(str, notify=dataChanged)
     def selectedAnalysisRuleScene(self) -> str:

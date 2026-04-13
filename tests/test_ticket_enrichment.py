@@ -15,9 +15,9 @@ class _LLMService:
 
     def run_task(self, task_name, *, messages, temperature=0.3, timeout=None):
         self.calls.append(messages[0].content)
-        if "根因描述" in messages[0].content:
+        if "总结一句简洁的根因描述" in messages[0].content:
             return "接口参数错误"
-        return "配置错误"
+        return "配置问题/配置项缺失"
 
 
 def test_ticket_enrichment_service_populates_auto_fields():
@@ -37,6 +37,6 @@ def test_ticket_enrichment_service_populates_auto_fields():
     assert outcome.summary_fields.feature_point_source == "auto"
     assert outcome.summary_fields.root_cause_desc == "接口参数错误"
     assert outcome.summary_fields.root_cause_desc_source == "auto"
-    assert outcome.summary_fields.root_cause == "配置错误"
+    assert outcome.summary_fields.root_cause == "配置问题/配置项缺失"
     assert outcome.summary_fields.root_cause_source == "auto"
     assert outcome.errors == []

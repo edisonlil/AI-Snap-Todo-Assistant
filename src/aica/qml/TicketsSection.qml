@@ -46,6 +46,67 @@ ColumnLayout {
         return ""
     }
 
+    function parseRootCausePath(value) {
+        var parts = String(value || "").split("/")
+        var level1 = parts.length > 0 ? parts[0] : ""
+        var level2 = parts.length > 1 ? parts[1] : ""
+        var level3 = parts.length > 2 ? parts.slice(2).join("/") : ""
+        return {
+            level1: level1,
+            level2: level2,
+            level3: level3
+        }
+    }
+
+    function rootCauseLevel1Options() {
+        var options = controlPanelBridge.rootCauseOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseRootCausePath(options[i])
+            var key = path.level1
+            if (!key || seen[key]) {
+                continue
+            }
+            seen[key] = true
+            result.push({ text: key, value: key })
+        }
+        return result
+    }
+
+    function rootCauseLevel2Options(level1) {
+        var selectedLevel1 = String(level1 || "")
+        var options = controlPanelBridge.rootCauseOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseRootCausePath(options[i])
+            if (path.level1 !== selectedLevel1 || !path.level2 || seen[path.level2]) {
+                continue
+            }
+            seen[path.level2] = true
+            result.push({ text: path.level2, value: path.level2 })
+        }
+        return result
+    }
+
+    function rootCauseLevel3Options(level1, level2) {
+        var selectedLevel1 = String(level1 || "")
+        var selectedLevel2 = String(level2 || "")
+        var options = controlPanelBridge.rootCauseOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseRootCausePath(options[i])
+            if (path.level1 !== selectedLevel1 || path.level2 !== selectedLevel2 || !path.level3 || seen[path.level3]) {
+                continue
+            }
+            seen[path.level3] = true
+            result.push({ text: path.level3, value: path.level3 })
+        }
+        return result
+    }
+
     function syncTicketFieldState() {
         var currentName = ticketFieldSavingName || ticketFieldEditingName
         if (!currentName || ticketFieldEditingName.length > 0) {
@@ -310,6 +371,409 @@ ColumnLayout {
                     color: "#E8DFD2"
                     opacity: 0.85
                 }
+            }
+        }
+    }
+
+    component RootCauseCascadeField: Rectangle {
+        id: rootField
+        required property var theme
+        property string label: ""
+        property string value: ""
+        property string placeholderText: "未生成"
+        property bool editing: false
+        property bool saving: false
+        property bool compact: false
+        property string level1: ""
+        property string level2: ""
+        property string level3: ""
+        property var level1Options: []
+        property var level2Options: []
+        property var level3Options: []
+        signal clicked
+        signal accepted(string value)
+        signal canceled
+
+        function displayPath(rawValue) {
+            var text = String(rawValue || "")
+            if (!text) {
+                return ""
+            }
+            var parts = text.split("/")
+            return parts.join(" / ")
+        }
+
+        function composeValue() {
+            if (!level1) {
+                return ""
+            }
+            if (!level2) {
+                return level1
+            }
+            if (!level3) {
+                return level1 + "/" + level2
+            }
+            return level1 + "/" + level2 + "/" + level3
+        }
+
+        function ensureSelection(options, preferred) {
+            var next = String(preferred || "")
+            if (!options || options.length === 0) {
+                return ""
+            }
+            for (var i = 0; i < options.length; i += 1) {
+                if (options[i].value === next) {
+                    return next
+                }
+            }
+            return options[0].value
+        }
+
+        function syncCascadeFromValue(rawValue) {
+            var parsed = ticketSection.parseRootCausePath(rawValue)
+            level1Options = ticketSection.rootCauseLevel1Options()
+            level1 = ensureSelection(level1Options, parsed.level1)
+            level2Options = ticketSection.rootCauseLevel2Options(level1)
+            level2 = ensureSelection(level2Options, parsed.level2)
+            level3Options = ticketSection.rootCauseLevel3Options(level1, level2)
+            level3 = ensureSelection(level3Options, parsed.level3)
+        }
+
+        onEditingChanged: {
+            if (editing) {
+                syncCascadeFromValue(value)
+            }
+        }
+
+        radius: 0
+        color: "transparent"
+        border.width: 0
+        implicitHeight: fieldColumn.implicitHeight + 14
+
+        ColumnLayout {
+            id: fieldColumn
+            anchors.fill: parent
+            anchors.leftMargin: 6
+            anchors.rightMargin: 6
+            anchors.topMargin: 4
+            anchors.bottomMargin: 10
+            spacing: 5
+
+            Text {
+                Layout.fillWidth: true
+                text: rootField.label
+                color: theme.labelInk
+                font.family: theme.uiFont
+                font.pixelSize: 10
+                font.weight: 500
+                elide: Text.ElideRight
+                opacity: 0.72
+            }
+
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: rootField.editing ? cascadeEditor.implicitHeight : valueRow.implicitHeight
+
+                RowLayout {
+                    id: valueRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    visible: !rootField.editing
+                    spacing: 8
+
+                    BusyIndicator {
+                        visible: rootField.saving
+                        running: rootField.saving
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        implicitHeight: valueText.implicitHeight
+
+                        Text {
+                            id: valueText
+                            anchors.left: parent.left
+                            anchors.right: valueAction.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: 10
+                            text: rootField.value.length > 0 ? rootField.displayPath(rootField.value) : rootField.placeholderText
+                            color: rootField.value.length > 0 ? theme.titleInk : "#A2907A"
+                            font.family: theme.uiFont
+                            font.pixelSize: rootField.compact ? 12 : 13
+                            font.weight: rootField.value.length > 0 ? 500 : 400
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            id: valueAction
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: hoverArea.containsMouse && !rootField.saving
+                            text: "✎"
+                            color: theme.accent
+                            font.family: theme.uiFont
+                            font.pixelSize: 11
+                            opacity: 0.75
+                        }
+
+                        MouseArea {
+                            id: hoverArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: !rootField.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            enabled: !rootField.saving
+                            onClicked: rootField.clicked()
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    id: cascadeEditor
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    visible: rootField.editing
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        ComboBox {
+                            id: level1Combo
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: Math.max(120, (cascadeEditor.width - 84) / 3)
+                            implicitHeight: 32
+                            model: rootField.level1Options
+                            textRole: "text"
+                            currentIndex: rootField.theme.optionIndex(rootField.level1Options, rootField.level1)
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: rootField.compact ? 11 : 12
+                            leftPadding: 10
+                            rightPadding: 22
+                            topPadding: 6
+                            bottomPadding: 6
+
+                            contentItem: Text {
+                                text: level1Combo.displayText
+                                color: rootField.theme.titleInk
+                                font.family: rootField.theme.uiFont
+                                font.pixelSize: rootField.compact ? 11 : 12
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
+                            indicator: Canvas {
+                                x: level1Combo.width - width - 8
+                                y: (level1Combo.height - height) / 2
+                                width: 8
+                                height: 5
+                                contextType: "2d"
+                                onPaint: {
+                                    context.reset()
+                                    context.moveTo(0, 0)
+                                    context.lineTo(width, 0)
+                                    context.lineTo(width / 2, height)
+                                    context.closePath()
+                                    context.fillStyle = rootField.theme.labelInk
+                                    context.fill()
+                                }
+                            }
+
+                            background: Rectangle {
+                                radius: 7
+                                color: "#FFFEFC"
+                                border.width: 1
+                                border.color: level1Combo.activeFocus ? rootField.theme.accent : "#D9CCBC"
+                            }
+
+                            onActivated: {
+                                if (currentIndex < 0 || currentIndex >= rootField.level1Options.length) {
+                                    return
+                                }
+                                rootField.level1 = rootField.level1Options[currentIndex].value
+                                rootField.level2Options = ticketSection.rootCauseLevel2Options(rootField.level1)
+                                rootField.level2 = rootField.ensureSelection(rootField.level2Options, "")
+                                rootField.level3Options = ticketSection.rootCauseLevel3Options(rootField.level1, rootField.level2)
+                                rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
+                            }
+                        }
+
+                        Text {
+                            visible: rootField.level2Options.length > 0
+                            text: "/"
+                            color: rootField.theme.labelInk
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: 12
+                            opacity: 0.82
+                        }
+
+                        ComboBox {
+                            id: level2Combo
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: Math.max(110, (cascadeEditor.width - 84) / 3)
+                            visible: rootField.level2Options.length > 0
+                            implicitHeight: 32
+                            model: rootField.level2Options
+                            textRole: "text"
+                            currentIndex: rootField.theme.optionIndex(rootField.level2Options, rootField.level2)
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: rootField.compact ? 11 : 12
+                            leftPadding: 10
+                            rightPadding: 22
+                            topPadding: 6
+                            bottomPadding: 6
+
+                            contentItem: Text {
+                                text: level2Combo.displayText
+                                color: rootField.theme.titleInk
+                                font.family: rootField.theme.uiFont
+                                font.pixelSize: rootField.compact ? 11 : 12
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
+                            indicator: Canvas {
+                                x: level2Combo.width - width - 8
+                                y: (level2Combo.height - height) / 2
+                                width: 8
+                                height: 5
+                                contextType: "2d"
+                                onPaint: {
+                                    context.reset()
+                                    context.moveTo(0, 0)
+                                    context.lineTo(width, 0)
+                                    context.lineTo(width / 2, height)
+                                    context.closePath()
+                                    context.fillStyle = rootField.theme.labelInk
+                                    context.fill()
+                                }
+                            }
+
+                            background: Rectangle {
+                                radius: 7
+                                color: "#FFFEFC"
+                                border.width: 1
+                                border.color: level2Combo.activeFocus ? rootField.theme.accent : "#D9CCBC"
+                            }
+
+                            onActivated: {
+                                if (currentIndex < 0 || currentIndex >= rootField.level2Options.length) {
+                                    return
+                                }
+                                rootField.level2 = rootField.level2Options[currentIndex].value
+                                rootField.level3Options = ticketSection.rootCauseLevel3Options(rootField.level1, rootField.level2)
+                                rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
+                            }
+                        }
+
+                        Text {
+                            visible: rootField.level3Options.length > 0
+                            text: "/"
+                            color: rootField.theme.labelInk
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: 12
+                            opacity: 0.82
+                        }
+
+                        ComboBox {
+                            id: level3Combo
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: Math.max(110, (cascadeEditor.width - 84) / 3)
+                            visible: rootField.level3Options.length > 0
+                            implicitHeight: 32
+                            model: rootField.level3Options
+                            textRole: "text"
+                            currentIndex: rootField.theme.optionIndex(rootField.level3Options, rootField.level3)
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: rootField.compact ? 11 : 12
+                            leftPadding: 10
+                            rightPadding: 22
+                            topPadding: 6
+                            bottomPadding: 6
+
+                            contentItem: Text {
+                                text: level3Combo.displayText
+                                color: rootField.theme.titleInk
+                                font.family: rootField.theme.uiFont
+                                font.pixelSize: rootField.compact ? 11 : 12
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
+                            indicator: Canvas {
+                                x: level3Combo.width - width - 8
+                                y: (level3Combo.height - height) / 2
+                                width: 8
+                                height: 5
+                                contextType: "2d"
+                                onPaint: {
+                                    context.reset()
+                                    context.moveTo(0, 0)
+                                    context.lineTo(width, 0)
+                                    context.lineTo(width / 2, height)
+                                    context.closePath()
+                                    context.fillStyle = rootField.theme.labelInk
+                                    context.fill()
+                                }
+                            }
+
+                            background: Rectangle {
+                                radius: 7
+                                color: "#FFFEFC"
+                                border.width: 1
+                                border.color: level3Combo.activeFocus ? rootField.theme.accent : "#D9CCBC"
+                            }
+
+                            onActivated: {
+                                if (currentIndex < 0 || currentIndex >= rootField.level3Options.length) {
+                                    return
+                                }
+                                rootField.level3 = rootField.level3Options[currentIndex].value
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: "保存"
+                            color: rootField.theme.accent
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: 11
+                            font.weight: 600
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: rootField.accepted(rootField.composeValue())
+                            }
+                        }
+
+                        Text {
+                            text: "取消"
+                            color: rootField.theme.labelInk
+                            font.family: rootField.theme.uiFont
+                            font.pixelSize: 11
+                            font.weight: 500
+                            opacity: 0.88
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: rootField.canceled()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                visible: !rootField.editing
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: "#E8DFD2"
+                opacity: 0.85
             }
         }
     }
@@ -854,17 +1318,15 @@ ColumnLayout {
                                             onCanceled: ticketSection.cancelTicketFieldEdit()
                                         }
 
-                                        DetailField {
+                                        RootCauseCascadeField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u95ee\u9898\u6839\u56e0"
                                             value: ticketSection.ticketFieldEditingName === "rootCause" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCause
                                             placeholderText: "\u672a\u751f\u6210"
-                                            editable: true
                                             editing: ticketSection.ticketFieldEditingName === "rootCause"
                                             saving: ticketSection.ticketFieldSavingName === "rootCause"
                                             compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.ticketFieldDraft
                                             onClicked: ticketSection.beginTicketFieldEdit("rootCause")
                                             onAccepted: function(value) {
                                                 ticketSection.ticketFieldDraft = value
