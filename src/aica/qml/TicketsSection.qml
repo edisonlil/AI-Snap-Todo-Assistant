@@ -1291,6 +1291,25 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
+                                            label: "ach单号"
+                                            value: ticketSection.ticketFieldEditingName === "achNo" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.achNo
+                                            placeholderText: "未填写"
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "achNo"
+                                            saving: ticketSection.ticketFieldSavingName === "achNo"
+                                            compact: ticketSection.detailGridColumns === 1
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("achNo")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("ach_no")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
                                             Layout.columnSpan: ticketSection.detailGridColumns
                                             label: "项目关联"
                                             value: controlPanelBridge.selectedTicket.projectStatusDetail
@@ -1328,25 +1347,6 @@ ColumnLayout {
                                             label: "产品线"
                                             value: controlPanelBridge.selectedTicket.productLine
                                             placeholderText: "未填写"
-                                        }
-
-                                        DetailField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            label: "ach单号"
-                                            value: ticketSection.ticketFieldEditingName === "achNo" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.achNo
-                                            placeholderText: "未填写"
-                                            editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "achNo"
-                                            saving: ticketSection.ticketFieldSavingName === "achNo"
-                                            compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.ticketFieldDraft
-                                            onClicked: ticketSection.beginTicketFieldEdit("achNo")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("ach_no")
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
                                         }
 
                                         DetailField {
