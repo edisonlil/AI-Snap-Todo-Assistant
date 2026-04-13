@@ -812,6 +812,32 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
+                                            label: "产品线"
+                                            value: controlPanelBridge.selectedTicket.productLine
+                                            placeholderText: "未填写"
+                                        }
+
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "\u7248\u672c\u53f7"
+                                            value: ticketSection.ticketFieldEditingName === "ticketVersion" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.ticketVersion
+                                            placeholderText: "\u672a\u586b\u5199"
+                                            editable: true
+                                            editing: ticketSection.ticketFieldEditingName === "ticketVersion"
+                                            saving: ticketSection.ticketFieldSavingName === "ticketVersion"
+                                            compact: ticketSection.detailGridColumns === 1
+                                            draftValue: ticketSection.ticketFieldDraft
+                                            onClicked: ticketSection.beginTicketFieldEdit("ticketVersion")
+                                            onAccepted: function(value) {
+                                                ticketSection.ticketFieldDraft = value
+                                                ticketSection.commitTicketFieldEdit("ticket_version")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                        }
+                                        DetailField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
                                             label: "\u529f\u80fd\u70b9"
                                             value: ticketSection.ticketFieldEditingName === "featurePoint" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.featurePoint
                                             placeholderText: "\u672a\u751f\u6210"
@@ -850,14 +876,6 @@ ColumnLayout {
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            label: "产品线"
-                                            value: controlPanelBridge.selectedTicket.productLine
-                                            placeholderText: "未填写"
-                                        }
-
-                                        DetailField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
                                             label: "项目经理"
                                             value: controlPanelBridge.selectedTicket.projectManager
                                             placeholderText: "未填写"
@@ -877,25 +895,6 @@ ColumnLayout {
                                             label: "最近更新"
                                             value: controlPanelBridge.selectedTicket.updatedAtLabel
                                             placeholderText: "未知"
-                                        }
-
-                                        DetailField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            label: "版本号"
-                                            value: ticketSection.ticketFieldEditingName === "ticketVersion" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.ticketVersion
-                                            placeholderText: "未填写"
-                                            editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "ticketVersion"
-                                            saving: ticketSection.ticketFieldSavingName === "ticketVersion"
-                                            compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.ticketFieldDraft
-                                            onClicked: ticketSection.beginTicketFieldEdit("ticketVersion")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("ticket_version")
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
                                         }
 
                                         DetailField {

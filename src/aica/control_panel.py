@@ -1618,7 +1618,7 @@ class _ControlPanelBridge(QObject):
         if todo is None:
             self._selected_ticket_id = ""
             self._selected_ticket = self._empty_ticket_detail_payload()
-            self._error_message = "????????????"
+            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
             self._emit_data_changed()
             return
         next_value = str(value or "").strip()
@@ -1639,18 +1639,18 @@ class _ControlPanelBridge(QObject):
             ),
         )
         if updated is None:
-            self._error_message = "?????????"
+            self._error_message = "\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
         self._refresh_ticket_payloads()
         self._selected_ticket = self._build_ticket_detail_payload(updated)
         field_labels = {
-            "ticket_version": "????",
-            "feature_point": "???",
-            "root_cause": "????",
-            "root_cause_desc": "????",
+            "ticket_version": "\u7248\u672c\u53f7",
+            "feature_point": "\u529f\u80fd\u70b9",
+            "root_cause": "\u95ee\u9898\u6839\u56e0",
+            "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
         }
-        self._status_message = f"{field_labels.get(normalized_field, '????')}????"
+        self._status_message = f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58"
         self._emit_data_changed()
 
     @pyqtSlot(str, str)
