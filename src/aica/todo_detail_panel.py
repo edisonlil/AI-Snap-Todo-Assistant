@@ -233,9 +233,9 @@ from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoI
 
 _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
-_MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
+_MANUAL_SCENARIO = "\u95ee\u9898\u53cd\u9988"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
-_CONCLUSION_SCENARIO = "\u7ed3\u8bba\u66f4\u65b0"
+_CONCLUSION_SCENARIO = "\u95ee\u9898\u7ed3\u8bba"
 _CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
 _ENTRY_TYPE_FOLLOW_UP = "follow_up"
 _ENTRY_TYPE_CONCLUSION = "conclusion"
@@ -261,6 +261,8 @@ def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
 
 
 def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
+    if kind == "conclusion":
+        return _CONCLUSION_SCENARIO
     if kind == "manual":
         return _MANUAL_SCENARIO
     return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
@@ -285,6 +287,19 @@ def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
     if content == "/":
         return "", normalized_type
     return content, normalized_type
+
+
+def _normalize_display_timeline(events: list[TimelineEvent]) -> list[TimelineEvent]:
+    latest_conclusion: TimelineEvent | None = None
+    remaining: list[TimelineEvent] = []
+    for event in events:
+        if str(event.kind or "").strip() == "conclusion":
+            latest_conclusion = event
+            continue
+        remaining.append(event)
+    if latest_conclusion is None:
+        return list(reversed(remaining))
+    return [latest_conclusion] + list(reversed(remaining))
 
 
 def _project_status_label(status: str) -> str:
@@ -661,7 +676,7 @@ class _TodoDetailBridge(QObject):
                 "attachments": [self._attachment_to_dict(item) for item in event.attachments],
                 "attachmentCount": len(event.attachments),
             }
-            for event in reversed(todo.timeline)
+            for event in _normalize_display_timeline(todo.timeline)
         ]
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
@@ -773,8 +788,9 @@ class _TodoDetailBridge(QObject):
             self._emit_save_request()
             return
         timestamp = datetime.now().isoformat()
+        insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
         self._timeline.insert(
-            0,
+            insert_index,
             {
                 "id": str(uuid.uuid4()),
                 "timestamp": timestamp,

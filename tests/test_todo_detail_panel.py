@@ -1,6 +1,7 @@
 from aica import todo_detail_panel as module
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import (
+    _CONCLUSION_SCENARIO,
     _ENTRY_TYPE_CONCLUSION,
     _ENTRY_TYPE_FOLLOW_UP,
     _MANUAL_SCENARIO,
@@ -108,6 +109,50 @@ def test_commit_timeline_content_persists_manual_edits() -> None:
     assert isinstance(timeline, list)
     assert timeline[-1].content == "manual follow-up updated"
     assert timeline[-1].kind == "manual"
+
+
+def test_set_todo_keeps_latest_conclusion_single_and_pinned_to_top() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[
+                TimelineEvent(content="first follow-up", kind="manual", scenario="手动跟进"),
+                TimelineEvent(content="old conclusion", kind="conclusion", scenario="结论更新"),
+                TimelineEvent(content="second follow-up", kind="manual", scenario="手动跟进"),
+                TimelineEvent(content="latest conclusion", kind="conclusion", scenario="结论更新"),
+            ],
+        )
+    )
+
+    assert bridge.timelineCount == 3
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "latest conclusion"
+    assert bridge.timeline[0]["scenario"] == _CONCLUSION_SCENARIO
+    assert [item["content"] for item in bridge.timeline[1:]] == ["second follow-up", "first follow-up"]
+
+
+def test_add_follow_up_keeps_existing_conclusion_at_top() -> None:
+    bridge = _TodoDetailBridge()
+    bridge.set_todo(
+        TodoItem(
+            title="title",
+            summary_fields=TicketSummaryFields(),
+            current_summary="summary",
+            timeline=[
+                TimelineEvent(content="latest conclusion", kind="conclusion", scenario="结论更新"),
+            ],
+        )
+    )
+
+    bridge.addTimelineEntry("manual follow-up", _ENTRY_TYPE_FOLLOW_UP)
+
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "latest conclusion"
+    assert bridge.timeline[1]["kind"] == "manual"
+    assert bridge.timeline[1]["scenario"] == _MANUAL_SCENARIO
 
 
 def test_save_todo_persists_live_timeline_edits_without_blur() -> None:

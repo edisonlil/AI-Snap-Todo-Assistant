@@ -319,3 +319,34 @@ def test_update_todo_does_not_duplicate_existing_conclusion_timeline_event(tmp_p
     assert updated is not None
     conclusion_events = [event for event in updated.timeline if event.kind == "conclusion"]
     assert len(conclusion_events) == 1
+
+
+def test_update_todo_replaces_old_conclusion_event_with_latest_one(tmp_path: Path):
+    controller = _build_controller(tmp_path)
+    created = controller.save_analysis_result(
+        _snapshot("title", "summary", "timeline"),
+        "todo assistant",
+    )
+    existing_timeline = [
+        TimelineEvent(content="timeline"),
+        TimelineEvent(
+            kind="conclusion",
+            scenario="结论更新",
+            content="old conclusion",
+        ),
+    ]
+
+    updated = controller.update_todo(
+        created.todo.id,
+        timeline=existing_timeline,
+        conclusion=TodoConclusion(
+            content="latest conclusion",
+            updated_at="2026-04-13T12:00:00",
+        ),
+    )
+
+    assert updated is not None
+    conclusion_events = [event for event in updated.timeline if event.kind == "conclusion"]
+    assert len(conclusion_events) == 1
+    assert conclusion_events[0].content == "latest conclusion"
+    assert updated.timeline[-1].kind == "conclusion"
