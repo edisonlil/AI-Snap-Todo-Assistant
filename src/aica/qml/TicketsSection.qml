@@ -16,6 +16,7 @@ ColumnLayout {
     property string ticketFieldDraft: ""
     property string ticketFieldOriginal: ""
     property string ticketFieldPending: ""
+    property bool deleteTicketConfirmVisible: false
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -179,6 +180,26 @@ ColumnLayout {
                 ticketFieldActionName = ""
             }
         })
+    }
+
+    function requestDeleteSelectedTicket() {
+        if (!controlPanelBridge.selectedTicket.id || ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
+            return
+        }
+        deleteTicketConfirmVisible = true
+    }
+
+    function cancelDeleteSelectedTicket() {
+        deleteTicketConfirmVisible = false
+    }
+
+    function confirmDeleteSelectedTicket() {
+        if (!controlPanelBridge.selectedTicket.id) {
+            deleteTicketConfirmVisible = false
+            return
+        }
+        deleteTicketConfirmVisible = false
+        controlPanelBridge.deleteSelectedTicket()
     }
 
     ControlPanelSectionCard {
@@ -377,11 +398,82 @@ ColumnLayout {
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "返回列表"
-                        onClicked: controlPanelBridge.backToTicketList()
+                        onClicked: {
+                            ticketSection.cancelDeleteSelectedTicket()
+                            controlPanelBridge.backToTicketList()
+                        }
                     }
 
                     Item {
                         Layout.fillWidth: true
+                    }
+
+                    ControlPanelPlainButton {
+                        theme: ticketSection.theme
+                        label: "\u5220\u9664\u5de5\u5355"
+                        fillColor: "#FFF3F1"
+                        inkColor: "#8B3A2C"
+                        onClicked: ticketSection.requestDeleteSelectedTicket()
+                    }
+                }
+
+                Rectangle {
+                    visible: ticketSection.deleteTicketConfirmVisible
+                    Layout.fillWidth: true
+                    radius: 18
+                    color: "#FFF7F4"
+                    border.width: 1
+                    border.color: "#E7C8BF"
+                    implicitHeight: deleteConfirmColumn.implicitHeight + 24
+
+                    ColumnLayout {
+                        id: deleteConfirmColumn
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 10
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "\u786e\u8ba4\u5220\u9664\u5f53\u524d\u5de5\u5355\u5417\uff1f"
+                            color: theme.titleInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 13
+                            font.weight: 700
+                            wrapMode: Text.Wrap
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "\u5220\u9664\u540e\u65e0\u6cd5\u6062\u590d\uff0c\u5de5\u5355\u8be6\u60c5\u3001\u8ddf\u8fdb\u8bb0\u5f55\u548c\u9644\u4ef6\u5173\u8054\u90fd\u4f1a\u4e00\u8d77\u79fb\u9664\u3002"
+                            color: theme.labelInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: ticketSection.theme
+                                label: "\u53d6\u6d88"
+                                onClicked: ticketSection.cancelDeleteSelectedTicket()
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: ticketSection.theme
+                                label: "\u786e\u8ba4\u5220\u9664"
+                                fillColor: "#C84E3A"
+                                inkColor: "#FFFFFF"
+                                strokeWidth: 0
+                                onClicked: ticketSection.confirmDeleteSelectedTicket()
+                            }
+                        }
                     }
                 }
 

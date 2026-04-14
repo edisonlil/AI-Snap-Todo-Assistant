@@ -185,6 +185,13 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     bridge.listTickets("", "done_missing_ach")
     assert [item["id"] for item in bridge.tickets] == [done_todo.id]
 
+    bridge.openTicketDetail(open_todo.id)
+    bridge.deleteSelectedTicket()
+    assert bridge.selectedTicket["id"] == ""
+    assert store.get_todo(open_todo.id) is None
+    assert [item["id"] for item in bridge.tickets] == []
+    assert "\u5de5\u5355\u5df2\u5220\u9664" in bridge.statusMessage
+
 
 def test_control_panel_feature_point_refresh_requires_product_line(monkeypatch, tmp_path: Path):
     db_path, config_path = _patch_control_panel_dependencies(monkeypatch, tmp_path)

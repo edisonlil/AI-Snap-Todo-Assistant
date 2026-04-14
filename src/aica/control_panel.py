@@ -1641,6 +1641,25 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         self._emit_data_changed()
 
+    @pyqtSlot()
+    def deleteSelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        self._clear_messages()
+        deleted = self._todo_store.delete_todo(todo.id)
+        if not deleted:
+            self._error_message = "\u5220\u9664\u5de5\u5355\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
+        self._refresh_ticket_payloads()
+        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
+        self._emit_data_changed()
+
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:
         self.saveSelectedTicketField("ticket_version", value)
