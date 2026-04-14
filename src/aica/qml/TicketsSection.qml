@@ -17,6 +17,7 @@ ColumnLayout {
     property string ticketFieldOriginal: ""
     property string ticketFieldPending: ""
     property bool deleteTicketConfirmVisible: false
+    property string copyToastMessage: ""
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -24,6 +25,76 @@ ColumnLayout {
         { value: "done_missing_ach", text: "已完成未填ACH" },
         { value: "all", text: "全部状态" }
     ]
+
+    function ticketFieldText(value) {
+        if (value === null || value === undefined) {
+            return ""
+        }
+        return String(value)
+    }
+
+    function formatProduct(product) {
+        var value = ticketFieldText(product)
+        if (!value) {
+            return ""
+        }
+        if (value === "WPS\u534f\u4f5c") {
+            return "WPS\u534f\u4f5c\uff08\u6cdb\uff09/\u534f\u4f5c-\u79c1\u7f51"
+        }
+        if (value === "\u6587\u6863\u4e2d\u53f0") {
+            return "\u6587\u6863\u4e2d\u53f0/V7"
+        }
+        if (value === "\u6587\u6863\u4e2d\u5fc3") {
+            return "\u6587\u6863\u4e2d\u5fc3/V7"
+        }
+        return value
+    }
+
+    function formatProjectName(projectName) {
+        if (projectName === null || projectName === undefined) {
+            return ""
+        }
+        if (Array.isArray(projectName)) {
+            return projectName.join(",")
+        }
+        return String(projectName)
+    }
+
+    function formatTicketForTool(ticket) {
+        return "\u6807\u9898: " + ticketFieldText(ticket.title) + "\n"
+            + "\u4e8c\u7ebf: \u5426\n"
+            + "\u7ed3\u8bba: " + ticketFieldText(ticket.conclusionContent) + "\n"
+            + "\u5ba2\u6237\u540d\u79f0: " + ticketFieldText(ticket.customerName) + "\n"
+            + "\u9879\u76ee\u540d\u79f0: " + formatProjectName(ticket.projectName) + "\n"
+            + "\u529f\u80fd\u70b9: " + ticketFieldText(ticket.featurePoint) + "\n"
+            + "\u7248\u672c: " + ticketFieldText(ticket.ticketVersion) + "\n"
+            + "\u6839\u56e0\u5206\u7c7b: " + ticketFieldText(ticket.rootCause) + "\n"
+            + "\u6839\u56e0\u63cf\u8ff0: " + ticketFieldText(ticket.rootCauseDesc) + "\n"
+            + "\u4ea7\u54c1: " + formatProduct(ticket.productLine) + "\n"
+            + "\u63cf\u8ff0: " + ticketFieldText(ticket.summary)
+    }
+
+    function showCopyToast(message) {
+        copyToastMessage = message
+        copyToast.open()
+        copyToastTimer.restart()
+    }
+
+    function copyTicketForTool() {
+        if (!controlPanelBridge.selectedTicket.id) {
+            showCopyToast("\u590d\u5236\u5931\u8d25")
+            return
+        }
+        try {
+            ticketClipboardBuffer.text = formatTicketForTool(controlPanelBridge.selectedTicket)
+            ticketClipboardBuffer.selectAll()
+            ticketClipboardBuffer.copy()
+            ticketClipboardBuffer.deselect()
+            showCopyToast("\u5df2\u590d\u5236")
+        } catch (error) {
+            showCopyToast("\u590d\u5236\u5931\u8d25")
+        }
+    }
 
     function currentStatusValue() {
         var index = ticketStatusCombo.currentIndex
@@ -203,10 +274,59 @@ ColumnLayout {
     }
 
     ControlPanelSectionCard {
+        id: ticketSectionCard
         theme: ticketSection.theme
         Layout.fillWidth: true
         implicitHeight: ticketContent.implicitHeight + 32
         color: "#F6F0E6"
+
+        TextEdit {
+            id: ticketClipboardBuffer
+            width: 0
+            height: 0
+            opacity: 0
+            visible: true
+            textFormat: TextEdit.PlainText
+            wrapMode: TextEdit.NoWrap
+            selectByMouse: false
+            persistentSelection: true
+            readOnly: true
+        }
+
+        Popup {
+            id: copyToast
+            parent: ticketSectionCard
+            x: Math.round(ticketSectionCard.width - width - 24)
+            y: 24
+            padding: 0
+            margins: 0
+            modal: false
+            dim: false
+            focus: false
+            closePolicy: Popup.NoAutoClose
+            background: Rectangle {
+                radius: 12
+                color: "#2F241A"
+                opacity: 0.94
+            }
+            contentItem: Text {
+                leftPadding: 14
+                rightPadding: 14
+                topPadding: 10
+                bottomPadding: 10
+                text: ticketSection.copyToastMessage
+                color: "#FFF9F1"
+                font.family: ticketSection.theme.uiFont
+                font.pixelSize: 12
+            }
+        }
+
+        Timer {
+            id: copyToastTimer
+            interval: 1400
+            repeat: false
+            onTriggered: copyToast.close()
+        }
 
         ColumnLayout {
             id: ticketContent
@@ -406,6 +526,12 @@ ColumnLayout {
 
                     Item {
                         Layout.fillWidth: true
+                    }
+
+                    ControlPanelPlainButton {
+                        theme: ticketSection.theme
+                        label: "\u590d\u5236\u5de5\u5355"
+                        onClicked: ticketSection.copyTicketForTool()
                     }
 
                     ControlPanelPlainButton {
