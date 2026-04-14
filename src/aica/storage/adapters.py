@@ -80,7 +80,7 @@ def build_summary_fields(
     root_cause_source: str = "",
     project_snapshot: dict[str, str] | None = None,
 ) -> TicketSummaryFields:
-    normalized_product_line = sanitize_text(product_line) or sanitize_text((project_snapshot or {}).get("product_line", ""))
+    normalized_product_line = sanitize_text(product_line)
     fields = TicketSummaryFields(
         group_name=group_name,
         environment=environment,
@@ -190,6 +190,9 @@ def deserialize_legacy_todo_item(payload: dict[str, Any]) -> TodoItem:
         )
     else:
         current_summary = str(payload.get("current_summary", ""))
+    summary_payload = summary_fields.to_dict()
+    summary_payload["product_line"] = ""
+    summary_fields = TicketSummaryFields.from_dict(summary_payload)
 
     timeline_payload = payload.get("timeline", [])
     timeline = [

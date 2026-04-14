@@ -1,6 +1,7 @@
 from aica.analysis_rules import AnalysisRuleConfig, SceneAnalysisRule, UserRuleConfig
 from aica.analysis_intent import build_analysis_intent
 from aica.analysis_strategy import build_analysis_prompt_bundle_from_rules, build_analysis_text_prompt
+from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE
 
 
 def test_analysis_prompt_changes_with_scene_type():
@@ -25,6 +26,16 @@ def test_analysis_prompt_mentions_sequence_for_multi_capture():
 
     assert "连续截图" in prompt
     assert "按顺序" in prompt
+
+
+def test_analysis_prompt_does_not_request_fixed_product_line():
+    prompt = build_analysis_text_prompt(
+        build_analysis_intent("chat_feedback", capture_count=1),
+        context_text="",
+        image_count=1,
+    )
+
+    assert DEFAULT_PRODUCT_LINE not in prompt
 
 
 def test_analysis_prompt_bundle_appends_user_rules_last():

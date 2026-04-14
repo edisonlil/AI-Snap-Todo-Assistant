@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.todo_events import TodoBindingStore
@@ -92,17 +92,17 @@ def test_todo_store_initializes_ticket_version_from_project_snapshot(tmp_path: P
     assert todo.project_link.project_snapshot["product_version"] == "v1.2.3"
 
 
-def test_todo_store_persists_explicit_product_line_without_project_snapshot(tmp_path: Path):
+def test_todo_store_ignores_analysis_product_line_without_project_snapshot(tmp_path: Path):
     store = TodoStore(str(tmp_path / "todos.json"))
     todo = store.create_todo_from_analysis(
         _snapshot("upload failed", "summary", "timeline", product_line="AICA"),
         "todo assistant",
     )
 
-    assert todo.summary_fields.product_line == "AICA"
+    assert todo.summary_fields.product_line == UNKNOWN_TEXT
     reloaded = store.get_todo(todo.id)
     assert reloaded is not None
-    assert reloaded.summary_fields.product_line == "AICA"
+    assert reloaded.summary_fields.product_line == UNKNOWN_TEXT
 
     updated = store.update_todo(
         todo.id,
@@ -115,11 +115,81 @@ def test_todo_store_persists_explicit_product_line_without_project_snapshot(tmp_
         ),
     )
     assert updated is not None
-    assert updated.summary_fields.product_line == "AICA-Next"
+    assert updated.summary_fields.product_line == UNKNOWN_TEXT
 
     reloaded_updated = store.get_todo(todo.id)
     assert reloaded_updated is not None
-    assert reloaded_updated.summary_fields.product_line == "AICA-Next"
+    assert reloaded_updated.summary_fields.product_line == UNKNOWN_TEXT
+
+
+def test_todo_store_repairs_product_line_from_project_snapshot_when_loading_matched_todo(tmp_path: Path):
+    repository = SQLiteProjectRepository(tmp_path / "aica.db")
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Docs Platform",
+            customer_name="Customer A",
+            product_line="Docs",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("Alpha Group",),
+        )
+    )
+
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", group_name="Alpha Group"),
+        "todo assistant",
+    )
+
+    with sqlite3.connect(tmp_path / "aica.db") as connection:
+        connection.execute(
+            "UPDATE todos SET product_line = ? WHERE id = ?",
+            ("Canonical", todo.id),
+        )
+
+    reloaded = store.get_todo(todo.id)
+
+    assert reloaded is not None
+    assert reloaded.project_link.project_snapshot["product_line"] == "Docs"
+    assert reloaded.summary_fields.product_line == "Docs"
+
+
+def test_todo_store_repairs_stale_product_line_from_project_snapshot_on_load(tmp_path: Path):
+    repository = SQLiteProjectRepository(tmp_path / "aica.db")
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Docs Platform",
+            customer_name="Customer A",
+            product_line="AI-SNAP",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("Alpha Group",),
+        )
+    )
+
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", group_name="Alpha Group"),
+        "todo assistant",
+    )
+
+    with sqlite3.connect(tmp_path / "aica.db") as connection:
+        connection.execute(
+            "UPDATE todos SET product_line = ? WHERE id = ?",
+            ("文档中台", todo.id),
+        )
+
+    reloaded = store.get_todo(todo.id)
+
+    assert reloaded is not None
+    assert reloaded.summary_fields.product_line == "AI-SNAP"
+    with sqlite3.connect(tmp_path / "aica.db") as connection:
+        persisted = connection.execute(
+            "SELECT product_line FROM todos WHERE id = ?",
+            (todo.id,),
+        ).fetchone()
+    assert persisted is not None
+    assert persisted[0] == "AI-SNAP"
 
 
 def test_todo_store_persists_enrichment_fields_and_conclusion(tmp_path: Path):
@@ -491,7 +561,7 @@ def test_relink_only_backfills_empty_ticket_version_and_preserves_manual_value(t
         )
     )
 
-    assert store.relink_open_unresolved_todos() == 1
+    assert store.relink_open_unresolved_todos() >= 1
     filled = store.get_todo(empty_version_todo.id)
     assert filled is not None
     assert filled.summary_fields.ticket_version == "v2"

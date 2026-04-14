@@ -852,7 +852,7 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.current_summary),
                     sanitize_text(snapshot.fields.group_name),
                     sanitize_text(snapshot.fields.environment),
-                    sanitize_text(snapshot.fields.product_line),
+                    "",
                     sanitize_text(snapshot.fields.ticket_type),
                     ach_no,
                     ach_filled_at,
@@ -900,6 +900,7 @@ class SQLiteTodoRepository:
                 return None
             current_todo = self._build_todo_from_row(connection, row)
             merged_fields = merge_summary_fields_for_append(current_todo.summary_fields, snapshot.fields)
+            merged_fields.product_line = current_todo.summary_fields.product_line
             if merged_fields.ach_no and not merged_fields.ach_filled_at and not current_todo.summary_fields.ach_no:
                 merged_fields.ach_filled_at = now_iso()
             connection.execute(
@@ -972,7 +973,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       ticket_type, ach_no, ach_filled_at, ticket_version,
+                       product_line, ticket_type, ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
@@ -989,7 +990,7 @@ class SQLiteTodoRepository:
             updated_summary = sanitize_text(current_summary) if current_summary is not None else str(row["current_summary"])
             updated_group_name = sanitize_text(summary_fields.group_name) if summary_fields is not None else str(row["group_name"])
             updated_environment = sanitize_text(summary_fields.environment) if summary_fields is not None else str(row["environment"])
-            updated_product_line = sanitize_text(summary_fields.product_line) if summary_fields is not None else str(row["product_line"])
+            updated_product_line = str(row["product_line"])
             updated_ticket_type = sanitize_text(summary_fields.ticket_type) if summary_fields is not None else str(row["ticket_type"])
             updated_ach_no = (
                 sanitize_text(summary_fields.ach_no)
@@ -1104,6 +1105,9 @@ class SQLiteTodoRepository:
         return self.get_todo(sanitized_id)
 
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:
+        row_payload = dict(row)
+        project_link = self._project_repository.get_project_link(str(row["id"]))
+        row_payload = self._repair_project_backed_fields(connection, row_payload, project_link)
         timeline_rows = [
             dict(item)
             for item in connection.execute(
@@ -1147,14 +1151,45 @@ class SQLiteTodoRepository:
                 (str(row["id"]),),
             ).fetchall()
         ]
-        project_link = self._project_repository.get_project_link(str(row["id"]))
         return build_todo_item(
-            todo_row=dict(row),
+            todo_row=row_payload,
             timeline_rows=timeline_rows,
             attachment_rows=attachment_rows,
             conclusion_attachment_rows=conclusion_attachment_rows,
             project_link_row=project_link.to_dict() if project_link is not None else None,
         )
+
+    def _repair_project_backed_fields(
+        self,
+        connection: sqlite3.Connection,
+        row_payload: dict[str, Any],
+        project_link: TodoProjectLink | None,
+    ) -> dict[str, Any]:
+        if project_link is None or project_link.match_status not in {"matched", "manual", "expired"}:
+            return row_payload
+
+        snapshot = project_link.project_snapshot
+        current_product_line = sanitize_text(row_payload.get("product_line", ""))
+        current_ticket_version = sanitize_text(row_payload.get("ticket_version", ""))
+        snapshot_product_line = sanitize_text(snapshot.get("product_line", ""))
+        snapshot_ticket_version = sanitize_text(snapshot.get("product_version", ""))
+        next_ticket_version = current_ticket_version or snapshot_ticket_version
+
+        if current_product_line == snapshot_product_line and current_ticket_version == next_ticket_version:
+            return row_payload
+
+        connection.execute(
+            "UPDATE todos SET product_line = ?, ticket_version = ?, updated_at = ? WHERE id = ?",
+            (
+                snapshot_product_line,
+                next_ticket_version,
+                now_iso(),
+                sanitize_text(row_payload.get("id", "")),
+            ),
+        )
+        row_payload["product_line"] = snapshot_product_line
+        row_payload["ticket_version"] = next_ticket_version
+        return row_payload
 
     def _load_todo(self, connection: sqlite3.Connection, todo_id: str) -> TodoItem:
         row = connection.execute(
@@ -1249,23 +1284,29 @@ class SQLiteTodoRepository:
     def _refresh_project_link(self, todo_id: str, group_name: str) -> None:
         match_result = self._project_repository.match_project_by_group_name(group_name)
         self._project_repository.bind_todo_to_project(todo_id, match_result)
-        self._initialize_ticket_version(todo_id, match_result.project_snapshot)
+        self._synchronize_project_fields(todo_id, match_result)
 
-    def _initialize_ticket_version(self, todo_id: str, project_snapshot: dict[str, str] | None) -> None:
-        ticket_version = sanitize_text((project_snapshot or {}).get("product_version", ""))
-        if not ticket_version:
-            return
+    def _synchronize_project_fields(self, todo_id: str, match_result: ProjectMatchResult) -> None:
+        snapshot = match_result.project_snapshot if match_result.status in {"matched", "manual", "expired"} else {}
+        product_line = sanitize_text(snapshot.get("product_line", ""))
+        ticket_version = sanitize_text(snapshot.get("product_version", ""))
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT ticket_version FROM todos WHERE id = ?",
+                "SELECT product_line, ticket_version FROM todos WHERE id = ?",
                 (sanitize_text(todo_id),),
             ).fetchone()
-            if row is None or sanitize_text(row["ticket_version"]):
+            if row is None:
+                return
+            current_product_line = sanitize_text(row["product_line"])
+            current_ticket_version = sanitize_text(row["ticket_version"])
+            next_ticket_version = current_ticket_version or ticket_version
+            if current_product_line == product_line and current_ticket_version == next_ticket_version:
                 return
             connection.execute(
-                "UPDATE todos SET ticket_version = ?, updated_at = ? WHERE id = ?",
+                "UPDATE todos SET product_line = ?, ticket_version = ?, updated_at = ? WHERE id = ?",
                 (
-                    ticket_version,
+                    product_line,
+                    next_ticket_version,
                     now_iso(),
                     sanitize_text(todo_id),
                 ),
