@@ -271,10 +271,10 @@ from aica.paths import (
     storage_config_file,
     qml_dir,
 )
-from aica.models import TicketSummaryFields
+from aica.models import TicketSummaryFields, is_unknown_text
 from aica.storage.adapters import now_iso
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
-from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS
+from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
 from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
 
@@ -982,7 +982,7 @@ class _ControlPanelBridge(QObject):
             "projectAlias": str(todo.project_link.matched_alias or "").strip(),
             "projectName": str(snapshot.get("project_name") or "").strip(),
             "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
-            "productLine": str(snapshot.get("product_line") or "").strip(),
+            "productLine": str(todo.summary_fields.product_line or "").strip(),
             "ticketVersion": ticket_version,
             "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
@@ -1026,6 +1026,30 @@ class _ControlPanelBridge(QObject):
             "timelineCount": 0,
             "timeline": [],
         }
+
+    @staticmethod
+    def _build_updated_ticket_summary_fields(todo: TodoItem, **overrides: object) -> TicketSummaryFields:
+        payload = todo.summary_fields.to_dict()
+        payload.update(overrides)
+        return TicketSummaryFields.from_dict(payload)
+
+    def _resolve_selected_ticket_for_update(self) -> TodoItem | None:
+        if not self._selected_ticket_id:
+            return None
+        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
+            self._emit_data_changed()
+            return None
+        return todo
+
+    def _apply_selected_ticket_update(self, todo: TodoItem, *, status_message: str) -> None:
+        self._refresh_ticket_payloads()
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+        self._status_message = status_message
+        self._emit_data_changed()
 
     def _load_ticket_payloads(self) -> list[dict[str, object]]:
         return [
@@ -1621,6 +1645,59 @@ class _ControlPanelBridge(QObject):
     def saveSelectedTicketVersion(self, value: str) -> None:
         self.saveSelectedTicketField("ticket_version", value)
 
+    @pyqtSlot()
+    def refreshSelectedTicketFeaturePoint(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        product_line = str(todo.summary_fields.product_line or "").strip()
+        if is_unknown_text(product_line):
+            self._error_message = "\u7f3a\u5c11\u4ea7\u54c1\u7ebf\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
+            self._emit_data_changed()
+            return
+        problem_desc = str(todo.current_summary or "").strip()
+        if not problem_desc:
+            self._error_message = "\u7f3a\u5c11\u95ee\u9898\u6458\u8981\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
+            self._emit_data_changed()
+            return
+
+        provider = build_feature_point_provider(self._config_manager.load().ticket_enrichment.feature_point)
+        try:
+            result = provider.resolve(
+                product_line=product_line,
+                problem_desc=problem_desc,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{exc}"
+            self._emit_data_changed()
+            return
+        if result.error_message:
+            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{result.error_message}"
+            self._emit_data_changed()
+            return
+        next_feature_point = str(result.value or "").strip()
+        if not next_feature_point:
+            self._error_message = "\u529f\u80fd\u70b9\u5339\u914d\u672a\u8fd4\u56de\u6709\u6548\u7ed3\u679c\u3002"
+            self._emit_data_changed()
+            return
+
+        updated = self._todo_store.update_todo(
+            todo.id,
+            summary_fields=self._build_updated_ticket_summary_fields(
+                todo,
+                feature_point=next_feature_point,
+                feature_point_source="auto",
+            ),
+        )
+        if updated is None:
+            self._error_message = "\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(updated, status_message="\u529f\u80fd\u70b9\u5df2\u5237\u65b0")
+
     @pyqtSlot(str, str)
     def saveSelectedTicketField(self, field_name: str, value: str) -> None:
         if not self._selected_ticket_id:
@@ -1629,12 +1706,8 @@ class _ControlPanelBridge(QObject):
         if normalized_field not in {"ach_no", "ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
             return
         self._clear_messages()
-        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        todo = self._resolve_selected_ticket_for_update()
         if todo is None:
-            self._selected_ticket_id = ""
-            self._selected_ticket = self._empty_ticket_detail_payload()
-            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
-            self._emit_data_changed()
             return
         next_value = str(value or "").strip()
         ach_filled_at = todo.summary_fields.ach_filled_at
@@ -1645,11 +1718,8 @@ class _ControlPanelBridge(QObject):
                 ach_filled_at = ""
         updated = self._todo_store.update_todo(
             todo.id,
-            summary_fields=TicketSummaryFields(
-                group_name=todo.summary_fields.group_name,
-                environment=todo.summary_fields.environment,
-                product_line=todo.summary_fields.product_line,
-                ticket_type=todo.summary_fields.ticket_type,
+            summary_fields=self._build_updated_ticket_summary_fields(
+                todo,
                 ach_no=next_value if normalized_field == "ach_no" else todo.summary_fields.ach_no,
                 ach_filled_at=ach_filled_at,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
@@ -1665,8 +1735,6 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
-        self._refresh_ticket_payloads()
-        self._selected_ticket = self._build_ticket_detail_payload(updated)
         field_labels = {
             "ach_no": "ach单号",
             "ticket_version": "\u7248\u672c\u53f7",
@@ -1674,8 +1742,10 @@ class _ControlPanelBridge(QObject):
             "root_cause": "\u95ee\u9898\u6839\u56e0",
             "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
         }
-        self._status_message = f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58"
-        self._emit_data_changed()
+        self._apply_selected_ticket_update(
+            updated,
+            status_message=f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58",
+        )
 
     @pyqtSlot(str, str)
     def chooseProjectDate(self, field_name: str, current_value: str) -> None:

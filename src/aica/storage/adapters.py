@@ -67,6 +67,7 @@ def build_summary_fields(
     *,
     group_name: str,
     environment: str,
+    product_line: str = "",
     ticket_type: str,
     ach_no: str = "",
     ach_filled_at: str = "",
@@ -79,10 +80,11 @@ def build_summary_fields(
     root_cause_source: str = "",
     project_snapshot: dict[str, str] | None = None,
 ) -> TicketSummaryFields:
+    normalized_product_line = sanitize_text(product_line) or sanitize_text((project_snapshot or {}).get("product_line", ""))
     fields = TicketSummaryFields(
         group_name=group_name,
         environment=environment,
-        product_line="",
+        product_line=normalized_product_line or UNKNOWN_TEXT,
         ticket_type=ticket_type,
         ach_no=ach_no,
         ach_filled_at=ach_filled_at,
@@ -94,8 +96,6 @@ def build_summary_fields(
         root_cause=root_cause,
         root_cause_source=root_cause_source,
     )
-    product_line = sanitize_text((project_snapshot or {}).get("product_line", ""))
-    fields.product_line = product_line or UNKNOWN_TEXT
     return fields
 
 
@@ -129,6 +129,7 @@ def build_todo_item(
     summary_fields = build_summary_fields(
         group_name=str(todo_row.get("group_name", "")),
         environment=str(todo_row.get("environment", "")),
+        product_line=str(todo_row.get("product_line", "")),
         ticket_type=str(todo_row.get("ticket_type", "")),
         ach_no=str(todo_row.get("ach_no", "")),
         ach_filled_at=str(todo_row.get("ach_filled_at", "")),

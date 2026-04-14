@@ -55,6 +55,21 @@ def test_default_config_includes_dashscope_provider():
     assert [model.id for model in dashscope.models] == ["qwen-vl-max", "qwen-plus"]
 
 
+def test_default_config_enables_feature_point_provider():
+    config = build_default_config()
+
+    assert config.ticket_enrichment.feature_point.enabled is True
+    assert config.ticket_enrichment.feature_point.provider == "http"
+    assert config.ticket_enrichment.feature_point.base_url == "http://127.0.0.1:8000/api/v1/recommend/compat"
+
+
+def test_reload_without_ticket_enrichment_uses_feature_point_defaults():
+    reloaded = _app_config_from_dict({})
+
+    assert reloaded.ticket_enrichment.feature_point.enabled is True
+    assert reloaded.ticket_enrichment.feature_point.base_url == "http://127.0.0.1:8000/api/v1/recommend/compat"
+
+
 def test_minmax_default_bindings_keep_vision_tasks_on_vision_model():
     bindings = default_task_model_bindings("minmax")
 

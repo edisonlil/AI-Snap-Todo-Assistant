@@ -116,9 +116,9 @@ class HotkeyConfig:
 
 @dataclass
 class FeaturePointProviderConfig:
-    enabled: bool = False
+    enabled: bool = True
     provider: str = "http"
-    base_url: str = ""
+    base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
     api_key: str = ""
     timeout_seconds: int = 5
 

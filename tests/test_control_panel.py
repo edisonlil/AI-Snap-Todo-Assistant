@@ -3,7 +3,7 @@ from pathlib import Path
 from aica.analysis_rules import AnalysisRuleConfig
 from aica.config import ConfigManager
 from aica.control_panel import _ControlPanelBridge
-from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.models import TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.todo_store import TodoStore
@@ -38,13 +38,13 @@ class _StubPromptDebugStore:
         return None
 
 
-def _snapshot(title: str, summary: str, timeline: str, *, group_name: str) -> TicketSnapshot:
+def _snapshot(title: str, summary: str, timeline: str, *, group_name: str, product_line: str = "") -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
         fields=TicketSummaryFields(
             group_name=group_name,
             environment="prod",
-            product_line="",
+            product_line=product_line,
             ticket_type="incident",
         ),
         current_summary=summary,
@@ -52,7 +52,7 @@ def _snapshot(title: str, summary: str, timeline: str, *, group_name: str) -> Ti
     )
 
 
-def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp_path: Path):
+def _patch_control_panel_dependencies(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
     db_path = tmp_path / "aica.db"
     config_path = tmp_path / "config.json"
     integrations_path = tmp_path / "integrations.json"
@@ -75,6 +75,20 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     monkeypatch.setattr("aica.control_panel.feedback_dir", lambda: data_dir / "feedback")
     monkeypatch.setattr("aica.control_panel.load_integration_config", lambda path: {})
     monkeypatch.setattr("aica.control_panel.list_script_integrations", lambda payload: [])
+    return db_path, config_path
+
+
+def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp_path: Path):
+    db_path, config_path = _patch_control_panel_dependencies(monkeypatch, tmp_path)
+
+    provider_calls = []
+
+    class _StubFeaturePointProvider:
+        def resolve(self, *, product_line: str, problem_desc: str):
+            provider_calls.append((product_line, problem_desc))
+            return type("FeaturePointResult", (), {"value": "login-module", "error_message": ""})()
+
+    monkeypatch.setattr("aica.control_panel.build_feature_point_provider", lambda config: _StubFeaturePointProvider())
 
     repository = SQLiteProjectRepository(db_path)
     repository.upsert_project(
@@ -89,7 +103,7 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     )
     store = TodoStore(str(db_path))
     open_todo = store.create_todo_from_analysis(
-        _snapshot("login failed", "need follow-up", "first timeline", group_name="support-room"),
+        _snapshot("login failed", "need follow-up", "first timeline", group_name="support-room", product_line="AICA"),
         "todo assistant",
     )
     done_todo = store.create_todo_from_analysis(
@@ -116,10 +130,20 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
     assert bridge.selectedTicket["id"] == open_todo.id
     assert bridge.selectedTicket["projectName"] == "Phoenix Project"
     assert bridge.selectedTicket["projectStatus"] == "matched"
+    assert bridge.selectedTicket["productLine"] == "AICA"
     assert bridge.selectedTicket["ticketVersion"] == "v1"
     assert bridge.selectedTicket["achNo"] == ""
     assert bridge.selectedTicket["projectSnapshotVersion"] == "v1"
     assert bridge.selectedTicket["timeline"][0]["content"] == "first timeline"
+
+    bridge.refreshSelectedTicketFeaturePoint()
+    assert bridge.selectedTicket["featurePoint"] == "login-module"
+    assert bridge.statusMessage == "功能点已刷新"
+    assert provider_calls == [("AICA", "need follow-up")]
+    refreshed_todo = store.get_todo(open_todo.id)
+    assert refreshed_todo is not None
+    assert refreshed_todo.summary_fields.feature_point == "login-module"
+    assert refreshed_todo.summary_fields.feature_point_source == "auto"
 
     bridge.saveSelectedTicketField("ach_no", "ACH-2026-001")
     bridge.saveSelectedTicketVersion("v1-hotfix")
@@ -160,3 +184,100 @@ def test_control_panel_bridge_exposes_ticket_section_and_detail(monkeypatch, tmp
 
     bridge.listTickets("", "done_missing_ach")
     assert [item["id"] for item in bridge.tickets] == [done_todo.id]
+
+
+def test_control_panel_feature_point_refresh_requires_product_line(monkeypatch, tmp_path: Path):
+    db_path, config_path = _patch_control_panel_dependencies(monkeypatch, tmp_path)
+
+    provider_calls = []
+
+    class _StubFeaturePointProvider:
+        def resolve(self, *, product_line: str, problem_desc: str):
+            provider_calls.append((product_line, problem_desc))
+            return type("FeaturePointResult", (), {"value": "unused", "error_message": ""})()
+
+    monkeypatch.setattr("aica.control_panel.build_feature_point_provider", lambda config: _StubFeaturePointProvider())
+
+    repository = SQLiteProjectRepository(db_path)
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Phoenix Project",
+            task_order_no="WO-1",
+            product_version="v1",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("support-room",),
+        )
+    )
+    store = TodoStore(str(db_path))
+    open_todo = store.create_todo_from_analysis(
+        _snapshot("login failed", "need follow-up", "first timeline", group_name="support-room"),
+        "todo assistant",
+    )
+
+    bridge = _ControlPanelBridge(ConfigManager(str(config_path)))
+    bridge.setCurrentSection("tickets")
+    bridge.openTicketDetail(open_todo.id)
+
+    assert bridge.selectedTicket["productLine"] == UNKNOWN_TEXT
+
+    bridge.refreshSelectedTicketFeaturePoint()
+
+    assert provider_calls == []
+    assert "产品线" in bridge.errorMessage
+    assert bridge.selectedTicket["featurePoint"] == ""
+
+
+def test_control_panel_feature_point_refresh_keeps_existing_value_when_provider_returns_empty(monkeypatch, tmp_path: Path):
+    db_path, config_path = _patch_control_panel_dependencies(monkeypatch, tmp_path)
+
+    provider_calls = []
+
+    class _StubFeaturePointProvider:
+        def resolve(self, *, product_line: str, problem_desc: str):
+            provider_calls.append((product_line, problem_desc))
+            return type("FeaturePointResult", (), {"value": "", "error_message": ""})()
+
+    monkeypatch.setattr("aica.control_panel.build_feature_point_provider", lambda config: _StubFeaturePointProvider())
+
+    repository = SQLiteProjectRepository(db_path)
+    repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Phoenix Project",
+            task_order_no="WO-1",
+            product_version="v1",
+            support_ended_at="2099-01-01T00:00:00",
+            aliases=("support-room",),
+        )
+    )
+    store = TodoStore(str(db_path))
+    open_todo = store.create_todo_from_analysis(
+        _snapshot("login failed", "need follow-up", "first timeline", group_name="support-room", product_line="AICA"),
+        "todo assistant",
+    )
+    updated_todo = store.update_todo(
+        open_todo.id,
+        summary_fields=TicketSummaryFields.from_dict(
+            {
+                **open_todo.summary_fields.to_dict(),
+                "feature_point": "existing-point",
+                "feature_point_source": "manual",
+            }
+        ),
+    )
+    assert updated_todo is not None
+
+    bridge = _ControlPanelBridge(ConfigManager(str(config_path)))
+    bridge.setCurrentSection("tickets")
+    bridge.openTicketDetail(open_todo.id)
+
+    bridge.refreshSelectedTicketFeaturePoint()
+
+    assert provider_calls == [("AICA", "need follow-up")]
+    assert "有效结果" in bridge.errorMessage
+    assert bridge.selectedTicket["featurePoint"] == "existing-point"
+    refreshed_todo = store.get_todo(open_todo.id)
+    assert refreshed_todo is not None
+    assert refreshed_todo.summary_fields.feature_point == "existing-point"
+    assert refreshed_todo.summary_fields.feature_point_source == "manual"

@@ -92,6 +92,36 @@ def test_todo_store_initializes_ticket_version_from_project_snapshot(tmp_path: P
     assert todo.project_link.project_snapshot["product_version"] == "v1.2.3"
 
 
+def test_todo_store_persists_explicit_product_line_without_project_snapshot(tmp_path: Path):
+    store = TodoStore(str(tmp_path / "todos.json"))
+    todo = store.create_todo_from_analysis(
+        _snapshot("upload failed", "summary", "timeline", product_line="AICA"),
+        "todo assistant",
+    )
+
+    assert todo.summary_fields.product_line == "AICA"
+    reloaded = store.get_todo(todo.id)
+    assert reloaded is not None
+    assert reloaded.summary_fields.product_line == "AICA"
+
+    updated = store.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields(
+            group_name=todo.summary_fields.group_name,
+            environment=todo.summary_fields.environment,
+            product_line="AICA-Next",
+            ticket_type=todo.summary_fields.ticket_type,
+            ticket_version=todo.summary_fields.ticket_version,
+        ),
+    )
+    assert updated is not None
+    assert updated.summary_fields.product_line == "AICA-Next"
+
+    reloaded_updated = store.get_todo(todo.id)
+    assert reloaded_updated is not None
+    assert reloaded_updated.summary_fields.product_line == "AICA-Next"
+
+
 def test_todo_store_persists_enrichment_fields_and_conclusion(tmp_path: Path):
     store = TodoStore(str(tmp_path / "todos.json"))
     todo = store.create_todo_from_analysis(

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS todos (
   current_summary TEXT NOT NULL DEFAULT '',
   group_name TEXT NOT NULL DEFAULT '',
   environment TEXT NOT NULL DEFAULT '',
+  product_line TEXT NOT NULL DEFAULT '',
   ticket_type TEXT NOT NULL DEFAULT '',
   ach_no TEXT NOT NULL DEFAULT '',
   ach_filled_at TEXT NOT NULL DEFAULT '',

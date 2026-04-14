@@ -12,6 +12,7 @@ ColumnLayout {
     readonly property bool compactDetailLayout: ticketSection.width < 920
     property string ticketFieldEditingName: ""
     property string ticketFieldSavingName: ""
+    property string ticketFieldActionName: ""
     property string ticketFieldDraft: ""
     property string ticketFieldOriginal: ""
     property string ticketFieldPending: ""
@@ -127,7 +128,7 @@ ColumnLayout {
     }
 
     function beginTicketFieldEdit(fieldName) {
-        if (ticketFieldSavingName.length > 0) {
+        if (ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
             return
         }
         ticketFieldEditingName = fieldName
@@ -144,7 +145,7 @@ ColumnLayout {
     }
 
     function commitTicketFieldEdit(saveAction) {
-        if (!ticketFieldEditingName || ticketFieldSavingName.length > 0) {
+        if (!ticketFieldEditingName || ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
             return
         }
         var nextValue = (ticketFieldDraft || "").trim()
@@ -167,665 +168,17 @@ ColumnLayout {
         })
     }
 
-    component StatusPill: Rectangle {
-        required property var theme
-        property string label: ""
-        property string tone: "default"
-
-        radius: 11
-        implicitWidth: pillText.implicitWidth + 18
-        implicitHeight: 24
-        border.width: 1
-        color: tone === "matched" ? "#E7F5ED"
-             : tone === "warning" ? "#FFF4E8"
-             : tone === "done" ? "#EEF4FF"
-             : tone === "open" ? "#EAF7F1"
-             : "#F8F1E7"
-        border.color: tone === "matched" ? "#B6DEC5"
-                    : tone === "warning" ? "#F2C998"
-                    : tone === "done" ? "#C8D8FF"
-                    : tone === "open" ? "#B9DCCB"
-                    : theme.panelLine
-
-        Text {
-            id: pillText
-            anchors.centerIn: parent
-            text: parent.label
-            color: tone === "warning" ? "#9A4B00"
-                 : tone === "done" ? "#315AA6"
-                 : tone === "matched" || tone === "open" ? "#17663A"
-                 : theme.bodyInk
-            font.family: theme.uiFont
-            font.pixelSize: 11
-            font.weight: 700
+    function refreshFeaturePointField() {
+        if (ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0 || ticketFieldEditingName === "featurePoint") {
+            return
         }
-    }
-
-    component DetailField: Rectangle {
-        id: fieldRoot
-        required property var theme
-        property string label: ""
-        property string value: ""
-        property string placeholderText: "未填写"
-        property string draftValue: ""
-        property bool editable: false
-        property bool editing: false
-        property bool saving: false
-        property bool multiline: false
-        property bool compact: false
-        signal clicked
-        signal accepted(string value)
-        signal canceled
-
-        radius: 0
-        color: "transparent"
-        border.width: 0
-        implicitHeight: fieldColumn.implicitHeight + 14
-
-        ColumnLayout {
-            id: fieldColumn
-            anchors.fill: parent
-            anchors.leftMargin: 6
-            anchors.rightMargin: 6
-            anchors.topMargin: 4
-            anchors.bottomMargin: 10
-            spacing: 5
-
-            Text {
-                Layout.fillWidth: true
-                text: fieldRoot.label
-                color: theme.labelInk
-                font.family: theme.uiFont
-                font.pixelSize: 10
-                font.weight: 500
-                elide: Text.ElideRight
-                opacity: 0.72
+        ticketFieldActionName = "featurePoint"
+        Qt.callLater(function() {
+            controlPanelBridge.refreshSelectedTicketFeaturePoint()
+            if (ticketFieldActionName === "featurePoint") {
+                ticketFieldActionName = ""
             }
-
-            Item {
-                Layout.fillWidth: true
-                implicitHeight: fieldValueRow.implicitHeight
-
-                RowLayout {
-                    id: fieldValueRow
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    spacing: 8
-
-                    BusyIndicator {
-                        visible: fieldRoot.saving
-                        running: fieldRoot.saving
-                        Layout.preferredWidth: 16
-                        Layout.preferredHeight: 16
-                    }
-
-                    ControlPanelSettingsInput {
-                        id: inlineEditor
-                        visible: fieldRoot.editable && fieldRoot.editing
-                        theme: fieldRoot.theme
-                        Layout.fillWidth: true
-                        text: fieldRoot.draftValue
-                        placeholderText: fieldRoot.placeholderText
-                        leftPadding: 0
-                        rightPadding: 0
-                        topPadding: 0
-                        bottomPadding: 8
-                        background: Rectangle {
-                            color: "transparent"
-                            border.width: 0
-
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: 1
-                                color: inlineEditor.activeFocus ? fieldRoot.theme.accent : "#D8CCBE"
-                                opacity: inlineEditor.activeFocus ? 1 : 0.9
-                            }
-                        }
-
-                        onTextEdited: fieldRoot.draftValue = text
-                        onAccepted: fieldRoot.accepted(fieldRoot.draftValue)
-                        Keys.onEscapePressed: fieldRoot.canceled()
-                    }
-
-                    Item {
-                        visible: !fieldRoot.editing
-                        Layout.fillWidth: true
-                        implicitHeight: fieldText.implicitHeight + (fieldRoot.multiline ? 4 : 0)
-
-                        Text {
-                            id: fieldText
-                            anchors.left: parent.left
-                            anchors.right: fieldAction.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.rightMargin: 10
-                            text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
-                            font.family: theme.uiFont
-                            font.pixelSize: fieldRoot.compact ? 12 : 13
-                            font.weight: fieldRoot.value.length > 0 ? 500 : 400
-                            wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
-                            elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
-                        }
-
-                        Text {
-                            id: fieldAction
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: fieldRoot.editable && fieldHover.containsMouse && !fieldRoot.saving
-                            text: "✎"
-                            color: theme.accent
-                            font.family: theme.uiFont
-                            font.pixelSize: 11
-                            opacity: 0.75
-                        }
-
-                        MouseArea {
-                            id: fieldHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: fieldRoot.editable && !fieldRoot.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            enabled: fieldRoot.editable && !fieldRoot.saving
-                            onClicked: fieldRoot.clicked()
-                        }
-                    }
-
-                    RowLayout {
-                        visible: fieldRoot.editable && fieldRoot.editing
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-
-                        Text {
-                            text: "保存"
-                            color: fieldRoot.theme.accent
-                            font.family: fieldRoot.theme.uiFont
-                            font.pixelSize: 11
-                            font.weight: 600
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: fieldRoot.accepted(fieldRoot.draftValue)
-                            }
-                        }
-
-                        Text {
-                            text: "取消"
-                            color: fieldRoot.theme.labelInk
-                            font.family: fieldRoot.theme.uiFont
-                            font.pixelSize: 11
-                            font.weight: 500
-                            opacity: 0.88
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: fieldRoot.canceled()
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    visible: !fieldRoot.editing
-                    Layout.fillWidth: true
-                    implicitHeight: 1
-                    color: "#E8DFD2"
-                    opacity: 0.85
-                }
-            }
-        }
-    }
-
-    component RootCauseCascadeField: Rectangle {
-        id: rootField
-        required property var theme
-        property string label: ""
-        property string value: ""
-        property string placeholderText: "未生成"
-        property bool editing: false
-        property bool saving: false
-        property bool compact: false
-        property string level1: ""
-        property string level2: ""
-        property string level3: ""
-        property var level1Options: []
-        property var level2Options: []
-        property var level3Options: []
-        signal clicked
-        signal accepted(string value)
-        signal canceled
-
-        function displayPath(rawValue) {
-            var text = String(rawValue || "")
-            if (!text) {
-                return ""
-            }
-            var parts = text.split("/")
-            return parts.join(" / ")
-        }
-
-        function composeValue() {
-            if (!level1) {
-                return ""
-            }
-            if (!level2) {
-                return level1
-            }
-            if (!level3) {
-                return level1 + "/" + level2
-            }
-            return level1 + "/" + level2 + "/" + level3
-        }
-
-        function ensureSelection(options, preferred) {
-            var next = String(preferred || "")
-            if (!options || options.length === 0) {
-                return ""
-            }
-            for (var i = 0; i < options.length; i += 1) {
-                if (options[i].value === next) {
-                    return next
-                }
-            }
-            return options[0].value
-        }
-
-        function syncCascadeFromValue(rawValue) {
-            var parsed = ticketSection.parseRootCausePath(rawValue)
-            level1Options = ticketSection.rootCauseLevel1Options()
-            level1 = ensureSelection(level1Options, parsed.level1)
-            level2Options = ticketSection.rootCauseLevel2Options(level1)
-            level2 = ensureSelection(level2Options, parsed.level2)
-            level3Options = ticketSection.rootCauseLevel3Options(level1, level2)
-            level3 = ensureSelection(level3Options, parsed.level3)
-        }
-
-        onEditingChanged: {
-            if (editing) {
-                syncCascadeFromValue(value)
-            }
-        }
-
-        radius: 0
-        color: "transparent"
-        border.width: 0
-        implicitHeight: fieldColumn.implicitHeight + 14
-
-        ColumnLayout {
-            id: fieldColumn
-            anchors.fill: parent
-            anchors.leftMargin: 6
-            anchors.rightMargin: 6
-            anchors.topMargin: 4
-            anchors.bottomMargin: 10
-            spacing: 5
-
-            Text {
-                Layout.fillWidth: true
-                text: rootField.label
-                color: theme.labelInk
-                font.family: theme.uiFont
-                font.pixelSize: 10
-                font.weight: 500
-                elide: Text.ElideRight
-                opacity: 0.72
-            }
-
-            Item {
-                Layout.fillWidth: true
-                implicitHeight: rootField.editing ? cascadeEditor.implicitHeight : valueRow.implicitHeight
-
-                RowLayout {
-                    id: valueRow
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    visible: !rootField.editing
-                    spacing: 8
-
-                    BusyIndicator {
-                        visible: rootField.saving
-                        running: rootField.saving
-                        Layout.preferredWidth: 16
-                        Layout.preferredHeight: 16
-                    }
-
-                    Item {
-                        Layout.fillWidth: true
-                        implicitHeight: valueText.implicitHeight
-
-                        Text {
-                            id: valueText
-                            anchors.left: parent.left
-                            anchors.right: valueAction.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.rightMargin: 10
-                            text: rootField.value.length > 0 ? rootField.displayPath(rootField.value) : rootField.placeholderText
-                            color: rootField.value.length > 0 ? theme.titleInk : "#A2907A"
-                            font.family: theme.uiFont
-                            font.pixelSize: rootField.compact ? 12 : 13
-                            font.weight: rootField.value.length > 0 ? 500 : 400
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            id: valueAction
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: hoverArea.containsMouse && !rootField.saving
-                            text: "✎"
-                            color: theme.accent
-                            font.family: theme.uiFont
-                            font.pixelSize: 11
-                            opacity: 0.75
-                        }
-
-                        MouseArea {
-                            id: hoverArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: !rootField.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            enabled: !rootField.saving
-                            onClicked: rootField.clicked()
-                        }
-                    }
-                }
-
-                ColumnLayout {
-                    id: cascadeEditor
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    visible: rootField.editing
-                    spacing: 6
-
-                    Control {
-                        id: cascadeTrigger
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 32
-                        leftPadding: 0
-                        rightPadding: 0
-                        topPadding: 0
-                        bottomPadding: 0
-
-                        background: Rectangle {
-                            color: "transparent"
-                            border.width: 0
-                        }
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.right: triggerArrow.left
-                            anchors.leftMargin: 0
-                            anchors.rightMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: rootField.displayPath(rootField.composeValue())
-                            color: rootField.theme.titleInk
-                            font.family: rootField.theme.uiFont
-                            font.pixelSize: rootField.compact ? 11 : 12
-                            elide: Text.ElideRight
-                        }
-
-                        Canvas {
-                            id: triggerArrow
-                            anchors.right: parent.right
-                            anchors.rightMargin: 2
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 8
-                            height: 5
-                            contextType: "2d"
-                            onPaint: {
-                                context.reset()
-                                context.moveTo(0, 0)
-                                context.lineTo(width, 0)
-                                context.lineTo(width / 2, height)
-                                context.closePath()
-                                context.fillStyle = rootField.theme.labelInk
-                                context.fill()
-                            }
-                        }
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
-                            color: "#E0D5C8"
-                            opacity: 0.9
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: cascadePopup.open()
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignLeft
-                        spacing: 10
-
-                        Text {
-                            text: "保存"
-                            color: rootField.theme.accent
-                            font.family: rootField.theme.uiFont
-                            font.pixelSize: 11
-                            font.weight: 600
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    cascadePopup.close()
-                                    rootField.accepted(rootField.composeValue())
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "取消"
-                            color: rootField.theme.labelInk
-                            font.family: rootField.theme.uiFont
-                            font.pixelSize: 11
-                            font.weight: 500
-                            opacity: 0.88
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    cascadePopup.close()
-                                    rootField.canceled()
-                                }
-                            }
-                        }
-                    }
-
-                    Popup {
-                        id: cascadePopup
-                        parent: rootField
-                        x: 0
-                        y: 44
-                        width: Math.max(320, Math.min(rootField.width - 12, 760))
-                        modal: false
-                        focus: true
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                        padding: 0
-
-                        background: Rectangle {
-                            radius: 8
-                            color: "#FFFEFC"
-                            border.width: 1
-                            border.color: "#E0D5C8"
-                        }
-
-                        contentItem: RowLayout {
-                            spacing: 6
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 180
-                                implicitHeight: 220
-                                radius: 7
-                                color: "#FFF9F2"
-                                border.width: 1
-                                border.color: "#E7DCCF"
-
-                                ListView {
-                                    anchors.fill: parent
-                                    anchors.margins: 4
-                                    clip: true
-                                    model: rootField.level1Options
-                                    spacing: 2
-
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        width: ListView.view.width
-                                        height: 30
-                                        radius: 6
-                                        color: modelData.value === rootField.level1 ? "#F0E3D3" : "transparent"
-
-                                        Text {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.leftMargin: 10
-                                            anchors.rightMargin: 10
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: modelData.text
-                                            color: rootField.theme.titleInk
-                                            font.family: rootField.theme.uiFont
-                                            font.pixelSize: rootField.compact ? 11 : 12
-                                            elide: Text.ElideRight
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                rootField.level1 = modelData.value
-                                                rootField.level2Options = ticketSection.rootCauseLevel2Options(rootField.level1)
-                                                rootField.level2 = rootField.ensureSelection(rootField.level2Options, "")
-                                                rootField.level3Options = ticketSection.rootCauseLevel3Options(rootField.level1, rootField.level2)
-                                                rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                visible: rootField.level2Options.length > 0
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 180
-                                implicitHeight: 220
-                                radius: 7
-                                color: "#FFF9F2"
-                                border.width: 1
-                                border.color: "#E7DCCF"
-
-                                ListView {
-                                    anchors.fill: parent
-                                    anchors.margins: 4
-                                    clip: true
-                                    model: rootField.level2Options
-                                    spacing: 2
-
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        width: ListView.view.width
-                                        height: 30
-                                        radius: 6
-                                        color: modelData.value === rootField.level2 ? "#F0E3D3" : "transparent"
-
-                                        Text {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.leftMargin: 10
-                                            anchors.rightMargin: 10
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: modelData.text
-                                            color: rootField.theme.titleInk
-                                            font.family: rootField.theme.uiFont
-                                            font.pixelSize: rootField.compact ? 11 : 12
-                                            elide: Text.ElideRight
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                rootField.level2 = modelData.value
-                                                rootField.level3Options = ticketSection.rootCauseLevel3Options(rootField.level1, rootField.level2)
-                                                rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                visible: rootField.level3Options.length > 0
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 180
-                                implicitHeight: 220
-                                radius: 7
-                                color: "#FFF9F2"
-                                border.width: 1
-                                border.color: "#E7DCCF"
-
-                                ListView {
-                                    anchors.fill: parent
-                                    anchors.margins: 4
-                                    clip: true
-                                    model: rootField.level3Options
-                                    spacing: 2
-
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        width: ListView.view.width
-                                        height: 30
-                                        radius: 6
-                                        color: modelData.value === rootField.level3 ? "#F0E3D3" : "transparent"
-
-                                        Text {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.leftMargin: 10
-                                            anchors.rightMargin: 10
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: modelData.text
-                                            color: rootField.theme.titleInk
-                                            font.family: rootField.theme.uiFont
-                                            font.pixelSize: rootField.compact ? 11 : 12
-                                            elide: Text.ElideRight
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: rootField.level3 = modelData.value
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                visible: !rootField.editing
-                Layout.fillWidth: true
-                implicitHeight: 1
-                color: "#E8DFD2"
-                opacity: 0.85
-            }
-        }
+        })
     }
 
     ControlPanelSectionCard {
@@ -862,6 +215,7 @@ ColumnLayout {
                     currentIndex: ticketSection.theme.optionIndex(ticketSection.statusOptions, controlPanelBridge.ticketStatusFilter)
                     onActivated: if (currentIndex >= 0) controlPanelBridge.listTickets(ticketSearchInput.text, ticketSection.statusOptions[currentIndex].value)
                 }
+
             }
 
             Text {
@@ -1386,8 +740,12 @@ ColumnLayout {
                                             editing: ticketSection.ticketFieldEditingName === "featurePoint"
                                             saving: ticketSection.ticketFieldSavingName === "featurePoint"
                                             compact: ticketSection.detailGridColumns === 1
+                                            actionVisible: true
+                                            actionBusy: ticketSection.ticketFieldActionName === "featurePoint"
+                                            actionIconSource: Qt.resolvedUrl("../../../assets/feature-point-refresh.svg")
                                             draftValue: ticketSection.ticketFieldDraft
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")
+                                            onActionTriggered: ticketSection.refreshFeaturePointField()
                                             onAccepted: function(value) {
                                                 ticketSection.ticketFieldDraft = value
                                                 ticketSection.commitTicketFieldEdit("feature_point")
@@ -1404,6 +762,10 @@ ColumnLayout {
                                             editing: ticketSection.ticketFieldEditingName === "rootCause"
                                             saving: ticketSection.ticketFieldSavingName === "rootCause"
                                             compact: ticketSection.detailGridColumns === 1
+                                            parsePathFn: ticketSection.parseRootCausePath
+                                            level1OptionsFn: ticketSection.rootCauseLevel1Options
+                                            level2OptionsFn: ticketSection.rootCauseLevel2Options
+                                            level3OptionsFn: ticketSection.rootCauseLevel3Options
                                             onClicked: ticketSection.beginTicketFieldEdit("rootCause")
                                             onAccepted: function(value) {
                                                 ticketSection.ticketFieldDraft = value
