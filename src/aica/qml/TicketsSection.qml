@@ -752,14 +752,14 @@ ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 12
 
-                            Text {
+                            SelectableText {
                                 Layout.fillWidth: true
                                 text: controlPanelBridge.selectedTicket.title || "未分类任务"
                                 color: theme.titleInk
                                 font.family: theme.uiFont
                                 font.pixelSize: 25
                                 font.weight: 700
-                                wrapMode: Text.Wrap
+                                wrapMode: TextEdit.Wrap
                             }
 
                             Flow {
@@ -785,14 +785,13 @@ ColumnLayout {
                                 }
                             }
 
-                            Text {
+                            SelectableText {
                                 Layout.fillWidth: true
                                 text: (controlPanelBridge.selectedTicket.currentSummary || "").length > 0 ? controlPanelBridge.selectedTicket.currentSummary : "暂无摘要"
                                 color: theme.labelInk
                                 font.family: theme.uiFont
                                 font.pixelSize: 13
-                                lineHeight: 1.35
-                                wrapMode: Text.Wrap
+                                wrapMode: TextEdit.Wrap
                             }
                         }
 
@@ -903,14 +902,13 @@ ColumnLayout {
                                                     }
                                                 }
 
-                                                Text {
+                                                SelectableText {
                                                     Layout.fillWidth: true
                                                     text: modelData.content
                                                     color: theme.bodyInk
                                                     font.family: theme.uiFont
                                                     font.pixelSize: 12
-                                                    lineHeight: 1.45
-                                                    wrapMode: Text.Wrap
+                                                    wrapMode: TextEdit.Wrap
                                                 }
 
                                                 Flow {
@@ -1144,6 +1142,7 @@ ColumnLayout {
                                             value: ticketSection.isFieldEditing("rootCauseDesc") ? ticketSection.getFieldDraft("rootCauseDesc") : controlPanelBridge.selectedTicket.rootCauseDesc
                                             placeholderText: "\u672a\u751f\u6210"
                                             compact: ticketSection.detailGridColumns === 1
+                                            multiline: true
                                             editable: true
                                             editing: ticketSection.isFieldEditing("rootCauseDesc")
                                             saving: ticketSection.isFieldSaving("rootCauseDesc")
