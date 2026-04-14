@@ -10,14 +10,13 @@ ColumnLayout {
     spacing: 0
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
-    property string ticketFieldEditingName: ""
-    property string ticketFieldSavingName: ""
-    property string ticketFieldActionName: ""
-    property string ticketFieldDraft: ""
-    property string ticketFieldOriginal: ""
-    property string ticketFieldPending: ""
     property bool deleteTicketConfirmVisible: false
     property string copyToastMessage: ""
+    
+    // Per-field editing state map: fieldName -> { editing, saving, draft, original }
+    property var fieldStates: ({})
+    property string activeActionField: ""
+    property string currentTicketId: ""
 
     property var statusOptions: [
         { value: "open", text: "进行中" },
@@ -123,6 +122,65 @@ ColumnLayout {
         return ""
     }
 
+    function getFieldState(fieldName) {
+        // Always return a fresh state object, never cache
+        if (!fieldStates[fieldName]) {
+            return {
+                editing: false,
+                saving: false,
+                draft: "",
+                original: ""
+            }
+        }
+        return fieldStates[fieldName]
+    }
+
+    function setFieldState(fieldName, updates) {
+        // Create a completely new state object to ensure reactivity
+        var currentState = fieldStates[fieldName] || {
+            editing: false,
+            saving: false,
+            draft: "",
+            original: ""
+        }
+        
+        // Apply updates
+        for (var key in updates) {
+            currentState[key] = updates[key]
+        }
+        
+        // Force a new object reference to trigger QML reactivity
+        var newFieldStates = {}
+        for (var existingKey in fieldStates) {
+            newFieldStates[existingKey] = fieldStates[existingKey]
+        }
+        newFieldStates[fieldName] = currentState
+        fieldStates = newFieldStates
+    }
+
+    function isFieldEditing(fieldName) {
+        return getFieldState(fieldName).editing
+    }
+
+    function isFieldSaving(fieldName) {
+        return getFieldState(fieldName).saving
+    }
+
+    function getFieldDraft(fieldName) {
+        var state = fieldStates[fieldName]
+        if (!state || !state.editing) {
+            // If not editing, return current ticket value
+            return currentTicketFieldValue(fieldName)
+        }
+        return state.draft
+    }
+
+    function resetAllFieldStates() {
+        // Create a completely new empty object to ensure reactivity
+        fieldStates = {}
+        activeActionField = ""
+    }
+
     function parseRootCausePath(value) {
         var parts = String(value || "").split("/")
         var level1 = parts.length > 0 ? parts[0] : ""
@@ -184,52 +242,69 @@ ColumnLayout {
         return result
     }
 
-    function syncTicketFieldState() {
-        var currentName = ticketFieldSavingName || ticketFieldEditingName
-        if (!currentName || ticketFieldEditingName.length > 0) {
-            return
-        }
-        var currentValue = currentTicketFieldValue(currentName)
-        if (currentValue === ticketFieldPending || currentValue === ticketFieldOriginal) {
-            ticketFieldEditingName = ""
-            ticketFieldSavingName = ""
-            ticketFieldDraft = currentValue
-            ticketFieldOriginal = currentValue
-            ticketFieldPending = ""
-        }
-    }
-
     function beginTicketFieldEdit(fieldName) {
-        if (ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
+        // Prevent editing if another field is saving or an action is running
+        if (activeActionField.length > 0) {
             return
         }
-        ticketFieldEditingName = fieldName
-        ticketFieldOriginal = currentTicketFieldValue(fieldName)
-        ticketFieldDraft = ticketFieldOriginal
-        ticketFieldPending = ""
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        
+        // CRITICAL: Always get fresh current value from the actual ticket object
+        // This ensures we never show stale data from previous tickets
+        var currentValue = currentTicketFieldValue(fieldName)
+        
+        // Force-clear any existing state for this field first
+        if (fieldStates[fieldName]) {
+            delete fieldStates[fieldName]
+        }
+        
+        // Initialize field state with fresh current value
+        setFieldState(fieldName, {
+            editing: true,
+            saving: false,
+            draft: currentValue,
+            original: currentValue
+        })
     }
 
-    function cancelTicketFieldEdit() {
-        ticketFieldEditingName = ""
-        ticketFieldSavingName = ""
-        ticketFieldPending = ""
-        ticketFieldDraft = ticketFieldOriginal
+    function cancelTicketFieldEdit(fieldName) {
+        setFieldState(fieldName, {
+            editing: false,
+            saving: false,
+            draft: getFieldState(fieldName).original,
+            original: getFieldState(fieldName).original
+        })
     }
 
-    function commitTicketFieldEdit(saveAction) {
-        if (!ticketFieldEditingName || ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
+    function commitTicketFieldEdit(fieldName, saveAction) {
+        var state = getFieldState(fieldName)
+        if (!state.editing || state.saving || activeActionField.length > 0) {
             return
         }
-        var nextValue = (ticketFieldDraft || "").trim()
-        if (nextValue === ticketFieldOriginal) {
-            ticketFieldEditingName = ""
+        
+        var nextValue = (state.draft || "").trim()
+        if (nextValue === state.original) {
+            // No change, just exit editing mode
+            setFieldState(fieldName, {
+                editing: false,
+                saving: false
+            })
             return
         }
-        ticketFieldPending = nextValue
-        ticketFieldSavingName = ticketFieldEditingName
-        ticketFieldEditingName = ""
+        
+        // Enter saving state
+        setFieldState(fieldName, {
+            editing: false,
+            saving: true
+        })
+        
+        // Trigger save
         Qt.callLater(function() {
-            if (ticketFieldSavingName.length === 0 || ticketFieldPending !== nextValue) {
+            if (!getFieldState(fieldName).saving) {
                 return
             }
             if (saveAction === "ticket_version") {
@@ -240,22 +315,44 @@ ColumnLayout {
         })
     }
 
+    function onFieldSaveComplete(fieldName) {
+        // Called when backend confirms save is complete
+        var currentValue = currentTicketFieldValue(fieldName)
+        setFieldState(fieldName, {
+            editing: false,
+            saving: false,
+            draft: currentValue,
+            original: currentValue
+        })
+    }
+
     function refreshFeaturePointField() {
-        if (ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0 || ticketFieldEditingName === "featurePoint") {
+        if (activeActionField.length > 0 || isFieldEditing("featurePoint")) {
             return
         }
-        ticketFieldActionName = "featurePoint"
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        
+        activeActionField = "featurePoint"
         Qt.callLater(function() {
             controlPanelBridge.refreshSelectedTicketFeaturePoint()
-            if (ticketFieldActionName === "featurePoint") {
-                ticketFieldActionName = ""
+            if (activeActionField === "featurePoint") {
+                activeActionField = ""
             }
         })
     }
 
     function requestDeleteSelectedTicket() {
-        if (!controlPanelBridge.selectedTicket.id || ticketFieldSavingName.length > 0 || ticketFieldActionName.length > 0) {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0) {
             return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
         }
         deleteTicketConfirmVisible = true
     }
@@ -502,14 +599,48 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 18
 
-                Connections {
-                    target: controlPanelBridge
-                    function onDataChanged() {
-                        ticketSection.syncTicketFieldState()
+                // Monitor ticket ID changes to reset field states
+                onVisibleChanged: {
+                    if (visible) {
+                        var newTicketId = controlPanelBridge.selectedTicket.id || ""
+                        if (newTicketId !== ticketSection.currentTicketId) {
+                            ticketSection.currentTicketId = newTicketId
+                            ticketSection.resetAllFieldStates()
+                        }
                     }
                 }
 
-                Component.onCompleted: ticketSection.syncTicketFieldState()
+                Connections {
+                    target: controlPanelBridge
+                    function onDataChanged() {
+                        // Check if ticket ID changed
+                        var newTicketId = controlPanelBridge.selectedTicket.id || ""
+                        if (newTicketId !== ticketSection.currentTicketId) {
+                            ticketSection.currentTicketId = newTicketId
+                            ticketSection.resetAllFieldStates()
+                            return
+                        }
+                        
+                        // When ticket data changes, sync all field states
+                        for (var fieldName in ticketSection.fieldStates) {
+                            var state = ticketSection.getFieldState(fieldName)
+                            if (state.saving) {
+                                // Check if save completed
+                                var currentValue = ticketSection.currentTicketFieldValue(fieldName)
+                                if (currentValue !== state.original) {
+                                    // Save completed, update state
+                                    ticketSection.onFieldSaveComplete(fieldName)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Component.onCompleted: {
+                    // Ensure clean state on mount
+                    ticketSection.currentTicketId = controlPanelBridge.selectedTicket.id || ""
+                    ticketSection.resetAllFieldStates()
+                }
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -865,19 +996,22 @@ ColumnLayout {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "ach单号"
-                                            value: ticketSection.ticketFieldEditingName === "achNo" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.achNo
+                                            value: ticketSection.isFieldEditing("achNo") ? ticketSection.getFieldDraft("achNo") : controlPanelBridge.selectedTicket.achNo
                                             placeholderText: "未填写"
                                             editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "achNo"
-                                            saving: ticketSection.ticketFieldSavingName === "achNo"
+                                            editing: ticketSection.isFieldEditing("achNo")
+                                            saving: ticketSection.isFieldSaving("achNo")
                                             compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.ticketFieldDraft
+                                            draftValue: ticketSection.getFieldDraft("achNo")
                                             onClicked: ticketSection.beginTicketFieldEdit("achNo")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("ach_no")
+                                            onDraftChanged: function(value) {
+                                                ticketSection.setFieldState("achNo", { draft: value })
                                             }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("achNo", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("achNo", "ach_no")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("achNo")
                                         }
 
                                         DetailField {
@@ -934,51 +1068,62 @@ ColumnLayout {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u7248\u672c\u53f7"
-                                            value: ticketSection.ticketFieldEditingName === "ticketVersion" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.ticketVersion
+                                            value: ticketSection.isFieldEditing("ticketVersion") ? ticketSection.getFieldDraft("ticketVersion") : controlPanelBridge.selectedTicket.ticketVersion
                                             placeholderText: "\u672a\u586b\u5199"
                                             editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "ticketVersion"
-                                            saving: ticketSection.ticketFieldSavingName === "ticketVersion"
+                                            editing: ticketSection.isFieldEditing("ticketVersion")
+                                            saving: ticketSection.isFieldSaving("ticketVersion")
                                             compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.ticketFieldDraft
+                                            draftValue: ticketSection.getFieldDraft("ticketVersion")
                                             onClicked: ticketSection.beginTicketFieldEdit("ticketVersion")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("ticket_version")
+                                            onDraftChanged: function(value) {
+                                                ticketSection.setFieldState("ticketVersion", { draft: value })
                                             }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("ticketVersion", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("ticketVersion", "ticket_version")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("ticketVersion")
                                         }
                                         DetailField {
+                                            // Force component recreation when ticket changes by using ticket ID as part of object identity
+                                            id: featurePointField
+                                            property string ticketId: controlPanelBridge.selectedTicket.id
+                                            
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u529f\u80fd\u70b9"
-                                            value: ticketSection.ticketFieldEditingName === "featurePoint" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.featurePoint
+                                            value: ticketSection.isFieldEditing("featurePoint") ? ticketSection.getFieldDraft("featurePoint") : controlPanelBridge.selectedTicket.featurePoint
                                             placeholderText: "\u672a\u751f\u6210"
                                             editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "featurePoint"
-                                            saving: ticketSection.ticketFieldSavingName === "featurePoint"
+                                            editing: ticketSection.isFieldEditing("featurePoint")
+                                            saving: ticketSection.isFieldSaving("featurePoint")
                                             compact: ticketSection.detailGridColumns === 1
                                             actionVisible: true
-                                            actionBusy: ticketSection.ticketFieldActionName === "featurePoint"
+                                            actionBusy: ticketSection.activeActionField === "featurePoint"
                                             actionIconSource: Qt.resolvedUrl("../../../assets/feature-point-refresh.svg")
-                                            draftValue: ticketSection.ticketFieldDraft
+                                            draftValue: ticketSection.getFieldDraft("featurePoint")
+                                            
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")
                                             onActionTriggered: ticketSection.refreshFeaturePointField()
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("feature_point")
+                                            onDraftChanged: function(value) {
+                                                ticketSection.setFieldState("featurePoint", { draft: value })
                                             }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("featurePoint", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("featurePoint", "feature_point")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("featurePoint")
                                         }
 
                                         RootCauseCascadeField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u95ee\u9898\u6839\u56e0"
-                                            value: ticketSection.ticketFieldEditingName === "rootCause" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCause
+                                            value: ticketSection.isFieldEditing("rootCause") ? ticketSection.getFieldDraft("rootCause") : controlPanelBridge.selectedTicket.rootCause
                                             placeholderText: "\u672a\u751f\u6210"
-                                            editing: ticketSection.ticketFieldEditingName === "rootCause"
-                                            saving: ticketSection.ticketFieldSavingName === "rootCause"
+                                            editing: ticketSection.isFieldEditing("rootCause")
+                                            saving: ticketSection.isFieldSaving("rootCause")
                                             compact: ticketSection.detailGridColumns === 1
                                             parsePathFn: ticketSection.parseRootCausePath
                                             level1OptionsFn: ticketSection.rootCauseLevel1Options
@@ -986,29 +1131,32 @@ ColumnLayout {
                                             level3OptionsFn: ticketSection.rootCauseLevel3Options
                                             onClicked: ticketSection.beginTicketFieldEdit("rootCause")
                                             onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("root_cause")
+                                                ticketSection.setFieldState("rootCause", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("rootCause", "root_cause")
                                             }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("rootCause")
                                         }
 
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u6839\u56e0\u63cf\u8ff0"
-                                            value: ticketSection.ticketFieldEditingName === "rootCauseDesc" ? ticketSection.ticketFieldDraft : controlPanelBridge.selectedTicket.rootCauseDesc
+                                            value: ticketSection.isFieldEditing("rootCauseDesc") ? ticketSection.getFieldDraft("rootCauseDesc") : controlPanelBridge.selectedTicket.rootCauseDesc
                                             placeholderText: "\u672a\u751f\u6210"
                                             compact: ticketSection.detailGridColumns === 1
                                             editable: true
-                                            editing: ticketSection.ticketFieldEditingName === "rootCauseDesc"
-                                            saving: ticketSection.ticketFieldSavingName === "rootCauseDesc"
-                                            draftValue: ticketSection.ticketFieldDraft
+                                            editing: ticketSection.isFieldEditing("rootCauseDesc")
+                                            saving: ticketSection.isFieldSaving("rootCauseDesc")
+                                            draftValue: ticketSection.getFieldDraft("rootCauseDesc")
                                             onClicked: ticketSection.beginTicketFieldEdit("rootCauseDesc")
-                                            onAccepted: function(value) {
-                                                ticketSection.ticketFieldDraft = value
-                                                ticketSection.commitTicketFieldEdit("root_cause_desc")
+                                            onDraftChanged: function(value) {
+                                                ticketSection.setFieldState("rootCauseDesc", { draft: value })
                                             }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("rootCauseDesc", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("rootCauseDesc", "root_cause_desc")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("rootCauseDesc")
                                         }
 
                                         DetailField {

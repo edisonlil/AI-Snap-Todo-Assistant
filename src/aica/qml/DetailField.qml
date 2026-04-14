@@ -21,6 +21,7 @@ Rectangle {
     signal actionTriggered
     signal accepted(string value)
     signal canceled
+    signal draftChanged(string value)  // New signal for draft changes
 
     radius: 0
     color: "transparent"
@@ -69,12 +70,15 @@ Rectangle {
                     visible: fieldRoot.editable && fieldRoot.editing
                     theme: fieldRoot.theme
                     Layout.fillWidth: true
-                    text: fieldRoot.draftValue
                     placeholderText: fieldRoot.placeholderText
                     leftPadding: 0
                     rightPadding: 0
                     topPadding: 0
                     bottomPadding: 8
+                    
+                    // Internal state to track current text
+                    property string internalText: ""
+                    
                     background: Rectangle {
                         color: "transparent"
                         border.width: 0
@@ -88,9 +92,35 @@ Rectangle {
                             opacity: inlineEditor.activeFocus ? 1 : 0.9
                         }
                     }
+                    
+                    Connections {
+                        target: fieldRoot
+                        function onEditingChanged() {
+                            if (fieldRoot.editing) {
+                                // CRITICAL: When entering edit mode, reset text to draftValue
+                                // This ensures we always start with the correct current value
+                                inlineEditor.internalText = fieldRoot.draftValue
+                                inlineEditor.text = fieldRoot.draftValue
+                                Qt.callLater(function() {
+                                    inlineEditor.forceActiveFocus()
+                                })
+                            } else {
+                                // When exiting edit mode, clear internal state
+                                inlineEditor.internalText = ""
+                                inlineEditor.text = ""
+                            }
+                        }
+                    }
 
-                    onTextEdited: fieldRoot.draftValue = text
-                    onAccepted: fieldRoot.accepted(fieldRoot.draftValue)
+                    onTextChanged: {
+                        // Track text changes internally
+                        if (fieldRoot.editing && text !== internalText) {
+                            internalText = text
+                            fieldRoot.draftChanged(text)
+                        }
+                    }
+                    
+                    onAccepted: fieldRoot.accepted(inlineEditor.text)
                     Keys.onEscapePressed: fieldRoot.canceled()
                 }
 
@@ -202,7 +232,7 @@ Rectangle {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: fieldRoot.accepted(fieldRoot.draftValue)
+                            onClicked: fieldRoot.accepted(inlineEditor.text)
                         }
                     }
 
