@@ -127,28 +127,59 @@ Rectangle {
                 Item {
                     visible: !fieldRoot.editing
                     Layout.fillWidth: true
-                    implicitHeight: Math.max(fieldText.implicitHeight + (fieldRoot.multiline ? 4 : 0), actionRow.implicitHeight)
+                    implicitHeight: Math.max(fieldTextLoader.implicitHeight + (fieldRoot.multiline ? 4 : 0), actionRow.implicitHeight)
 
+                    // 只读字段使用 SelectableText 支持选中复制
+                    Loader {
+                        id: fieldTextLoader
+                        anchors.left: parent.left
+                        anchors.right: actionRow.left
+                        anchors.verticalCenter: fieldRoot.multiline ? undefined : parent.verticalCenter
+                        anchors.top: fieldRoot.multiline ? parent.top : undefined
+                        anchors.rightMargin: actionRow.width > 0 ? 10 : 0
+                        
+                        sourceComponent: fieldRoot.editable ? editableTextComponent : selectableTextComponent
+                        
+                        property int maxHeight: fieldRoot.multiline ? 120 : 9999
+                    }
+                    
+                    Component {
+                        id: selectableTextComponent
+                        SelectableText {
+                            id: fieldTextSelectable
+                            width: fieldTextLoader.width
+                            height: fieldRoot.multiline ? Math.min(implicitHeight, fieldTextLoader.maxHeight) : implicitHeight
+                            clip: fieldRoot.multiline
+                            text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
+                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
+                            font.family: theme.uiFont
+                            font.pixelSize: fieldRoot.compact ? 12 : 13
+                            font.weight: fieldRoot.value.length > 0 ? 500 : 400
+                            wrapMode: fieldRoot.multiline ? TextEdit.Wrap : TextEdit.NoWrap
+                        }
+                    }
+                    
+                    Component {
+                        id: editableTextComponent
+                        Text {
+                            id: fieldText
+                            text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
+                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
+                            font.family: theme.uiFont
+                            font.pixelSize: fieldRoot.compact ? 12 : 13
+                            font.weight: fieldRoot.value.length > 0 ? 500 : 400
+                            wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
+                            elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
+                        }
+                    }
+
+                    // Hover 检测层，只在可编辑字段时启用
                     MouseArea {
                         id: fieldHover
                         anchors.fill: parent
                         acceptedButtons: Qt.NoButton
-                        hoverEnabled: true
-                    }
-
-                    Text {
-                        id: fieldText
-                        anchors.left: parent.left
-                        anchors.right: actionRow.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.rightMargin: actionRow.width > 0 ? 10 : 0
-                        text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                        color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
-                        font.family: theme.uiFont
-                        font.pixelSize: fieldRoot.compact ? 12 : 13
-                        font.weight: fieldRoot.value.length > 0 ? 500 : 400
-                        wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
-                        elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
+                        hoverEnabled: fieldRoot.editable
+                        enabled: fieldRoot.editable
                     }
 
                     Row {
@@ -158,6 +189,7 @@ Rectangle {
                         spacing: 8
                         visible: fieldRoot.actionVisible || (fieldRoot.editable && fieldHover.containsMouse && !fieldRoot.actionBusy && !fieldRoot.saving)
                         width: visible ? implicitWidth : 0
+                        z: 2
 
                         Rectangle {
                             visible: fieldRoot.actionVisible
