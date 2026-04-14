@@ -120,7 +120,7 @@ class FeaturePointProviderConfig:
     provider: str = "http"
     base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
     api_key: str = ""
-    timeout_seconds: int = 5
+    timeout_seconds: int = 500
 
     @classmethod
     def from_dict(cls, data: object) -> "FeaturePointProviderConfig":
