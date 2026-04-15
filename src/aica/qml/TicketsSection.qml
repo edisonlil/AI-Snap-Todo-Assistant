@@ -846,53 +846,57 @@ ColumnLayout {
                                                     elide: Text.ElideRight
                                                 }
 
-                                                Row {
+                                                Item {
                                                     Layout.preferredWidth: tableFlickable.actionColumnWidth
-                                                    Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
-                                                    spacing: 12
+                                                    Layout.fillHeight: true
 
-                                                    Text {
-                                                        text: "\u590d\u5236"
-                                                        color: copyMouseArea.containsMouse ? theme.accent : "#7D8793"
-                                                        font.family: theme.uiFont
-                                                        font.pixelSize: 12
-                                                        verticalAlignment: Text.AlignVCenter
+                                                    Row {
+                                                        anchors.centerIn: parent
+                                                        spacing: 12
 
-                                                        Behavior on color {
-                                                            ColorAnimation { duration: 100 }
-                                                        }
+                                                        Text {
+                                                            text: "\u590d\u5236"
+                                                            color: copyMouseArea.containsMouse ? theme.accent : "#7D8793"
+                                                            font.family: theme.uiFont
+                                                            font.pixelSize: 12
+                                                            verticalAlignment: Text.AlignVCenter
 
-                                                        MouseArea {
-                                                            id: copyMouseArea
-                                                            anchors.fill: parent
-                                                            hoverEnabled: true
-                                                            cursorShape: Qt.PointingHandCursor
-                                                            onClicked: function(mouse) {
-                                                                mouse.accepted = true
-                                                                ticketSection.copyTicketForTool(modelData.id, false)
+                                                            Behavior on color {
+                                                                ColorAnimation { duration: 100 }
+                                                            }
+
+                                                            MouseArea {
+                                                                id: copyMouseArea
+                                                                anchors.fill: parent
+                                                                hoverEnabled: true
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: function(mouse) {
+                                                                    mouse.accepted = true
+                                                                    ticketSection.copyTicketForTool(modelData.id, false)
+                                                                }
                                                             }
                                                         }
-                                                    }
 
-                                                    Text {
-                                                        text: "\u8be6\u60c5"
-                                                        color: detailMouseArea.containsMouse ? theme.accent : "#7D8793"
-                                                        font.family: theme.uiFont
-                                                        font.pixelSize: 12
-                                                        verticalAlignment: Text.AlignVCenter
+                                                        Text {
+                                                            text: "\u8be6\u60c5"
+                                                            color: detailMouseArea.containsMouse ? theme.accent : "#7D8793"
+                                                            font.family: theme.uiFont
+                                                            font.pixelSize: 12
+                                                            verticalAlignment: Text.AlignVCenter
 
-                                                        Behavior on color {
-                                                            ColorAnimation { duration: 100 }
-                                                        }
+                                                            Behavior on color {
+                                                                ColorAnimation { duration: 100 }
+                                                            }
 
-                                                        MouseArea {
-                                                            id: detailMouseArea
-                                                            anchors.fill: parent
-                                                            hoverEnabled: true
-                                                            cursorShape: Qt.PointingHandCursor
-                                                            onClicked: function(mouse) {
-                                                                mouse.accepted = true
-                                                                controlPanelBridge.openTicketDetail(modelData.id)
+                                                            MouseArea {
+                                                                id: detailMouseArea
+                                                                anchors.fill: parent
+                                                                hoverEnabled: true
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: function(mouse) {
+                                                                    mouse.accepted = true
+                                                                    controlPanelBridge.openTicketDetail(modelData.id)
+                                                                }
                                                             }
                                                         }
                                                     }
