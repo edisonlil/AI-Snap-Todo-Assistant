@@ -25,7 +25,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from urllib.parse import urlsplit
 from urllib.parse import unquote, urlparse
 import uuid
 
@@ -221,7 +222,9 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return "", ""
 
 from .models import TicketSummaryFields
+from .environment_access import EnvironmentAccessService
 from .paths import todo_attachments_dir
+from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from .ticket_enrichment import ROOT_CAUSE_OPTIONS
 from .ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
@@ -436,10 +439,19 @@ def _resolve_available_geometry(screen_or_geometry):
     return screen_or_geometry
 
 
+def _is_openable_target(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    parsed = urlsplit(text)
+    return bool(parsed.scheme and parsed.netloc)
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
+    environmentAccessMessageChanged = pyqtSignal()
     panelDragStarted = pyqtSignal(float, float)
     panelDragMoved = pyqtSignal()
     panelDragFinished = pyqtSignal()
@@ -453,7 +465,12 @@ class _TodoDetailBridge(QObject):
     deleteRequested = pyqtSignal(str)
     exportPlanRequested = pyqtSignal(str, object)
 
-    def __init__(self, attachment_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        attachment_root: Path | None = None,
+        *,
+        environment_access_service: EnvironmentAccessService | None = None,
+    ) -> None:
         super().__init__()
         self._todo_id: str | None = None
         self._title = ""
@@ -489,6 +506,33 @@ class _TodoDetailBridge(QObject):
         self._sync_event_label = ""
         self._sync_updated_at = ""
         self._sync_records: list[dict[str, object]] = []
+        self._environment_access_service = environment_access_service or EnvironmentAccessService(
+            SQLiteProjectEnvironmentRepository()
+        )
+        self._environment_access_groups: list[dict[str, object]] = []
+        self._environment_access_summary_text = "环境访问 · 无可用环境"
+        self._environment_access_popover_open = False
+        self._environment_access_message = ""
+
+    @pyqtProperty(str, notify=dataChanged)
+    def environmentAccessSummaryText(self) -> str:
+        return self._environment_access_summary_text
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def environmentAccessPopoverOpen(self) -> bool:
+        return self._environment_access_popover_open
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasEnvironmentAccess(self) -> bool:
+        return any(bool(group.get("entries")) for group in self._environment_access_groups)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def environmentAccessGroups(self):  # noqa: ANN201
+        return self._environment_access_groups
+
+    @pyqtProperty(str, notify=environmentAccessMessageChanged)
+    def environmentAccessMessage(self) -> str:
+        return self._environment_access_message
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -642,6 +686,161 @@ class _TodoDetailBridge(QObject):
     def syncRecords(self):  # noqa: ANN201
         return self._sync_records
 
+    @pyqtSlot()
+    def toggleEnvironmentAccessPopover(self) -> None:
+        self._environment_access_popover_open = not self._environment_access_popover_open
+        self.dataChanged.emit()
+
+    @pyqtSlot()
+    def closeEnvironmentAccessPopover(self) -> None:
+        if not self._environment_access_popover_open:
+            return
+        self._environment_access_popover_open = False
+        self.dataChanged.emit()
+
+    @pyqtSlot(str)
+    def toggleEnvironmentGroup(self, group_id: str) -> None:
+        normalized_group_id = str(group_id or "").strip()
+        if not normalized_group_id:
+            return
+        changed = False
+        next_groups: list[dict[str, object]] = []
+        for group in self._environment_access_groups:
+            next_group = dict(group)
+            is_target = str(group.get("id") or "") == normalized_group_id
+            current = bool(group.get("expanded", False))
+            next_value = not current if is_target else False
+            if current != next_value:
+                changed = True
+            next_group["expanded"] = next_value
+            next_group["entries"] = [dict(entry) for entry in group.get("entries", []) if isinstance(entry, dict)]
+            next_groups.append(next_group)
+        if changed:
+            self._environment_access_groups = next_groups
+            self.dataChanged.emit()
+
+    @staticmethod
+    def _clone_environment_groups(
+        groups: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        cloned_groups: list[dict[str, object]] = []
+        for group in groups:
+            next_group = dict(group)
+            next_group["entries"] = [
+                dict(entry)
+                for entry in group.get("entries", [])
+                if isinstance(entry, dict)
+            ]
+            cloned_groups.append(next_group)
+        return cloned_groups
+
+    def _replace_environment_groups(self, groups: list[dict[str, object]]) -> None:
+        self._environment_access_groups = self._clone_environment_groups(groups)
+        self.dataChanged.emit()
+
+    def _set_group_expanded_state(self, target_entry_id: str = "") -> None:
+        normalized_entry_id = str(target_entry_id or "").strip()
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group in next_groups:
+            entries = group.get("entries", [])
+            has_target = any(
+                str(entry.get("id") or "") == normalized_entry_id
+                for entry in entries
+                if isinstance(entry, dict)
+            )
+            group["expanded"] = has_target if normalized_entry_id else bool(group.get("expanded", False))
+        self._environment_access_groups = next_groups
+
+    @staticmethod
+    def _iterate_environment_entries(groups: list[dict[str, object]]):
+        for group in groups:
+            entries = group.get("entries", [])
+            if not isinstance(entries, list):
+                continue
+            yield group, entries
+
+    @staticmethod
+    def _copy_entry_shape(group: dict[str, object], entry: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+        return dict(group), dict(entry)
+
+    def _update_environment_entries(self, updater) -> bool:
+        changed = False
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group, entries in self._iterate_environment_entries(next_groups):
+            for index, entry in enumerate(entries):
+                updated_entry, entry_changed = updater(dict(entry))
+                if entry_changed:
+                    entries[index] = updated_entry
+                    changed = True
+        if changed:
+            self._environment_access_groups = next_groups
+            self.dataChanged.emit()
+        return changed
+
+    @pyqtSlot(str)
+    def startEnvironmentLogin(self, entry_id: str) -> None:
+        result = self._environment_access_service.prepare_login(str(entry_id or "").strip())
+        if result is None:
+            self._set_environment_access_message("未找到环境访问项")
+            return
+        opened = self._open_environment_target(result.entry.url_or_host)
+        copied_username = False
+        if result.username:
+            QApplication.clipboard().setText(result.username)
+            copied_username = True
+        self._activate_environment_entry(
+            result.entry.id,
+            password_available=result.has_password,
+            otp_available=result.entry.requires_otp and result.has_otp,
+            otp_remaining_seconds=result.otp_remaining_seconds,
+        )
+        access_name = result.entry.access_name or "访问入口"
+        if opened and copied_username:
+            message = f"已打开 {access_name}，并复制账号"
+        elif opened:
+            message = f"已打开 {access_name}"
+        elif copied_username:
+            message = f"已复制 {access_name} 账号"
+        else:
+            message = f"已准备 {access_name} 登录动作"
+        self._set_environment_access_message(message)
+
+    @pyqtSlot(str)
+    def copyEnvironmentPassword(self, entry_id: str) -> None:
+        password = self._environment_access_service.get_password(str(entry_id or "").strip())
+        if not password:
+            self._set_environment_access_message("当前访问方式未配置密码")
+            return
+        QApplication.clipboard().setText(password)
+        self._set_environment_access_message("已复制密码")
+
+    @pyqtSlot(str)
+    def copyEnvironmentOtp(self, entry_id: str) -> None:
+        code, remaining = self._environment_access_service.get_otp_code(str(entry_id or "").strip())
+        if not code:
+            self._set_environment_access_message("当前访问方式暂无可用验证码")
+            return
+        QApplication.clipboard().setText(code)
+        self._update_entry_otp_remaining(str(entry_id or "").strip(), remaining)
+        self._set_environment_access_message("已复制验证码")
+
+    @pyqtSlot()
+    def refreshEnvironmentOtpState(self) -> None:
+        def _updater(entry: dict[str, object]) -> tuple[dict[str, object], bool]:
+            if not bool(entry.get("loginActivated", False)):
+                return entry, False
+            if not bool(entry.get("canCopyOtp", False)):
+                return entry, False
+            next_remaining = self._environment_access_service.get_otp_remaining_seconds(
+                str(entry.get("id") or "")
+            )
+            if int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining:
+                return entry, False
+            entry["otpRemainingSeconds"] = next_remaining
+            return entry, True
+
+        self._update_environment_entries(_updater)
+
     def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
@@ -688,6 +887,7 @@ class _TodoDetailBridge(QObject):
         self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
         self._project_task_order_no = str(todo.project_link.project_snapshot.get("task_order_no") or "").strip()
         self._project_manager = str(todo.project_link.project_snapshot.get("project_manager") or "").strip()
+        self._load_environment_access(todo.project_link.project_id)
         self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
         self.timelineChanged.emit()
@@ -1038,6 +1238,109 @@ class _TodoDetailBridge(QObject):
             for item in sync_records
             if isinstance(item, dict)
         ]
+
+    def _load_environment_access(self, project_id: str) -> None:
+        self._environment_access_popover_open = False
+        normalized_project_id = str(project_id or "").strip()
+        if not normalized_project_id:
+            self._environment_access_groups = []
+            self._environment_access_summary_text = "环境访问 · 无可用环境"
+            return
+        bundles = self._environment_access_service.list_project_environments(normalized_project_id)
+        self._environment_access_groups = [
+            {
+                "id": bundle.environment.id,
+                "name": bundle.environment.env_name,
+                "type": bundle.environment.env_type,
+                "note": bundle.environment.note,
+                "expanded": False,
+                "entryCount": len(bundle.entries),
+                "summary": (
+                    f"{len(bundle.entries)} 个可用访问方式"
+                    if bundle.entries
+                    else (bundle.environment.note or "暂无可直接访问入口")
+                ),
+                "entries": [
+                    {
+                        "id": entry.id,
+                        "name": entry.access_name,
+                        "type": entry.access_type,
+                        "urlOrHost": entry.url_or_host,
+                        "username": entry.username,
+                        "requiresOtp": bool(entry.requires_otp),
+                        "hasTarget": bool(entry.url_or_host.strip()),
+                        "hasPassword": bool(self._environment_access_service.get_password(entry.id)),
+                        "hasOtpSecret": bool(self._environment_access_service.get_otp_remaining_seconds(entry.id)),
+                        "note": entry.note,
+                        "loginActivated": False,
+                        "canCopyPassword": False,
+                        "canCopyOtp": False,
+                        "otpRemainingSeconds": 0,
+                    }
+                    for entry in bundle.entries
+                ],
+            }
+            for bundle in bundles
+        ]
+        group_count = len(self._environment_access_groups)
+        self._environment_access_summary_text = (
+            f"环境访问 · {group_count} 组"
+            if group_count > 0
+            else "环境访问 · 无可用环境"
+        )
+
+    def _activate_environment_entry(
+        self,
+        entry_id: str,
+        *,
+        password_available: bool,
+        otp_available: bool,
+        otp_remaining_seconds: int,
+    ) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        if not normalized_entry_id:
+            return
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group, entries in self._iterate_environment_entries(next_groups):
+            group_expanded = False
+            for index, entry in enumerate(entries):
+                is_target = str(entry.get("id") or "") == normalized_entry_id
+                next_entry = dict(entry)
+                next_entry["loginActivated"] = is_target
+                next_entry["canCopyPassword"] = bool(password_available) if is_target else False
+                next_entry["canCopyOtp"] = bool(otp_available) if is_target else False
+                next_entry["otpRemainingSeconds"] = int(otp_remaining_seconds) if is_target else 0
+                entries[index] = next_entry
+                group_expanded = group_expanded or is_target
+            group["expanded"] = group_expanded
+        self._environment_access_groups = next_groups
+        self.dataChanged.emit()
+
+    def _update_entry_otp_remaining(self, entry_id: str, remaining: int) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        if not normalized_entry_id:
+            return
+        def _updater(entry: dict[str, object]) -> tuple[dict[str, object], bool]:
+            if str(entry.get("id") or "") != normalized_entry_id:
+                return entry, False
+            next_remaining = max(0, int(remaining))
+            if int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining:
+                return entry, False
+            entry["otpRemainingSeconds"] = next_remaining
+            return entry, True
+
+        self._update_environment_entries(_updater)
+
+    def _set_environment_access_message(self, message: str) -> None:
+        self._environment_access_message = str(message or "").strip()
+        self.environmentAccessMessageChanged.emit()
+
+    @staticmethod
+    def _open_environment_target(target: str) -> bool:
+        normalized_target = str(target or "").strip()
+        if not _is_openable_target(normalized_target):
+            return False
+        return bool(QDesktopServices.openUrl(QUrl(normalized_target)))
 
     def _find_timeline_item(self, event_id: str) -> dict[str, object] | None:
         for item in self._timeline:

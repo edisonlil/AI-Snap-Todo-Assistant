@@ -50,6 +50,8 @@ Rectangle {
     property real timelineCommandMenuX: 0
     property real timelineCommandMenuY: 0
     property real timelineCommandMenuWidth: 0
+    property string toastMessage: ""
+    property bool toastVisible: false
     property var timelineCommandOptions: [
         { "value": "follow_up", "label": "问题反馈", "detail": "写入时间线" },
         { "value": "conclusion", "label": "问题结论", "detail": "写入问题结论并保留结论记录" }
@@ -230,6 +232,14 @@ Rectangle {
         return (value / (1024 * 1024)).toFixed(1) + " MB"
     }
 
+    function showToast(message) {
+        toastMessage = message || ""
+        toastVisible = toastMessage.length > 0
+        if (toastVisible) {
+            toastHideTimer.restart()
+        }
+    }
+
     Connections {
         target: todoDetailBridge
         function onDataChanged() {
@@ -239,6 +249,9 @@ Rectangle {
             if (root.activeAttachmentEventId.length === 0 && todoDetailBridge.timelineCount > 0) {
                 root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
             }
+        }
+        function onEnvironmentAccessMessageChanged() {
+            root.showToast(todoDetailBridge.environmentAccessMessage)
         }
     }
 
@@ -259,6 +272,20 @@ Rectangle {
         sequence: StandardKey.Paste
         enabled: root.activeAttachmentEventId.length > 0
         onActivated: todoDetailBridge.requestClipboardImagePaste(root.activeAttachmentEventId)
+    }
+
+    Timer {
+        id: toastHideTimer
+        interval: 1400
+        repeat: false
+        onTriggered: root.toastVisible = false
+    }
+
+    Timer {
+        interval: 1000
+        running: todoDetailBridge.environmentAccessPopoverOpen
+        repeat: true
+        onTriggered: todoDetailBridge.refreshEnvironmentOtpState()
     }
 
     Rectangle {
@@ -593,6 +620,39 @@ Rectangle {
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
                                 }
+                            }
+                        }
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: 32
+
+                        Rectangle {
+                            id: envAccessTrigger
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            radius: 15
+                            height: 30
+                            width: envAccessLabel.implicitWidth + 24
+                            color: "#FFFFFF"
+                            border.width: 1
+                            border.color: root.fieldLine
+
+                            Text {
+                                id: envAccessLabel
+                                anchors.centerIn: parent
+                                text: todoDetailBridge.environmentAccessSummaryText
+                                color: root.bodyInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: todoDetailBridge.toggleEnvironmentAccessPopover()
                             }
                         }
                     }
@@ -1640,6 +1700,29 @@ Rectangle {
                 }
 
                 Item {
+                    id: environmentPopoverLayer
+                    anchors.fill: parent
+                    z: 49
+                    visible: todoDetailBridge.environmentAccessPopoverOpen
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: todoDetailBridge.closeEnvironmentAccessPopover()
+                    }
+
+                    EnvironmentAccessPopover {
+                        x: root.width - width - root.outerPadding
+                        y: {
+                            var point = envAccessTrigger.mapToItem(environmentPopoverLayer, 0, envAccessTrigger.height + 8)
+                            return point.y
+                        }
+                        theme: root
+                        groupsModel: todoDetailBridge.environmentAccessGroups
+                        z: 1
+                    }
+                }
+
+                Item {
                     id: timelineCommandOverlayLayer
                     anchors.fill: parent
                     z: 50
@@ -1702,6 +1785,29 @@ Rectangle {
                             }
                         }
                     }
+                }
+            }
+
+            Rectangle {
+                visible: root.toastVisible
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 18
+                radius: 16
+                color: "#18202E"
+                opacity: 0.96
+                width: toastText.implicitWidth + 24
+                height: toastText.implicitHeight + 14
+                z: 80
+
+                Text {
+                    id: toastText
+                    anchors.centerIn: parent
+                    text: root.toastMessage
+                    color: "#FFFFFF"
+                    font.family: root.uiFont
+                    font.pixelSize: 11
+                    font.weight: root.labelWeight
                 }
             }
         }

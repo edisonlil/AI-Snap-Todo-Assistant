@@ -6,6 +6,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from aica.environment_access import (
+        EnvironmentAccessEntryRecord,
+        ProjectEnvironmentBundle,
+        ProjectEnvironmentRecord,
+    )
     from aica.models import TicketSnapshot, TicketSummaryFields
     from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
@@ -182,6 +187,34 @@ class BindingRepository(Protocol):
         external_url: str = "",
     ) -> dict[str, Any] | None:
         """Update sync metadata without requiring an external id."""
+
+
+class ProjectEnvironmentRepository(Protocol):
+    path: str
+
+    def list_project_environments(
+        self,
+        project_id: str,
+        *,
+        include_inactive: bool = False,
+    ) -> list["ProjectEnvironmentBundle"]:
+        """List project environments and their access entries."""
+
+    def get_access_entry(self, entry_id: str) -> "EnvironmentAccessEntryRecord | None":
+        """Fetch one environment access entry."""
+
+    def upsert_project_environment(
+        self,
+        environment: "ProjectEnvironmentRecord",
+    ) -> "ProjectEnvironmentRecord":
+        """Create or update a project environment."""
+
+    def replace_access_entries(
+        self,
+        environment_id: str,
+        entries: list["EnvironmentAccessEntryRecord"],
+    ) -> list["EnvironmentAccessEntryRecord"]:
+        """Replace all access entries under one environment."""
 
 
 class StorageMigrator(Protocol):

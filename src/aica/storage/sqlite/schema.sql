@@ -144,3 +144,41 @@ CREATE TABLE IF NOT EXISTS todo_project_links (
   FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS project_environments (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  env_name TEXT NOT NULL,
+  env_type TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_environments_project
+ON project_environments(project_id, is_active, sort_order, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS environment_access_entries (
+  id TEXT PRIMARY KEY,
+  environment_id TEXT NOT NULL,
+  access_name TEXT NOT NULL,
+  access_type TEXT NOT NULL DEFAULT '',
+  url_or_host TEXT NOT NULL DEFAULT '',
+  username TEXT NOT NULL DEFAULT '',
+  password_encrypted TEXT NOT NULL DEFAULT '',
+  otp_secret_encrypted TEXT NOT NULL DEFAULT '',
+  requires_otp INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  open_command TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(environment_id) REFERENCES project_environments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_environment_access_entries_environment
+ON environment_access_entries(environment_id, is_active, sort_order, updated_at DESC);
