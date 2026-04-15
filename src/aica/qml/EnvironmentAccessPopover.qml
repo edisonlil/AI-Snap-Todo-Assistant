@@ -20,6 +20,14 @@ Rectangle {
         return "已准备连接" + accessName + "，并自动复制账号。继续复制密码："
     }
 
+    function otpDisplay(code) {
+        var value = (code || "").replace(/\s+/g, "")
+        if (value.length === 6) {
+            return value.slice(0, 3) + " " + value.slice(3)
+        }
+        return value
+    }
+
     Column {
         id: contentColumn
         anchors.left: parent.left
@@ -247,11 +255,11 @@ Rectangle {
                                             Rectangle {
                                                 id: loginFlowCard
                                                 width: parent.width
-                                                implicitHeight: flowColumn.implicitHeight + 18
-                                                radius: 14
-                                                color: "#FFFFFF"
+                                                implicitHeight: flowColumn.implicitHeight + 24
+                                                radius: 18
+                                                color: "#FCFCFB"
                                                 border.width: 1
-                                                border.color: "#D7E0EA"
+                                                border.color: "#E3EAF4"
 
                                             Canvas {
                                                 id: dashOutline
@@ -262,11 +270,11 @@ Rectangle {
                                                 onPaint: {
                                                     var ctx = getContext("2d")
                                                     ctx.clearRect(0, 0, width, height)
-                                                    ctx.strokeStyle = "#C8D3DE"
+                                                    ctx.strokeStyle = "#D7E2F0"
                                                     ctx.lineWidth = 1
-                                                    ctx.setLineDash([5, 4])
-                                                    var inset = 6
-                                                    var radius = 11
+                                                    ctx.setLineDash([3, 4])
+                                                    var inset = 8
+                                                    var radius = 13
                                                     var left = inset
                                                     var top = inset
                                                     var right = width - inset
@@ -290,32 +298,58 @@ Rectangle {
                                                 anchors.left: parent.left
                                                 anchors.right: parent.right
                                                 anchors.top: parent.top
-                                                anchors.margins: 12
-                                                spacing: 8
+                                                anchors.margins: 16
+                                                spacing: 12
 
                                                     Text {
                                                         width: parent.width
                                                         text: root.flowMessage(modelData)
                                                         color: "#465466"
                                                         font.family: root.theme.uiFont
-                                                        font.pixelSize: 11
+                                                        font.pixelSize: 12
                                                         font.weight: root.theme.bodyWeight
                                                         wrapMode: Text.Wrap
-                                                        lineHeight: 1.4
+                                                        lineHeight: 1.5
                                                     }
 
-                                                Flow {
+                                                Row {
                                                     width: parent.width
                                                     spacing: 8
 
                                                     Rectangle {
-                                                        visible: modelData.canCopyPassword
-                                                        radius: 11
-                                                        width: passwordLabel.implicitWidth + 22
-                                                        height: 28
+                                                        visible: (modelData.username || "").length > 0
+                                                        radius: 12
+                                                        width: 60
+                                                        height: 29
                                                         color: "#FFFFFF"
                                                         border.width: 1
-                                                        border.color: "#D4DDE8"
+                                                        border.color: "#D4DBE6"
+
+                                                        Text {
+                                                            id: usernameLabel
+                                                            anchors.centerIn: parent
+                                                            text: "复制账号"
+                                                            color: root.theme.bodyInk
+                                                            font.family: root.theme.uiFont
+                                                            font.pixelSize: 11
+                                                            font.weight: root.theme.labelWeight
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: todoDetailBridge.copyEnvironmentUsername(modelData.id)
+                                                        }
+                                                    }
+
+                                                    Rectangle {
+                                                        visible: modelData.canCopyPassword
+                                                        radius: 12
+                                                        width: 60
+                                                        height: 29
+                                                        color: "#FFFFFF"
+                                                        border.width: 1
+                                                        border.color: "#D4DBE6"
 
                                                         Text {
                                                             id: passwordLabel
@@ -336,21 +370,47 @@ Rectangle {
 
                                                     Rectangle {
                                                         visible: modelData.canCopyOtp
-                                                        radius: 11
-                                                        width: otpLabel.implicitWidth + 22
-                                                        height: 28
+                                                        radius: 10
+                                                        width: 92
+                                                        height: 29
                                                         color: "#FFFFFF"
                                                         border.width: 1
-                                                        border.color: "#D4DDE8"
+                                                        border.color: "#D4DBE6"
 
-                                                        Text {
-                                                            id: otpLabel
-                                                            anchors.centerIn: parent
-                                                            text: "复制验证码"
-                                                            color: root.theme.bodyInk
-                                                            font.family: root.theme.uiFont
-                                                            font.pixelSize: 11
-                                                            font.weight: root.theme.labelWeight
+                                                        Row {
+                                                            id: otpRow
+                                                            anchors.fill: parent
+                                                            spacing: 0
+
+                                                            Text {
+                                                                width: 58
+                                                                height: parent.height
+                                                                text: root.otpDisplay(modelData.otpCode || "")
+                                                                color: "#111827"
+                                                                font.family: root.theme.uiFont
+                                                                font.pixelSize: 12
+                                                                font.weight: root.theme.sectionWeight
+                                                                horizontalAlignment: Text.AlignHCenter
+                                                                verticalAlignment: Text.AlignVCenter
+                                                            }
+
+                                                            Rectangle {
+                                                                width: 1
+                                                                height: parent.height
+                                                                color: "#E5E7EB"
+                                                            }
+
+                                                            Text {
+                                                                width: 33
+                                                                height: parent.height
+                                                                text: (modelData.otpRemainingSeconds || 0) + "s"
+                                                                color: "#64748B"
+                                                                font.family: root.theme.uiFont
+                                                                font.pixelSize: 10
+                                                                font.weight: root.theme.labelWeight
+                                                                horizontalAlignment: Text.AlignHCenter
+                                                                verticalAlignment: Text.AlignVCenter
+                                                            }
                                                         }
 
                                                         MouseArea {
@@ -364,11 +424,18 @@ Rectangle {
                                                 Text {
                                                     visible: modelData.canCopyOtp
                                                     width: parent.width
-                                                    text: "当前验证码剩余 " + (modelData.otpRemainingSeconds || 0) + "s"
-                                                    color: "#8B98A9"
+                                                    text: "验证码直接显示，点击数字可复制；倒计时与验证码同区，不再挤在底部。"
+                                                    color: "#94A3B8"
                                                     font.family: root.theme.uiFont
-                                                    font.pixelSize: 10
-                                                    font.weight: root.theme.labelWeight
+                                                    font.pixelSize: 11
+                                                    font.weight: root.theme.bodyWeight
+                                                    wrapMode: Text.Wrap
+                                                    lineHeight: 1.45
+                                                }
+
+                                                Item {
+                                                    width: 1
+                                                    height: 6
                                                 }
                                             }
                                         }

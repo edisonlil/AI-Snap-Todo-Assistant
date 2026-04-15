@@ -788,10 +788,17 @@ class _TodoDetailBridge(QObject):
         if result.username:
             QApplication.clipboard().setText(result.username)
             copied_username = True
+        helper_available = bool(
+            str(result.username or "").strip()
+            or result.has_password
+            or result.entry.requires_otp
+        )
         self._activate_environment_entry(
             result.entry.id,
+            login_activated=helper_available,
             password_available=result.has_password,
             otp_available=result.entry.requires_otp,
+            otp_code=result.otp_code,
             otp_remaining_seconds=result.otp_remaining_seconds,
         )
         access_name = result.entry.access_name or "访问入口"
@@ -804,6 +811,26 @@ class _TodoDetailBridge(QObject):
         else:
             message = f"已准备 {access_name} 登录动作"
         self._set_environment_access_message(message)
+
+    @pyqtSlot(str)
+    def copyEnvironmentUsername(self, entry_id: str) -> None:
+        entry_id = str(entry_id or "").strip()
+        if not entry_id:
+            self._set_environment_access_message("当前访问方式未配置账号")
+            return
+        username = ""
+        for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
+            for entry in entries:
+                if str(entry.get("id") or "") == entry_id:
+                    username = str(entry.get("username") or "").strip()
+                    break
+            if username:
+                break
+        if not username:
+            self._set_environment_access_message("当前访问方式未配置账号")
+            return
+        QApplication.clipboard().setText(username)
+        self._set_environment_access_message("已复制账号")
 
     @pyqtSlot(str)
     def copyEnvironmentPassword(self, entry_id: str) -> None:
@@ -821,7 +848,7 @@ class _TodoDetailBridge(QObject):
             self._set_environment_access_message("当前访问方式暂无可用验证码")
             return
         QApplication.clipboard().setText(code)
-        self._update_entry_otp_remaining(str(entry_id or "").strip(), remaining)
+        self._update_entry_otp_state(str(entry_id or "").strip(), code, remaining)
         self._set_environment_access_message("已复制验证码")
 
     @pyqtSlot()
@@ -831,11 +858,15 @@ class _TodoDetailBridge(QObject):
                 return entry, False
             if not bool(entry.get("canCopyOtp", False)):
                 return entry, False
-            next_remaining = self._environment_access_service.get_otp_remaining_seconds(
+            next_code, next_remaining = self._environment_access_service.get_otp_code(
                 str(entry.get("id") or "")
             )
-            if int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining:
+            if (
+                int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining
+                and str(entry.get("otpCode") or "") == next_code
+            ):
                 return entry, False
+            entry["otpCode"] = next_code
             entry["otpRemainingSeconds"] = next_remaining
             return entry, True
 
@@ -1293,6 +1324,7 @@ class _TodoDetailBridge(QObject):
                         "loginActivated": False,
                         "canCopyPassword": False,
                         "canCopyOtp": False,
+                        "otpCode": "",
                         "otpRemainingSeconds": 0,
                     }
                     for entry in visible_entries_by_environment.get(bundle.environment.id, [])
@@ -1311,8 +1343,10 @@ class _TodoDetailBridge(QObject):
         self,
         entry_id: str,
         *,
+        login_activated: bool,
         password_available: bool,
         otp_available: bool,
+        otp_code: str,
         otp_remaining_seconds: int,
     ) -> None:
         normalized_entry_id = str(entry_id or "").strip()
@@ -1323,18 +1357,20 @@ class _TodoDetailBridge(QObject):
             group_expanded = False
             for index, entry in enumerate(entries):
                 is_target = str(entry.get("id") or "") == normalized_entry_id
+                should_activate = is_target and login_activated
                 next_entry = dict(entry)
-                next_entry["loginActivated"] = is_target
-                next_entry["canCopyPassword"] = bool(password_available) if is_target else False
-                next_entry["canCopyOtp"] = bool(otp_available) if is_target else False
-                next_entry["otpRemainingSeconds"] = int(otp_remaining_seconds) if is_target else 0
+                next_entry["loginActivated"] = should_activate
+                next_entry["canCopyPassword"] = bool(password_available) if should_activate else False
+                next_entry["canCopyOtp"] = bool(otp_available) if should_activate else False
+                next_entry["otpCode"] = str(otp_code or "") if should_activate else ""
+                next_entry["otpRemainingSeconds"] = int(otp_remaining_seconds) if should_activate else 0
                 entries[index] = next_entry
                 group_expanded = group_expanded or is_target
             group["expanded"] = group_expanded
         self._environment_access_groups = next_groups
         self.dataChanged.emit()
 
-    def _update_entry_otp_remaining(self, entry_id: str, remaining: int) -> None:
+    def _update_entry_otp_state(self, entry_id: str, code: str, remaining: int) -> None:
         normalized_entry_id = str(entry_id or "").strip()
         if not normalized_entry_id:
             return
@@ -1342,8 +1378,13 @@ class _TodoDetailBridge(QObject):
             if str(entry.get("id") or "") != normalized_entry_id:
                 return entry, False
             next_remaining = max(0, int(remaining))
-            if int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining:
+            next_code = str(code or "")
+            if (
+                int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining
+                and str(entry.get("otpCode") or "") == next_code
+            ):
                 return entry, False
+            entry["otpCode"] = next_code
             entry["otpRemainingSeconds"] = next_remaining
             return entry, True
 

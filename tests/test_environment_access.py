@@ -227,9 +227,51 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
     assert first_entry["loginActivated"] is True
     assert first_entry["canCopyPassword"] is True
     assert first_entry["canCopyOtp"] is True
+    assert len(first_entry["otpCode"]) == 6
 
     bridge.copyEnvironmentOtp("entry-1")
     assert bridge.environmentAccessMessage == "已复制验证码"
+
+
+def test_todo_detail_bridge_login_without_helper_data_does_not_expand_helper() -> None:
+    bundle = ProjectEnvironmentBundle(
+        environment=ProjectEnvironmentRecord(
+            id="env-1",
+            project_id="project-1",
+            env_name="娴嬭瘯鐜",
+        ),
+        entries=(
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id="env-1",
+                access_name="绠＄悊鍚庡彴",
+                url_or_host="https://example.com/login",
+            ),
+        ),
+    )
+    bridge = _TodoDetailBridge(
+        environment_access_service=EnvironmentAccessService(_FakeEnvironmentRepository([bundle]))
+    )
+    todo = TodoItem(
+        id="todo-1",
+        title="妫€鏌ョ幆澧冭闂?",
+        project_link=TodoProjectLink(
+            todo_id="todo-1",
+            project_id="project-1",
+            match_status="matched",
+            project_snapshot={"project_name": "绀轰緥椤圭洰"},
+        ),
+    )
+
+    bridge.set_todo(todo)
+    bridge.startEnvironmentLogin("entry-1")
+
+    first_group = bridge.environmentAccessGroups[0]
+    first_entry = first_group["entries"][0]
+    assert first_group["expanded"] is True
+    assert first_entry["loginActivated"] is False
+    assert first_entry["canCopyPassword"] is False
+    assert first_entry["canCopyOtp"] is False
 
 
 def test_todo_detail_bridge_hides_standalone_otp_placeholder() -> None:
