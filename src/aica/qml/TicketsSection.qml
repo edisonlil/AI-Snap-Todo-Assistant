@@ -17,15 +17,40 @@ ColumnLayout {
     property var fieldStates: ({})
     property string activeActionField: ""
     property string currentTicketId: ""
+    property string selectedProductLine: "all"
+    property string selectedTicketType: "all"
+    property int ticketPageSize: 10
+    property int ticketCurrentPage: 1
+    property var filteredTickets: []
+    property var pagedTickets: []
+    readonly property int ticketTotalCount: filteredTickets.length
+    readonly property int ticketTotalPages: Math.max(1, Math.ceil(ticketTotalCount / ticketPageSize))
 
     property var statusOptions: [
-        { value: "open", text: "进行中" },
-        { value: "done", text: "已完成" },
-        { value: "done_missing_ach", text: "已完成未填ACH" },
-        { value: "all", text: "全部状态" }
+        { value: "open", text: "\u8fdb\u884c\u4e2d" },
+        { value: "done", text: "\u5df2\u5b8c\u6210" },
+        { value: "done_missing_ach", text: "\u5df2\u5b8c\u6210\u672a\u586bACH" },
+        { value: "all", text: "\u5168\u90e8\u72b6\u6001" }
+    ]
+    property var productLineOptions: [
+        { value: "all", text: "\u4ea7\u54c1\u7ebf" },
+        { value: "\u6587\u6863\u4e2d\u53f0", text: "\u6587\u6863\u4e2d\u53f0" },
+        { value: "\u6587\u6863\u4e2d\u5fc3", text: "\u6587\u6863\u4e2d\u5fc3" }
+    ]
+    property var ticketTypeOptions: [
+        { value: "all", text: "\u7c7b\u578b" },
+        { value: "\u6392\u67e5\u7c7b", text: "\u6392\u67e5\u7c7b" },
+        { value: "\u54a8\u8be2\u7c7b", text: "\u54a8\u8be2\u7c7b" },
+        { value: "\u64cd\u4f5c\u7c7b", text: "\u64cd\u4f5c\u7c7b" }
+    ]
+    property var pageSizeOptions: [
+        { value: 10, text: "10 \u6761/\u9875" },
+        { value: 20, text: "20 \u6761/\u9875" },
+        { value: 50, text: "50 \u6761/\u9875" }
     ]
 
     function ticketFieldText(value) {
+
         if (value === null || value === undefined) {
             return ""
         }
@@ -101,6 +126,83 @@ ColumnLayout {
             return "open"
         }
         return statusOptions[index].value
+    }
+
+    function statusTextColor(statusTone) {
+        if (statusTone === "done") {
+            return "#466B57"
+        }
+        if (statusTone === "open") {
+            return "#2F6A58"
+        }
+        return theme.bodyInk
+    }
+
+    function statusDotColor(statusTone) {
+        if (statusTone === "done") {
+            return "#7FA68E"
+        }
+        if (statusTone === "open") {
+            return "#4C8A74"
+        }
+        return "#9AA4AF"
+    }
+
+    function displayProductLine(value, index) {
+        var text = String(value || "").trim()
+        if (text.length > 0) {
+            return text
+        }
+        return index % 2 === 0 ? "\u6587\u6863\u4e2d\u53f0" : "\u6587\u6863\u4e2d\u5fc3"
+    }
+
+    function displayTicketType(value, index) {
+        var text = String(value || "").trim()
+        if (text.length > 0) {
+            return text
+        }
+        var options = ["\u6392\u67e5\u7c7b", "\u54a8\u8be2\u7c7b", "\u64cd\u4f5c\u7c7b"]
+        return options[index % options.length]
+    }
+
+    function refreshTicketListView(resetPage) {
+        var sourceTickets = controlPanelBridge.tickets || []
+        var nextTickets = []
+        for (var i = 0; i < sourceTickets.length; i += 1) {
+            var ticket = sourceTickets[i]
+            var productLine = String(ticket.productLine || "").trim()
+            var ticketType = String(ticket.ticketType || "").trim()
+            if (selectedProductLine !== "all" && productLine !== selectedProductLine) {
+                continue
+            }
+            if (selectedTicketType !== "all" && ticketType !== selectedTicketType) {
+                continue
+            }
+            nextTickets.push(ticket)
+        }
+
+        filteredTickets = nextTickets
+        if (resetPage) {
+            ticketCurrentPage = 1
+        }
+        if (ticketCurrentPage > ticketTotalPages) {
+            ticketCurrentPage = ticketTotalPages
+        }
+        if (ticketCurrentPage < 1) {
+            ticketCurrentPage = 1
+        }
+
+        var start = (ticketCurrentPage - 1) * ticketPageSize
+        pagedTickets = nextTickets.slice(start, start + ticketPageSize)
+    }
+
+    function setTicketPage(page) {
+        var nextPage = Math.max(1, Math.min(ticketTotalPages, page))
+        if (nextPage === ticketCurrentPage && pagedTickets.length > 0) {
+            return
+        }
+        ticketCurrentPage = nextPage
+        refreshTicketListView(false)
     }
 
     function currentTicketFieldValue(fieldName) {
@@ -370,6 +472,15 @@ ColumnLayout {
         controlPanelBridge.deleteSelectedTicket()
     }
 
+    Component.onCompleted: refreshTicketListView(true)
+
+    Connections {
+        target: controlPanelBridge
+        function onDataChanged() {
+            ticketSection.refreshTicketListView(true)
+        }
+    }
+
     ControlPanelSectionCard {
         id: ticketSectionCard
         theme: ticketSection.theme
@@ -432,12 +543,13 @@ ColumnLayout {
             spacing: 14
 
             // 统一卡片容器 - 搜索区 + 表格
+
             Rectangle {
                 visible: controlPanelBridge.selectedTicket.id.length === 0
                 Layout.fillWidth: true
-                implicitHeight: controlPanelBridge.tickets.length > 0 ? 620 : 200
-                radius: 12
-                color: "#FFF9F1"
+                implicitHeight: ticketTotalCount > 0 ? 676 : 220
+                radius: 14
+                color: "#FDF9F2"
                 border.width: 1
                 border.color: theme.panelLine
 
@@ -445,209 +557,232 @@ ColumnLayout {
                     anchors.fill: parent
                     spacing: 0
 
-                    // 搜索工具栏区域
                     Item {
                         Layout.fillWidth: true
-                        implicitHeight: searchToolbar.implicitHeight + 32
+                        implicitHeight: searchToolbar.implicitHeight + 28
 
                         Flow {
                             id: searchToolbar
                             anchors.fill: parent
-                            anchors.margins: 16
-                            spacing: 8
+                            anchors.margins: 14
+                            spacing: 10
 
                             ControlPanelSettingsInput {
                                 id: ticketSearchInput
                                 theme: ticketSection.theme
-                                width: Math.max(280, parent.width - 320)
+                                width: Math.max(320, parent.width - 366)
+                                height: 40
                                 text: controlPanelBridge.ticketQuery
-                                placeholderText: "搜索工单标题"
+                                placeholderText: "\u641c\u7d22\u5de5\u5355\u6807\u9898"
                                 onTextEdited: controlPanelBridge.listTickets(text, ticketSection.currentStatusValue())
                             }
 
                             ControlPanelSettingsCombo {
                                 id: ticketStatusCombo
                                 theme: ticketSection.theme
-                                width: 100
+                                width: 108
+                                height: 40
                                 model: ticketSection.statusOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.statusOptions, controlPanelBridge.ticketStatusFilter)
                                 onActivated: if (currentIndex >= 0) controlPanelBridge.listTickets(ticketSearchInput.text, ticketSection.statusOptions[currentIndex].value)
                             }
 
                             ControlPanelSettingsCombo {
-                                id: ticketEnvironmentCombo
+                                id: ticketProductLineCombo
                                 theme: ticketSection.theme
-                                width: 90
-                                model: [
-                                    { value: "all", text: "全部环境" },
-                                    { value: "正式", text: "正式" },
-                                    { value: "测试", text: "测试" },
-                                    { value: "生产", text: "生产" }
-                                ]
-                                currentIndex: 0
+                                width: 112
+                                height: 40
+                                model: ticketSection.productLineOptions
+                                currentIndex: ticketSection.theme.optionIndex(ticketSection.productLineOptions, ticketSection.selectedProductLine)
+                                onActivated: {
+                                    if (currentIndex < 0) {
+                                        return
+                                    }
+                                    ticketSection.selectedProductLine = ticketSection.productLineOptions[currentIndex].value
+                                    ticketSection.refreshTicketListView(true)
+                                }
                             }
 
                             ControlPanelSettingsCombo {
                                 id: ticketTypeCombo
                                 theme: ticketSection.theme
-                                width: 90
-                                model: [
-                                    { value: "all", text: "全部类型" },
-                                    { value: "排查", text: "排查" },
-                                    { value: "操作", text: "操作" },
-                                    { value: "咨询", text: "咨询" },
-                                    { value: "需求", text: "需求" }
-                                ]
-                                currentIndex: 0
+                                width: 96
+                                height: 40
+                                model: ticketSection.ticketTypeOptions
+                                currentIndex: ticketSection.theme.optionIndex(ticketSection.ticketTypeOptions, ticketSection.selectedTicketType)
+                                onActivated: {
+                                    if (currentIndex < 0) {
+                                        return
+                                    }
+                                    ticketSection.selectedTicketType = ticketSection.ticketTypeOptions[currentIndex].value
+                                    ticketSection.refreshTicketListView(true)
+                                }
                             }
                         }
                     }
 
-                    // 分割线
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 1
-                        color: "#EBE3D6"
+                        color: "#E9E0D2"
                     }
 
-                    // 空状态提示
                     Item {
-                        visible: controlPanelBridge.tickets.length === 0
+                        visible: ticketTotalCount === 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.minimumHeight: 120
+                        Layout.minimumHeight: 132
 
                         Text {
                             anchors.centerIn: parent
-                            text: "当前筛选条件下没有工单"
-                            color: theme.labelInk
+                            text: "\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6ca1\u6709\u5de5\u5355"
+                            color: theme.bodyInk
                             font.family: theme.uiFont
                             font.pixelSize: 13
                         }
                     }
 
-                    // 表格区域
                     Item {
-                        visible: controlPanelBridge.tickets.length > 0
+                        visible: ticketTotalCount > 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        clip: true
 
-                        // 横向滚动容器
-                        Flickable {
+                        Item {
                             id: tableFlickable
                             anchors.fill: parent
-                            contentWidth: tableContent.width
-                            contentHeight: tableContent.height
                             clip: true
-                            boundsBehavior: Flickable.StopAtBounds
+                            property real sidePadding: 18
+                            property real columnSpacing: 12
+                            property real tableInnerWidth: Math.max(780, width - sidePadding * 2 - columnSpacing * 6)
+                            property real titleColumnWidth: Math.round(tableInnerWidth * 0.26)
+                            property real statusColumnWidth: Math.round(tableInnerWidth * 0.08)
+                            property real projectColumnWidth: Math.round(tableInnerWidth * 0.14)
+                            property real productColumnWidth: Math.round(tableInnerWidth * 0.16)
+                            property real typeColumnWidth: Math.round(tableInnerWidth * 0.10)
+                            property real updatedColumnWidth: Math.round(tableInnerWidth * 0.14)
+                            property real actionColumnWidth: Math.round(tableInnerWidth * 0.12)
+                            property real actionRightPadding: 22
 
-                            ColumnLayout {
-                                id: tableContent
-                                width: Math.max(tableFlickable.width, 900)
-                                height: tableFlickable.height
+                            Column {
+                                id: tableColumn
+                                width: tableFlickable.width
                                 spacing: 0
 
-                                // 表头
                                 Rectangle {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 40
-                                    color: "#F9F4ED"
+                                    id: tableHeader
+                                    width: parent.width
+                                    height: 42
+                                    color: "transparent"
 
                                     RowLayout {
                                         anchors.fill: parent
-                                        anchors.leftMargin: 16
-                                        anchors.rightMargin: 16
-                                        spacing: 12
+                                        anchors.leftMargin: tableFlickable.sidePadding
+                                        anchors.rightMargin: tableFlickable.sidePadding
+                                        spacing: tableFlickable.columnSpacing
 
                                         Text {
-                                            Layout.fillWidth: true
-                                            Layout.minimumWidth: 200
-                                            text: "工单标题"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.titleColumnWidth
+                                            text: "\u5de5\u5355\u6807\u9898"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 90
-                                            text: "状态"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.statusColumnWidth
+                                            text: "\u72b6\u6001"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 120
-                                            text: "项目"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.projectColumnWidth
+                                            text: "\u9879\u76ee"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 80
-                                            text: "环境"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.productColumnWidth
+                                            text: "\u4ea7\u54c1\u7ebf"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 80
-                                            text: "类型"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.typeColumnWidth
+                                            text: "\u7c7b\u578b"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 140
-                                            text: "更新时间"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.updatedColumnWidth
+                                            text: "\u66f4\u65b0\u65f6\u95f4"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
                                         Text {
-                                            Layout.preferredWidth: 60
-                                            text: "操作"
-                                            color: theme.labelInk
+                                            Layout.preferredWidth: tableFlickable.actionColumnWidth
+                                            text: "\u64cd\u4f5c"
+                                            color: "#7A857F"
                                             font.family: theme.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.weight: 600
+                                            rightPadding: tableFlickable.actionRightPadding
                                             horizontalAlignment: Text.AlignRight
+                                            verticalAlignment: Text.AlignVCenter
                                         }
                                     }
                                 }
 
-                                // 表头分割线
                                 Rectangle {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 1
-                                    color: "#EBE3D6"
+                                    width: parent.width
+                                    height: 1
+                                    color: "#E9E0D2"
                                 }
 
-                                // 表格内容
                                 ListView {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
+                                    id: ticketTableView
+                                    width: parent.width
+                                    height: Math.max(0, tableFlickable.height - paginationBar.height - tableHeader.height - 1)
                                     clip: true
-                                    model: controlPanelBridge.tickets
+                                    spacing: 0
+                                    model: ticketSection.pagedTickets
                                     boundsBehavior: Flickable.StopAtBounds
 
                                     delegate: Item {
-                                        width: tableContent.width
-                                        height: 56
+                                        width: ticketTableView.width
+                                        height: 54
 
                                         Rectangle {
                                             anchors.fill: parent
-                                            color: rowMouseArea.containsMouse ? "#F7F2E8" : "transparent"
+                                            color: rowMouseArea.containsMouse ? "#F6F0E5" : "transparent"
 
                                             Behavior on color {
                                                 ColorAnimation { duration: 100 }
@@ -655,115 +790,115 @@ ColumnLayout {
 
                                             RowLayout {
                                                 anchors.fill: parent
-                                                anchors.leftMargin: 16
-                                                anchors.rightMargin: 16
-                                                spacing: 12
+                                                anchors.leftMargin: tableFlickable.sidePadding
+                                                anchors.rightMargin: tableFlickable.sidePadding
+                                                spacing: tableFlickable.columnSpacing
 
-                                                // 工单标题 - 两行结构
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true
-                                                    Layout.minimumWidth: 200
-                                                    spacing: 2
-
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: modelData.title
-                                                        color: theme.titleInk
-                                                        font.family: theme.uiFont
-                                                        font.pixelSize: 13
-                                                        font.weight: 600
-                                                        elide: Text.ElideRight
-                                                    }
-
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: "群名: " + (modelData.groupName || "未填写")
-                                                        color: theme.labelInk
-                                                        font.family: theme.uiFont
-                                                        font.pixelSize: 11
-                                                        elide: Text.ElideRight
-                                                    }
-                                                }
-
-                                                // 状态 - 轻量 badge
-                                                Rectangle {
-                                                    Layout.preferredWidth: 90
-                                                    implicitWidth: statusText.implicitWidth + 16
-                                                    implicitHeight: 24
-                                                    radius: 6
-                                                    color: {
-                                                        if (modelData.statusTone === "done") return "#E8F4E8"
-                                                        if (modelData.statusTone === "open") return "#E8F1F8"
-                                                        return "#F0F0F0"
-                                                    }
-
-                                                    Text {
-                                                        id: statusText
-                                                        anchors.centerIn: parent
-                                                        text: modelData.statusLabel
-                                                        color: {
-                                                            if (modelData.statusTone === "done") return "#3D7D3D"
-                                                            if (modelData.statusTone === "open") return "#2B6BA8"
-                                                            return "#666666"
-                                                        }
-                                                        font.family: theme.uiFont
-                                                        font.pixelSize: 12
-                                                        font.weight: 500
-                                                    }
-                                                }
-
-                                                // 项目
                                                 Text {
-                                                    Layout.preferredWidth: 120
+                                                    Layout.preferredWidth: tableFlickable.titleColumnWidth
+                                                    text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
+                                                    color: rowMouseArea.containsMouse ? "#131B27" : theme.titleInk
+                                                    font.family: theme.uiFont
+                                                    font.pixelSize: 13
+                                                    font.weight: 600
+                                                    elide: Text.ElideRight
+                                                    horizontalAlignment: Text.AlignLeft
+                                                    verticalAlignment: Text.AlignVCenter
+
+                                                    Behavior on color {
+                                                        ColorAnimation { duration: 100 }
+                                                    }
+                                                }
+
+                                                Item {
+                                                    Layout.preferredWidth: tableFlickable.statusColumnWidth
+                                                    Layout.fillHeight: true
+
+                                                    Row {
+                                                        anchors.centerIn: parent
+                                                        spacing: 6
+
+                                                        Rectangle {
+                                                            width: 6
+                                                            height: 6
+                                                            radius: 3
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            color: ticketSection.statusDotColor(modelData.statusTone)
+                                                        }
+
+                                                        Text {
+                                                            text: modelData.statusLabel || "\u672a\u77e5"
+                                                            color: ticketSection.statusTextColor(modelData.statusTone)
+                                                            font.family: theme.uiFont
+                                                            font.pixelSize: 12
+                                                            font.weight: 600
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    Layout.preferredWidth: tableFlickable.projectColumnWidth
                                                     text: {
                                                         var projectName = modelData.projectName || ""
                                                         if (Array.isArray(projectName)) {
-                                                            return projectName.length > 0 ? projectName[0] : "未关联"
+                                                            return projectName.length > 0 ? projectName[0] : "\u672a\u5173\u8054"
                                                         }
-                                                        return projectName || "未关联"
+                                                        return projectName || "\u672a\u5173\u8054"
                                                     }
                                                     color: theme.bodyInk
                                                     font.family: theme.uiFont
-                                                    font.pixelSize: 13
+                                                    font.pixelSize: 12
+                                                    font.weight: 500
                                                     elide: Text.ElideRight
+                                                    horizontalAlignment: Text.AlignLeft
+                                                    verticalAlignment: Text.AlignVCenter
                                                 }
 
-                                                // 环境
                                                 Text {
-                                                    Layout.preferredWidth: 80
-                                                    text: modelData.environment || "未填写"
-                                                    color: theme.labelInk
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 12
-                                                }
-
-                                                // 类型
-                                                Text {
-                                                    Layout.preferredWidth: 80
-                                                    text: modelData.ticketType || "未填写"
-                                                    color: theme.labelInk
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 12
-                                                }
-
-                                                // 更新时间
-                                                Text {
-                                                    Layout.preferredWidth: 140
-                                                    text: modelData.updatedAtLabel || "未知"
-                                                    color: theme.labelInk
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 12
-                                                }
-
-                                                // 操作
-                                                Text {
-                                                    Layout.preferredWidth: 60
-                                                    text: "详情"
-                                                    color: rowMouseArea.containsMouse ? theme.accent : theme.labelInk
+                                                    Layout.preferredWidth: tableFlickable.productColumnWidth
+                                                    text: ticketSection.displayProductLine(modelData.productLine, index)
+                                                    color: theme.bodyInk
                                                     font.family: theme.uiFont
                                                     font.pixelSize: 12
                                                     font.weight: 500
+                                                    elide: Text.ElideRight
+                                                    horizontalAlignment: Text.AlignLeft
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+
+                                                Text {
+                                                    Layout.preferredWidth: tableFlickable.typeColumnWidth
+                                                    text: ticketSection.displayTicketType(modelData.ticketType, index)
+                                                    color: theme.bodyInk
+                                                    font.family: theme.uiFont
+                                                    font.pixelSize: 12
+                                                    font.weight: 500
+                                                    elide: Text.ElideRight
+                                                    horizontalAlignment: Text.AlignLeft
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+
+                                                Text {
+                                                    Layout.preferredWidth: tableFlickable.updatedColumnWidth
+                                                    text: modelData.updatedAtLabel || "\u672a\u77e5"
+                                                    color: "#6D7885"
+                                                    font.family: theme.uiFont
+                                                    font.pixelSize: 12
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    Layout.preferredWidth: tableFlickable.actionColumnWidth
+                                                    text: "\u8be6\u60c5"
+                                                    color: rowMouseArea.containsMouse ? theme.accent : "#7D8793"
+                                                    font.family: theme.uiFont
+                                                    font.pixelSize: 12
+                                                    rightPadding: tableFlickable.actionRightPadding
                                                     horizontalAlignment: Text.AlignRight
+                                                    verticalAlignment: Text.AlignVCenter
 
                                                     Behavior on color {
                                                         ColorAnimation { duration: 100 }
@@ -771,16 +906,15 @@ ColumnLayout {
                                                 }
                                             }
 
-                                            // 行分割线
                                             Rectangle {
-                                                visible: index < controlPanelBridge.tickets.length - 1
+                                                visible: index < ticketSection.pagedTickets.length - 1
                                                 anchors.bottom: parent.bottom
                                                 anchors.left: parent.left
                                                 anchors.right: parent.right
-                                                anchors.leftMargin: 16
-                                                anchors.rightMargin: 16
+                                                anchors.leftMargin: tableFlickable.sidePadding
+                                                anchors.rightMargin: tableFlickable.sidePadding
                                                 height: 1
-                                                color: "#F0EBE1"
+                                                color: "#F0E8DD"
                                             }
                                         }
 
@@ -790,6 +924,107 @@ ColumnLayout {
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: controlPanelBridge.openTicketDetail(modelData.id)
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: paginationBar
+                                    width: parent.width
+                                    property bool compactLayout: width < 760
+                                    height: compactLayout ? paginationInfoRow.height + paginationSummary.height + 29 : Math.max(paginationInfoRow.height, paginationSummary.height) + 21
+                                    color: "transparent"
+
+                                    Rectangle {
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        height: 1
+                                        color: "#E9E0D2"
+                                    }
+
+                                    Row {
+                                        id: paginationInfoRow
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.leftMargin: 14
+                                        anchors.topMargin: 10
+                                        spacing: 16
+
+                                        Text {
+                                            text: "\u5171 " + ticketSection.ticketTotalCount + " \u6761"
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                        }
+
+                                        Text {
+                                            text: "\u7b2c " + ticketSection.ticketCurrentPage + " / " + ticketSection.ticketTotalPages + " \u9875"
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 12
+                                        }
+                                    }
+
+                                    Flow {
+                                        id: paginationSummary
+                                        anchors.top: paginationBar.compactLayout ? paginationInfoRow.bottom : parent.top
+                                        anchors.left: paginationBar.compactLayout ? parent.left : undefined
+                                        anchors.right: paginationBar.compactLayout ? undefined : parent.right
+                                        anchors.topMargin: paginationBar.compactLayout ? 10 : 10
+                                        anchors.leftMargin: paginationBar.compactLayout ? 14 : 0
+                                        anchors.rightMargin: paginationBar.compactLayout ? 0 : 14
+                                        spacing: 10
+
+                                        ControlPanelSettingsCombo {
+                                            id: pageSizeCombo
+                                            theme: ticketSection.theme
+                                            width: 108
+                                            height: 36
+                                            model: ticketSection.pageSizeOptions
+                                            currentIndex: ticketSection.theme.optionIndex(ticketSection.pageSizeOptions, ticketSection.ticketPageSize)
+                                            onActivated: {
+                                                if (currentIndex < 0) {
+                                                    return
+                                                }
+                                                ticketSection.ticketPageSize = ticketSection.pageSizeOptions[currentIndex].value
+                                                ticketSection.refreshTicketListView(true)
+                                            }
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { label: "\u4e0a\u4e00\u9875", enabled: ticketSection.ticketCurrentPage > 1, page: Math.max(1, ticketSection.ticketCurrentPage - 1), current: false },
+                                                { label: String(ticketSection.ticketCurrentPage), enabled: true, page: ticketSection.ticketCurrentPage, current: true },
+                                                { label: "\u4e0b\u4e00\u9875", enabled: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages, page: Math.min(ticketSection.ticketTotalPages, ticketSection.ticketCurrentPage + 1), current: false }
+                                            ]
+
+                                            delegate: Rectangle {
+                                                property var pageItem: modelData
+                                                width: pageItem.current ? 44 : 60
+                                                height: 36
+                                                radius: 16
+                                                color: pageItem.current ? "#F4ECDD" : "#FFFEFC"
+                                                border.width: 1
+                                                border.color: pageItem.enabled ? theme.panelLine : "#EEE5D8"
+                                                opacity: pageItem.enabled ? 1.0 : 0.56
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: parent.pageItem.label
+                                                    color: parent.pageItem.current ? theme.titleInk : theme.bodyInk
+                                                    font.family: theme.uiFont
+                                                    font.pixelSize: 12
+                                                    font.weight: parent.pageItem.current ? 600 : 500
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    enabled: parent.pageItem.enabled
+                                                    cursorShape: parent.pageItem.current ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                                    onClicked: ticketSection.setTicketPage(parent.pageItem.page)
+                                                }
+                                            }
                                         }
                                     }
                                 }

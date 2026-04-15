@@ -921,6 +921,7 @@ class _ControlPanelBridge(QObject):
             "summary": str(todo.current_summary or "").strip(),
             "groupName": str(todo.summary_fields.group_name or "").strip(),
             "environment": str(todo.summary_fields.environment or "").strip(),
+            "productLine": str(todo.summary_fields.product_line or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
             "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
