@@ -994,8 +994,8 @@ class _TodoDetailBridge(QObject):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    @pyqtSlot(str, bool, bool, str)
-    def activateAttachment(self, file_path: str, is_image: bool, is_video: bool, file_name: str) -> None:
+    @pyqtSlot(str, bool, bool)
+    def copyAttachment(self, file_path: str, is_image: bool, is_video: bool) -> None:
         path = Path(str(file_path or "").strip()).expanduser()
         if not path.is_file():
             return
@@ -1004,6 +1004,33 @@ class _TodoDetailBridge(QObject):
             return
         if bool(is_video):
             self._copy_file_to_clipboard(path)
+
+    @pyqtSlot(str)
+    def copyAttachmentName(self, file_name: str) -> None:
+        name = str(file_name or "").strip()
+        if not name:
+            return
+        QGuiApplication.clipboard().setText(name)
+
+    @pyqtSlot(str)
+    def copyAttachmentPath(self, file_path: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.is_file():
+            return
+        self._copy_file_path_to_clipboard(path)
+
+    @pyqtSlot(str)
+    def openAttachmentFolder(self, file_path: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.exists():
+            return
+        target_dir = path.parent if path.is_file() else path
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir)))
+
+    @pyqtSlot(str, str)
+    def downloadAttachment(self, file_path: str, file_name: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.is_file():
             return
         self._download_attachment(path, str(file_name or path.name).strip() or path.name)
 
@@ -1495,6 +1522,9 @@ class _TodoDetailBridge(QObject):
         mime_data = QMimeData()
         mime_data.setUrls([QUrl.fromLocalFile(str(path))])
         QGuiApplication.clipboard().setMimeData(mime_data)
+
+    def _copy_file_path_to_clipboard(self, path: Path) -> None:
+        QGuiApplication.clipboard().setText(str(path))
 
     def _download_attachment(self, source: Path, suggested_name: str) -> None:
         target_path, _ = QFileDialog.getSaveFileName(

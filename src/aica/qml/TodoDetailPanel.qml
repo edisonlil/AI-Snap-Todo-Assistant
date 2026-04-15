@@ -1577,7 +1577,8 @@ Rectangle {
                                                                 }
 
                                                                 Text {
-                                                                    text: modelData.isPreviewable ? "复制" : "下载"
+                                                                    visible: modelData.isPreviewable
+                                                                    text: "复制"
                                                                     color: root.accent
                                                                     font.family: root.uiFont
                                                                     font.pixelSize: 10
@@ -1588,12 +1589,83 @@ Rectangle {
                                                                         cursorShape: Qt.PointingHandCursor
                                                                         onClicked: {
                                                                             root.markAttachmentTarget(timelineCard.eventId)
-                                                                            todoDetailBridge.activateAttachment(
+                                                                            todoDetailBridge.copyAttachment(
                                                                                 modelData.path,
                                                                                 modelData.isImage,
-                                                                                modelData.isVideo,
-                                                                                modelData.name
+                                                                                modelData.isVideo
                                                                             )
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    visible: !modelData.isPreviewable
+                                                                    text: "复制名"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.copyAttachmentName(modelData.name)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    visible: !modelData.isPreviewable
+                                                                    text: "复制路径"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.copyAttachmentPath(modelData.path)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    visible: !modelData.isPreviewable
+                                                                    text: "打开"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.openAttachmentFolder(modelData.path)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Text {
+                                                                    visible: !modelData.isPreviewable
+                                                                    text: "下载"
+                                                                    color: root.accent
+                                                                    font.family: root.uiFont
+                                                                    font.pixelSize: 10
+                                                                    font.weight: root.labelWeight
+
+                                                                    MouseArea {
+                                                                        anchors.fill: parent
+                                                                        cursorShape: Qt.PointingHandCursor
+                                                                        onClicked: {
+                                                                            root.markAttachmentTarget(timelineCard.eventId)
+                                                                            todoDetailBridge.downloadAttachment(modelData.path, modelData.name)
                                                                         }
                                                                     }
                                                                 }
