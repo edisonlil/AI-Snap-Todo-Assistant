@@ -476,6 +476,49 @@ def _todo_status_tone(status: str) -> str:
     return "done" if str(status or "").strip() == TodoStatus.DONE else "open"
 
 
+def _ticket_field_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _format_ticket_product(product: object) -> str:
+    value = _ticket_field_text(product).strip()
+    if not value:
+        return ""
+    if value == "WPS协作":
+        return "WPS协作（泛）/协作-私网"
+    if value == "文档中台":
+        return "文档中台/V7"
+    if value == "文档中心":
+        return "文档中心/V7"
+    return value
+
+
+def _format_ticket_project_name(project_name: object) -> str:
+    if project_name is None:
+        return ""
+    if isinstance(project_name, list):
+        return ",".join(str(item) for item in project_name)
+    return str(project_name)
+
+
+def _format_ticket_copy_text(ticket: dict[str, object]) -> str:
+    return (
+        f"标题: {_ticket_field_text(ticket.get('title'))}\n"
+        "二线: 否\n"
+        f"结论: {_ticket_field_text(ticket.get('conclusionContent'))}\n"
+        f"客户名称: {_ticket_field_text(ticket.get('customerName'))}\n"
+        f"项目名称: {_format_ticket_project_name(ticket.get('projectName'))}\n"
+        f"功能点: {_ticket_field_text(ticket.get('featurePoint'))}\n"
+        f"版本: {_ticket_field_text(ticket.get('ticketVersion'))}\n"
+        f"根因分类: {_ticket_field_text(ticket.get('rootCause'))}\n"
+        f"根因描述: {_ticket_field_text(ticket.get('rootCauseDesc'))}\n"
+        f"产品: {_format_ticket_product(ticket.get('productLine'))}\n"
+        f"描述: {_ticket_field_text(ticket.get('summary'))}"
+    )
+
+
 def _ticket_project_status_label(status: str) -> str:
     mapping = {
         "matched": "\u5df2\u5173\u8054\u9879\u76ee",
@@ -1605,7 +1648,7 @@ class _ControlPanelBridge(QObject):
     def listTickets(self, query: str, status_filter: str) -> None:
         self._ticket_query = str(query or "").strip()
         normalized_status = str(status_filter or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
-        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach"}:
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach", "today_done"}:
             normalized_status = TodoStatus.OPEN
         self._ticket_status_filter = normalized_status
         self._refresh_ticket_payloads()
@@ -1644,6 +1687,28 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def copySelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self.copyTicket(self._selected_ticket_id)
+
+    @pyqtSlot(str)
+    def copyTicket(self, todo_id: str) -> None:
+        normalized_id = str(todo_id or "").strip()
+        if not normalized_id:
+            return
+        todo = self._todo_store.get_todo(normalized_id)
+        if todo is None:
+            self._error_message = "该工单不存在或已被删除。"
+            self._emit_data_changed()
+            return
+        payload = self._build_ticket_detail_payload(todo)
+        QApplication.clipboard().setText(_format_ticket_copy_text(payload))
+        self._clear_messages()
+        self._status_message = "工单内容已复制到剪贴板。"
         self._emit_data_changed()
 
     @pyqtSlot()

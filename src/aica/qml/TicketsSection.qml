@@ -29,6 +29,7 @@ ColumnLayout {
     property var statusOptions: [
         { value: "open", text: "\u8fdb\u884c\u4e2d" },
         { value: "done", text: "\u5df2\u5b8c\u6210" },
+        { value: "today_done", text: "\u4eca\u65e5\u5b8c\u6210" },
         { value: "done_missing_ach", text: "\u5df2\u5b8c\u6210\u672a\u586bACH" },
         { value: "all", text: "\u5168\u90e8\u72b6\u6001" }
     ]
@@ -49,74 +50,30 @@ ColumnLayout {
         { value: 50, text: "50 \u6761/\u9875" }
     ]
 
-    function ticketFieldText(value) {
-
-        if (value === null || value === undefined) {
-            return ""
-        }
-        return String(value)
-    }
-
-    function formatProduct(product) {
-        var value = ticketFieldText(product)
-        if (!value) {
-            return ""
-        }
-        if (value === "WPS\u534f\u4f5c") {
-            return "WPS\u534f\u4f5c\uff08\u6cdb\uff09/\u534f\u4f5c-\u79c1\u7f51"
-        }
-        if (value === "\u6587\u6863\u4e2d\u53f0") {
-            return "\u6587\u6863\u4e2d\u53f0/V7"
-        }
-        if (value === "\u6587\u6863\u4e2d\u5fc3") {
-            return "\u6587\u6863\u4e2d\u5fc3/V7"
-        }
-        return value
-    }
-
-    function formatProjectName(projectName) {
-        if (projectName === null || projectName === undefined) {
-            return ""
-        }
-        if (Array.isArray(projectName)) {
-            return projectName.join(",")
-        }
-        return String(projectName)
-    }
-
-    function formatTicketForTool(ticket) {
-        return "\u6807\u9898: " + ticketFieldText(ticket.title) + "\n"
-            + "\u4e8c\u7ebf: \u5426\n"
-            + "\u7ed3\u8bba: " + ticketFieldText(ticket.conclusionContent) + "\n"
-            + "\u5ba2\u6237\u540d\u79f0: " + ticketFieldText(ticket.customerName) + "\n"
-            + "\u9879\u76ee\u540d\u79f0: " + formatProjectName(ticket.projectName) + "\n"
-            + "\u529f\u80fd\u70b9: " + ticketFieldText(ticket.featurePoint) + "\n"
-            + "\u7248\u672c: " + ticketFieldText(ticket.ticketVersion) + "\n"
-            + "\u6839\u56e0\u5206\u7c7b: " + ticketFieldText(ticket.rootCause) + "\n"
-            + "\u6839\u56e0\u63cf\u8ff0: " + ticketFieldText(ticket.rootCauseDesc) + "\n"
-            + "\u4ea7\u54c1: " + formatProduct(ticket.productLine) + "\n"
-            + "\u63cf\u8ff0: " + ticketFieldText(ticket.summary)
-    }
-
     function showCopyToast(message) {
         copyToastMessage = message
         copyToast.open()
         copyToastTimer.restart()
     }
 
-    function copyTicketForTool() {
-        if (!controlPanelBridge.selectedTicket.id) {
-            showCopyToast("\u590d\u5236\u5931\u8d25")
+    function copyTicketForTool(todoId, showToast) {
+        var targetId = String(todoId || controlPanelBridge.selectedTicket.id || "").trim()
+        var shouldShowToast = showToast === undefined ? true : !!showToast
+        if (!targetId) {
+            if (shouldShowToast) {
+                showCopyToast("\u590d\u5236\u5931\u8d25")
+            }
             return
         }
         try {
-            ticketClipboardBuffer.text = formatTicketForTool(controlPanelBridge.selectedTicket)
-            ticketClipboardBuffer.selectAll()
-            ticketClipboardBuffer.copy()
-            ticketClipboardBuffer.deselect()
-            showCopyToast("\u5df2\u590d\u5236")
+            controlPanelBridge.copyTicket(targetId)
+            if (shouldShowToast) {
+                showCopyToast("\u5df2\u590d\u5236")
+            }
         } catch (error) {
-            showCopyToast("\u590d\u5236\u5931\u8d25")
+            if (shouldShowToast) {
+                showCopyToast("\u590d\u5236\u5931\u8d25")
+            }
         }
     }
 
@@ -488,19 +445,6 @@ ColumnLayout {
         implicitHeight: ticketContent.implicitHeight + 32
         color: "#F6F0E6"
 
-        TextEdit {
-            id: ticketClipboardBuffer
-            width: 0
-            height: 0
-            opacity: 0
-            visible: true
-            textFormat: TextEdit.PlainText
-            wrapMode: TextEdit.NoWrap
-            selectByMouse: false
-            persistentSelection: true
-            readOnly: true
-        }
-
         Popup {
             id: copyToast
             parent: ticketSectionCard
@@ -655,16 +599,15 @@ ColumnLayout {
                             property real sidePadding: 18
                             property real columnSpacing: 12
                             property real tableInnerWidth: Math.max(780, width - sidePadding * 2 - columnSpacing * 8)
-                            property real titleColumnWidth: Math.round(tableInnerWidth * 0.24)
+                            property real titleColumnWidth: Math.round(tableInnerWidth * 0.22)
                             property real statusColumnWidth: Math.round(tableInnerWidth * 0.08)
-                            property real projectColumnWidth: Math.round(tableInnerWidth * 0.12)
-                            property real productGapWidth: Math.round(tableInnerWidth * 0.08)
-                            property real productColumnWidth: Math.round(tableInnerWidth * 0.16)
-                            property real typeColumnWidth: Math.round(tableInnerWidth * 0.09)
+                            property real statusProjectGapWidth: Math.round(tableInnerWidth * 0.06)
+                            property real projectColumnWidth: Math.round(tableInnerWidth * 0.15)
+                            property real projectProductGapWidth: Math.round(tableInnerWidth * 0.07)
+                            property real productColumnWidth: Math.round(tableInnerWidth * 0.10)
+                            property real typeColumnWidth: Math.round(tableInnerWidth * 0.08)
                             property real updatedColumnWidth: Math.round(tableInnerWidth * 0.13)
-                            property real actionColumnWidth: Math.round(tableInnerWidth * 0.08)
-                            property real actionTrailingGutterWidth: Math.round(tableInnerWidth * 0.02)
-                            property real actionRightPadding: 22
+                            property real actionColumnWidth: Math.round(tableInnerWidth * 0.09)
 
                             Column {
                                 id: tableColumn
@@ -705,6 +648,11 @@ ColumnLayout {
                                             verticalAlignment: Text.AlignVCenter
                                         }
 
+                                        Item {
+                                            Layout.preferredWidth: tableFlickable.statusProjectGapWidth
+                                            Layout.fillHeight: true
+                                        }
+
                                         Text {
                                             Layout.preferredWidth: tableFlickable.projectColumnWidth
                                             text: "\u9879\u76ee"
@@ -717,7 +665,7 @@ ColumnLayout {
                                         }
 
                                         Item {
-                                            Layout.preferredWidth: tableFlickable.productGapWidth
+                                            Layout.preferredWidth: tableFlickable.projectProductGapWidth
                                             Layout.fillHeight: true
                                         }
 
@@ -761,14 +709,8 @@ ColumnLayout {
                                             font.family: theme.uiFont
                                             font.pixelSize: 11
                                             font.weight: 600
-                                            rightPadding: tableFlickable.actionRightPadding
-                                            horizontalAlignment: Text.AlignRight
+                                            horizontalAlignment: Text.AlignHCenter
                                             verticalAlignment: Text.AlignVCenter
-                                        }
-
-                                        Item {
-                                            Layout.preferredWidth: tableFlickable.actionTrailingGutterWidth
-                                            Layout.fillHeight: true
                                         }
                                     }
                                 }
@@ -794,11 +736,7 @@ ColumnLayout {
 
                                         Rectangle {
                                             anchors.fill: parent
-                                            color: rowMouseArea.containsMouse ? "#F6F0E5" : "transparent"
-
-                                            Behavior on color {
-                                                ColorAnimation { duration: 100 }
-                                            }
+                                            color: "transparent"
 
                                             RowLayout {
                                                 anchors.fill: parent
@@ -809,17 +747,13 @@ ColumnLayout {
                                                 Text {
                                                     Layout.preferredWidth: tableFlickable.titleColumnWidth
                                                     text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
-                                                    color: rowMouseArea.containsMouse ? "#131B27" : theme.titleInk
+                                                    color: theme.titleInk
                                                     font.family: theme.uiFont
                                                     font.pixelSize: 13
                                                     font.weight: 600
                                                     elide: Text.ElideRight
                                                     horizontalAlignment: Text.AlignLeft
                                                     verticalAlignment: Text.AlignVCenter
-
-                                                    Behavior on color {
-                                                        ColorAnimation { duration: 100 }
-                                                    }
                                                 }
 
                                                 Item {
@@ -849,6 +783,11 @@ ColumnLayout {
                                                     }
                                                 }
 
+                                                Item {
+                                                    Layout.preferredWidth: tableFlickable.statusProjectGapWidth
+                                                    Layout.fillHeight: true
+                                                }
+
                                                 Text {
                                                     Layout.preferredWidth: tableFlickable.projectColumnWidth
                                                     text: {
@@ -868,7 +807,7 @@ ColumnLayout {
                                                 }
 
                                                 Item {
-                                                    Layout.preferredWidth: tableFlickable.productGapWidth
+                                                    Layout.preferredWidth: tableFlickable.projectProductGapWidth
                                                     Layout.fillHeight: true
                                                 }
 
@@ -907,24 +846,56 @@ ColumnLayout {
                                                     elide: Text.ElideRight
                                                 }
 
-                                                Text {
+                                                Row {
                                                     Layout.preferredWidth: tableFlickable.actionColumnWidth
-                                                    text: "\u8be6\u60c5"
-                                                    color: rowMouseArea.containsMouse ? theme.accent : "#7D8793"
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 12
-                                                    rightPadding: tableFlickable.actionRightPadding
-                                                    horizontalAlignment: Text.AlignRight
-                                                    verticalAlignment: Text.AlignVCenter
+                                                    Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+                                                    spacing: 12
 
-                                                    Behavior on color {
-                                                        ColorAnimation { duration: 100 }
+                                                    Text {
+                                                        text: "\u590d\u5236"
+                                                        color: copyMouseArea.containsMouse ? theme.accent : "#7D8793"
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 12
+                                                        verticalAlignment: Text.AlignVCenter
+
+                                                        Behavior on color {
+                                                            ColorAnimation { duration: 100 }
+                                                        }
+
+                                                        MouseArea {
+                                                            id: copyMouseArea
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: function(mouse) {
+                                                                mouse.accepted = true
+                                                                ticketSection.copyTicketForTool(modelData.id, false)
+                                                            }
+                                                        }
                                                     }
-                                                }
 
-                                                Item {
-                                                    Layout.preferredWidth: tableFlickable.actionTrailingGutterWidth
-                                                    Layout.fillHeight: true
+                                                    Text {
+                                                        text: "\u8be6\u60c5"
+                                                        color: detailMouseArea.containsMouse ? theme.accent : "#7D8793"
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 12
+                                                        verticalAlignment: Text.AlignVCenter
+
+                                                        Behavior on color {
+                                                            ColorAnimation { duration: 100 }
+                                                        }
+
+                                                        MouseArea {
+                                                            id: detailMouseArea
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: function(mouse) {
+                                                                mouse.accepted = true
+                                                                controlPanelBridge.openTicketDetail(modelData.id)
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
 
@@ -938,14 +909,6 @@ ColumnLayout {
                                                 height: 1
                                                 color: "#F0E8DD"
                                             }
-                                        }
-
-                                        MouseArea {
-                                            id: rowMouseArea
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: controlPanelBridge.openTicketDetail(modelData.id)
                                         }
                                     }
                                 }
@@ -1124,7 +1087,7 @@ ColumnLayout {
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "\u590d\u5236\u5de5\u5355"
-                        onClicked: ticketSection.copyTicketForTool()
+                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id, true)
                     }
 
                     ControlPanelPlainButton {

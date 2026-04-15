@@ -703,7 +703,7 @@ class SQLiteTodoRepository:
     def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
         normalized_query = sanitize_text(query).lower()
         normalized_status = sanitize_text(status).lower() or TodoStatus.OPEN
-        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach"}:
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach", "today_done"}:
             normalized_status = TodoStatus.OPEN
 
         sql = """
@@ -724,6 +724,9 @@ class SQLiteTodoRepository:
             if normalized_status == "done_missing_ach":
                 sql += " AND todos.status = ? AND TRIM(COALESCE(todos.ach_no, '')) = ''"
                 params.append(TodoStatus.DONE)
+            elif normalized_status == "today_done":
+                sql += " AND todos.status = ? AND SUBSTR(COALESCE(todos.updated_at, ''), 1, 10) = ?"
+                params.extend([TodoStatus.DONE, datetime.now().strftime("%Y-%m-%d")])
             else:
                 sql += " AND todos.status = ?"
                 params.append(normalized_status)
