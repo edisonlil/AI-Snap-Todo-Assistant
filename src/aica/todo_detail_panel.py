@@ -791,7 +791,7 @@ class _TodoDetailBridge(QObject):
         self._activate_environment_entry(
             result.entry.id,
             password_available=result.has_password,
-            otp_available=result.entry.requires_otp and result.has_otp,
+            otp_available=result.entry.requires_otp,
             otp_remaining_seconds=result.otp_remaining_seconds,
         )
         access_name = result.entry.access_name or "访问入口"
@@ -1239,6 +1239,16 @@ class _TodoDetailBridge(QObject):
             if isinstance(item, dict)
         ]
 
+    @staticmethod
+    def _is_environment_otp_placeholder(entry: object) -> bool:
+        access_name = str(getattr(entry, "access_name", "") or "").strip().casefold()
+        if "otp" not in access_name:
+            return False
+        url_or_host = str(getattr(entry, "url_or_host", "") or "").strip()
+        username = str(getattr(entry, "username", "") or "").strip()
+        note = str(getattr(entry, "note", "") or "").strip()
+        return not any([url_or_host, username, note])
+
     def _load_environment_access(self, project_id: str) -> None:
         self._environment_access_popover_open = False
         normalized_project_id = str(project_id or "").strip()
@@ -1247,6 +1257,14 @@ class _TodoDetailBridge(QObject):
             self._environment_access_summary_text = "环境访问 · 无可用环境"
             return
         bundles = self._environment_access_service.list_project_environments(normalized_project_id)
+        visible_entries_by_environment = {
+            bundle.environment.id: [
+                entry
+                for entry in bundle.entries
+                if not self._is_environment_otp_placeholder(entry)
+            ]
+            for bundle in bundles
+        }
         self._environment_access_groups = [
             {
                 "id": bundle.environment.id,
@@ -1254,10 +1272,10 @@ class _TodoDetailBridge(QObject):
                 "type": bundle.environment.env_type,
                 "note": bundle.environment.note,
                 "expanded": False,
-                "entryCount": len(bundle.entries),
+                "entryCount": len(visible_entries_by_environment.get(bundle.environment.id, [])),
                 "summary": (
-                    f"{len(bundle.entries)} 个可用访问方式"
-                    if bundle.entries
+                    f"{len(visible_entries_by_environment.get(bundle.environment.id, []))} 个可用访问方式"
+                    if visible_entries_by_environment.get(bundle.environment.id, [])
                     else (bundle.environment.note or "暂无可直接访问入口")
                 ),
                 "entries": [
@@ -1270,14 +1288,14 @@ class _TodoDetailBridge(QObject):
                         "requiresOtp": bool(entry.requires_otp),
                         "hasTarget": bool(entry.url_or_host.strip()),
                         "hasPassword": bool(self._environment_access_service.get_password(entry.id)),
-                        "hasOtpSecret": bool(self._environment_access_service.get_otp_remaining_seconds(entry.id)),
+                        "hasOtpSecret": bool(str(entry.otp_secret_encrypted or "").strip()),
                         "note": entry.note,
                         "loginActivated": False,
                         "canCopyPassword": False,
                         "canCopyOtp": False,
                         "otpRemainingSeconds": 0,
                     }
-                    for entry in bundle.entries
+                    for entry in visible_entries_by_environment.get(bundle.environment.id, [])
                 ],
             }
             for bundle in bundles

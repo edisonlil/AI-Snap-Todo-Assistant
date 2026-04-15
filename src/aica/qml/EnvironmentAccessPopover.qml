@@ -12,6 +12,14 @@ Rectangle {
 
     implicitHeight: contentColumn.implicitHeight + 24
 
+    function flowMessage(entry) {
+        var accessName = (entry && entry.name) ? entry.name : "当前入口"
+        if (entry && entry.hasTarget) {
+            return "已用新窗口打开" + accessName + "，并自动复制账号。继续完成登录："
+        }
+        return "已准备连接" + accessName + "，并自动复制账号。继续复制密码："
+    }
+
     Column {
         id: contentColumn
         anchors.left: parent.left
@@ -35,11 +43,12 @@ Rectangle {
             Text {
                 width: parent.width
                 wrapMode: Text.Wrap
-                text: "点击开始登录后，会尝试打开入口并复制账号，再按需复制密码或验证码。"
+                text: "点击开始登录后，会尝试打开入口并自动复制账号，再按需复制密码或验证码。"
                 color: root.theme.labelInk
                 font.family: root.theme.uiFont
                 font.pixelSize: 11
                 font.weight: root.theme.bodyWeight
+                lineHeight: 1.35
             }
         }
 
@@ -104,7 +113,7 @@ Rectangle {
                             Text {
                                 id: groupArrow
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: modelData.expanded ? "▴" : "▾"
+                                text: modelData.expanded ? "▾" : "▸"
                                 color: root.theme.labelInk
                                 font.family: root.theme.uiFont
                                 font.pixelSize: 12
@@ -131,8 +140,8 @@ Rectangle {
                                 radius: 16
                                 color: "#FAFAF9"
                                 border.width: 1
-                                border.color: "#EDF1F5"
-                                height: entryColumn.implicitHeight + 14
+                                border.color: modelData.loginActivated ? "#D9E2EC" : "#EDF1F5"
+                                height: entryColumn.implicitHeight + 16
 
                                 Column {
                                     id: entryColumn
@@ -159,18 +168,18 @@ Rectangle {
                                         Rectangle {
                                             id: entryBadge
                                             visible: modelData.requiresOtp
-                                            radius: 10
-                                            height: 20
-                                            width: badgeText.implicitWidth + 12
+                                            radius: 11
+                                            height: 24
+                                            width: badgeText.implicitWidth + 16
                                             color: "#FFFFFF"
                                             border.width: 1
-                                            border.color: "#E5E7EB"
+                                            border.color: "#E2E8F0"
 
                                             Text {
                                                 id: badgeText
                                                 anchors.centerIn: parent
-                                                text: "需要OTP"
-                                                color: "#6B7280"
+                                                text: "需要 OTP"
+                                                color: "#7B8797"
                                                 font.family: root.theme.uiFont
                                                 font.pixelSize: 10
                                                 font.weight: root.theme.labelWeight
@@ -182,7 +191,7 @@ Rectangle {
                                         visible: (modelData.urlOrHost || "").length > 0
                                         width: parent.width
                                         text: modelData.urlOrHost || ""
-                                        color: root.theme.labelInk
+                                        color: "#7C8798"
                                         font.family: root.theme.uiFont
                                         font.pixelSize: 10
                                         font.weight: root.theme.bodyWeight
@@ -198,6 +207,7 @@ Rectangle {
                                         font.pixelSize: 11
                                         font.weight: root.theme.bodyWeight
                                         wrapMode: Text.Wrap
+                                        lineHeight: 1.35
                                     }
 
                                     Flow {
@@ -205,10 +215,10 @@ Rectangle {
                                         spacing: 8
 
                                         Rectangle {
-                                            visible: modelData.hasTarget
+                                            visible: modelData.hasTarget || modelData.hasPassword
                                             radius: 12
-                                            width: loginLabel.implicitWidth + 20
-                                            height: 28
+                                            width: loginLabel.implicitWidth + 22
+                                            height: 30
                                             color: "#111827"
 
                                             Text {
@@ -229,98 +239,137 @@ Rectangle {
                                         }
                                     }
 
-                                    Rectangle {
+                                    Item {
                                         visible: modelData.loginActivated
                                         width: parent.width
-                                        radius: 14
-                                        color: "#FFFFFF"
-                                        border.width: 1
-                                        border.color: "#DCE3EC"
-                                        height: flowColumn.implicitHeight + 12
+                                        height: loginFlowCard.implicitHeight
 
-                                        Column {
-                                            id: flowColumn
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.top: parent.top
-                                            anchors.margins: 10
-                                            spacing: 6
-
-                                            Text {
+                                            Rectangle {
+                                                id: loginFlowCard
                                                 width: parent.width
-                                                text: "已用新窗口打开当前入口，并自动复制账号。继续完成登录。"
-                                                color: root.theme.bodyInk
-                                                font.family: root.theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.theme.bodyWeight
-                                                wrapMode: Text.Wrap
+                                                implicitHeight: flowColumn.implicitHeight + 18
+                                                radius: 14
+                                                color: "#FFFFFF"
+                                                border.width: 1
+                                                border.color: "#D7E0EA"
+
+                                            Canvas {
+                                                id: dashOutline
+                                                anchors.fill: parent
+                                                anchors.margins: 1
+                                                onWidthChanged: requestPaint()
+                                                onHeightChanged: requestPaint()
+                                                onPaint: {
+                                                    var ctx = getContext("2d")
+                                                    ctx.clearRect(0, 0, width, height)
+                                                    ctx.strokeStyle = "#C8D3DE"
+                                                    ctx.lineWidth = 1
+                                                    ctx.setLineDash([5, 4])
+                                                    var inset = 6
+                                                    var radius = 11
+                                                    var left = inset
+                                                    var top = inset
+                                                    var right = width - inset
+                                                    var bottom = height - inset
+                                                    ctx.beginPath()
+                                                    ctx.moveTo(left + radius, top)
+                                                    ctx.lineTo(right - radius, top)
+                                                    ctx.quadraticCurveTo(right, top, right, top + radius)
+                                                    ctx.lineTo(right, bottom - radius)
+                                                    ctx.quadraticCurveTo(right, bottom, right - radius, bottom)
+                                                    ctx.lineTo(left + radius, bottom)
+                                                    ctx.quadraticCurveTo(left, bottom, left, bottom - radius)
+                                                    ctx.lineTo(left, top + radius)
+                                                    ctx.quadraticCurveTo(left, top, left + radius, top)
+                                                    ctx.stroke()
+                                                }
                                             }
 
-                                            Flow {
-                                                width: parent.width
+                                            Column {
+                                                id: flowColumn
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.top: parent.top
+                                                anchors.margins: 12
                                                 spacing: 8
 
-                                                Rectangle {
-                                                    visible: modelData.canCopyPassword
-                                                    radius: 10
-                                                    width: passwordLabel.implicitWidth + 18
-                                                    height: 26
-                                                    color: "#FFFFFF"
-                                                    border.width: 1
-                                                    border.color: "#D9E0EA"
-
                                                     Text {
-                                                        id: passwordLabel
-                                                        anchors.centerIn: parent
-                                                        text: "复制密码"
-                                                        color: root.theme.bodyInk
+                                                        width: parent.width
+                                                        text: root.flowMessage(modelData)
+                                                        color: "#465466"
                                                         font.family: root.theme.uiFont
                                                         font.pixelSize: 11
-                                                        font.weight: root.theme.labelWeight
+                                                        font.weight: root.theme.bodyWeight
+                                                        wrapMode: Text.Wrap
+                                                        lineHeight: 1.4
                                                     }
 
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.copyEnvironmentPassword(modelData.id)
+                                                Flow {
+                                                    width: parent.width
+                                                    spacing: 8
+
+                                                    Rectangle {
+                                                        visible: modelData.canCopyPassword
+                                                        radius: 11
+                                                        width: passwordLabel.implicitWidth + 22
+                                                        height: 28
+                                                        color: "#FFFFFF"
+                                                        border.width: 1
+                                                        border.color: "#D4DDE8"
+
+                                                        Text {
+                                                            id: passwordLabel
+                                                            anchors.centerIn: parent
+                                                            text: "复制密码"
+                                                            color: root.theme.bodyInk
+                                                            font.family: root.theme.uiFont
+                                                            font.pixelSize: 11
+                                                            font.weight: root.theme.labelWeight
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: todoDetailBridge.copyEnvironmentPassword(modelData.id)
+                                                        }
+                                                    }
+
+                                                    Rectangle {
+                                                        visible: modelData.canCopyOtp
+                                                        radius: 11
+                                                        width: otpLabel.implicitWidth + 22
+                                                        height: 28
+                                                        color: "#FFFFFF"
+                                                        border.width: 1
+                                                        border.color: "#D4DDE8"
+
+                                                        Text {
+                                                            id: otpLabel
+                                                            anchors.centerIn: parent
+                                                            text: "复制验证码"
+                                                            color: root.theme.bodyInk
+                                                            font.family: root.theme.uiFont
+                                                            font.pixelSize: 11
+                                                            font.weight: root.theme.labelWeight
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: todoDetailBridge.copyEnvironmentOtp(modelData.id)
+                                                        }
                                                     }
                                                 }
 
-                                                Rectangle {
+                                                Text {
                                                     visible: modelData.canCopyOtp
-                                                    radius: 10
-                                                    width: otpLabel.implicitWidth + 18
-                                                    height: 26
-                                                    color: "#FFFFFF"
-                                                    border.width: 1
-                                                    border.color: "#D9E0EA"
-
-                                                    Text {
-                                                        id: otpLabel
-                                                        anchors.centerIn: parent
-                                                        text: "复制验证码"
-                                                        color: root.theme.bodyInk
-                                                        font.family: root.theme.uiFont
-                                                        font.pixelSize: 11
-                                                        font.weight: root.theme.labelWeight
-                                                    }
-
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.copyEnvironmentOtp(modelData.id)
-                                                    }
+                                                    width: parent.width
+                                                    text: "当前验证码剩余 " + (modelData.otpRemainingSeconds || 0) + "s"
+                                                    color: "#8B98A9"
+                                                    font.family: root.theme.uiFont
+                                                    font.pixelSize: 10
+                                                    font.weight: root.theme.labelWeight
                                                 }
-                                            }
-
-                                            Text {
-                                                visible: modelData.canCopyOtp
-                                                width: parent.width
-                                                text: "当前验证码剩余 " + (modelData.otpRemainingSeconds || 0) + "s"
-                                                color: "#94A3B8"
-                                                font.family: root.theme.uiFont
-                                                font.pixelSize: 10
-                                                font.weight: root.theme.labelWeight
                                             }
                                         }
                                     }

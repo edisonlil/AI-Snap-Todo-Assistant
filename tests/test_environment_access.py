@@ -153,6 +153,30 @@ def test_environment_access_service_and_totp() -> None:
     assert remaining == 30
 
 
+def test_totp_service_supports_unpadded_freeotp_base32_secret() -> None:
+    code, remaining = TotpService().generate("MZXW6YTBOI", for_timestamp=0)
+
+    assert len(code) == 6
+    assert remaining == 30
+
+
+def test_totp_service_supports_otpauth_uri_with_sha256() -> None:
+    service = EnvironmentAccessService(_FakeEnvironmentRepository([]))
+    parsed = service._parse_otp_config(  # noqa: SLF001
+        "otpauth://totp/kubewpsops:wpsadmin?secret=JZ3UMYBQNQDRDL7D&algorithm=SHA256"
+    )
+    code, remaining = TotpService().generate(
+        str(parsed["secret"]),
+        for_timestamp=0,
+        digits=int(parsed["digits"]),
+        period_seconds=int(parsed["period_seconds"]),
+        algorithm=str(parsed["algorithm"]),
+    )
+
+    assert code == "849342"
+    assert remaining == 30
+
+
 def test_todo_detail_bridge_environment_access_flow() -> None:
     bundle = ProjectEnvironmentBundle(
         environment=ProjectEnvironmentRecord(
@@ -206,3 +230,48 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
 
     bridge.copyEnvironmentOtp("entry-1")
     assert bridge.environmentAccessMessage == "已复制验证码"
+
+
+def test_todo_detail_bridge_hides_standalone_otp_placeholder() -> None:
+    bundle = ProjectEnvironmentBundle(
+        environment=ProjectEnvironmentRecord(
+            id="env-1",
+            project_id="project-1",
+            env_name="正式环境",
+        ),
+        entries=(
+            EnvironmentAccessEntryRecord(
+                id="otp-1",
+                environment_id="env-1",
+                access_name="OTP验证码",
+            ),
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id="env-1",
+                access_name="管理后台",
+                url_or_host="https://example.com/login",
+                username="admin",
+                password_encrypted="secret-pass",
+                requires_otp=True,
+                otp_secret_encrypted="JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    bridge = _TodoDetailBridge(
+        environment_access_service=EnvironmentAccessService(_FakeEnvironmentRepository([bundle]))
+    )
+    todo = TodoItem(
+        id="todo-1",
+        title="检查环境访问",
+        project_link=TodoProjectLink(
+            todo_id="todo-1",
+            project_id="project-1",
+            match_status="matched",
+            project_snapshot={"project_name": "示例项目"},
+        ),
+    )
+
+    bridge.set_todo(todo)
+    group = bridge.environmentAccessGroups[0]
+    assert group["entryCount"] == 1
+    assert [entry["name"] for entry in group["entries"]] == ["管理后台"]

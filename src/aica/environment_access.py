@@ -8,6 +8,7 @@ import struct
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
+from urllib.parse import parse_qs, urlparse
 
 from aica.text_sanitize import sanitize_text
 
@@ -106,24 +107,50 @@ class TotpService:
     def period_seconds(self) -> int:
         return self._period_seconds
 
-    def generate(self, secret: str, *, for_timestamp: int | None = None) -> tuple[str, int]:
+    def generate(
+        self,
+        secret: str,
+        *,
+        for_timestamp: int | None = None,
+        digits: int | None = None,
+        period_seconds: int | None = None,
+        algorithm: str = "SHA1",
+    ) -> tuple[str, int]:
         normalized_secret = sanitize_text(secret).replace(" ", "").replace("-", "").upper()
         if not normalized_secret:
             return "", 0
         try:
-            key = base64.b32decode(normalized_secret, casefold=True)
+            padding = (-len(normalized_secret)) % 8
+            padded_secret = normalized_secret + ("=" * padding)
+            key = base64.b32decode(padded_secret, casefold=True)
         except Exception:
             return "", 0
 
+        normalized_digits = max(6, int(digits or self._digits))
+        normalized_period = max(1, int(period_seconds or self._period_seconds))
+        digestmod = self._resolve_digest(algorithm)
+        if digestmod is None:
+            return "", 0
+
         current_ts = int(for_timestamp if for_timestamp is not None else time.time())
-        counter = current_ts // self._period_seconds
+        counter = current_ts // normalized_period
         message = struct.pack(">Q", counter)
-        digest = hmac.new(key, message, hashlib.sha1).digest()
+        digest = hmac.new(key, message, digestmod).digest()
         offset = digest[-1] & 0x0F
         binary = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
-        code = str(binary % (10 ** self._digits)).zfill(self._digits)
-        remaining = self._period_seconds - (current_ts % self._period_seconds)
-        return code, remaining if remaining > 0 else self._period_seconds
+        code = str(binary % (10 ** normalized_digits)).zfill(normalized_digits)
+        remaining = normalized_period - (current_ts % normalized_period)
+        return code, remaining if remaining > 0 else normalized_period
+
+    @staticmethod
+    def _resolve_digest(algorithm: str):
+        normalized_algorithm = sanitize_text(algorithm).replace("-", "").upper() or "SHA1"
+        mapping = {
+            "SHA1": hashlib.sha1,
+            "SHA256": hashlib.sha256,
+            "SHA512": hashlib.sha512,
+        }
+        return mapping.get(normalized_algorithm)
 
 
 class EnvironmentAccessService:
@@ -167,6 +194,12 @@ class EnvironmentAccessService:
             return ""
         return self._secret_cipher.decrypt(entry.password_encrypted)
 
+    def get_otp_secret(self, entry_id: str) -> str:
+        entry = self._repository.get_access_entry(sanitize_text(entry_id))
+        if entry is None or not entry.requires_otp:
+            return ""
+        return self._secret_cipher.decrypt(entry.otp_secret_encrypted)
+
     def get_otp_code(self, entry_id: str) -> tuple[str, int]:
         entry = self._repository.get_access_entry(sanitize_text(entry_id))
         if entry is None or not entry.requires_otp:
@@ -181,7 +214,55 @@ class EnvironmentAccessService:
         return self._secret_cipher.encrypt(value)
 
     def _resolve_otp(self, entry: EnvironmentAccessEntryRecord) -> tuple[str, int]:
-        secret = self._secret_cipher.decrypt(entry.otp_secret_encrypted)
-        if not secret:
+        raw_secret = self._secret_cipher.decrypt(entry.otp_secret_encrypted)
+        if not raw_secret:
             return "", 0
-        return self._totp_service.generate(secret)
+        parsed = self._parse_otp_config(raw_secret)
+        if not parsed["secret"]:
+            return "", 0
+        return self._totp_service.generate(
+            parsed["secret"],
+            digits=parsed["digits"],
+            period_seconds=parsed["period_seconds"],
+            algorithm=parsed["algorithm"],
+        )
+
+    @staticmethod
+    def _parse_otp_config(raw_value: str) -> dict[str, object]:
+        normalized = sanitize_text(raw_value)
+        if not normalized:
+            return {
+                "secret": "",
+                "digits": 6,
+                "period_seconds": 30,
+                "algorithm": "SHA1",
+            }
+
+        if not normalized.lower().startswith("otpauth://"):
+            return {
+                "secret": normalized,
+                "digits": 6,
+                "period_seconds": 30,
+                "algorithm": "SHA1",
+            }
+
+        parsed = urlparse(normalized)
+        query = parse_qs(parsed.query)
+        secret = sanitize_text((query.get("secret") or [""])[0])
+        digits_raw = sanitize_text((query.get("digits") or ["6"])[0])
+        period_raw = sanitize_text((query.get("period") or ["30"])[0])
+        algorithm = sanitize_text((query.get("algorithm") or ["SHA1"])[0]) or "SHA1"
+        try:
+            digits = max(6, int(digits_raw or "6"))
+        except ValueError:
+            digits = 6
+        try:
+            period_seconds = max(1, int(period_raw or "30"))
+        except ValueError:
+            period_seconds = 30
+        return {
+            "secret": secret,
+            "digits": digits,
+            "period_seconds": period_seconds,
+            "algorithm": algorithm,
+        }
