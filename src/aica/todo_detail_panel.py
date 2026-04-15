@@ -240,6 +240,7 @@ _MANUAL_SCENARIO = "\u95ee\u9898\u53cd\u9988"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
 _CONCLUSION_SCENARIO = "\u95ee\u9898\u7ed3\u8bba"
 _CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
+_DRAFT_TIMELINE_ATTACHMENT_TARGET = "__draft_timeline__"
 _ENTRY_TYPE_FOLLOW_UP = "follow_up"
 _ENTRY_TYPE_CONCLUSION = "conclusion"
 _ENTRY_COMMAND_PREFIXES = {
@@ -459,6 +460,8 @@ class _TodoDetailBridge(QObject):
     saveRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
     clipboardImagePasteRequested = pyqtSignal(str)
+    draftAttachmentSelectionRequested = pyqtSignal()
+    draftClipboardImagePasteRequested = pyqtSignal()
     manualSyncRequested = pyqtSignal(str)
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
@@ -488,6 +491,7 @@ class _TodoDetailBridge(QObject):
         self._conclusion_content = ""
         self._conclusion_updated_at = ""
         self._conclusion_attachments: list[dict[str, object]] = []
+        self._draft_timeline_attachments: list[dict[str, object]] = []
         self._overview = ""
         self._created_at = ""
         self._updated_at = ""
@@ -609,6 +613,14 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty("QVariantList", notify=dataChanged)
     def conclusionAttachments(self):  # noqa: ANN201
         return self._conclusion_attachments
+
+    @pyqtProperty(int, notify=dataChanged)
+    def draftTimelineAttachmentCount(self) -> int:
+        return len(self._draft_timeline_attachments)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def draftTimelineAttachments(self):  # noqa: ANN201
+        return self._draft_timeline_attachments
 
     @pyqtProperty(str, notify=dataChanged)
     def createdAtLabel(self) -> str:
@@ -873,6 +885,7 @@ class _TodoDetailBridge(QObject):
         self._update_environment_entries(_updater)
 
     def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
+        self._clear_draft_timeline_attachments()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
@@ -980,12 +993,27 @@ class _TodoDetailBridge(QObject):
             return
         self.clipboardImagePasteRequested.emit(event_id)
 
+    @pyqtSlot()
+    def requestDraftTimelineAttachmentSelection(self) -> None:
+        self.draftAttachmentSelectionRequested.emit()
+
+    @pyqtSlot()
+    def requestDraftTimelineClipboardImagePaste(self) -> None:
+        self.draftClipboardImagePasteRequested.emit()
+
     @pyqtSlot(str, "QVariantList")
     def addTimelineAttachmentsFromUrls(self, event_id: str, urls: object) -> None:
         file_paths = _coerce_dropped_file_paths(urls)
         if not file_paths:
             return
         self.attach_files_to_event(event_id, file_paths)
+
+    @pyqtSlot("QVariantList")
+    def addDraftTimelineAttachmentsFromUrls(self, urls: object) -> None:
+        file_paths = _coerce_dropped_file_paths(urls)
+        if not file_paths:
+            return
+        self.attach_files_to_draft_timeline(file_paths)
 
     @pyqtSlot(str)
     def previewAttachment(self, file_path: str) -> None:
@@ -1041,23 +1069,28 @@ class _TodoDetailBridge(QObject):
             return
         if resolved_type == _ENTRY_TYPE_CONCLUSION:
             self._conclusion_content = content
+            draft_attachments = self._persist_draft_timeline_attachments(_CONCLUSION_ATTACHMENT_TARGET)
+            if draft_attachments:
+                self._conclusion_attachments = [*self._conclusion_attachments, *draft_attachments]
             self._conclusion_updated_at = datetime.now().isoformat()
             self.dataChanged.emit()
             self._emit_save_request()
             return
         timestamp = datetime.now().isoformat()
+        event_id = str(uuid.uuid4())
+        attachments = self._persist_draft_timeline_attachments(event_id)
         insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
         self._timeline.insert(
             insert_index,
             {
-                "id": str(uuid.uuid4()),
+                "id": event_id,
                 "timestamp": timestamp,
                 "timeLabel": _format_ts(timestamp),
                 "scenario": _MANUAL_SCENARIO,
                 "content": content,
                 "kind": "manual",
-                "attachments": [],
-                "attachmentCount": 0,
+                "attachments": attachments,
+                "attachmentCount": len(attachments),
             },
         )
         if not self._timeline_expanded:
@@ -1126,6 +1159,24 @@ class _TodoDetailBridge(QObject):
             self._remove_attachment_file(removed_path)
         self.dataChanged.emit()
         self._emit_save_request()
+
+    @pyqtSlot(str)
+    def removeDraftTimelineAttachment(self, attachment_id: str) -> None:
+        remaining: list[dict[str, object]] = []
+        removed_path = ""
+        for attachment in self._draft_timeline_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("id") == attachment_id:
+                removed_path = str(attachment.get("path", ""))
+                continue
+            remaining.append(attachment)
+        if len(remaining) == len(self._draft_timeline_attachments):
+            return
+        self._draft_timeline_attachments = remaining
+        if removed_path:
+            self._remove_attachment_file(removed_path)
+        self.dataChanged.emit()
 
     @pyqtSlot()
     def toggleTimeline(self) -> None:
@@ -1258,6 +1309,20 @@ class _TodoDetailBridge(QObject):
             item["attachmentCount"] = len(attachments)
             self.timelineChanged.emit()
         self._emit_save_request()
+
+    def attach_files_to_draft_timeline(self, file_paths: list[str]) -> None:
+        added = False
+        attachments = list(self._draft_timeline_attachments)
+        for file_path in file_paths:
+            attachment = self._copy_attachment(file_path, _DRAFT_TIMELINE_ATTACHMENT_TARGET)
+            if attachment is None:
+                continue
+            attachments.append(attachment)
+            added = True
+        if not added:
+            return
+        self._draft_timeline_attachments = attachments
+        self.dataChanged.emit()
 
     def _emit_save_request(self) -> None:
         payload = self._build_payload()
@@ -1469,21 +1534,11 @@ class _TodoDetailBridge(QObject):
         return self._build_attachment_payload(target)
 
     def attach_clipboard_image_to_event(self, event_id: str, image: QImage) -> bool:
-        if self._todo_id is None or image.isNull():
-            return False
-        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
         item = self._find_timeline_item(event_id) if event_id != _CONCLUSION_ATTACHMENT_TARGET else None
         if event_id != _CONCLUSION_ATTACHMENT_TARGET and item is None:
             return False
-        target_dir = self._attachment_root / self._todo_id / target_name
-        target_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target = target_dir / f"clipboard_{stamp}.png"
-        counter = 1
-        while target.exists():
-            target = target_dir / f"clipboard_{stamp}_{counter}.png"
-            counter += 1
-        if not image.save(str(target), "PNG"):
+        attachment = self._save_clipboard_image(image, event_id)
+        if attachment is None:
             return False
         if event_id == _CONCLUSION_ATTACHMENT_TARGET:
             attachments = self._conclusion_attachments
@@ -1492,7 +1547,7 @@ class _TodoDetailBridge(QObject):
             if not isinstance(attachments, list):
                 attachments = []
                 item["attachments"] = attachments
-        attachments.append(self._build_attachment_payload(target))
+        attachments.append(attachment)
         if event_id == _CONCLUSION_ATTACHMENT_TARGET:
             self._conclusion_attachments = list(attachments)
             self._conclusion_updated_at = datetime.now().isoformat()
@@ -1503,6 +1558,36 @@ class _TodoDetailBridge(QObject):
         self._emit_save_request()
         return True
 
+    def attach_clipboard_image_to_draft_timeline(self, image: QImage) -> bool:
+        if image.isNull():
+            return False
+        attachment = self._save_clipboard_image(image, _DRAFT_TIMELINE_ATTACHMENT_TARGET)
+        if attachment is None:
+            return False
+        self._draft_timeline_attachments = [*self._draft_timeline_attachments, attachment]
+        self.dataChanged.emit()
+        return True
+
+    def _save_clipboard_image(self, image: QImage, event_id: str) -> dict[str, object] | None:
+        if self._todo_id is None or image.isNull():
+            return None
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        if event_id not in {_CONCLUSION_ATTACHMENT_TARGET, _DRAFT_TIMELINE_ATTACHMENT_TARGET}:
+            item = self._find_timeline_item(event_id)
+            if item is None:
+                return None
+        target_dir = self._attachment_root / self._todo_id / target_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target = target_dir / f"clipboard_{stamp}.png"
+        counter = 1
+        while target.exists():
+            target = target_dir / f"clipboard_{stamp}_{counter}.png"
+            counter += 1
+        if not image.save(str(target), "PNG"):
+            return None
+        return self._build_attachment_payload(target)
+
     def _build_attachment_payload(self, target: Path) -> dict[str, object]:
         attachment = TimelineAttachment(
             id=str(uuid.uuid4()),
@@ -1511,6 +1596,37 @@ class _TodoDetailBridge(QObject):
             size_bytes=target.stat().st_size if target.exists() else 0,
         )
         return self._attachment_to_dict(attachment)
+
+    def _persist_draft_timeline_attachments(self, event_id: str) -> list[dict[str, object]]:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        if not attachments:
+            return []
+        moved: list[dict[str, object]] = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            moved_attachment = self._move_attachment_to_target(str(attachment.get("path", "")), event_id)
+            if moved_attachment is not None:
+                moved.append(moved_attachment)
+        self.dataChanged.emit()
+        return moved
+
+    def _move_attachment_to_target(self, file_path: str, event_id: str) -> dict[str, object] | None:
+        source = Path(str(file_path or "").strip()).expanduser()
+        if not source.is_file() or self._todo_id is None:
+            return None
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        target_dir = self._attachment_root / self._todo_id / target_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / source.name
+        counter = 1
+        while target.exists():
+            target = target_dir / f"{source.stem}_{counter}{source.suffix}"
+            counter += 1
+        shutil.move(str(source), str(target))
+        self._prune_empty_parent_dirs(source.parent)
+        return self._build_attachment_payload(target)
 
     def _copy_image_attachment(self, path: Path) -> None:
         image = QImage(str(path))
@@ -1556,7 +1672,14 @@ class _TodoDetailBridge(QObject):
                 return
             if target.exists():
                 target.unlink()
-            parent = target.parent
+            self._prune_empty_parent_dirs(target.parent)
+        except OSError:
+            return
+
+    def _prune_empty_parent_dirs(self, start: Path) -> None:
+        try:
+            root = self._attachment_root.resolve()
+            parent = start.resolve()
             while parent != root and parent.exists():
                 if any(parent.iterdir()):
                     break
@@ -1564,6 +1687,14 @@ class _TodoDetailBridge(QObject):
                 parent = parent.parent
         except OSError:
             return
+
+    def _clear_draft_timeline_attachments(self) -> None:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            self._remove_attachment_file(str(attachment.get("path", "")))
 
     @pyqtSlot()
     def closePanel(self) -> None:
@@ -1696,6 +1827,8 @@ class TodoDetailPanel(QQuickView):
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
         self._bridge.clipboardImagePasteRequested.connect(self._paste_clipboard_image)
+        self._bridge.draftAttachmentSelectionRequested.connect(self._select_draft_timeline_attachments)
+        self._bridge.draftClipboardImagePasteRequested.connect(self._paste_draft_timeline_clipboard_image)
         self._bridge.manualSyncRequested.connect(self.manual_sync_requested)
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
@@ -1731,6 +1864,24 @@ class TodoDetailPanel(QQuickView):
         if image.isNull():
             return
         self._bridge.attach_clipboard_image_to_event(event_id, image)
+
+    def _select_draft_timeline_attachments(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(
+            None,
+            "\u9009\u62e9\u9644\u4ef6",
+            "",
+            "\u6240\u6709\u6587\u4ef6 (*.*)",
+        )
+        if not files:
+            return
+        self._bridge.attach_files_to_draft_timeline(list(files))
+
+    def _paste_draft_timeline_clipboard_image(self) -> None:
+        clipboard = QGuiApplication.clipboard()
+        image = clipboard.image()
+        if image.isNull():
+            return
+        self._bridge.attach_clipboard_image_to_draft_timeline(image)
 
     def show_todo(self, todo: TodoItem, anchor_rect=None, sync_records: list[dict[str, object]] | None = None) -> None:
         self._bridge.set_todo(todo, sync_records=sync_records)
@@ -1803,5 +1954,7 @@ class TodoDetailPanel(QQuickView):
         self.setPosition(target_x, target_y)
 
     def _close_panel(self) -> None:
+        self._bridge._clear_draft_timeline_attachments()
+        self._bridge.dataChanged.emit()
         self.hide()
         self.closed.emit()
