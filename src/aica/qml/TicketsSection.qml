@@ -654,14 +654,16 @@ ColumnLayout {
                             clip: true
                             property real sidePadding: 18
                             property real columnSpacing: 12
-                            property real tableInnerWidth: Math.max(780, width - sidePadding * 2 - columnSpacing * 6)
-                            property real titleColumnWidth: Math.round(tableInnerWidth * 0.26)
+                            property real tableInnerWidth: Math.max(780, width - sidePadding * 2 - columnSpacing * 8)
+                            property real titleColumnWidth: Math.round(tableInnerWidth * 0.24)
                             property real statusColumnWidth: Math.round(tableInnerWidth * 0.08)
-                            property real projectColumnWidth: Math.round(tableInnerWidth * 0.14)
+                            property real projectColumnWidth: Math.round(tableInnerWidth * 0.12)
+                            property real productGapWidth: Math.round(tableInnerWidth * 0.08)
                             property real productColumnWidth: Math.round(tableInnerWidth * 0.16)
-                            property real typeColumnWidth: Math.round(tableInnerWidth * 0.10)
-                            property real updatedColumnWidth: Math.round(tableInnerWidth * 0.14)
-                            property real actionColumnWidth: Math.round(tableInnerWidth * 0.12)
+                            property real typeColumnWidth: Math.round(tableInnerWidth * 0.09)
+                            property real updatedColumnWidth: Math.round(tableInnerWidth * 0.13)
+                            property real actionColumnWidth: Math.round(tableInnerWidth * 0.08)
+                            property real actionTrailingGutterWidth: Math.round(tableInnerWidth * 0.02)
                             property real actionRightPadding: 22
 
                             Column {
@@ -714,6 +716,11 @@ ColumnLayout {
                                             verticalAlignment: Text.AlignVCenter
                                         }
 
+                                        Item {
+                                            Layout.preferredWidth: tableFlickable.productGapWidth
+                                            Layout.fillHeight: true
+                                        }
+
                                         Text {
                                             Layout.preferredWidth: tableFlickable.productColumnWidth
                                             text: "\u4ea7\u54c1\u7ebf"
@@ -757,6 +764,11 @@ ColumnLayout {
                                             rightPadding: tableFlickable.actionRightPadding
                                             horizontalAlignment: Text.AlignRight
                                             verticalAlignment: Text.AlignVCenter
+                                        }
+
+                                        Item {
+                                            Layout.preferredWidth: tableFlickable.actionTrailingGutterWidth
+                                            Layout.fillHeight: true
                                         }
                                     }
                                 }
@@ -855,6 +867,11 @@ ColumnLayout {
                                                     verticalAlignment: Text.AlignVCenter
                                                 }
 
+                                                Item {
+                                                    Layout.preferredWidth: tableFlickable.productGapWidth
+                                                    Layout.fillHeight: true
+                                                }
+
                                                 Text {
                                                     Layout.preferredWidth: tableFlickable.productColumnWidth
                                                     text: ticketSection.displayProductLine(modelData.productLine, index)
@@ -903,6 +920,11 @@ ColumnLayout {
                                                     Behavior on color {
                                                         ColorAnimation { duration: 100 }
                                                     }
+                                                }
+
+                                                Item {
+                                                    Layout.preferredWidth: tableFlickable.actionTrailingGutterWidth
+                                                    Layout.fillHeight: true
                                                 }
                                             }
 
