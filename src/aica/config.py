@@ -92,6 +92,7 @@ class TaskModelBindings:
     analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
     log_analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
     plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
+    context_summary: TaskModelBinding = field(default_factory=TaskModelBinding)
 
     @classmethod
     def from_dict(cls, data: object) -> "TaskModelBindings":
@@ -101,6 +102,7 @@ class TaskModelBindings:
             analysis=TaskModelBinding.from_dict(data.get("analysis")),
             log_analysis=TaskModelBinding.from_dict(data.get("log_analysis")),
             plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
+            context_summary=TaskModelBinding.from_dict(data.get("context_summary")),
         )
 
 
@@ -245,23 +247,27 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
             analysis=_binding("gemini", "gemini-2.5-flash"),
             log_analysis=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
+            context_summary=_binding("gemini", "gemini-2.5-flash"),
         )
     if default_provider_id == "dashscope":
         return TaskModelBindings(
             analysis=_binding("dashscope", "qwen-vl-max"),
             log_analysis=_binding("dashscope", "qwen-vl-max"),
             plan_export=_binding("dashscope", "qwen-vl-max"),
+            context_summary=_binding("dashscope", "qwen-plus"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
             analysis=_binding("siliconflow", "qwen25-vl-72b"),
             log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
             plan_export=_binding("siliconflow", "qwen25-vl-72b"),
+            context_summary=_binding("minmax", "minimax-m2-5"),
         )
     return TaskModelBindings(
         analysis=_binding("siliconflow", "qwen25-vl-72b"),
         log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
         plan_export=_binding("siliconflow", "qwen25-vl-72b"),
+        context_summary=_binding("siliconflow", "qwen3-8b"),
     )
 
 
@@ -351,6 +357,11 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
             "vision_chat",
         ),
         plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
+        context_summary=normalize(
+            bindings.context_summary,
+            defaults.context_summary if bindings.context_summary.provider_id and bindings.context_summary.model_id else defaults.context_summary,
+            "text_chat",
+        ),
     )
 
 
@@ -404,6 +415,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
         analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
         log_analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
+        context_summary=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
     migrated.hotkeys = HotkeyConfig()
     migrated.ticket_enrichment = TicketEnrichmentConfig()

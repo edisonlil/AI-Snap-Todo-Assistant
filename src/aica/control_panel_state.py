@@ -18,6 +18,7 @@ MEGABYTE = 1024 * 1024
 TASK_NAMES = (
     "analysis",
     "plan_export",
+    "context_summary",
 )
 
 

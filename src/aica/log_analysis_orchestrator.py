@@ -5,12 +5,13 @@ from datetime import datetime
 from typing import Callable
 
 from .config import AppConfig
+from .context_summary_service import ContextSummaryService
 from .llm.service import LLMService
 from .log_analysis_agent import DefaultLogAnalysisAgent
 from .log_analysis_attachments import AttachmentCollectContext, build_default_attachment_handler_registry
 from .log_analysis_commands import parse_log_analysis_command
 from .log_analysis_consumers import TimelineLogAnalysisPresenter
-from .log_analysis_context import collect_relevant_timeline_entries, summarize_investigation_context
+from .log_analysis_context import summarize_investigation_context
 from .log_analysis_models import (
     LogAnalysisAgent,
     LogAnalysisCommand,
@@ -46,9 +47,17 @@ class LogAnalysisOrchestrator:
         self._task_store = task_store
         self._app_config = app_config
         self._llm_service = LLMService(app_config)
+        self._context_summary_service = ContextSummaryService(self._llm_service)
         self._agent = agent or DefaultLogAnalysisAgent(self._llm_service)
         self._timeline_consumer = timeline_consumer or TimelineLogAnalysisPresenter()
         self._attachment_registry = build_default_attachment_handler_registry()
+
+    def update_app_config(self, app_config: AppConfig) -> None:
+        self._app_config = app_config
+        self._llm_service = LLMService(app_config)
+        self._context_summary_service = ContextSummaryService(self._llm_service)
+        if isinstance(self._agent, DefaultLogAnalysisAgent):
+            self._agent = DefaultLogAnalysisAgent(self._llm_service)
 
     def run_task(self, task_id: str, *, progress_callback: Callable[[str], None] | None = None) -> None:
         task = self._task_store.get_task(task_id)
@@ -68,8 +77,11 @@ class LogAnalysisOrchestrator:
             if progress_callback is not None:
                 progress_callback(task_id)
             self._ensure_task_active(task_id)
-            recent_entries = collect_relevant_timeline_entries(todo)
-            investigation_context = summarize_investigation_context(todo, parsed_command, recent_entries)
+            investigation_context = summarize_investigation_context(
+                todo,
+                parsed_command,
+                summary_service=self._context_summary_service,
+            )
             self._task_store.update_progress(task_id, current_step=STEP_RETRIEVE_LOGS)
             if progress_callback is not None:
                 progress_callback(task_id)

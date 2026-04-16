@@ -73,6 +73,8 @@ from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
 from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .context_summary_models import ContextSummaryRequest
+from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
@@ -353,6 +355,16 @@ class _BaseVisionWorker(QThread):
         self._prompt_trace_id = bundle.trace_id
         self._prompt_version = bundle.prompt_version
         return bundle
+
+    def _resolve_context_text(self) -> str:
+        context_request = getattr(self, "_context_request", None)
+        if not isinstance(context_request, ContextSummaryRequest):
+            return str(getattr(self, "_context_text", "") or "").strip()
+        summary_service = getattr(self, "_context_summary_service", None)
+        if not isinstance(summary_service, ContextSummaryService):
+            return str(getattr(self, "_context_text", "") or "").strip()
+        result = summary_service.summarize(context_request)
+        return format_summary_for_analysis_context(context_request, result)
 
     def _record_prompt_trace(
         self,
@@ -678,7 +690,7 @@ class AIWorker(_BaseVisionWorker):
                  timeout: int = 30,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
-                 context_text: str = "",
+                 context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
@@ -690,7 +702,9 @@ class AIWorker(_BaseVisionWorker):
         self._max_image_bytes = max_image_bytes
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("chat_feedback")
-        self._context_text = context_text.strip()
+        self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
+        self._context_text = context_text.strip() if isinstance(context_text, str) else ""
+        self._context_summary_service = ContextSummaryService(llm_service)
 
     def run(self) -> None:
         encoded_images: list[EncodedImage] = []
@@ -714,6 +728,7 @@ class AIWorker(_BaseVisionWorker):
     def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
         encoded_image = self._encode_for_api(self._image, image_count=1)
+        self._context_text = self._resolve_context_text()
         bundle = self._build_prompt_bundle(image_count=1)
         messages = [
             Message(role="system", content=bundle.system_prompt),
@@ -761,7 +776,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
                  timeout: int = 30,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
-                 context_text: str = "",
+                 context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
@@ -773,7 +788,9 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._max_image_bytes = max_image_bytes
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("step_sequence", capture_count=len(images))
-        self._context_text = context_text.strip()
+        self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
+        self._context_text = context_text.strip() if isinstance(context_text, str) else ""
+        self._context_summary_service = ContextSummaryService(llm_service)
 
     def run(self) -> None:
         encoded_images: list[EncodedImage] = []
@@ -796,6 +813,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
 
     def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
+        self._context_text = self._resolve_context_text()
         bundle = self._build_prompt_bundle(image_count=len(self._images))
         content: list[ContentPart] = [
             ContentPart(type="text", text=bundle.user_prompt)

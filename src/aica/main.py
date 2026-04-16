@@ -18,6 +18,7 @@ from aica.analysis_metrics import AnalysisMetricsStore
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
+from aica.context_summary_models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
 from aica.llm.service import LLMService, ModelResolutionError
@@ -263,6 +264,18 @@ def main() -> None:
             f"当前摘要: {todo.current_summary}\n"
             "最近时间线:\n"
             + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
+        )
+
+    def _build_selected_todo_context() -> object:
+        todo = todo_controller.get_selected_todo()
+        if todo is None:
+            return ""
+        return build_context_summary_request_for_todo(
+            todo,
+            summary_goal="append_screenshot_context",
+            description=str(todo.current_summary or "").strip() or str(todo.title or "").strip(),
+            max_items=10,
+            max_chars=2000,
         )
 
     def _save_analysis_to_todo(snapshot) -> tuple[str, str]:
@@ -619,6 +632,7 @@ def main() -> None:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
         except ValueError:
             hotkey_mgr.update_hotkey(DEFAULT_CAPTURE_HOTKEY)
+        log_analysis_orchestrator.update_app_config(saved_config)
 
     control_panel.config_saved.connect(_on_control_panel_saved)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)

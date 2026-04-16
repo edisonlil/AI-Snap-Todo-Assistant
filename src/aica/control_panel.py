@@ -283,6 +283,7 @@ _TASK_LABELS = {
     "analysis": "截图分析",
     "plan_export": "方案导出",
 }
+_TASK_LABELS["context_summary"] = "上下文摘要"
 _SECTION_GROUPS = [
     {
         "id": "business",
@@ -379,6 +380,8 @@ _SECTION_VIEW_META = {
 
 
 def _required_capability(task_name: str) -> str:
+    if task_name == "context_summary":
+        return "text_chat"
     return "vision_chat"
 
 

@@ -33,7 +33,7 @@ class AnalysisFlowCoordinator:
         toolbar,
         get_scenario: Callable[[], str],
         get_analysis_intent: Callable[[int], Any | None] | None,
-        get_analysis_context: Callable[[], str] | None,
+        get_analysis_context: Callable[[], object] | None,
         ensure_api_key_configured: Callable[[], Any | None],
         hide_overlays: Callable[..., None],
         restore_toolbar_for_current_capture: Callable[[], None],
