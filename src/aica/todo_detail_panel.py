@@ -1140,8 +1140,6 @@ class _TodoDetailBridge(QObject):
     def _should_hide_timeline_item(item: dict[str, object]) -> bool:
         if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
             return False
-        if str(item.get("status") or "") != _SUCCESS_STATUS:
-            return False
         payload = _clone_dict(item.get("payload", {}))
         return bool(str(payload.get("result_event_id", "") or "").strip())
 

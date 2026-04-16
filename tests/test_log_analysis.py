@@ -404,3 +404,51 @@ def test_delete_timeline_card_removes_related_log_analysis_events() -> None:
     payload = bridge._build_payload()  # noqa: SLF001
     assert payload is not None
     assert payload['timeline'] == []
+
+def test_todo_detail_bridge_hides_command_when_result_exists_even_without_success_status() -> None:
+    bridge = _TodoDetailBridge(
+        attachment_root=Path('.'),
+        environment_access_service=SimpleNamespace(list_project_environments=lambda _project_id: []),
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id='cmd-2',
+            kind='log_analysis_command',
+            scenario='日志分析任务',
+            event_type='log_analysis_command',
+            content='/分析日志 request_id=req-2',
+        ),
+        TimelineEvent(
+            id='result-2',
+            kind='log_analysis_result',
+            scenario='日志分析结果',
+            event_type='log_analysis_result',
+            status='success',
+            content='日志分析结果',
+            payload={
+                'source_timeline_entry_id': 'cmd-2',
+                'analyzed_materials': [],
+                'findings': '命中 request_id=req-2',
+                'judgment': '权限问题',
+                'next_steps': '联系研发',
+            },
+        ),
+    ]
+
+    bridge.set_todo(
+        todo,
+        task_status_map={
+            'cmd-2': {
+                'taskId': 'task-2',
+                'taskStatus': 'running',
+                'uiStatus': 'running',
+                'currentStep': '正在生成分析结果...',
+                'taskStatusLabel': '分析中',
+                'taskType': 'log_analysis',
+            }
+        },
+    )
+
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]['id'] == 'result-2'
