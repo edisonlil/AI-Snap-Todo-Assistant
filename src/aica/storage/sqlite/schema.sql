@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS todo_timeline_events (
   timestamp TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'analysis',
   scenario TEXT NOT NULL DEFAULT '',
+  event_type TEXT NOT NULL DEFAULT 'default',
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
@@ -61,6 +64,38 @@ CREATE TABLE IF NOT EXISTS todo_timeline_attachments (
 
 CREATE INDEX IF NOT EXISTS idx_attachments_event
 ON todo_timeline_attachments(event_id);
+
+CREATE TABLE IF NOT EXISTS log_analysis_tasks (
+  id TEXT PRIMARY KEY,
+  todo_id TEXT NOT NULL,
+  timeline_entry_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  raw_command TEXT NOT NULL DEFAULT '',
+  parsed_focus_json TEXT NOT NULL DEFAULT '{}',
+  attachment_snapshot_json TEXT NOT NULL DEFAULT '[]',
+  investigation_context_json TEXT NOT NULL DEFAULT '{}',
+  evidence_bundle_json TEXT NOT NULL DEFAULT '{}',
+  result_summary TEXT NOT NULL DEFAULT '',
+  result_payload_json TEXT NOT NULL DEFAULT '{}',
+  error_message TEXT NOT NULL DEFAULT '',
+  model_binding_used TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL DEFAULT '',
+  completed_at TEXT NOT NULL DEFAULT '',
+  failed_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+  FOREIGN KEY(timeline_entry_id) REFERENCES todo_timeline_events(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_analysis_tasks_todo_created
+ON log_analysis_tasks(todo_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_log_analysis_tasks_timeline_entry
+ON log_analysis_tasks(todo_id, timeline_entry_id);
+
+CREATE INDEX IF NOT EXISTS idx_log_analysis_tasks_status_updated
+ON log_analysis_tasks(status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
   id TEXT PRIMARY KEY,

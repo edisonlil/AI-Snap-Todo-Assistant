@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from aica.log_analysis_models import LogAnalysisTask
     from aica.environment_access import (
         EnvironmentAccessEntryRecord,
         ProjectEnvironmentBundle,
@@ -187,6 +188,16 @@ class BindingRepository(Protocol):
         external_url: str = "",
     ) -> dict[str, Any] | None:
         """Update sync metadata without requiring an external id."""
+
+
+class LogAnalysisTaskRepository(Protocol):
+    path: str
+
+    def create_task(self, task: "LogAnalysisTask") -> "LogAnalysisTask":
+        """Persist a new log analysis task."""
+
+    def get_task(self, task_id: str) -> "LogAnalysisTask | None":
+        """Fetch one task by id."""
 
 
 class ProjectEnvironmentRepository(Protocol):

@@ -56,6 +56,19 @@ def parse_json_object(raw_value: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def parse_json_array(raw_value: Any) -> list[Any]:
+    if isinstance(raw_value, list):
+        return raw_value
+    text = str(raw_value or "").strip()
+    if not text:
+        return []
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return payload if isinstance(payload, list) else []
+
+
 def normalize_group_alias(alias_name: str) -> str:
     cleaned = sanitize_text(alias_name)
     if not cleaned:
@@ -149,8 +162,12 @@ def build_todo_item(
             timestamp=str(row.get("timestamp", now_iso())),
             kind=str(row.get("kind", "analysis")),
             scenario=str(row.get("scenario", "")),
+            event_type=str(row.get("event_type", row.get("type", "")) or "default"),
+            payload=parse_json_object(row.get("payload_json", row.get("payload", {}))),
+            status=str(row.get("status", "")),
             content=str(row.get("content", "")),
             attachments=grouped_attachments.get(str(row.get("id", "")), []),
+            created_at=str(row.get("created_at", row.get("timestamp", now_iso()))),
         )
         for row in timeline_rows
     ]
@@ -234,8 +251,12 @@ def deserialize_legacy_timeline_event(payload: dict[str, Any]) -> TimelineEvent:
         timestamp=str(payload.get("timestamp", now_iso())),
         kind=str(payload.get("kind", "analysis")),
         scenario=str(payload.get("scenario", "")),
+        event_type=str(payload.get("type", payload.get("event_type", "")) or "default"),
+        payload=parse_json_object(payload.get("payload", {})),
+        status=str(payload.get("status", "")),
         content=merge_timeline_with_evidence(content, evidence_items),
         attachments=attachments,
+        created_at=str(payload.get("created_at", payload.get("timestamp", now_iso()))),
     )
 
 

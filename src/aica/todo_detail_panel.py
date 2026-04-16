@@ -1,4 +1,4 @@
-"""QML-backed detail panel for a todo item and its timeline."""
+﻿"""QML-backed detail panel for a todo item and its timeline."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -223,6 +223,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
 from .models import TicketSummaryFields
 from .environment_access import EnvironmentAccessService
+from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
 from .paths import todo_attachments_dir
 from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from .ticket_enrichment import ROOT_CAUSE_OPTIONS
@@ -239,10 +240,24 @@ _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
 _MANUAL_SCENARIO = "\u95ee\u9898\u53cd\u9988"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
 _CONCLUSION_SCENARIO = "\u95ee\u9898\u7ed3\u8bba"
+_LOG_ANALYSIS_TASK_SCENARIO = "\u65e5\u5fd7\u5206\u6790\u4efb\u52a1"
+_LOG_ANALYSIS_RESULT_SCENARIO = "\u65e5\u5fd7\u5206\u6790\u7ed3\u679c"
 _CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
 _DRAFT_TIMELINE_ATTACHMENT_TARGET = "__draft_timeline__"
 _ENTRY_TYPE_FOLLOW_UP = "follow_up"
 _ENTRY_TYPE_CONCLUSION = "conclusion"
+_ENTRY_TYPE_LOG_ANALYSIS = "log_analysis"
+_TIMELINE_EVENT_TYPE_DEFAULT = "default"
+_TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND = "log_analysis_command"
+_TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT = "log_analysis_result"
+_RUNNING_STATUS = "running"
+_SUCCESS_STATUS = "success"
+_FAILED_STATUS = "failed"
+_LOG_ANALYSIS_STEP_LABELS = [
+    "\u6b63\u5728\u6536\u96c6\u9644\u4ef6...",
+    "\u6b63\u5728\u68c0\u7d22\u65e5\u5fd7...",
+    "\u6b63\u5728\u751f\u6210\u7ed3\u679c...",
+]
 _ENTRY_COMMAND_PREFIXES = {
     "/问题反馈": _ENTRY_TYPE_FOLLOW_UP,
     "/问题跟进": _ENTRY_TYPE_FOLLOW_UP,
@@ -276,7 +291,7 @@ def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
     content = sanitize_text(value).strip()
     normalized_type = (
         entry_type
-        if entry_type in {_ENTRY_TYPE_FOLLOW_UP, _ENTRY_TYPE_CONCLUSION}
+        if entry_type in {_ENTRY_TYPE_FOLLOW_UP, _ENTRY_TYPE_CONCLUSION, _ENTRY_TYPE_LOG_ANALYSIS}
         else _ENTRY_TYPE_FOLLOW_UP
     )
     if not content:
@@ -306,6 +321,47 @@ def _normalize_display_timeline(events: list[TimelineEvent]) -> list[TimelineEve
     return [latest_conclusion] + list(reversed(remaining))
 
 
+def _timeline_event_type(event: TimelineEvent) -> str:
+    explicit = str(getattr(event, "event_type", "") or "").strip()
+    if explicit:
+        return explicit
+    kind = str(event.kind or "").strip()
+    if kind == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND
+    if kind == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT
+    if str(event.scenario or "").strip() == _LOG_ANALYSIS_RESULT_SCENARIO:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT
+    return _TIMELINE_EVENT_TYPE_DEFAULT
+
+
+def _normalize_card_status(value: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"queued", _RUNNING_STATUS}:
+        return _RUNNING_STATUS
+    if normalized in {"completed", _SUCCESS_STATUS}:
+        return _SUCCESS_STATUS
+    if normalized == _FAILED_STATUS:
+        return _FAILED_STATUS
+    return ""
+
+
+def _timeline_card_label(event_type: str, scenario: str) -> str:
+    if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+        return _LOG_ANALYSIS_TASK_SCENARIO
+    if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+        return _LOG_ANALYSIS_RESULT_SCENARIO
+    return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
+
+
+def _clone_dict(value: object) -> dict[str, object]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _clone_list(value: object) -> list[object]:
+    return list(value) if isinstance(value, list) else []
+
+
 def _project_status_label(status: str) -> str:
     mapping = {
         "matched": "已关联项目",
@@ -324,7 +380,7 @@ def _project_status_detail(todo: TodoItem) -> str:
         project_name = str(link.project_snapshot.get("project_name") or "").strip()
         task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
         if project_name and task_order_no:
-            return f"{project_name} · {task_order_no}"
+            return f"{project_name} {task_order_no}"
         return project_name or task_order_no or "已根据群聊名称命中项目主数据。"
     if status == "conflict":
         reason = str(link.match_reason or "").strip()
@@ -458,6 +514,7 @@ class _TodoDetailBridge(QObject):
     panelDragFinished = pyqtSignal()
 
     saveRequested = pyqtSignal(str, object)
+    logAnalysisRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
     clipboardImagePasteRequested = pyqtSignal(str)
     draftAttachmentSelectionRequested = pyqtSignal()
@@ -884,7 +941,12 @@ class _TodoDetailBridge(QObject):
 
         self._update_environment_entries(_updater)
 
-    def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
+    def set_todo(
+        self,
+        todo: TodoItem,
+        sync_records: list[dict[str, object]] | None = None,
+        task_status_map: dict[str, dict[str, object]] | None = None,
+    ) -> None:
         self._clear_draft_timeline_attachments()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
@@ -908,19 +970,28 @@ class _TodoDetailBridge(QObject):
         self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
         self._updated_at = _format_ts(todo.updated_at)
-        self._timeline = [
-            {
-                "id": event.id,
-                "timestamp": event.timestamp,
-                "timeLabel": _format_ts(event.timestamp),
-                "scenario": _normalize_timeline_scenario(event.kind, event.scenario),
-                "content": event.content.strip(),
-                "kind": event.kind,
-                "attachments": [self._attachment_to_dict(item) for item in event.attachments],
-                "attachmentCount": len(event.attachments),
-            }
+        task_status_map = task_status_map or {}
+        timeline_items = [
+            self._build_timeline_item(event, task_status_map.get(event.id, {}))
             for event in _normalize_display_timeline(todo.timeline)
         ]
+        result_event_ids: dict[str, str] = {}
+        for item in timeline_items:
+            if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+                continue
+            payload = _clone_dict(item.get("payload", {}))
+            source_event_id = str(payload.get("source_timeline_entry_id", "") or "").strip()
+            if source_event_id and source_event_id not in result_event_ids:
+                result_event_ids[source_event_id] = str(item.get("id") or "")
+        for item in timeline_items:
+            if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+                continue
+            payload = _clone_dict(item.get("payload", {}))
+            result_event_id = str(payload.get("result_event_id", "") or result_event_ids.get(str(item.get("id") or ""), "")).strip()
+            if result_event_id:
+                payload["result_event_id"] = result_event_id
+                item["payload"] = payload
+        self._timeline = timeline_items
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
@@ -936,6 +1007,197 @@ class _TodoDetailBridge(QObject):
         self.dataChanged.emit()
         self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
+
+    def _build_timeline_item(self, event: TimelineEvent, status_payload: dict[str, object]) -> dict[str, object]:
+        event_type = _timeline_event_type(event)
+        normalized_scenario = _normalize_timeline_scenario(event.kind, event.scenario)
+        payload = _clone_dict(getattr(event, "payload", {}))
+        status = _normalize_card_status(
+            str(status_payload.get("uiStatus", "") or getattr(event, "status", "") or status_payload.get("taskStatus", ""))
+        )
+        if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            normalized_scenario = _LOG_ANALYSIS_TASK_SCENARIO
+            payload = self._build_log_analysis_task_payload(event, payload, status_payload, status)
+        elif event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+            normalized_scenario = _LOG_ANALYSIS_RESULT_SCENARIO
+            payload = self._build_log_analysis_result_payload(event, payload)
+            status = _SUCCESS_STATUS
+
+        created_at = str(getattr(event, "created_at", "") or event.timestamp or "").strip()
+        attachments = [self._attachment_to_dict(item) for item in event.attachments]
+        task_status = str(status_payload.get("taskStatus", "") or "").strip()
+        item = {
+            "id": event.id,
+            "timestamp": event.timestamp,
+            "created_at": created_at,
+            "timeLabel": _format_ts(created_at or event.timestamp),
+            "scenario": normalized_scenario,
+            "cardLabel": _timeline_card_label(event_type, normalized_scenario),
+            "content": event.content.strip(),
+            "kind": event.kind,
+            "type": event_type,
+            "payload": payload,
+            "status": status,
+            "statusLabel": self._status_label(status),
+            "attachments": attachments,
+            "attachmentCount": len(attachments),
+            "taskId": str(status_payload.get("taskId", "") or "").strip(),
+            "taskType": str(status_payload.get("taskType", "") or "").strip(),
+            "taskStatus": task_status,
+            "taskStatusLabel": str(status_payload.get("taskStatusLabel", "") or "").strip(),
+            "taskStatusDetail": str(status_payload.get("taskStatusDetail", "") or "").strip(),
+        }
+        return item
+
+    def _build_log_analysis_task_payload(
+        self,
+        event: TimelineEvent,
+        payload: dict[str, object],
+        status_payload: dict[str, object],
+        status: str,
+    ) -> dict[str, object]:
+        resolved = _clone_dict(payload)
+        command_text = str(
+            resolved.get("command_text", "")
+            or resolved.get("raw_command", "")
+            or status_payload.get("rawCommand", "")
+            or event.content
+            or ""
+        ).strip()
+        step_index = self._infer_log_analysis_step_index(status_payload)
+        current_step = str(resolved.get("current_step", "") or "").strip()
+        if not current_step and status == _RUNNING_STATUS:
+            current_step = _LOG_ANALYSIS_STEP_LABELS[step_index]
+        failure_reason = str(
+            resolved.get("failure_reason", "")
+            or status_payload.get("errorMessage", "")
+            or status_payload.get("taskStatusDetail", "")
+            or ""
+        ).strip()
+        failure_details = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("failure_details", []))
+            if str(item).strip()
+        ]
+        if not failure_details and failure_reason:
+            failure_details = [failure_reason]
+
+        process_steps = []
+        raw_steps = _clone_list(resolved.get("process_steps", []))
+        if raw_steps:
+            for item in raw_steps:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("label", "") or "").strip()
+                step_state = str(item.get("state", "") or "").strip()
+                if label:
+                    process_steps.append({"label": label, "state": step_state})
+        if not process_steps:
+            for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS):
+                if status == _SUCCESS_STATUS:
+                    step_state = "done"
+                elif status == _RUNNING_STATUS and index == step_index:
+                    step_state = "active"
+                elif index < step_index:
+                    step_state = "done"
+                else:
+                    step_state = "pending"
+                process_steps.append({"label": label, "state": step_state})
+
+        resolved.update(
+            {
+                "command_text": command_text,
+                "raw_command": str(status_payload.get("rawCommand", "") or resolved.get("raw_command", "") or command_text).strip(),
+                "current_step": current_step,
+                "process_steps": process_steps,
+                "result_event_id": str(resolved.get("result_event_id", "") or "").strip(),
+                "failure_reason": failure_reason,
+                "failure_details": failure_details,
+                "task_id": str(status_payload.get("taskId", "") or resolved.get("task_id", "") or "").strip(),
+            }
+        )
+        return resolved
+
+    def _build_log_analysis_result_payload(self, event: TimelineEvent, payload: dict[str, object]) -> dict[str, object]:
+        resolved = _clone_dict(payload)
+        analyzed_materials = [
+            dict(item)
+            for item in _clone_list(resolved.get("analyzed_materials", []))
+            if isinstance(item, dict)
+        ]
+        if not analyzed_materials:
+            raw_payload = _clone_dict(resolved.get("raw_result_payload", {}))
+            analyzed_materials = [
+                dict(item)
+                for item in _clone_list(raw_payload.get("analyzed_materials", []))
+                if isinstance(item, dict)
+            ]
+
+        findings = str(resolved.get("findings", "") or "").strip()
+        if not findings:
+            finding_items = [
+                str(item.get("summary", "") or "").strip()
+                for item in _clone_list(resolved.get("key_findings", []))
+                if isinstance(item, dict) and str(item.get("summary", "") or "").strip()
+            ]
+            findings = "\n".join(finding_items).strip()
+        if not findings:
+            findings = event.content.strip()
+
+        judgment = str(resolved.get("judgment", "") or "").strip()
+        if not judgment:
+            preliminary_judgment = _clone_dict(resolved.get("preliminary_judgment", {}))
+            judgment = "：".join(
+                part
+                for part in [
+                    str(preliminary_judgment.get("category", "") or "").strip(),
+                    str(preliminary_judgment.get("reason", "") or "").strip(),
+                ]
+                if part
+            ).strip()
+
+        next_steps = str(resolved.get("next_steps", "") or "").strip()
+        if not next_steps:
+            next_steps = "\n".join(
+                str(item).strip()
+                for item in _clone_list(resolved.get("suggested_next_steps", []))
+                if str(item).strip()
+            ).strip()
+
+        resolved.update(
+            {
+                "source_timeline_entry_id": str(resolved.get("source_timeline_entry_id", "") or "").strip(),
+                "task_id": str(resolved.get("task_id", "") or "").strip(),
+                "analyzed_materials": analyzed_materials,
+                "findings": findings,
+                "judgment": judgment,
+                "next_steps": next_steps,
+            }
+        )
+        return resolved
+
+    @staticmethod
+    def _infer_log_analysis_step_index(status_payload: dict[str, object]) -> int:
+        if _clone_dict(status_payload.get("resultPayload", {})):
+            return 2
+        evidence_bundle = _clone_dict(status_payload.get("evidenceBundle", {}))
+        if _clone_list(evidence_bundle.get("parts", [])):
+            return 2
+        investigation_context = _clone_dict(status_payload.get("investigationContext", {}))
+        if any(str(value).strip() for value in investigation_context.values()):
+            return 1
+        if _clone_list(status_payload.get("attachmentSnapshot", [])):
+            return 1
+        return 0
+
+    @staticmethod
+    def _status_label(status: str) -> str:
+        mapping = {
+            _RUNNING_STATUS: "分析中",
+            _SUCCESS_STATUS: "已生成",
+            _FAILED_STATUS: "失败",
+        }
+        return mapping.get(str(status or "").strip(), "")
 
     @pyqtSlot(str, str)
     def updateField(self, name: str, value: str) -> None:
@@ -1062,11 +1324,89 @@ class _TodoDetailBridge(QObject):
             return
         self._download_attachment(path, str(file_name or path.name).strip() or path.name)
 
+    @pyqtSlot(str)
+    def copyPlainText(self, value: str) -> None:
+        text = str(value or "").strip()
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+
+    @pyqtSlot(str, bool, bool, str)
+    def activateAttachment(self, file_path: str, _is_image: bool, _is_video: bool, _file_name: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.exists():
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _append_log_analysis_timeline_entry(
+        self,
+        content: str,
+        event_id: str,
+        timestamp: str,
+        attachments: list[dict[str, object]],
+        insert_index: int,
+    ) -> None:
+        command_text = content if is_log_analysis_command(content) else f"/分析日志 {content}".strip()
+        parsed_command = parse_log_analysis_command(command_text)
+        focus_text = format_log_analysis_focus(parsed_command)
+        self._timeline.insert(
+            insert_index,
+            {
+                "id": event_id,
+                "timestamp": timestamp,
+                "created_at": timestamp,
+                "timeLabel": _format_ts(timestamp),
+                "scenario": _LOG_ANALYSIS_TASK_SCENARIO,
+                "cardLabel": _LOG_ANALYSIS_TASK_SCENARIO,
+                "content": parsed_command.raw_command,
+                "kind": _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND,
+                "type": _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND,
+                "payload": {
+                    "command_text": parsed_command.raw_command,
+                    "raw_command": parsed_command.raw_command,
+                    "focus_text": focus_text,
+                    "current_step": _LOG_ANALYSIS_STEP_LABELS[0],
+                    "process_steps": [
+                        {"label": label, "state": "active" if index == 0 else "pending"}
+                        for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS)
+                    ],
+                    "failure_reason": "",
+                    "failure_details": [],
+                    "result_event_id": "",
+                },
+                "status": _RUNNING_STATUS,
+                "statusLabel": self._status_label(_RUNNING_STATUS),
+                "attachments": attachments,
+                "attachmentCount": len(attachments),
+                "taskId": "",
+                "taskType": "log_analysis",
+                "taskStatus": "queued",
+                "taskStatusLabel": "queued",
+            },
+        )
+        if not self._timeline_expanded:
+            self._timeline_expanded = True
+            self.timelineExpandedChanged.emit()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+        if self._todo_id is not None:
+            self.logAnalysisRequested.emit(
+                self._todo_id,
+                {
+                    "timelineEntryId": event_id,
+                    "rawCommand": parsed_command.raw_command,
+                    "parsedFocus": parsed_command.to_dict(),
+                    "attachments": [dict(item) for item in attachments if isinstance(item, dict)],
+                },
+            )
+
     @pyqtSlot(str, str)
     def addTimelineEntry(self, value: str, entry_type: str = _ENTRY_TYPE_FOLLOW_UP) -> None:
         content, resolved_type = _normalize_entry_submission(value, entry_type)
         if not content:
             return
+        if is_log_analysis_command(content):
+            resolved_type = _ENTRY_TYPE_LOG_ANALYSIS
         if resolved_type == _ENTRY_TYPE_CONCLUSION:
             self._conclusion_content = content
             draft_attachments = self._persist_draft_timeline_attachments(_CONCLUSION_ATTACHMENT_TARGET)
@@ -1076,19 +1416,30 @@ class _TodoDetailBridge(QObject):
             self.dataChanged.emit()
             self._emit_save_request()
             return
+
         timestamp = datetime.now().isoformat()
         event_id = str(uuid.uuid4())
         attachments = self._persist_draft_timeline_attachments(event_id)
         insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
+        if resolved_type == _ENTRY_TYPE_LOG_ANALYSIS:
+            self._append_log_analysis_timeline_entry(content, event_id, timestamp, attachments, insert_index)
+            return
+
         self._timeline.insert(
             insert_index,
             {
                 "id": event_id,
                 "timestamp": timestamp,
+                "created_at": timestamp,
                 "timeLabel": _format_ts(timestamp),
                 "scenario": _MANUAL_SCENARIO,
+                "cardLabel": _MANUAL_SCENARIO,
                 "content": content,
                 "kind": "manual",
+                "type": _TIMELINE_EVENT_TYPE_DEFAULT,
+                "payload": {},
+                "status": "",
+                "statusLabel": "",
                 "attachments": attachments,
                 "attachmentCount": len(attachments),
             },
@@ -1263,6 +1614,9 @@ class _TodoDetailBridge(QObject):
                     timestamp=item["timestamp"],
                     kind=item.get("kind", "analysis"),
                     scenario=item.get("scenario", ""),
+                    event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                    payload=_clone_dict(item.get("payload", {})),
+                    status=str(item.get("status", "") or ""),
                     content=item.get("content", "").strip(),
                     attachments=[
                         TimelineAttachment(
@@ -1274,6 +1628,7 @@ class _TodoDetailBridge(QObject):
                         for attachment in item.get("attachments", [])
                         if isinstance(attachment, dict)
                     ],
+                    created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
                 )
                 for item in reversed(self._timeline)
             ],
@@ -1765,8 +2120,12 @@ class _TodoDetailBridge(QObject):
                 {
                     "id": item["id"],
                     "timestamp": item["timestamp"],
+                    "created_at": str(item.get("created_at", item.get("timestamp", "")) or ""),
                     "kind": item.get("kind", "analysis"),
                     "scenario": item.get("scenario", ""),
+                    "type": item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                    "payload": _clone_dict(item.get("payload", {})),
+                    "status": str(item.get("status", "") or ""),
                     "content": item.get("content", "").strip(),
                     "attachments": [
                         {
@@ -1792,6 +2151,7 @@ class _TodoDetailBridge(QObject):
 
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
+    log_analysis_requested = pyqtSignal(str, object)
     manual_sync_requested = pyqtSignal(str)
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
@@ -1825,6 +2185,7 @@ class TodoDetailPanel(QQuickView):
         self._ensure_qml_loaded()
 
         self._bridge.saveRequested.connect(self.save_requested)
+        self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
         self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
         self._bridge.clipboardImagePasteRequested.connect(self._paste_clipboard_image)
         self._bridge.draftAttachmentSelectionRequested.connect(self._select_draft_timeline_attachments)
@@ -1883,8 +2244,14 @@ class TodoDetailPanel(QQuickView):
             return
         self._bridge.attach_clipboard_image_to_draft_timeline(image)
 
-    def show_todo(self, todo: TodoItem, anchor_rect=None, sync_records: list[dict[str, object]] | None = None) -> None:
-        self._bridge.set_todo(todo, sync_records=sync_records)
+    def show_todo(
+        self,
+        todo: TodoItem,
+        anchor_rect=None,
+        sync_records: list[dict[str, object]] | None = None,
+        task_status_map: dict[str, dict[str, object]] | None = None,
+    ) -> None:
+        self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
         self.resize(self._panel_width, self._panel_height)
         self._reposition(anchor_rect)
         self.show()
@@ -1958,3 +2325,4 @@ class TodoDetailPanel(QQuickView):
         self._bridge.dataChanged.emit()
         self.hide()
         self.closed.emit()
+

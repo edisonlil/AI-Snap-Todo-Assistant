@@ -84,7 +84,11 @@ def serialize_timeline_event(event: TimelineEvent) -> dict[str, Any]:
         "timestamp": event.timestamp,
         "kind": event.kind,
         "scenario": event.scenario,
+        "type": event.event_type,
+        "payload": dict(event.payload),
+        "status": event.status,
         "content": event.content,
+        "created_at": event.created_at,
         "attachments": [serialize_timeline_attachment(item) for item in event.attachments],
     }
 

@@ -90,6 +90,7 @@ class TaskModelBinding:
 @dataclass
 class TaskModelBindings:
     analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
+    log_analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
     plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
 
     @classmethod
@@ -98,6 +99,7 @@ class TaskModelBindings:
             return default_task_model_bindings()
         return cls(
             analysis=TaskModelBinding.from_dict(data.get("analysis")),
+            log_analysis=TaskModelBinding.from_dict(data.get("log_analysis")),
             plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
         )
 
@@ -241,20 +243,24 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
     if default_provider_id == "gemini":
         return TaskModelBindings(
             analysis=_binding("gemini", "gemini-2.5-flash"),
+            log_analysis=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
         )
     if default_provider_id == "dashscope":
         return TaskModelBindings(
             analysis=_binding("dashscope", "qwen-vl-max"),
+            log_analysis=_binding("dashscope", "qwen-vl-max"),
             plan_export=_binding("dashscope", "qwen-vl-max"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
             analysis=_binding("siliconflow", "qwen25-vl-72b"),
+            log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
             plan_export=_binding("siliconflow", "qwen25-vl-72b"),
         )
     return TaskModelBindings(
         analysis=_binding("siliconflow", "qwen25-vl-72b"),
+        log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
         plan_export=_binding("siliconflow", "qwen25-vl-72b"),
     )
 
@@ -339,6 +345,11 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
 
     return TaskModelBindings(
         analysis=normalize(bindings.analysis, defaults.analysis, "vision_chat"),
+        log_analysis=normalize(
+            bindings.log_analysis,
+            defaults.log_analysis if bindings.log_analysis.provider_id and bindings.log_analysis.model_id else defaults.analysis,
+            "vision_chat",
+        ),
         plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
     )
 
@@ -391,6 +402,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     ]
     migrated.task_model_bindings = TaskModelBindings(
         analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
+        log_analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
     )
     migrated.hotkeys = HotkeyConfig()

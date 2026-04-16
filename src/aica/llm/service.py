@@ -38,6 +38,8 @@ class TaskExecutionError(LLMServiceError):
 @dataclass
 class ResolvedTaskModel:
     reference: ModelReference
+    task_name: TaskName
+    fallback_used: bool = False
 
 
 class LLMService:
@@ -98,6 +100,19 @@ class LLMService:
             ) from exc
 
     def resolve_task_model(self, task_name: TaskName) -> ResolvedTaskModel:
+        if task_name == "log_analysis":
+            try:
+                return self._resolve_task_model_without_fallback(task_name)
+            except ModelResolutionError:
+                resolved = self._resolve_task_model_without_fallback("analysis")
+                return ResolvedTaskModel(
+                    reference=resolved.reference,
+                    task_name="analysis",
+                    fallback_used=True,
+                )
+        return self._resolve_task_model_without_fallback(task_name)
+
+    def _resolve_task_model_without_fallback(self, task_name: TaskName) -> ResolvedTaskModel:
         binding = getattr(self._config.task_model_bindings, task_name, None)
         if not isinstance(binding, TaskModelBinding):
             raise ModelResolutionError(f"Task binding missing: {task_name}")
@@ -118,7 +133,7 @@ class LLMService:
                 f"Model capability mismatch: {provider.name} / {model.name} lacks {required_capability}"
             )
 
-        return ResolvedTaskModel(reference=self._build_reference(provider, model))
+        return ResolvedTaskModel(reference=self._build_reference(provider, model), task_name=task_name)
 
     def describe_task_model(self, task_name: TaskName) -> str:
         return self.resolve_task_model(task_name).reference.display_name
@@ -142,4 +157,4 @@ class LLMService:
 
     @staticmethod
     def _max_attempts(task_name: TaskName) -> int:
-        return 1 if task_name == "analysis" else 3
+        return 1 if task_name in {"analysis", "log_analysis"} else 3

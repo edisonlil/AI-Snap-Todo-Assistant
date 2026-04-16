@@ -21,6 +21,10 @@ from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
 from aica.llm.service import LLMService, ModelResolutionError
+from aica.log_analysis_models import LogAnalysisTask
+from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
+from aica.log_analysis_store import LogAnalysisTaskStore
+from aica.log_analysis_worker import LogAnalysisWorker
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
@@ -129,6 +133,7 @@ def main() -> None:
     control_panel = ControlPanelWindow(config_mgr)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
+    log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
     todo_event_bus = TodoEventBus(
         handlers=[ScriptEventHandler(binding_store=binding_store)],
@@ -142,6 +147,7 @@ def main() -> None:
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
     plan_export_workers: list[PlanExportWorker] = []
+    log_analysis_workers: list[LogAnalysisWorker] = []
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -200,10 +206,12 @@ def main() -> None:
         todo = todo_controller.get_todo_detail(todo_id)
         if todo is None:
             return
+        timeline_ids = [event.id for event in todo.timeline]
         todo_detail_panel.show_todo(
             todo,
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
+            task_status_map=log_analysis_store.list_task_status_by_timeline_ids(todo_id, timeline_ids),
         )
 
     def _build_selected_todo_context() -> str:
@@ -522,8 +530,58 @@ def main() -> None:
             updated,
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
+            task_status_map=log_analysis_store.list_task_status_by_timeline_ids(
+                todo_id,
+                [event.id for event in updated.timeline],
+            ),
         )
         _refresh_todo_panel()
+
+    log_analysis_orchestrator = LogAnalysisOrchestrator(
+        todo_store=todo_store,
+        task_store=log_analysis_store,
+        app_config=initial_config,
+    )
+
+    def _cleanup_log_analysis_worker(worker: LogAnalysisWorker) -> None:
+        if worker in log_analysis_workers:
+            log_analysis_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_log_analysis_finished(task_id: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is not None and todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+        _refresh_todo_panel()
+
+    def _on_log_analysis_error(task_id: str, _message: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is not None and todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+        _refresh_todo_panel()
+
+    def _on_log_analysis_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        task = log_analysis_store.create_task(
+            LogAnalysisTask(
+                todo_id=todo_id,
+                timeline_entry_id=str(payload.get("timelineEntryId", "")),
+                status="queued",
+                raw_command=str(payload.get("rawCommand", "")),
+                parsed_focus_json=dict(payload.get("parsedFocus", {}) or {}),
+                attachment_snapshot_json=list(payload.get("attachments", []) or []),
+            )
+        )
+        worker = LogAnalysisWorker(orchestrator=log_analysis_orchestrator, task_id=task.id)
+        log_analysis_workers.append(worker)
+        worker.finished.connect(_on_log_analysis_finished)
+        worker.finished.connect(lambda _task_id, current=worker: _cleanup_log_analysis_worker(current))
+        worker.error.connect(_on_log_analysis_error)
+        worker.error.connect(lambda _task_id, _message, current=worker: _cleanup_log_analysis_worker(current))
+        worker.start()
+        if todo_controller.detail_todo_id == todo_id:
+            _show_todo_detail(todo_id)
 
     def _on_todo_detail_closed() -> None:
         todo_controller.close_detail()
@@ -568,6 +626,7 @@ def main() -> None:
     todo_panel.selection_cleared.connect(_on_todo_selection_cleared)
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
+    todo_detail_panel.log_analysis_requested.connect(_on_log_analysis_requested)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)

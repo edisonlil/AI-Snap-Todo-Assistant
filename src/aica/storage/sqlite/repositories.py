@@ -11,6 +11,7 @@ from typing import Any
 from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
 from aica.project_management import is_project_active
+from aica.log_analysis_models import LogAnalysisTask
 from aica.storage.adapters import (
     build_project_link,
     build_todo_item,
@@ -25,7 +26,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "8"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -131,6 +132,14 @@ class SQLiteStorageMigrator:
             connection.execute(
                 "ALTER TABLE todos ADD COLUMN ticket_version TEXT NOT NULL DEFAULT ''"
             )
+        timeline_columns = {
+            "event_type": "TEXT NOT NULL DEFAULT 'default'",
+            "payload_json": "TEXT NOT NULL DEFAULT '{}'",
+            "status": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_def in timeline_columns.items():
+            if not _has_column(connection, "todo_timeline_events", column_name):
+                connection.execute(f"ALTER TABLE todo_timeline_events ADD COLUMN {column_name} {column_def}")
         todo_columns = {
             "product_line": "TEXT NOT NULL DEFAULT ''",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
@@ -1116,7 +1125,7 @@ class SQLiteTodoRepository:
             dict(item)
             for item in connection.execute(
                 """
-                SELECT id, todo_id, timestamp, kind, scenario, content, created_at
+                SELECT id, todo_id, timestamp, kind, scenario, event_type, payload_json, status, content, created_at
                 FROM todo_timeline_events
                 WHERE todo_id = ?
                 ORDER BY timestamp ASC, created_at ASC, id ASC
@@ -1225,8 +1234,8 @@ class SQLiteTodoRepository:
         connection.execute(
             """
             INSERT INTO todo_timeline_events(
-              id, todo_id, timestamp, kind, scenario, content, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+              id, todo_id, timestamp, kind, scenario, event_type, payload_json, status, content, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id,
@@ -1234,8 +1243,11 @@ class SQLiteTodoRepository:
                 sanitize_text(event.timestamp) or now_iso(),
                 sanitize_text(event.kind) or "analysis",
                 sanitize_text(event.scenario),
+                sanitize_text(event.event_type) or "default",
+                json.dumps(event.payload or {}, ensure_ascii=False),
+                sanitize_text(event.status),
                 sanitize_text(event.content),
-                created_at,
+                sanitize_text(event.created_at) or created_at,
             ),
         )
         for attachment in event.attachments:
@@ -1330,6 +1342,241 @@ class SQLiteTodoRepository:
             if current_payload != previous_payload:
                 relinked_count += 1
         return relinked_count
+
+
+class SQLiteLogAnalysisTaskRepository:
+    def __init__(self, path_hint: str | None = None) -> None:
+        self._db_path = _resolve_database_path(path_hint)
+        binding_hint = str(Path(path_hint).parent / "todos.json") if path_hint else None
+        self._legacy_todos_path = _resolve_legacy_todos_path(binding_hint)
+        self._legacy_bindings_path = _resolve_legacy_bindings_path(path_hint)
+        self._migrator = SQLiteStorageMigrator(
+            self._db_path,
+            legacy_todos_path=self._legacy_todos_path,
+            legacy_bindings_path=self._legacy_bindings_path,
+        )
+        self._migrator.migrate_json_to_sqlite()
+
+    @property
+    def path(self) -> str:
+        return str(self._db_path)
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self._db_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    def create_task(self, task: LogAnalysisTask) -> LogAnalysisTask:
+        created_at = sanitize_text(task.created_at) or now_iso()
+        updated_at = sanitize_text(task.updated_at) or created_at
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO log_analysis_tasks(
+                  id, todo_id, timeline_entry_id, status, raw_command,
+                  parsed_focus_json, attachment_snapshot_json,
+                  investigation_context_json, evidence_bundle_json,
+                  result_summary, result_payload_json, error_message,
+                  model_binding_used, started_at, completed_at, failed_at,
+                  created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.id,
+                    sanitize_text(task.todo_id),
+                    sanitize_text(task.timeline_entry_id),
+                    sanitize_text(task.status) or "queued",
+                    sanitize_text(task.raw_command),
+                    json.dumps(task.parsed_focus_json or {}, ensure_ascii=False),
+                    json.dumps(task.attachment_snapshot_json or [], ensure_ascii=False),
+                    json.dumps(task.investigation_context_json or {}, ensure_ascii=False),
+                    json.dumps(task.evidence_bundle_json or {}, ensure_ascii=False),
+                    sanitize_text(task.result_summary),
+                    json.dumps(task.result_payload_json or {}, ensure_ascii=False),
+                    sanitize_text(task.error_message),
+                    sanitize_text(task.model_binding_used),
+                    sanitize_text(task.started_at),
+                    sanitize_text(task.completed_at),
+                    sanitize_text(task.failed_at),
+                    created_at,
+                    updated_at,
+                ),
+            )
+        return self.get_task(task.id) or task
+
+    def get_task(self, task_id: str) -> LogAnalysisTask | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM log_analysis_tasks WHERE id = ?",
+                (sanitize_text(task_id),),
+            ).fetchone()
+        return LogAnalysisTask.from_row(dict(row)) if row is not None else None
+
+    def get_task_by_timeline_entry(self, todo_id: str, timeline_entry_id: str) -> LogAnalysisTask | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM log_analysis_tasks
+                WHERE todo_id = ? AND timeline_entry_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (sanitize_text(todo_id), sanitize_text(timeline_entry_id)),
+            ).fetchone()
+        return LogAnalysisTask.from_row(dict(row)) if row is not None else None
+
+    def list_recent_tasks(self, todo_id: str, limit: int = 10) -> list[LogAnalysisTask]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM log_analysis_tasks
+                WHERE todo_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (sanitize_text(todo_id), max(1, int(limit))),
+            ).fetchall()
+        return [LogAnalysisTask.from_row(dict(row)) for row in rows]
+
+    def list_task_status_by_timeline_ids(self, todo_id: str, timeline_ids: list[str]) -> dict[str, dict[str, Any]]:
+        normalized_ids = [sanitize_text(item) for item in timeline_ids if sanitize_text(item)]
+        if not normalized_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                  id, todo_id, timeline_entry_id, status, raw_command,
+                  parsed_focus_json, attachment_snapshot_json,
+                  investigation_context_json, evidence_bundle_json,
+                  result_summary, result_payload_json, error_message,
+                  model_binding_used, started_at, completed_at, failed_at,
+                  created_at, updated_at
+                FROM log_analysis_tasks
+                WHERE todo_id = ? AND timeline_entry_id IN ({placeholders})
+                ORDER BY created_at DESC, id DESC
+                """,
+                [sanitize_text(todo_id), *normalized_ids],
+            ).fetchall()
+        payload: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            task = LogAnalysisTask.from_row(dict(row))
+            timeline_entry_id = task.timeline_entry_id
+            if not timeline_entry_id or timeline_entry_id in payload:
+                continue
+            status = str(task.status or "").strip() or "queued"
+            payload[timeline_entry_id] = {
+                "taskId": task.id,
+                "taskStatus": status,
+                "taskStatusLabel": self._status_label(status),
+                "taskType": "log_analysis",
+                "taskStatusDetail": str(task.error_message or task.result_summary or ""),
+                "uiStatus": self._ui_status(status),
+                "rawCommand": task.raw_command,
+                "parsedFocus": task.parsed_focus_json,
+                "attachmentSnapshot": task.attachment_snapshot_json,
+                "investigationContext": task.investigation_context_json,
+                "evidenceBundle": task.evidence_bundle_json,
+                "resultSummary": task.result_summary,
+                "resultPayload": task.result_payload_json,
+                "errorMessage": task.error_message,
+            }
+        return payload
+
+    def mark_running(self, task_id: str, *, started_at: str) -> LogAnalysisTask | None:
+        return self._update_task_fields(
+            task_id,
+            status="running",
+            started_at=sanitize_text(started_at) or now_iso(),
+            error_message="",
+            failed_at="",
+        )
+
+    def update_context(
+        self,
+        task_id: str,
+        *,
+        investigation_context_json: dict[str, Any],
+        evidence_bundle_json: dict[str, Any],
+        model_binding_used: str = "",
+    ) -> LogAnalysisTask | None:
+        return self._update_task_fields(
+            task_id,
+            investigation_context_json=json.dumps(investigation_context_json or {}, ensure_ascii=False),
+            evidence_bundle_json=json.dumps(evidence_bundle_json or {}, ensure_ascii=False),
+            model_binding_used=sanitize_text(model_binding_used),
+        )
+
+    def mark_completed(
+        self,
+        task_id: str,
+        *,
+        result_summary: str,
+        result_payload_json: dict[str, Any],
+        investigation_context_json: dict[str, Any],
+        evidence_bundle_json: dict[str, Any],
+        model_binding_used: str,
+        completed_at: str,
+    ) -> LogAnalysisTask | None:
+        return self._update_task_fields(
+            task_id,
+            status="completed",
+            result_summary=sanitize_text(result_summary),
+            result_payload_json=json.dumps(result_payload_json or {}, ensure_ascii=False),
+            investigation_context_json=json.dumps(investigation_context_json or {}, ensure_ascii=False),
+            evidence_bundle_json=json.dumps(evidence_bundle_json or {}, ensure_ascii=False),
+            model_binding_used=sanitize_text(model_binding_used),
+            completed_at=sanitize_text(completed_at) or now_iso(),
+            error_message="",
+            failed_at="",
+        )
+
+    def mark_failed(self, task_id: str, *, error_message: str, failed_at: str) -> LogAnalysisTask | None:
+        return self._update_task_fields(
+            task_id,
+            status="failed",
+            error_message=sanitize_text(error_message),
+            failed_at=sanitize_text(failed_at) or now_iso(),
+        )
+
+    def _update_task_fields(self, task_id: str, **fields: object) -> LogAnalysisTask | None:
+        normalized_task_id = sanitize_text(task_id)
+        if not normalized_task_id or not fields:
+            return self.get_task(normalized_task_id)
+        assignments = ", ".join(f"{name} = ?" for name in fields)
+        values = list(fields.values())
+        values.extend([now_iso(), normalized_task_id])
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE log_analysis_tasks SET {assignments}, updated_at = ? WHERE id = ?",
+                values,
+            )
+        return self.get_task(normalized_task_id)
+
+    @staticmethod
+    def _status_label(status: str) -> str:
+        mapping = {
+            "queued": "排队中",
+            "running": "分析中",
+            "completed": "已完成",
+            "failed": "失败",
+        }
+        return mapping.get(sanitize_text(status), "排队中")
+
+    @staticmethod
+    def _ui_status(status: str) -> str:
+        normalized = sanitize_text(status)
+        if normalized in {"queued", "running"}:
+            return "running"
+        if normalized in {"completed", "success"}:
+            return "success"
+        if normalized == "failed":
+            return "failed"
+        return ""
 
 
 class SQLiteBindingRepository:

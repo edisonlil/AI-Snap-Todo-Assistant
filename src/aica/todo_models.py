@@ -43,15 +43,23 @@ class TimelineEvent:
     timestamp: str = field(default_factory=_now_iso)
     kind: str = "analysis"
     scenario: str = ""
+    event_type: str = "default"
+    payload: dict[str, Any] = field(default_factory=dict)
+    status: str = ""
     content: str = ""
     attachments: list[TimelineAttachment] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
 
     def __post_init__(self) -> None:
         self.id = sanitize_text(self.id) or str(uuid.uuid4())
         self.timestamp = sanitize_text(self.timestamp) or _now_iso()
         self.kind = sanitize_text(self.kind) or "analysis"
         self.scenario = sanitize_text(self.scenario)
+        self.event_type = sanitize_text(self.event_type) or "default"
+        self.payload = dict(self.payload) if isinstance(self.payload, dict) else {}
+        self.status = sanitize_text(self.status)
         self.content = sanitize_text(self.content)
+        self.created_at = sanitize_text(self.created_at) or self.timestamp or _now_iso()
 
 
 @dataclass
