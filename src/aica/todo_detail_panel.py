@@ -255,6 +255,7 @@ _SUCCESS_STATUS = "success"
 _FAILED_STATUS = "failed"
 _LOG_ANALYSIS_STEP_LABELS = [
     "\u6b63\u5728\u6536\u96c6\u9644\u4ef6...",
+    "\u6b63\u5728\u6784\u5efa\u6392\u67e5\u4e0a\u4e0b\u6587...",
     "\u6b63\u5728\u68c0\u7d22\u65e5\u5fd7...",
     "\u6b63\u5728\u751f\u6210\u7ed3\u679c...",
 ]
@@ -553,6 +554,7 @@ class _TodoDetailBridge(QObject):
         self._created_at = ""
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
+        self._display_timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
         self._project_match_status = "未匹配项目"
@@ -689,11 +691,11 @@ class _TodoDetailBridge(QObject):
 
     @pyqtProperty(int, notify=timelineChanged)
     def timelineCount(self) -> int:
-        return len(self._timeline)
+        return len(self._display_timeline)
 
     @pyqtProperty("QVariantList", notify=timelineChanged)
     def timeline(self):  # noqa: ANN201
-        return self._timeline
+        return self._display_timeline
 
     @pyqtProperty(bool, notify=timelineExpandedChanged)
     def timelineExpanded(self) -> bool:
@@ -992,6 +994,7 @@ class _TodoDetailBridge(QObject):
                 payload["result_event_id"] = result_event_id
                 item["payload"] = payload
         self._timeline = timeline_items
+        self._refresh_display_timeline()
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
@@ -1026,6 +1029,9 @@ class _TodoDetailBridge(QObject):
         created_at = str(getattr(event, "created_at", "") or event.timestamp or "").strip()
         attachments = [self._attachment_to_dict(item) for item in event.attachments]
         task_status = str(status_payload.get("taskStatus", "") or "").strip()
+        card_status_label = self._status_label(status)
+        if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND and str(status_payload.get("taskStatusLabel", "") or "").strip():
+            card_status_label = str(status_payload.get("taskStatusLabel", "") or "").strip()
         item = {
             "id": event.id,
             "timestamp": event.timestamp,
@@ -1038,7 +1044,7 @@ class _TodoDetailBridge(QObject):
             "type": event_type,
             "payload": payload,
             "status": status,
-            "statusLabel": self._status_label(status),
+            "statusLabel": card_status_label,
             "attachments": attachments,
             "attachmentCount": len(attachments),
             "taskId": str(status_payload.get("taskId", "") or "").strip(),
@@ -1064,8 +1070,10 @@ class _TodoDetailBridge(QObject):
             or event.content
             or ""
         ).strip()
-        step_index = self._infer_log_analysis_step_index(status_payload)
-        current_step = str(resolved.get("current_step", "") or "").strip()
+        current_step = str(status_payload.get("currentStep", "") or resolved.get("current_step", "") or "").strip()
+        step_index = self._step_index_for_label(current_step)
+        if step_index < 0:
+            step_index = self._infer_log_analysis_step_index(status_payload)
         if not current_step and status == _RUNNING_STATUS:
             current_step = _LOG_ANALYSIS_STEP_LABELS[step_index]
         failure_reason = str(
@@ -1117,6 +1125,32 @@ class _TodoDetailBridge(QObject):
             }
         )
         return resolved
+
+    @staticmethod
+    def _step_index_for_label(current_step: str) -> int:
+        normalized = str(current_step or "").strip()
+        if not normalized:
+            return -1
+        for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS):
+            if label == normalized:
+                return index
+        return -1
+
+    @staticmethod
+    def _should_hide_timeline_item(item: dict[str, object]) -> bool:
+        if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            return False
+        if str(item.get("status") or "") != _SUCCESS_STATUS:
+            return False
+        payload = _clone_dict(item.get("payload", {}))
+        return bool(str(payload.get("result_event_id", "") or "").strip())
+
+    def _refresh_display_timeline(self) -> None:
+        self._display_timeline = [
+            item
+            for item in self._timeline
+            if not self._should_hide_timeline_item(item)
+        ]
 
     def _build_log_analysis_result_payload(self, event: TimelineEvent, payload: dict[str, object]) -> dict[str, object]:
         resolved = _clone_dict(payload)
@@ -1240,6 +1274,7 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
         self.updateTimelineContent(event_id, value)
+        self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
 
@@ -1375,15 +1410,16 @@ class _TodoDetailBridge(QObject):
                     "result_event_id": "",
                 },
                 "status": _RUNNING_STATUS,
-                "statusLabel": self._status_label(_RUNNING_STATUS),
+                "statusLabel": "排队中",
                 "attachments": attachments,
                 "attachmentCount": len(attachments),
                 "taskId": "",
                 "taskType": "log_analysis",
                 "taskStatus": "queued",
-                "taskStatusLabel": "queued",
+                "taskStatusLabel": "排队中",
             },
         )
+        self._refresh_display_timeline()
         if not self._timeline_expanded:
             self._timeline_expanded = True
             self.timelineExpandedChanged.emit()
@@ -1444,11 +1480,47 @@ class _TodoDetailBridge(QObject):
                 "attachmentCount": len(attachments),
             },
         )
+        self._refresh_display_timeline()
         if not self._timeline_expanded:
             self._timeline_expanded = True
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
+
+    @pyqtSlot(str)
+    def deleteTimelineCard(self, event_id: str) -> None:
+        event_id = str(event_id or "").strip()
+        if not event_id:
+            return
+        related_ids = self._collect_related_timeline_ids(event_id)
+        if not related_ids:
+            return
+        removed = [item for item in self._timeline if str(item.get("id") or "") in related_ids]
+        remaining = [item for item in self._timeline if str(item.get("id") or "") not in related_ids]
+        if len(remaining) == len(self._timeline):
+            return
+        for item in removed:
+            self._delete_attachments_for_item(item)
+        self._timeline = remaining
+        self._refresh_display_timeline()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+
+    def _collect_related_timeline_ids(self, event_id: str) -> set[str]:
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return set()
+        related_ids = {event_id}
+        payload = _clone_dict(item.get("payload", {}))
+        if str(item.get("type") or "") == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+            source_id = str(payload.get("source_timeline_entry_id", "") or "").strip()
+            if source_id:
+                related_ids.add(source_id)
+        elif str(item.get("type") or "") == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            result_id = str(payload.get("result_event_id", "") or "").strip()
+            if result_id:
+                related_ids.add(result_id)
+        return related_ids
 
     @pyqtSlot(str)
     def deleteTimelineEntry(self, event_id: str) -> None:
@@ -1459,6 +1531,7 @@ class _TodoDetailBridge(QObject):
         for item in removed:
             self._delete_attachments_for_item(item)
         self._timeline = remaining
+        self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
 

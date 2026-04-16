@@ -1,4 +1,4 @@
-"""SQLite-backed repositories for Todo, bindings, and projects."""
+﻿"""SQLite-backed repositories for Todo, bindings, and projects."""
 from __future__ import annotations
 
 import json
@@ -26,7 +26,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "8"
+SCHEMA_VERSION = "9"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -140,6 +140,12 @@ class SQLiteStorageMigrator:
         for column_name, column_def in timeline_columns.items():
             if not _has_column(connection, "todo_timeline_events", column_name):
                 connection.execute(f"ALTER TABLE todo_timeline_events ADD COLUMN {column_name} {column_def}")
+        log_analysis_columns = {
+            "current_step": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_def in log_analysis_columns.items():
+            if not _has_column(connection, "log_analysis_tasks", column_name):
+                connection.execute(f"ALTER TABLE log_analysis_tasks ADD COLUMN {column_name} {column_def}")
         todo_columns = {
             "product_line": "TEXT NOT NULL DEFAULT ''",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
@@ -1374,19 +1380,20 @@ class SQLiteLogAnalysisTaskRepository:
             connection.execute(
                 """
                 INSERT INTO log_analysis_tasks(
-                  id, todo_id, timeline_entry_id, status, raw_command,
+                  id, todo_id, timeline_entry_id, status, current_step, raw_command,
                   parsed_focus_json, attachment_snapshot_json,
                   investigation_context_json, evidence_bundle_json,
                   result_summary, result_payload_json, error_message,
                   model_binding_used, started_at, completed_at, failed_at,
                   created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
                     sanitize_text(task.todo_id),
                     sanitize_text(task.timeline_entry_id),
                     sanitize_text(task.status) or "queued",
+                    sanitize_text(task.current_step),
                     sanitize_text(task.raw_command),
                     json.dumps(task.parsed_focus_json or {}, ensure_ascii=False),
                     json.dumps(task.attachment_snapshot_json or [], ensure_ascii=False),
@@ -1450,7 +1457,7 @@ class SQLiteLogAnalysisTaskRepository:
             rows = connection.execute(
                 f"""
                 SELECT
-                  id, todo_id, timeline_entry_id, status, raw_command,
+                  id, todo_id, timeline_entry_id, status, current_step, raw_command,
                   parsed_focus_json, attachment_snapshot_json,
                   investigation_context_json, evidence_bundle_json,
                   result_summary, result_payload_json, error_message,
@@ -1476,6 +1483,7 @@ class SQLiteLogAnalysisTaskRepository:
                 "taskType": "log_analysis",
                 "taskStatusDetail": str(task.error_message or task.result_summary or ""),
                 "uiStatus": self._ui_status(status),
+                "currentStep": task.current_step,
                 "rawCommand": task.raw_command,
                 "parsedFocus": task.parsed_focus_json,
                 "attachmentSnapshot": task.attachment_snapshot_json,
@@ -1487,13 +1495,21 @@ class SQLiteLogAnalysisTaskRepository:
             }
         return payload
 
-    def mark_running(self, task_id: str, *, started_at: str) -> LogAnalysisTask | None:
+    def mark_running(self, task_id: str, *, started_at: str, current_step: str = "") -> LogAnalysisTask | None:
         return self._update_task_fields(
             task_id,
             status="running",
+            current_step=sanitize_text(current_step),
             started_at=sanitize_text(started_at) or now_iso(),
             error_message="",
             failed_at="",
+        )
+
+    def update_progress(self, task_id: str, *, current_step: str, status: str = "running") -> LogAnalysisTask | None:
+        return self._update_task_fields(
+            task_id,
+            status=sanitize_text(status) or "running",
+            current_step=sanitize_text(current_step),
         )
 
     def update_context(
@@ -1531,6 +1547,7 @@ class SQLiteLogAnalysisTaskRepository:
             evidence_bundle_json=json.dumps(evidence_bundle_json or {}, ensure_ascii=False),
             model_binding_used=sanitize_text(model_binding_used),
             completed_at=sanitize_text(completed_at) or now_iso(),
+            current_step="",
             error_message="",
             failed_at="",
         )

@@ -28,6 +28,7 @@ from .log_analysis_orchestrator import LogAnalysisOrchestrator
 class LogAnalysisWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str, str)
+    progress = pyqtSignal(str)
 
     def __init__(self, *, orchestrator: LogAnalysisOrchestrator, task_id: str, parent=None) -> None:
         super().__init__(parent)
@@ -36,7 +37,10 @@ class LogAnalysisWorker(QThread):
 
     def run(self) -> None:
         try:
-            self._orchestrator.run_task(self._task_id)
+            self._orchestrator.run_task(
+                self._task_id,
+                progress_callback=lambda task_id: self.progress.emit(task_id),
+            )
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._task_id, str(exc))
             return

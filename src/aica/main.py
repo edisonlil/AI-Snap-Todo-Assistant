@@ -560,6 +560,13 @@ def main() -> None:
             _show_todo_detail(task.todo_id)
         _refresh_todo_panel()
 
+    def _on_log_analysis_progress(task_id: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is None:
+            return
+        if todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+
     def _on_log_analysis_requested(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):
             return
@@ -568,6 +575,7 @@ def main() -> None:
                 todo_id=todo_id,
                 timeline_entry_id=str(payload.get("timelineEntryId", "")),
                 status="queued",
+                current_step="正在收集附件...",
                 raw_command=str(payload.get("rawCommand", "")),
                 parsed_focus_json=dict(payload.get("parsedFocus", {}) or {}),
                 attachment_snapshot_json=list(payload.get("attachments", []) or []),
@@ -575,6 +583,7 @@ def main() -> None:
         )
         worker = LogAnalysisWorker(orchestrator=log_analysis_orchestrator, task_id=task.id)
         log_analysis_workers.append(worker)
+        worker.progress.connect(_on_log_analysis_progress)
         worker.finished.connect(_on_log_analysis_finished)
         worker.finished.connect(lambda _task_id, current=worker: _cleanup_log_analysis_worker(current))
         worker.error.connect(_on_log_analysis_error)

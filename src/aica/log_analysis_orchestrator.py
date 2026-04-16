@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Callable
 
 from .config import AppConfig
 from .llm.service import LLMService
@@ -20,6 +21,15 @@ from .log_analysis_models import (
 from .log_analysis_store import LogAnalysisTaskStore
 from .todo_models import TimelineAttachment, TimelineEvent
 from .todo_store import TodoStore
+
+STEP_COLLECT_ATTACHMENTS = "正在收集附件..."
+STEP_BUILD_CONTEXT = "正在构建排查上下文..."
+STEP_RETRIEVE_LOGS = "正在检索日志..."
+STEP_GENERATE_RESULT = "正在生成分析结果..."
+
+
+class LogAnalysisTaskDeleted(RuntimeError):
+    """Raised when a log analysis task is deleted while the worker is still running."""
 
 
 class LogAnalysisOrchestrator:
@@ -40,19 +50,30 @@ class LogAnalysisOrchestrator:
         self._timeline_consumer = timeline_consumer or TimelineLogAnalysisPresenter()
         self._attachment_registry = build_default_attachment_handler_registry()
 
-    def run_task(self, task_id: str) -> None:
+    def run_task(self, task_id: str, *, progress_callback: Callable[[str], None] | None = None) -> None:
         task = self._task_store.get_task(task_id)
         if task is None:
             raise KeyError(f"Log analysis task not found: {task_id}")
         now = datetime.now().isoformat()
-        self._task_store.mark_running(task_id, started_at=now)
+        self._task_store.mark_running(task_id, started_at=now, current_step=STEP_COLLECT_ATTACHMENTS)
+        if progress_callback is not None:
+            progress_callback(task_id)
         try:
+            self._ensure_task_active(task_id)
             todo = self._todo_store.get_todo(task.todo_id)
             if todo is None:
                 raise KeyError(f"Todo not found: {task.todo_id}")
             parsed_command = LogAnalysisCommand.from_dict(task.parsed_focus_json) if task.parsed_focus_json else parse_log_analysis_command(task.raw_command)
+            self._task_store.update_progress(task_id, current_step=STEP_BUILD_CONTEXT)
+            if progress_callback is not None:
+                progress_callback(task_id)
+            self._ensure_task_active(task_id)
             recent_entries = collect_relevant_timeline_entries(todo)
             investigation_context = summarize_investigation_context(todo, parsed_command, recent_entries)
+            self._task_store.update_progress(task_id, current_step=STEP_RETRIEVE_LOGS)
+            if progress_callback is not None:
+                progress_callback(task_id)
+            self._ensure_task_active(task_id)
             attachments = [
                 TimelineAttachment(
                     id=str(item.get("id", "")),
@@ -78,6 +99,10 @@ class LogAnalysisOrchestrator:
                 evidence_bundle_json=evidence_bundle.to_dict(),
                 model_binding_used=model_binding_used,
             )
+            self._task_store.update_progress(task_id, current_step=STEP_GENERATE_RESULT)
+            if progress_callback is not None:
+                progress_callback(task_id)
+            self._ensure_task_active(task_id)
             request = LogAnalysisRequest(
                 todo_snapshot={
                     "todo_id": todo.id,
@@ -91,6 +116,7 @@ class LogAnalysisOrchestrator:
                 task_metadata={"task_id": task_id},
             )
             produced = self._agent.analyze(request)
+            self._ensure_task_active(task_id)
             task_model_used = str(produced.producer_metadata.get("model_binding_used") or model_binding_used)
             self._task_store.mark_completed(
                 task_id,
@@ -115,6 +141,14 @@ class LogAnalysisOrchestrator:
                 updated_todo = self._todo_store.get_todo(todo.id)
                 if updated_todo is not None:
                     self._todo_store.update_todo(todo.id, timeline=[*updated_todo.timeline, result_event])
+        except LogAnalysisTaskDeleted:
+            return
         except Exception as exc:  # noqa: BLE001
             self._task_store.mark_failed(task_id, error_message=str(exc), failed_at=datetime.now().isoformat())
             raise
+
+    def _ensure_task_active(self, task_id: str) -> LogAnalysisTask:
+        task = self._task_store.get_task(task_id)
+        if task is None:
+            raise LogAnalysisTaskDeleted(task_id)
+        return task

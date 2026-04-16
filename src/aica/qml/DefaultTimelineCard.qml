@@ -203,7 +203,7 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: todoDetailBridge.deleteTimelineEntry(timelineCard.eventId)
+                        onClicked: todoDetailBridge.deleteTimelineCard(timelineCard.eventId)
                     }
                 }
             }

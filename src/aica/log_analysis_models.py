@@ -232,6 +232,7 @@ class LogAnalysisTask:
     todo_id: str = ""
     timeline_entry_id: str = ""
     status: str = "queued"
+    current_step: str = ""
     raw_command: str = ""
     parsed_focus_json: dict[str, Any] = field(default_factory=dict)
     attachment_snapshot_json: list[dict[str, Any]] = field(default_factory=list)
@@ -252,6 +253,7 @@ class LogAnalysisTask:
         object.__setattr__(self, "todo_id", sanitize_text(self.todo_id))
         object.__setattr__(self, "timeline_entry_id", sanitize_text(self.timeline_entry_id))
         object.__setattr__(self, "status", sanitize_text(self.status) or "queued")
+        object.__setattr__(self, "current_step", sanitize_text(self.current_step))
         object.__setattr__(self, "raw_command", sanitize_text(self.raw_command))
         object.__setattr__(self, "parsed_focus_json", _clean_dict(dict(self.parsed_focus_json or {})))
         object.__setattr__(self, "attachment_snapshot_json", list(self.attachment_snapshot_json or []))
@@ -277,6 +279,7 @@ class LogAnalysisTask:
             todo_id=row.get("todo_id", ""),
             timeline_entry_id=row.get("timeline_entry_id", ""),
             status=row.get("status", "queued"),
+            current_step=row.get("current_step", ""),
             raw_command=row.get("raw_command", ""),
             parsed_focus_json=_loads_json_object(row.get("parsed_focus_json"), default={}),
             attachment_snapshot_json=_loads_json_object(row.get("attachment_snapshot_json"), default=[]),

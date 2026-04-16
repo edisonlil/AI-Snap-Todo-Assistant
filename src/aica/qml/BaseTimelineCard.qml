@@ -17,6 +17,7 @@ Rectangle {
     property string summaryText: ""
     property string status: ""
     property string statusLabel: ""
+    property bool showDeleteAction: true
     property string expandActionLabel: ""
     property bool expanded: false
     property Component bodyComponent
@@ -62,7 +63,7 @@ Rectangle {
 
         Item {
             width: parent.width
-            height: Math.max(metaColumn.implicitHeight, statusPill.visible ? statusPill.height : 0)
+            height: Math.max(metaColumn.implicitHeight, headerActionRow.height)
 
             Rectangle {
                 x: 0
@@ -96,24 +97,56 @@ Rectangle {
                 }
             }
 
-            Rectangle {
-                id: statusPill
-                visible: statusLabel.length > 0
+            Row {
+                id: headerActionRow
                 anchors.right: parent.right
                 anchors.top: parent.top
-                width: statusText.implicitWidth + 16
+                spacing: 12
                 height: 22
-                radius: 11
-                color: baseCard.statusFillColor()
 
-                Text {
-                    id: statusText
-                    anchors.centerIn: parent
-                    text: statusLabel
-                    color: baseCard.statusInkColor()
-                    font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
-                    font.pixelSize: 10
-                    font.weight: rootContext ? rootContext.labelWeight : 500
+                Rectangle {
+                    id: statusPill
+                    visible: statusLabel.length > 0
+                    width: statusText.implicitWidth + 16
+                    height: 22
+                    radius: 11
+                    color: baseCard.statusFillColor()
+
+                    Text {
+                        id: statusText
+                        anchors.centerIn: parent
+                        text: statusLabel
+                        color: baseCard.statusInkColor()
+                        font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                        font.pixelSize: 10
+                        font.weight: rootContext ? rootContext.labelWeight : 500
+                    }
+                }
+
+                Item {
+                    visible: showDeleteAction && eventData
+                    width: deleteText.implicitWidth
+                    height: parent.height
+
+                    Text {
+                        id: deleteText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "删除"
+                        color: "#E35B66"
+                        font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                        font.pixelSize: 11
+                        font.weight: rootContext ? rootContext.labelWeight : 500
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (todoDetailBridge && eventData && eventData.id) {
+                                todoDetailBridge.deleteTimelineCard(eventData.id)
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -15,7 +15,7 @@ from aica.log_analysis_consumers import TimelineLogAnalysisPresenter
 from aica.log_analysis_models import CollectedEvidencePart, EvidenceBundle, InvestigationContextSummary, LogAnalysisRequest, LogAnalysisTask
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import _TodoDetailBridge
-from aica.todo_models import TodoConclusion, TodoItem
+from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
 
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:
     return TodoItem(
@@ -279,3 +279,128 @@ def test_timeline_log_analysis_presenter_produces_structured_result_event() -> N
     assert 'findings' in event.payload
     assert 'judgment' in event.payload
     assert 'next_steps' in event.payload
+
+def test_todo_detail_bridge_maps_current_step_from_task_status() -> None:
+    bridge = _TodoDetailBridge(
+        attachment_root=Path('.'),
+        environment_access_service=SimpleNamespace(list_project_environments=lambda _project_id: []),
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id='cmd-1',
+            kind='log_analysis_command',
+            scenario='日志分析任务',
+            event_type='log_analysis_command',
+            content='/分析日志 request_id=req-1',
+        )
+    ]
+
+    bridge.set_todo(
+        todo,
+        task_status_map={
+            'cmd-1': {
+                'taskId': 'task-1',
+                'taskStatus': 'running',
+                'uiStatus': 'running',
+                'currentStep': '正在构建排查上下文...',
+                'taskStatusLabel': '分析中',
+                'taskType': 'log_analysis',
+            }
+        },
+    )
+
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]['payload']['current_step'] == '正在构建排查上下文...'
+
+
+def test_todo_detail_bridge_hides_successful_command_when_result_exists() -> None:
+    bridge = _TodoDetailBridge(
+        attachment_root=Path('.'),
+        environment_access_service=SimpleNamespace(list_project_environments=lambda _project_id: []),
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id='cmd-1',
+            kind='log_analysis_command',
+            scenario='日志分析任务',
+            event_type='log_analysis_command',
+            content='/分析日志 request_id=req-1',
+        ),
+        TimelineEvent(
+            id='result-1',
+            kind='log_analysis_result',
+            scenario='日志分析结果',
+            event_type='log_analysis_result',
+            status='success',
+            content='日志分析结果',
+            payload={
+                'source_timeline_entry_id': 'cmd-1',
+                'analyzed_materials': [],
+                'findings': '命中 request_id=req-1',
+                'judgment': '权限问题',
+                'next_steps': '联系研发',
+            },
+        ),
+    ]
+
+    bridge.set_todo(
+        todo,
+        task_status_map={
+            'cmd-1': {
+                'taskId': 'task-1',
+                'taskStatus': 'completed',
+                'uiStatus': 'success',
+                'currentStep': '',
+                'taskStatusLabel': '已完成',
+                'taskType': 'log_analysis',
+            }
+        },
+    )
+
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]['type'] == 'log_analysis_result'
+    payload = bridge._build_payload()  # noqa: SLF001
+    assert payload is not None
+    assert len(payload['timeline']) == 2
+
+def test_delete_timeline_card_removes_related_log_analysis_events() -> None:
+    bridge = _TodoDetailBridge(
+        attachment_root=Path('.'),
+        environment_access_service=SimpleNamespace(list_project_environments=lambda _project_id: []),
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id='cmd-1',
+            kind='log_analysis_command',
+            scenario='日志分析任务',
+            event_type='log_analysis_command',
+            content='/分析日志 request_id=req-1',
+            payload={'result_event_id': 'result-1'},
+        ),
+        TimelineEvent(
+            id='result-1',
+            kind='log_analysis_result',
+            scenario='日志分析结果',
+            event_type='log_analysis_result',
+            status='success',
+            content='日志分析结果',
+            payload={
+                'source_timeline_entry_id': 'cmd-1',
+                'analyzed_materials': [],
+                'findings': '命中 request_id=req-1',
+                'judgment': '权限问题',
+                'next_steps': '联系研发',
+            },
+        ),
+    ]
+    bridge.set_todo(todo)
+
+    bridge.deleteTimelineCard('result-1')
+
+    assert bridge.timelineCount == 0
+    payload = bridge._build_payload()  # noqa: SLF001
+    assert payload is not None
+    assert payload['timeline'] == []

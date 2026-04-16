@@ -30,8 +30,11 @@ class LogAnalysisTaskStore:
     def list_recent_tasks(self, todo_id: str, limit: int = 10) -> list[LogAnalysisTask]:
         return self._repository.list_recent_tasks(todo_id, limit=limit)
 
-    def mark_running(self, task_id: str, *, started_at: str) -> LogAnalysisTask | None:
-        return self._repository.mark_running(task_id, started_at=started_at)
+    def mark_running(self, task_id: str, *, started_at: str, current_step: str = "") -> LogAnalysisTask | None:
+        return self._repository.mark_running(task_id, started_at=started_at, current_step=current_step)
+
+    def update_progress(self, task_id: str, *, current_step: str, status: str = "running") -> LogAnalysisTask | None:
+        return self._repository.update_progress(task_id, current_step=current_step, status=status)
 
     def mark_completed(
         self,

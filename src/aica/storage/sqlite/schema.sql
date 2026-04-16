@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS log_analysis_tasks (
   todo_id TEXT NOT NULL,
   timeline_entry_id TEXT NOT NULL,
   status TEXT NOT NULL,
+  current_step TEXT NOT NULL DEFAULT '',
   raw_command TEXT NOT NULL DEFAULT '',
   parsed_focus_json TEXT NOT NULL DEFAULT '{}',
   attachment_snapshot_json TEXT NOT NULL DEFAULT '[]',
