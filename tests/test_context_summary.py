@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
 from aica.control_panel_state import TASK_NAMES
+from aica.context_summary_agent import DefaultContextSummaryAgent
 from aica.context_summary_models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
 from aica.context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from aica.llm.service import LLMService
@@ -14,6 +15,7 @@ from aica.log_analysis_commands import parse_log_analysis_command
 from aica.log_analysis_context import summarize_investigation_context
 from aica.models import TicketSummaryFields
 from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.worker import StageSummaryWorker
 
 
 class _FailingAgent:
@@ -26,6 +28,22 @@ class _FailingAgent:
             problem_brief="本地降级",
             source_stats={"mode": "fallback_local"},
         )
+
+
+class _RecordingLLMService:
+    def __init__(self, response_text: str) -> None:
+        self.response_text = response_text
+        self.calls: list[dict[str, object]] = []
+
+    def run_task(self, task_name: str, *, messages, temperature: float = 0.2, **_kwargs) -> str:  # noqa: ANN001
+        self.calls.append(
+            {
+                "task_name": task_name,
+                "messages": list(messages),
+                "temperature": temperature,
+            }
+        )
+        return self.response_text
 
 
 def _build_todo() -> TodoItem:
@@ -187,3 +205,119 @@ def test_summarize_investigation_context_uses_shared_summary_mapping() -> None:
     assert result.actions_taken
     assert result.confirmed_facts
     assert any(item == "request_id=req-1" for item in result.current_focus)
+
+
+def test_timeline_rollup_prompt_forbids_expansion_and_requires_fixed_sections() -> None:
+    todo = _build_todo()
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    messages = agent._build_messages(request, agent._select_entries(request))  # noqa: SLF001
+    system_prompt = messages[0].content
+    user_prompt = messages[1].content
+
+    assert "宁可遗漏，也不要编造" in system_prompt
+    assert "只能基于输入时间线原文" in user_prompt
+    assert "阶段现状" in user_prompt
+    assert "已发生进展" in user_prompt
+    assert "待确认事项" in user_prompt
+    assert "不要新增“今天”“昨天”“随后”“最终”等时间锚点" in user_prompt
+
+
+def test_select_entries_returns_full_timeline_in_original_order() -> None:
+    todo = _build_todo()
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="append_screenshot_context",
+        max_items=1,
+        max_chars=32,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    entries = agent._select_entries(request)  # noqa: SLF001
+
+    assert [entry.timestamp for entry in entries] == [
+        "2026-04-16T10:00:00",
+        "2026-04-16T10:15:00",
+        "2026-04-16T10:20:00",
+        "2026-04-16T10:30:00",
+    ]
+
+
+def test_build_messages_keeps_full_long_timeline_content() -> None:
+    long_text = ("very-long-timeline-content-" * 20) + "tail-marker"
+    todo = _build_todo()
+    todo.timeline[0] = TimelineEvent(
+        id="event-long",
+        timestamp="2026-04-16T10:00:00",
+        kind="follow_up",
+        scenario="客户反馈",
+        content=long_text,
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="append_screenshot_context",
+        max_items=1,
+        max_chars=32,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    messages = agent._build_messages(request, agent._select_entries(request))  # noqa: SLF001
+
+    assert long_text in messages[1].content
+
+
+def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
+    todo = _build_todo()
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+
+    result = ContextSummaryService().summarize(request)
+    summary_text = result.summary_text
+
+    assert result.source_stats["mode"] == "fallback_local"
+    assert "阶段现状:" in summary_text
+    assert "已发生进展:" in summary_text
+    assert "待确认事项:" in summary_text
+    assert summary_text.index("请协助排查 request_id=req-1") < summary_text.index("/分析日志 request_id=req-1 权限报错")
+    assert summary_text.index("/分析日志 request_id=req-1 权限报错") < summary_text.index("日志分析结果")
+    assert summary_text.index("日志分析结果") < summary_text.index("待确认是否和用户权限配置有关")
+    assert "待确认是否和用户权限配置有关" in summary_text
+    assert "今天" not in summary_text
+    assert "昨天" not in summary_text
+    assert "随后" not in summary_text
+    assert "最终" not in summary_text
+
+
+def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> None:
+    llm_service = _RecordingLLMService("更短的阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rewrite",
+        payload={
+            "currentText": "待确认是否为权限问题，客户已提供 request_id=req-1。",
+            "presetKey": "shorter",
+        },
+    )
+
+    result = worker._rewrite_summary()  # noqa: SLF001
+
+    assert result == "更短的阶段总结"
+    assert len(llm_service.calls) == 1
+    messages = llm_service.calls[0]["messages"]
+    assert messages[0].content.startswith("你是一位阶段总结整理助手。")
+    assert "不新增时间点" in messages[0].content
+    assert "不允许新增事实" in messages[1].content
+    assert "不要新增“今天”“昨天”“随后”“最终”等时间锚点" in messages[1].content
+    assert "不确定表述必须保留" in messages[1].content

@@ -91,7 +91,9 @@ _PLAN_EXPORT_SYSTEM_PROMPT = (
 _PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
 _STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
     "你是一位阶段总结整理助手。"
-    "你只能基于已有总结做轻量调整，不新增事实，不编造时间线，不做开放聊天。"
+    "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
+    "不新增事实，不编造时间线，不补写缺失步骤，不新增时间点、责任归因、根因和结论。"
+    "如果原文是不确定、待确认或疑似，必须保留这种不确定性。"
     "输出必须是纯文本，不要 Markdown，不要解释。"
 )
 _STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
@@ -100,6 +102,20 @@ _STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
     "rd": "把现有总结整理成更适合发给研发同学的表述，保留技术线索、日志依据和待确认项。",
     "materials": "在不新增事实的前提下，强调已经收集到的材料、截图、日志和已确认信息。",
 }
+
+
+def _build_stage_summary_rewrite_user_prompt(current_text: str, instruction: str) -> str:
+    return (
+        "请只基于下面这版阶段总结做轻量整理。\n"
+        "约束：\n"
+        "1. 只允许压缩、重排、改口吻，不允许新增事实。\n"
+        "2. 不要新增“今天”“昨天”“随后”“最终”等时间锚点。\n"
+        "3. 不要新增责任归因、根因判断、结论或未出现的处理动作。\n"
+        "4. 原文里的“待确认”“疑似”“可能”等不确定表述必须保留。\n"
+        f"整理要求：{instruction}\n\n"
+        "现有总结：\n"
+        f"{current_text}"
+    )
 
 
 def _format_plan_export_attachment_text(attachments_payload: object) -> str:
@@ -796,15 +812,7 @@ class StageSummaryWorker(QThread):
                 "context_summary",
                 messages=[
                     Message(role="system", content=_STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT),
-                    Message(
-                        role="user",
-                        content=(
-                            "请只基于下面这版阶段总结做轻量整理。\n"
-                            f"整理要求：{instruction}\n\n"
-                            "现有总结：\n"
-                            f"{current_text}"
-                        ),
-                    ),
+                    Message(role="user", content=_build_stage_summary_rewrite_user_prompt(current_text, instruction)),
                 ],
                 temperature=0.2,
             )
