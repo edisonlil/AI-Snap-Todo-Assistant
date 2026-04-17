@@ -2485,7 +2485,7 @@ class TodoDetailPanel(QQuickView):
         super().__init__(parent)
         self._bridge = _TodoDetailBridge()
         self._panel_width = 396
-        self._stage_summary_window_width = 332
+        self._stage_summary_window_width = 443
         self._stage_summary_window_gap = 18
         self._stage_summary_top_offset = 84
         self._stage_summary_window_height = 632

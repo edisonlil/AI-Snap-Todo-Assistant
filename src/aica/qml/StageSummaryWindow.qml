@@ -3,7 +3,7 @@ import QtQuick.Controls
 
 Rectangle {
     id: root
-    width: 332
+    width: 443
     height: 632
     color: "transparent"
     readonly property string uiFont: "Microsoft YaHei UI"
@@ -419,7 +419,7 @@ Rectangle {
 
                         TextEdit {
                             id: markdownView
-                            width: Math.min(parent.width, 320)
+                            width: parent.width
                             readOnly: true
                             selectByMouse: true
                             selectByKeyboard: true
