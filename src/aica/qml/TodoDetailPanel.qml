@@ -14,8 +14,8 @@ Rectangle {
         }
     }
 
-    readonly property color shellBg: "#F1F0EC"
-    readonly property color panelBg: "#F1F0EC"
+    readonly property color shellBg: "#FFFFFF"
+    readonly property color panelBg: "#FFFFFF"
     readonly property color panelLine: "#E9EDF4"
     readonly property color sectionLine: "#EEF2F6"
     readonly property color titleInk: "#18202E"
@@ -721,7 +721,7 @@ Rectangle {
 
                         Text {
                             text: "当前描述"
-                            color: root.labelInk
+                            color: root.titleInk
                             font.family: root.uiFont
                             font.pixelSize: 12
                             font.weight: root.sectionWeight
@@ -911,7 +911,7 @@ Rectangle {
                                     Text {
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: "同步状态"
-                                        color: root.labelInk
+                                        color: root.titleInk
                                         font.family: root.uiFont
                                         font.pixelSize: 12
                                         font.weight: root.sectionWeight

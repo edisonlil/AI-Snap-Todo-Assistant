@@ -21,8 +21,8 @@ Rectangle {
         id: surface
         anchors.fill: parent
         radius: 30
-        color: "#F7F6F2"
-        opacity: 0.972
+        color: "#FFFFFF"
+        opacity: 1
         border.width: 0
         border.color: "transparent"
         antialiasing: true
