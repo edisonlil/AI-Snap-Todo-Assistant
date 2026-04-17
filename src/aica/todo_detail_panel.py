@@ -458,6 +458,35 @@ def _clamp_panel_position(
     return clamped_x, clamped_y
 
 
+def _resolve_neighbor_panel_x(
+    anchor_left: int,
+    anchor_width: int,
+    *,
+    panel_width: int,
+    available_left: int,
+    available_right: int,
+    margin: int,
+    gap: int,
+) -> int:
+    min_x = available_left + margin
+    max_x = available_right - panel_width - margin
+    right_x = anchor_left + anchor_width + gap
+    left_x = anchor_left - gap - panel_width
+
+    right_space = max(0, (available_right - margin) - (anchor_left + anchor_width + gap))
+    left_space = max(0, (anchor_left - gap) - (available_left + margin))
+    right_fits = right_x <= max_x
+    left_fits = left_x >= min_x
+
+    if right_fits and not left_fits:
+        return right_x
+    if left_fits and not right_fits:
+        return left_x
+    if right_space >= left_space:
+        return right_x
+    return left_x
+
+
 def _screen_for_point(point):
     screen_at = getattr(QGuiApplication, "screenAt", None)
     if callable(screen_at):
@@ -2497,7 +2526,15 @@ class _StageSummaryWindow(QQuickView):
         if callable(set_transient_parent):
             set_transient_parent(anchor_window)
 
-        x = anchor_window.x() + self._anchor_width + self._anchor_gap
+        x = _resolve_neighbor_panel_x(
+            anchor_window.x(),
+            self._anchor_width,
+            panel_width=self._panel_width,
+            available_left=available.left(),
+            available_right=available.right(),
+            margin=self._screen_margin,
+            gap=self._anchor_gap,
+        )
         y = anchor_window.y() + self._top_offset
         self.resize(self._panel_width, self._preferred_panel_height(available.height()))
         self._move_within_screen(x, y, screen)

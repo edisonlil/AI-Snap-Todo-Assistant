@@ -7,7 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _TodoDetailBridge
+from aica.todo_detail_panel import _resolve_neighbor_panel_x, _TodoDetailBridge
 from aica.todo_models import TodoConclusion, TodoItem
 
 
@@ -252,3 +252,45 @@ def test_stage_summary_rewrite_does_not_change_save_payload() -> None:
     assert current_payload["timeline"] == original_payload["timeline"]
     assert current_payload["conclusion"].content == original_payload["conclusion"].content
     assert current_payload["conclusion"].attachments == original_payload["conclusion"].attachments
+
+
+def test_resolve_neighbor_panel_x_prefers_side_with_more_space() -> None:
+    x = _resolve_neighbor_panel_x(
+        900,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=1599,
+        margin=20,
+        gap=18,
+    )
+
+    assert x == 439
+
+
+def test_resolve_neighbor_panel_x_uses_right_when_right_has_more_space() -> None:
+    x = _resolve_neighbor_panel_x(
+        120,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=1599,
+        margin=20,
+        gap=18,
+    )
+
+    assert x == 534
+
+
+def test_resolve_neighbor_panel_x_prefers_left_when_both_sides_fit_but_left_is_wider() -> None:
+    x = _resolve_neighbor_panel_x(
+        1000,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=2199,
+        margin=20,
+        gap=18,
+    )
+
+    assert x == 539
