@@ -7,6 +7,8 @@ Rectangle {
     height: 632
     color: "transparent"
     readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property real preferredHeight: panel.preferredHeight
+    onPreferredHeightChanged: stageSummaryWindowBridge.syncPanelSize()
 
     Rectangle {
         id: panel
@@ -25,7 +27,9 @@ Rectangle {
         signal dragMoved()
         signal dragFinished()
 
-        readonly property real panelMargin: 12
+        readonly property real panelSidePadding: 24
+        readonly property real panelTopPadding: 16
+        readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
         readonly property color panelBorder: "#ECEEF2"
         readonly property color titleText: "#111111"
@@ -38,10 +42,36 @@ Rectangle {
         readonly property color primaryInk: "#FFFFFF"
         readonly property color secondaryBorder: "#D7DDE6"
         readonly property color secondaryInk: "#334155"
-        readonly property real rewriteBoxHeight: Math.max(64, rewriteEdit.contentHeight + 18)
-        readonly property real contentBoxHeight: Math.max(
+        readonly property real rewriteBoxMinHeight: 96
+        readonly property real chipHeight: 24
+        readonly property real chipRadius: 12
+        readonly property real chipFontSize: 11
+        readonly property real chipHorizontalPadding: 16
+        readonly property real contentBoxMinHeight: 96
+        readonly property real contentBoxDefaultHeight: 112
+        readonly property real contentBoxExpandThreshold: 240
+        readonly property real contentBoxAbsoluteMaxHeight: 352
+        readonly property real rewriteBoxHeight: Math.max(rewriteBoxMinHeight, rewriteEdit.contentHeight + 18)
+        readonly property real contentBoxMeasuredHeight: Math.max(
             92,
-            height - (panelMargin * 2) - headerBar.height - chipsFlow.implicitHeight - actionRow.height - rewriteBoxHeight - (sectionSpacing * 4)
+            contentLoader.item ? (contentLoader.item.implicitHeight || contentLoader.item.height) + 20 : 92
+        )
+        readonly property real fixedSectionHeight: (
+            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + rewriteBoxHeight + (sectionSpacing * 4)
+        )
+        readonly property real preferredContentBoxHeight: (
+            contentBoxMeasuredHeight > contentBoxExpandThreshold
+            ? Math.min(contentBoxMeasuredHeight, contentBoxAbsoluteMaxHeight)
+            : contentBoxDefaultHeight
+        )
+        readonly property real preferredHeight: fixedSectionHeight + preferredContentBoxHeight
+        readonly property real contentBoxAvailableHeight: Math.max(
+            contentBoxMinHeight,
+            root.height - fixedSectionHeight
+        )
+        readonly property real contentBoxHeight: Math.max(
+            contentBoxMinHeight,
+            Math.min(preferredContentBoxHeight, contentBoxAvailableHeight)
         )
 
         function submitCustomRewrite() {
@@ -77,7 +107,10 @@ Rectangle {
         Column {
             id: panelColumn
             anchors.fill: parent
-            anchors.margins: panel.panelMargin
+            anchors.leftMargin: panel.panelSidePadding
+            anchors.rightMargin: panel.panelSidePadding
+            anchors.topMargin: panel.panelTopPadding
+            anchors.bottomMargin: panel.panelBottomPadding
             spacing: panel.sectionSpacing
 
             Item {
@@ -113,8 +146,8 @@ Rectangle {
                         text: "阶段总结"
                         color: panel.titleText
                         font.family: root.uiFont
-                        font.pixelSize: 15
-                        font.weight: 700
+                        font.pixelSize: 17
+                        font.weight: 600
                     }
 
                     Text {
@@ -175,7 +208,7 @@ Rectangle {
             Flow {
                 id: chipsFlow
                 width: parent.width
-                spacing: 6
+                spacing: 5
 
                 Repeater {
                     model: [
@@ -186,9 +219,9 @@ Rectangle {
                     ]
 
                     delegate: Rectangle {
-                        width: chipTextItem.implicitWidth + 20
-                        height: 28
-                        radius: 14
+                        width: chipTextItem.implicitWidth + panel.chipHorizontalPadding
+                        height: panel.chipHeight
+                        radius: panel.chipRadius
                         color: "#FFFFFF"
                         border.width: 1
                         border.color: panel.chipBorder
@@ -200,7 +233,7 @@ Rectangle {
                             text: modelData.label
                             color: panel.chipText
                             font.family: root.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: panel.chipFontSize
                             font.weight: 500
                         }
 
@@ -404,6 +437,8 @@ Rectangle {
             id: contentComponent
 
             Item {
+                implicitHeight: summaryContent.height
+
                 Flickable {
                     id: summaryFlick
                     anchors.fill: parent

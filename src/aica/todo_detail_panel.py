@@ -2381,6 +2381,10 @@ class _StageSummaryWindow(QQuickView):
         self._drag_active = False
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._anchor_window: QQuickView | None = None
+        self._anchor_width = 0
+        self._anchor_gap = 0
+        self._top_offset = 0
 
         self.setFlags(
             Qt.WindowType.FramelessWindowHint
@@ -2397,7 +2401,7 @@ class _StageSummaryWindow(QQuickView):
             )
         )
         self._ensure_qml_loaded()
-        self.resize(self._panel_width, self._panel_height)
+        self.resize(self._panel_width, self._preferred_panel_height())
         self.hide()
 
     def _ensure_qml_loaded(self) -> None:
@@ -2414,24 +2418,29 @@ class _StageSummaryWindow(QQuickView):
         anchor_gap: int,
         top_offset: int,
     ) -> None:
-        screen = _screen_for_point(anchor_window.frameGeometry().center())
-        if screen is None:
-            return
-        available = _resolve_available_geometry(screen)
-        if available is None:
-            return
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=True)
 
-        set_transient_parent = getattr(self, "setTransientParent", None)
-        if callable(set_transient_parent):
-            set_transient_parent(anchor_window)
+    def update_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=False)
 
-        x = anchor_window.x() + anchor_width + anchor_gap
-        y = anchor_window.y() + top_offset
-        self.resize(self._panel_width, self._panel_height)
-        self._move_within_screen(x, y, screen)
-        self.show()
-        self.raise_()
-        self.requestActivate()
+    @pyqtSlot()
+    def syncPanelSize(self) -> None:
+        self._sync_geometry(activate=False)
 
     @pyqtSlot(float, float)
     def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
@@ -2451,6 +2460,56 @@ class _StageSummaryWindow(QQuickView):
     @pyqtSlot()
     def finishPanelDrag(self) -> None:
         self._drag_active = False
+
+    def _preferred_panel_height(self, available_height: int | None = None) -> int:
+        preferred_height = self._panel_height
+        root_object_method = getattr(self, "rootObject", None)
+        if callable(root_object_method):
+            root_object = root_object_method()
+            if root_object is not None:
+                raw_value = root_object.property("preferredHeight")
+                if raw_value is not None:
+                    try:
+                        preferred_height = max(120, int(float(raw_value)))
+                    except (TypeError, ValueError):
+                        preferred_height = self._panel_height
+        preferred_height = min(preferred_height, self._panel_height)
+        if available_height is not None:
+            preferred_height = min(
+                preferred_height,
+                max(120, int(available_height) - self._screen_margin * 2),
+            )
+        return max(120, preferred_height)
+
+    def _sync_geometry(self, *, activate: bool) -> None:
+        anchor_window = self._anchor_window
+        if anchor_window is None:
+            return
+
+        screen = _screen_for_point(anchor_window.frameGeometry().center())
+        if screen is None:
+            return
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+
+        set_transient_parent = getattr(self, "setTransientParent", None)
+        if callable(set_transient_parent):
+            set_transient_parent(anchor_window)
+
+        x = anchor_window.x() + self._anchor_width + self._anchor_gap
+        y = anchor_window.y() + self._top_offset
+        self.resize(self._panel_width, self._preferred_panel_height(available.height()))
+        self._move_within_screen(x, y, screen)
+
+        is_visible_method = getattr(self, "isVisible", None)
+        is_visible = bool(is_visible_method()) if callable(is_visible_method) else False
+        if activate and not is_visible:
+            self.show()
+            is_visible = True
+        if activate and is_visible:
+            self.raise_()
+            self.requestActivate()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
@@ -2608,6 +2667,14 @@ class TodoDetailPanel(QQuickView):
                 top_offset=self._stage_summary_top_offset,
             )
             self._stage_summary_window_visible = True
+            return
+        if should_show and self._stage_summary_window_visible:
+            self._stage_summary_window.update_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._stage_summary_window_gap,
+                top_offset=self._stage_summary_top_offset,
+            )
             return
         if not should_show and self._stage_summary_window_visible:
             self._stage_summary_window.hide()
