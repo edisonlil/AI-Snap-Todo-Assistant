@@ -36,6 +36,10 @@ BaseTimelineCard {
         return String(payloadValue().findings || "暂无关键发现")
     }
 
+    function conclusionText() {
+        return String(payloadValue().conclusion || payloadValue().judgment || "暂无分析结论")
+    }
+
     function judgmentText() {
         return String(payloadValue().judgment || "暂无初步判断")
     }
@@ -46,10 +50,10 @@ BaseTimelineCard {
 
     function sections() {
         return [
-            { "title": "已分析材料", "text": materialText() },
+            { "title": "分析结论", "text": conclusionText() },
             { "title": "关键发现", "text": findingsText() },
-            { "title": "初步判断", "text": judgmentText() },
-            { "title": "建议下一步", "text": nextStepsText() }
+            { "title": "建议下一步", "text": nextStepsText() },
+            { "title": "已分析材料", "text": materialText() }
         ]
     }
 

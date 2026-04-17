@@ -1234,6 +1234,11 @@ class _TodoDetailBridge(QObject):
         if not findings:
             findings = event.content.strip()
 
+        conclusion = str(resolved.get("conclusion", "") or resolved.get("primary_issue", "") or "").strip()
+        if not conclusion:
+            preliminary_judgment = _clone_dict(resolved.get("preliminary_judgment", {}))
+            conclusion = str(preliminary_judgment.get("reason", "") or "").strip()
+
         judgment = str(resolved.get("judgment", "") or "").strip()
         if not judgment:
             preliminary_judgment = _clone_dict(resolved.get("preliminary_judgment", {}))
@@ -1259,6 +1264,7 @@ class _TodoDetailBridge(QObject):
                 "source_timeline_entry_id": str(resolved.get("source_timeline_entry_id", "") or "").strip(),
                 "task_id": str(resolved.get("task_id", "") or "").strip(),
                 "analyzed_materials": analyzed_materials,
+                "conclusion": conclusion,
                 "findings": findings,
                 "judgment": judgment,
                 "next_steps": next_steps,

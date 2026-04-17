@@ -6,16 +6,13 @@ from .text_sanitize import sanitize_text
 from .todo_models import TimelineEvent
 
 
-def _material_label(item: dict) -> str:
-    return sanitize_text(item.get("name", "")) or sanitize_text(item.get("summary", "分析材料")) or "分析材料"
-
-
-def _finding_text(key_findings: list[dict]) -> str:
+def _finding_text(evidence_items: list[dict], key_findings: list[dict]) -> str:
     lines: list[str] = []
-    for item in key_findings[:6]:
-        summary = sanitize_text(item.get("summary", "")) or sanitize_text(str(item))
+    for item in (evidence_items or key_findings)[:6]:
+        summary = sanitize_text(item.get("summary", ""))
+        evidence = sanitize_text(item.get("evidence", ""))
         if summary:
-            lines.append(summary)
+            lines.append(f"{summary} [{evidence}]".strip(" []") if evidence else summary)
     return "\n".join(lines).strip()
 
 
@@ -33,19 +30,20 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
     def consume(self, produced: LogAnalysisProducedResult, context: LogAnalysisConsumeContext) -> TimelineEvent:
         payload = produced.result_payload
         analyzed_materials = payload.analyzed_materials or []
+        evidence_items = payload.evidence_items or []
         key_findings = payload.key_findings or []
         next_steps = payload.suggested_next_steps or []
         judgment = payload.preliminary_judgment or {}
-
-        findings_text = _finding_text(key_findings)
+        conclusion_text = sanitize_text(payload.primary_issue) or _judgment_text(judgment)
+        findings_text = _finding_text(evidence_items, key_findings)
         judgment_text = _judgment_text(judgment)
         next_steps_text = _next_steps_text(next_steps)
 
         summary_lines = ["日志分析结果"]
+        if conclusion_text:
+            summary_lines.append(conclusion_text)
         if findings_text:
-            summary_lines.append(findings_text.splitlines()[0])
-        if judgment_text:
-            summary_lines.append(f"初步判断：{judgment_text}")
+            summary_lines.append(f"关键证据：{findings_text.splitlines()[0]}")
         if next_steps_text:
             summary_lines.append(f"建议下一步：{next_steps_text.splitlines()[0]}")
 
@@ -59,9 +57,14 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
                 "source_timeline_entry_id": context.timeline_entry_id,
                 "task_id": context.task_id,
                 "analyzed_materials": analyzed_materials,
+                "conclusion": conclusion_text,
                 "findings": findings_text,
                 "judgment": judgment_text,
                 "next_steps": next_steps_text,
+                "confidence": payload.confidence,
+                "evidence_items": evidence_items,
+                "primary_issue": payload.primary_issue,
+                "noise_items": payload.noise_items,
                 "key_findings": key_findings,
                 "preliminary_judgment": judgment,
                 "suggested_next_steps": next_steps,

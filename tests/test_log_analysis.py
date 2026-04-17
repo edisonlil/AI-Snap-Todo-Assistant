@@ -235,6 +235,57 @@ def test_default_log_analysis_agent_reports_missing_info_without_identifiers() -
     assert produced.result_payload.missing_information
     assert any("上下游日志" in item or "接口路径" in item for item in produced.result_payload.suggested_next_steps)
 
+
+def test_default_log_analysis_agent_prefers_exception_over_successful_json_payloads() -> None:
+    preview = "\n".join(
+        [
+            '{"api_openedit":{"traceid":"","requestid":"14160611c59a5b9a12f4","ok":true,"error":"OK","filesize":522185}}',
+            '{"officeType":"w","stack":"TypeError: Cannot read properties of undefined (reading \'width\')\\n    at t.value (http://example.com/app.js:1:2)"}',
+        ]
+    )
+    request = LogAnalysisRequest(
+        todo_snapshot={"title": "日志分析错误信息测试", "current_summary": "打开文档时报错", "conclusion": ""},
+        parsed_command=parse_log_analysis_command("/分析日志"),
+        investigation_context=InvestigationContextSummary(problem_summary="打开文档时报错", current_focus=["打开文档时报错"]),
+        evidence_bundle=EvidenceBundle(
+            parts=[
+                CollectedEvidencePart(
+                    source_name="app.log",
+                    source_type="text_log",
+                    summary="读取 app.log",
+                    details={"preview": preview, "line_count": 2},
+                )
+            ]
+        ),
+    )
+
+    produced = DefaultLogAnalysisAgent().analyze(request)
+
+    assert produced.result_payload.primary_issue
+    assert produced.result_payload.preliminary_judgment["category"] == "前端异常"
+    assert produced.result_payload.question_answered is True
+    assert "522185" not in "".join(produced.result_payload.search_hits[0].get("error_codes", []))
+    assert "TypeError" in produced.result_payload.key_findings[0]["summary"]
+
+
+def test_default_log_analysis_agent_filters_non_identifier_context_terms() -> None:
+    request = LogAnalysisRequest(
+        todo_snapshot={"title": "日志分析错误信息测试", "current_summary": "打开文档时报错", "conclusion": ""},
+        parsed_command=parse_log_analysis_command("/分析日志"),
+        investigation_context=InvestigationContextSummary(
+            problem_summary="打开文档时报错",
+            current_focus=["验证附件完整性及可读性", "request_id=req-1", "检查日志文件结构与编码格式"],
+        ),
+        evidence_bundle=EvidenceBundle(),
+    )
+
+    produced = DefaultLogAnalysisAgent().analyze(request)
+    identifiers = produced.result_payload.analysis_focus["inferred_identifiers"]
+
+    assert "request_id=req-1" in identifiers
+    assert all("验证附件完整性" not in item for item in identifiers)
+    assert all("检查日志文件结构" not in item for item in identifiers)
+
 def test_todo_detail_bridge_exposes_structured_timeline_card_fields() -> None:
     bridge = _TodoDetailBridge(
         attachment_root=Path('.'),
@@ -275,10 +326,12 @@ def test_timeline_log_analysis_presenter_produces_structured_result_event() -> N
     assert event.event_type == 'log_analysis_result'
     assert event.status == 'success'
     assert event.payload['source_timeline_entry_id'] == 'cmd-1'
+    assert 'conclusion' in event.payload
     assert 'analyzed_materials' in event.payload
     assert 'findings' in event.payload
     assert 'judgment' in event.payload
     assert 'next_steps' in event.payload
+    assert '{"' not in event.content
 
 def test_todo_detail_bridge_maps_current_step_from_task_status() -> None:
     bridge = _TodoDetailBridge(

@@ -169,6 +169,10 @@ class LogAnalysisResultPayload:
     analysis_focus: dict[str, Any] = field(default_factory=dict)
     analysis_mode: str = ""
     investigation_steps: list[dict[str, Any]] = field(default_factory=list)
+    primary_issue: str = ""
+    confidence: str = ""
+    evidence_items: list[dict[str, Any]] = field(default_factory=list)
+    noise_items: list[str] = field(default_factory=list)
     key_findings: list[dict[str, Any]] = field(default_factory=list)
     preliminary_judgment: dict[str, Any] = field(default_factory=dict)
     question_answered: bool = False
@@ -192,6 +196,10 @@ class LogAnalysisResultPayload:
             analysis_focus=_clean_dict(payload.get("analysis_focus", {})),
             analysis_mode=sanitize_text(payload.get("analysis_mode", "")),
             investigation_steps=list(payload.get("investigation_steps", [])),
+            primary_issue=sanitize_text(payload.get("primary_issue", "")),
+            confidence=sanitize_text(payload.get("confidence", "")),
+            evidence_items=list(payload.get("evidence_items", [])),
+            noise_items=_clean_list(payload.get("noise_items", [])),
             key_findings=list(payload.get("key_findings", [])),
             preliminary_judgment=_clean_dict(payload.get("preliminary_judgment", {})),
             question_answered=bool(payload.get("question_answered", False)),
