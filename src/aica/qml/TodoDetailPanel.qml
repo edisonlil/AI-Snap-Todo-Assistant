@@ -7,6 +7,7 @@ Rectangle {
     height: 760
     color: "transparent"
     focus: true
+    readonly property int mainPanelWidth: 396
     onTimelineCommandMenuVisibleChanged: {
         if (timelineCommandMenuVisible) {
             updateTimelineCommandMenuGeometry()
@@ -31,7 +32,7 @@ Rectangle {
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16
     readonly property int cardRadius: 24
-    readonly property int contentWidth: width - outerPadding * 2
+    readonly property int contentWidth: mainPanelWidth - outerPadding * 2
     readonly property int fieldGap: 12
     readonly property int fieldWidth: (contentWidth - fieldGap) / 2
     readonly property int fieldCardHeight: 64
@@ -342,7 +343,11 @@ Rectangle {
     }
 
     Rectangle {
-        anchors.fill: parent
+        id: mainShell
+        width: root.mainPanelWidth
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
         radius: root.cardRadius
         color: root.panelBg
         border.width: 0
@@ -1098,15 +1103,15 @@ Rectangle {
                                     width: summaryToggleText.implicitWidth + 24
                                     height: 30
                                     radius: 15
-                                    color: "#FFFFFF"
+                                    color: todoDetailBridge.stageSummaryVisible ? root.accentTint : "#FFFFFF"
                                     border.width: 1
-                                    border.color: root.fieldLine
+                                    border.color: todoDetailBridge.stageSummaryVisible ? "#D7E5FF" : root.fieldLine
 
                                     Text {
                                         id: summaryToggleText
                                         anchors.centerIn: parent
-                                        text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "查看阶段总结"
-                                        color: root.bodyInk
+                                        text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "阶段总结"
+                                        color: todoDetailBridge.stageSummaryVisible ? root.accent : root.bodyInk
                                         font.family: root.uiFont
                                         font.pixelSize: 11
                                         font.weight: root.labelWeight
@@ -1132,45 +1137,6 @@ Rectangle {
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: todoDetailBridge.toggleTimeline()
                                     }
-                                }
-                            }
-                        }
-
-                        Item {
-                            width: parent.width
-                            height: todoDetailBridge.stageSummaryVisible ? stageSummaryPanel.implicitHeight : 0
-                            opacity: todoDetailBridge.stageSummaryVisible ? 1 : 0
-                            clip: true
-
-                            Behavior on height {
-                                NumberAnimation {
-                                    duration: 180
-                                    easing.type: Easing.OutCubic
-                                }
-                            }
-
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: 140
-                                }
-                            }
-
-                            StageSummaryPanel {
-                                id: stageSummaryPanel
-                                width: parent.width
-                                theme: root
-                                busy: todoDetailBridge.stageSummaryBusy
-                                summaryText: todoDetailBridge.stageSummaryText
-                                errorText: todoDetailBridge.stageSummaryError
-                                hasSummary: todoDetailBridge.hasStageSummary
-                                onCloseClicked: todoDetailBridge.toggleStageSummary()
-                                onCopyClicked: todoDetailBridge.copyStageSummary()
-                                onRefreshClicked: todoDetailBridge.refreshStageSummary()
-                                onPresetRewriteRequested: function(key) {
-                                    todoDetailBridge.rewriteStageSummaryWithPreset(key)
-                                }
-                                onCustomRewriteRequested: function(text) {
-                                    todoDetailBridge.rewriteStageSummary(text)
                                 }
                             }
                         }
@@ -1699,7 +1665,7 @@ Rectangle {
                     }
 
                     EnvironmentAccessPopover {
-                        x: root.width - width - root.outerPadding
+                        x: mainShell.width - width - root.outerPadding
                         y: {
                             var point = envAccessTrigger.mapToItem(environmentPopoverLayer, 0, envAccessTrigger.height + 8)
                             return point.y

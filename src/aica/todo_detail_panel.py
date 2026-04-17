@@ -2364,6 +2364,112 @@ class _TodoDetailBridge(QObject):
         self.exportPlanRequested.emit(self._todo_id, payload)
 
 
+class _StageSummaryPanelWindow(QQuickView):
+    def __init__(
+        self,
+        bridge: _TodoDetailBridge,
+        *,
+        panel_width: int,
+        panel_height: int,
+        screen_margin: int,
+    ) -> None:
+        super().__init__()
+        self._bridge = bridge
+        self._panel_width = panel_width
+        self._panel_height = panel_height
+        self._screen_margin = screen_margin
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+
+        self.setFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
+        self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
+        self.setSource(
+            QUrl.fromLocalFile(
+                str(Path(__file__).with_name("qml").joinpath("StageSummaryWindow.qml"))
+            )
+        )
+        self._ensure_qml_loaded()
+        self.resize(self._panel_width, self._panel_height)
+        self.hide()
+
+    def _ensure_qml_loaded(self) -> None:
+        if self.status() != QQuickView.Status.Error:
+            return
+        errors = "\n".join(error.toString() for error in self.errors())
+        raise RuntimeError(f"Failed to load StageSummaryWindow.qml:\n{errors}")
+
+    def show_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        screen = _screen_for_point(anchor_window.frameGeometry().center())
+        if screen is None:
+            return
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+
+        set_transient_parent = getattr(self, "setTransientParent", None)
+        if callable(set_transient_parent):
+            set_transient_parent(anchor_window)
+
+        x = anchor_window.x() + anchor_width + anchor_gap
+        y = anchor_window.y() + top_offset
+        self.resize(self._panel_width, self._panel_height)
+        self._move_within_screen(x, y, screen)
+        self.show()
+        self.raise_()
+        self.requestActivate()
+
+    @pyqtSlot(float, float)
+    def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
+        self._drag_active = True
+        self._drag_offset_x = max(0, int(offset_x))
+        self._drag_offset_y = max(0, int(offset_y))
+
+    @pyqtSlot()
+    def updatePanelDrag(self) -> None:
+        if not self._drag_active:
+            return
+        cursor_pos = QCursor.pos()
+        x = cursor_pos.x() - self._drag_offset_x
+        y = cursor_pos.y() - self._drag_offset_y
+        self._move_within_screen(x, y, _virtual_available_geometry())
+
+    @pyqtSlot()
+    def finishPanelDrag(self) -> None:
+        self._drag_active = False
+
+    def _move_within_screen(self, x: int, y: int, screen) -> None:
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        target_x, target_y = _clamp_panel_position(
+            int(x),
+            int(y),
+            panel_width=self.width(),
+            panel_height=self.height(),
+            available_left=available.left(),
+            available_top=available.top(),
+            available_right=available.right(),
+            available_bottom=available.bottom(),
+            margin=self._screen_margin,
+        )
+        self.setPosition(target_x, target_y)
+
+
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
     log_analysis_requested = pyqtSignal(str, object)
@@ -2379,12 +2485,17 @@ class TodoDetailPanel(QQuickView):
         super().__init__(parent)
         self._bridge = _TodoDetailBridge()
         self._panel_width = 396
+        self._stage_summary_panel_width = 332
+        self._stage_summary_panel_gap = 18
+        self._stage_summary_top_offset = 84
+        self._stage_summary_panel_height = 632
         self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
         self._drag_active = False
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._stage_summary_window_visible = False
 
         self.setFlags(
             Qt.WindowType.FramelessWindowHint
@@ -2400,6 +2511,12 @@ class TodoDetailPanel(QQuickView):
             )
         )
         self._ensure_qml_loaded()
+        self._stage_summary_window = _StageSummaryPanelWindow(
+            self._bridge,
+            panel_width=self._stage_summary_panel_width,
+            panel_height=self._stage_summary_panel_height,
+            screen_margin=self._screen_margin,
+        )
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
@@ -2417,6 +2534,7 @@ class TodoDetailPanel(QQuickView):
         self._bridge.panelDragStarted.connect(self._begin_panel_drag)
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
+        self._bridge.dataChanged.connect(self._sync_stage_summary_window)
 
         self.resize(self._panel_width, self._panel_height)
         self.hide()
@@ -2471,11 +2589,29 @@ class TodoDetailPanel(QQuickView):
         task_status_map: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
+        self._stage_summary_window.hide()
+        self._stage_summary_window_visible = False
         self.resize(self._panel_width, self._panel_height)
         self._reposition(anchor_rect)
         self.show()
         self.raise_()
         self.requestActivate()
+        self._sync_stage_summary_window()
+
+    def _sync_stage_summary_window(self) -> None:
+        should_show = bool(self._bridge.stageSummaryVisible) and self.isVisible()
+        if should_show and not self._stage_summary_window_visible:
+            self._stage_summary_window.show_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._stage_summary_panel_gap,
+                top_offset=self._stage_summary_top_offset,
+            )
+            self._stage_summary_window_visible = True
+            return
+        if not should_show and self._stage_summary_window_visible:
+            self._stage_summary_window.hide()
+            self._stage_summary_window_visible = False
 
     def _reposition(self, anchor_rect=None) -> None:
         if anchor_rect is not None:
@@ -2542,6 +2678,8 @@ class TodoDetailPanel(QQuickView):
     def _close_panel(self) -> None:
         self._bridge._clear_draft_timeline_attachments()
         self._bridge.reset_stage_summary_session()
+        self._stage_summary_window.hide()
+        self._stage_summary_window_visible = False
         self.hide()
         self.closed.emit()
 
