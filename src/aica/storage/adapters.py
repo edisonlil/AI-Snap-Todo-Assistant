@@ -187,6 +187,7 @@ def build_todo_item(
         current_summary=str(todo_row.get("current_summary", "")),
         created_at=str(todo_row.get("created_at", now_iso())),
         updated_at=str(todo_row.get("updated_at", now_iso())),
+        completed_at=str(todo_row.get("completed_at", "")),
         status=str(todo_row.get("status", TodoStatus.OPEN)),
         timeline=timeline,
         conclusion=TodoConclusion(
@@ -224,6 +225,7 @@ def deserialize_legacy_todo_item(payload: dict[str, Any]) -> TodoItem:
         current_summary=current_summary,
         created_at=str(payload.get("created_at", now_iso())),
         updated_at=str(payload.get("updated_at", now_iso())),
+        completed_at=str(payload.get("completed_at", "")),
         status=str(payload.get("status", TodoStatus.OPEN)),
         timeline=timeline,
         conclusion=TodoConclusion(

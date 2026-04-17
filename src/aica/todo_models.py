@@ -143,6 +143,7 @@ class TodoItem:
     current_summary: str = ""
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+    completed_at: str = ""
     status: str = TodoStatus.OPEN
     timeline: list[TimelineEvent] = field(default_factory=list)
     conclusion: TodoConclusion = field(default_factory=TodoConclusion)
@@ -154,6 +155,7 @@ class TodoItem:
         self.current_summary = sanitize_text(self.current_summary)
         self.created_at = sanitize_text(self.created_at) or _now_iso()
         self.updated_at = sanitize_text(self.updated_at) or _now_iso()
+        self.completed_at = sanitize_text(self.completed_at)
         self.status = sanitize_text(self.status) or TodoStatus.OPEN
         if not isinstance(self.conclusion, TodoConclusion):
             self.conclusion = TodoConclusion(**dict(self.conclusion or {}))

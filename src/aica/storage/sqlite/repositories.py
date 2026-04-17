@@ -26,7 +26,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -158,6 +158,7 @@ class SQLiteStorageMigrator:
             "root_cause_source": "TEXT NOT NULL DEFAULT ''",
             "conclusion_content": "TEXT NOT NULL DEFAULT ''",
             "conclusion_updated_at": "TEXT NOT NULL DEFAULT ''",
+            "completed_at": "TEXT NOT NULL DEFAULT ''",
         }
         for column_name, column_def in todo_columns.items():
             if not _has_column(connection, "todos", column_name):
@@ -730,7 +731,7 @@ class SQLiteTodoRepository:
               todos.root_cause_desc, todos.root_cause_desc_source,
               todos.root_cause, todos.root_cause_source,
               todos.conclusion_content, todos.conclusion_updated_at,
-              todos.status, todos.created_at, todos.updated_at
+              todos.status, todos.created_at, todos.completed_at, todos.updated_at
             FROM todos
             LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
             WHERE 1 = 1
@@ -741,7 +742,7 @@ class SQLiteTodoRepository:
                 sql += " AND todos.status = ? AND TRIM(COALESCE(todos.ach_no, '')) = ''"
                 params.append(TodoStatus.DONE)
             elif normalized_status == "today_done":
-                sql += " AND todos.status = ? AND SUBSTR(COALESCE(todos.updated_at, ''), 1, 10) = ?"
+                sql += " AND todos.status = ? AND SUBSTR(COALESCE(todos.completed_at, ''), 1, 10) = ?"
                 params.extend([TodoStatus.DONE, datetime.now().strftime("%Y-%m-%d")])
             else:
                 sql += " AND todos.status = ?"
@@ -833,7 +834,7 @@ class SQLiteTodoRepository:
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
                        conclusion_content, conclusion_updated_at,
-                       status, created_at, updated_at
+                       status, created_at, completed_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -862,8 +863,8 @@ class SQLiteTodoRepository:
                   root_cause_desc, root_cause_desc_source,
                   root_cause, root_cause_source,
                   conclusion_content, conclusion_updated_at,
-                  status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  status, created_at, completed_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -886,6 +887,7 @@ class SQLiteTodoRepository:
                     "",
                     TodoStatus.OPEN,
                     stamp,
+                    "",
                     stamp,
                 ),
             )
@@ -909,7 +911,7 @@ class SQLiteTodoRepository:
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
                        conclusion_content, conclusion_updated_at,
-                       status, created_at, updated_at
+                       status, created_at, completed_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -962,10 +964,11 @@ class SQLiteTodoRepository:
         return self.get_todo(sanitized_id)
 
     def complete_todo(self, todo_id: str) -> bool:
+        completed_at = now_iso()
         with self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE todos SET status = ?, updated_at = ? WHERE id = ?",
-                (TodoStatus.DONE, now_iso(), sanitize_text(todo_id)),
+                "UPDATE todos SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (TodoStatus.DONE, completed_at, completed_at, sanitize_text(todo_id)),
             )
         return cursor.rowcount > 0
 
@@ -997,7 +1000,7 @@ class SQLiteTodoRepository:
                        root_cause_desc, root_cause_desc_source,
                        root_cause, root_cause_source,
                        conclusion_content, conclusion_updated_at,
-                       status, created_at, updated_at
+                       status, created_at, completed_at, updated_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -1219,7 +1222,7 @@ class SQLiteTodoRepository:
                    root_cause_desc, root_cause_desc_source,
                    root_cause, root_cause_source,
                    conclusion_content, conclusion_updated_at,
-                   status, created_at, updated_at
+                   status, created_at, completed_at, updated_at
             FROM todos
             WHERE id = ?
             """,
@@ -1818,8 +1821,8 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           root_cause_desc, root_cause_desc_source,
           root_cause, root_cause_source,
           conclusion_content, conclusion_updated_at,
-          status, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, created_at, completed_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
@@ -1839,6 +1842,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           conclusion_content=excluded.conclusion_content,
           conclusion_updated_at=excluded.conclusion_updated_at,
           status=excluded.status,
+          completed_at=excluded.completed_at,
           updated_at=excluded.updated_at
         """,
         (
@@ -1862,6 +1866,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.conclusion.updated_at),
             sanitize_text(todo.status) or TodoStatus.OPEN,
             sanitize_text(todo.created_at) or now_iso(),
+            sanitize_text(todo.completed_at),
             sanitize_text(todo.updated_at) or now_iso(),
         ),
     )
