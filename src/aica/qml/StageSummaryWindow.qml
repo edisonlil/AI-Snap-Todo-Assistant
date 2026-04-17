@@ -83,6 +83,17 @@ Rectangle {
             rewriteEdit.text = ""
         }
 
+        function handlePrimaryAction() {
+            if (panel.busy) {
+                return
+            }
+            if (rewriteEdit.text.trim().length > 0) {
+                panel.submitCustomRewrite()
+                return
+            }
+            panel.refreshClicked()
+        }
+
         onCloseClicked: todoDetailBridge.toggleStageSummary()
         onCopyClicked: todoDetailBridge.copyStageSummary()
         onRefreshClicked: todoDetailBridge.refreshStageSummary()
@@ -140,7 +151,7 @@ Rectangle {
                     anchors.right: closeButton.left
                     anchors.rightMargin: 10
                     anchors.top: parent.top
-                    spacing: 4
+                    spacing: 5
 
                     Text {
                         text: "阶段总结"
@@ -286,7 +297,7 @@ Rectangle {
                         anchors.fill: parent
                         enabled: !panel.busy
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: panel.refreshClicked()
+                        onClicked: panel.handlePrimaryAction()
                     }
                 }
 
@@ -330,7 +341,7 @@ Rectangle {
                     id: rewriteEdit
                     x: 12
                     y: 10
-                    width: parent.width - 100
+                    width: parent.width - 24
                     height: parent.height - 20
                     wrapMode: TextEdit.Wrap
                     selectByMouse: true
@@ -363,43 +374,13 @@ Rectangle {
                     visible: rewriteEdit.text.length === 0 && !rewriteEdit.activeFocus
                     x: 12
                     y: 11
-                    width: parent.width - 104
+                    width: parent.width - 24
                     wrapMode: Text.Wrap
                     text: "补充你的修改要求（如：偏客户表达）"
                     color: panel.mutedText
                     font.family: root.uiFont
                     font.pixelSize: 12
                     font.weight: 400
-                }
-
-                Rectangle {
-                    width: inlineActionText.implicitWidth + 18
-                    height: 28
-                    radius: 10
-                    anchors.right: parent.right
-                    anchors.rightMargin: 10
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: "#FFFFFF"
-                    border.width: 1
-                    border.color: panel.secondaryBorder
-                    opacity: (!panel.busy && rewriteEdit.text.trim().length > 0) ? 1 : 0.58
-
-                    Text {
-                        id: inlineActionText
-                        anchors.centerIn: parent
-                        text: "重新生成"
-                        color: panel.secondaryInk
-                        font.family: root.uiFont
-                        font.pixelSize: 12
-                        font.weight: 500
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !panel.busy && rewriteEdit.text.trim().length > 0
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: panel.submitCustomRewrite()
-                    }
                 }
             }
         }
