@@ -45,7 +45,7 @@ _GOAL_INSTRUCTIONS = {
     ),
     "timeline_rollup": (
         "摘要目标：时间线阶段总结。"
-        "只能基于输入时间线原文梳理阶段现状、已发生进展和待确认事项。"
+        "只能基于输入时间线原文梳理阶段现状、当前结论、已发生进展和待确认事项。"
         "必须保持事件先后顺序，不要重排成更完整的故事线；"
         "不要补充未出现的时间点、责任方、根因和结论。"
     ),
@@ -63,8 +63,10 @@ def _build_output_rules(summary_goal: str) -> list[str]:
     if summary_goal == "timeline_rollup":
         rules.extend(
             [
-                "summary_text 必须使用固定三段：阶段现状、已发生进展、待确认事项。",
+                "summary_text 必须使用固定四段：阶段现状、当前结论、已发生进展、待确认事项。",
                 "已发生进展中的每一条都必须能在输入时间线中找到对应事件，尽量复用原始动作或观察。",
+                "如果已有明确结论，当前结论段落必须单独写出，不要混入“已发生进展”。",
+                "如果没有明确结论，就写“暂无明确结论”。",
                 "待确认事项只写输入里明确未确认的问题；如果没有，就写“暂无明确待确认事项”。",
                 "如果输入没有具体时间点，不要新增“今天”“昨天”“随后”“最终”等时间锚点。",
             ]
@@ -72,10 +74,16 @@ def _build_output_rules(summary_goal: str) -> list[str]:
     return rules
 
 
+def _conclusion_text_from_request(request: ContextSummaryRequest) -> str:
+    return sanitize_text(request.extra_context.get("conclusion_content", "")).strip()
+
+
 def _timeline_rollup_summary_format_hint() -> str:
     return (
         "summary_text 的文本结构固定为：\n"
         "阶段现状:\n"
+        "...\n"
+        "当前结论:\n"
         "...\n"
         "已发生进展:\n"
         "- ...\n"
@@ -86,7 +94,7 @@ def _timeline_rollup_summary_format_hint() -> str:
 
 def _has_timeline_rollup_sections(text: str) -> bool:
     normalized = sanitize_text(text)
-    return all(section in normalized for section in ("阶段现状", "已发生进展", "待确认事项"))
+    return all(section in normalized for section in ("阶段现状", "当前结论", "已发生进展", "待确认事项"))
 
 
 class DefaultContextSummaryAgent:
@@ -138,6 +146,12 @@ class DefaultContextSummaryAgent:
             if request.summary_goal == "timeline_rollup"
             else ""
         )
+        conclusion_context = ""
+        if request.summary_goal == "timeline_rollup":
+            conclusion_text = _conclusion_text_from_request(request)
+            conclusion_context = (
+                f"当前结论（单独输入）:\n{conclusion_text or '暂无明确结论'}\n\n"
+            )
         user_prompt = (
             f"{goal_instruction}\n"
             "请输出 JSON，对象字段固定为：\n"
@@ -151,6 +165,7 @@ class DefaultContextSummaryAgent:
             f"{summary_format_hint}"
             f"原始描述:\n{request.description or '暂无'}\n\n"
             f"补充上下文:\n{json.dumps(request.extra_context, ensure_ascii=False)}\n\n"
+            f"{conclusion_context}"
             f"时间线:\n{chr(10).join(entry_lines) if entry_lines else '暂无时间线'}"
         )
         return [
@@ -192,6 +207,7 @@ class DefaultContextSummaryAgent:
             summary_text = self._normalize_timeline_rollup_summary(
                 summary_text=summary_text,
                 problem_brief=result.problem_brief,
+                conclusion_text=_conclusion_text_from_request(request),
                 key_points=result.key_points,
                 open_questions=result.open_questions,
             )
@@ -300,16 +316,18 @@ class DefaultContextSummaryAgent:
         selected_entries: list[ContextSummaryEntry],
     ) -> ContextSummaryResult:
         problem_brief = request.description or self._fallback_problem_brief(request, selected_entries)
+        conclusion_text = _conclusion_text_from_request(request)
         key_points = [
             ContextSummaryPoint(category="progress", text=self._entry_text(entry))
             for entry in selected_entries[-6:]
-            if self._entry_text(entry)
+            if self._entry_text(entry) and entry.kind != "conclusion"
         ]
         open_questions = self._collect_open_questions(selected_entries, limit=5)
         next_focus = self._collect_focus_terms(request, selected_entries, limit=5)
         return ContextSummaryResult(
             summary_text=self._render_timeline_rollup_summary(
                 problem_brief=problem_brief,
+                conclusion_text=conclusion_text,
                 key_points=key_points,
                 open_questions=open_questions,
             ),
@@ -462,10 +480,15 @@ class DefaultContextSummaryAgent:
     def _render_timeline_rollup_summary(
         *,
         problem_brief: str,
+        conclusion_text: str,
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
-        lines = [f"阶段现状: {problem_brief or '暂无'}", "已发生进展:"]
+        lines = [
+            f"阶段现状: {problem_brief or '暂无'}",
+            f"当前结论: {conclusion_text or '暂无明确结论'}",
+            "已发生进展:",
+        ]
         if key_points:
             lines.extend(f"- {item.text}" for item in key_points[:6] if item.text)
         else:
@@ -482,6 +505,7 @@ class DefaultContextSummaryAgent:
         *,
         summary_text: str,
         problem_brief: str,
+        conclusion_text: str,
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
@@ -489,6 +513,7 @@ class DefaultContextSummaryAgent:
             return summary_text
         return self._render_timeline_rollup_summary(
             problem_brief=problem_brief,
+            conclusion_text=conclusion_text,
             key_points=key_points,
             open_questions=open_questions,
         )

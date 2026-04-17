@@ -273,6 +273,7 @@ def build_context_summary_request_for_todo(
         "product_line": sanitize_text(todo.summary_fields.product_line).strip(),
         "ticket_type": sanitize_text(todo.summary_fields.ticket_type).strip(),
         "current_summary": sanitize_text(todo.current_summary).strip(),
+        "conclusion_content": sanitize_text(todo.conclusion.content).strip(),
     }
     if extra_context:
         metadata.update(_clean_mapping(extra_context))

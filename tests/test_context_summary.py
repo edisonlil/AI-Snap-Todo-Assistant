@@ -6,10 +6,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
-from aica.control_panel_state import TASK_NAMES
 from aica.context_summary_agent import DefaultContextSummaryAgent
 from aica.context_summary_models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
 from aica.context_summary_service import ContextSummaryService, format_summary_for_analysis_context
+from aica.control_panel_state import TASK_NAMES
 from aica.llm.service import LLMService
 from aica.log_analysis_commands import parse_log_analysis_command
 from aica.log_analysis_context import summarize_investigation_context
@@ -47,7 +47,7 @@ class _RecordingLLMService:
 
 
 def _build_todo() -> TodoItem:
-    todo = TodoItem(
+    return TodoItem(
         id="todo-ctx-1",
         title="接口调用失败",
         current_summary="客户反馈接口调用失败，偶发 500。",
@@ -97,7 +97,6 @@ def _build_todo() -> TodoItem:
             ),
         ],
     )
-    return todo
 
 
 def test_context_summary_service_hides_failure_mode_from_callers() -> None:
@@ -224,6 +223,7 @@ def test_timeline_rollup_prompt_forbids_expansion_and_requires_fixed_sections() 
     assert "宁可遗漏，也不要编造" in system_prompt
     assert "只能基于输入时间线原文" in user_prompt
     assert "阶段现状" in user_prompt
+    assert "当前结论" in user_prompt
     assert "已发生进展" in user_prompt
     assert "待确认事项" in user_prompt
     assert "不要新增“今天”“昨天”“随后”“最终”等时间锚点" in user_prompt
@@ -286,6 +286,7 @@ def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
 
     assert result.source_stats["mode"] == "fallback_local"
     assert "阶段现状:" in summary_text
+    assert "当前结论: 暂无明确结论" in summary_text
     assert "已发生进展:" in summary_text
     assert "待确认事项:" in summary_text
     assert summary_text.index("请协助排查 request_id=req-1") < summary_text.index("/分析日志 request_id=req-1 权限报错")
@@ -296,6 +297,25 @@ def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
     assert "昨天" not in summary_text
     assert "随后" not in summary_text
     assert "最终" not in summary_text
+
+
+def test_timeline_rollup_summary_surfaces_explicit_conclusion() -> None:
+    todo = _build_todo()
+    todo.conclusion = TodoConclusion(content="已定位为用户权限配置缺失")
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    messages = agent._build_messages(request, agent._select_entries(request))  # noqa: SLF001
+    result = ContextSummaryService().summarize(request)
+
+    assert "当前结论（单独输入）" in messages[1].content
+    assert "已定位为用户权限配置缺失" in messages[1].content
+    assert "当前结论: 已定位为用户权限配置缺失" in result.summary_text
 
 
 def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> None:
