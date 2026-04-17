@@ -1259,6 +1259,39 @@ class _TodoDetailBridge(QObject):
                 if str(item).strip()
             ).strip()
 
+        finding_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("finding_lines", []))
+            if str(item).strip()
+        ]
+        if not finding_lines and findings:
+            finding_lines = [line.strip() for line in findings.splitlines() if line.strip()]
+
+        next_step_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("next_step_lines", []))
+            if str(item).strip()
+        ]
+        if not next_step_lines and next_steps:
+            next_step_lines = [line.strip() for line in next_steps.splitlines() if line.strip()]
+
+        missing_information_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("missing_information_lines", []))
+            if str(item).strip()
+        ]
+        material_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("material_lines", []))
+            if str(item).strip()
+        ]
+        if not material_lines and analyzed_materials:
+            material_lines = [
+                str(item.get("summary", "") or item.get("name", "") or "").strip()
+                for item in analyzed_materials
+                if str(item.get("summary", "") or item.get("name", "") or "").strip()
+            ]
+
         resolved.update(
             {
                 "source_timeline_entry_id": str(resolved.get("source_timeline_entry_id", "") or "").strip(),
@@ -1268,6 +1301,10 @@ class _TodoDetailBridge(QObject):
                 "findings": findings,
                 "judgment": judgment,
                 "next_steps": next_steps,
+                "finding_lines": finding_lines,
+                "next_step_lines": next_step_lines,
+                "missing_information_lines": missing_information_lines,
+                "material_lines": material_lines,
             }
         )
         return resolved
@@ -1501,7 +1538,7 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot(str, str)
     def addTimelineEntry(self, value: str, entry_type: str = _ENTRY_TYPE_FOLLOW_UP) -> None:
         content, resolved_type = _normalize_entry_submission(value, entry_type)
-        if not content:
+        if not content and resolved_type != _ENTRY_TYPE_LOG_ANALYSIS:
             return
         if is_log_analysis_command(content):
             resolved_type = _ENTRY_TYPE_LOG_ANALYSIS

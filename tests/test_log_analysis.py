@@ -152,6 +152,26 @@ def test_todo_detail_bridge_preserves_log_analysis_type_when_prefix_was_stripped
     assert payload["parsedFocus"]["request_id"] == "req-2"
 
 
+def test_todo_detail_bridge_allows_empty_log_analysis_submission() -> None:
+    bridge = _TodoDetailBridge(
+        attachment_root=Path("."),
+        environment_access_service=SimpleNamespace(list_project_environments=lambda _project_id: []),
+    )
+    bridge.set_todo(_build_todo())
+
+    emitted: list[tuple[str, object]] = []
+    bridge.logAnalysisRequested.connect(lambda todo_id, payload: emitted.append((todo_id, payload)))
+
+    bridge.addTimelineEntry("", "log_analysis")
+
+    assert bridge.timelineCount == 1
+    event = bridge.timeline[0]
+    assert event["type"] == "log_analysis_command"
+    assert event["content"] == "/分析日志"
+    payload = emitted[0][1]
+    assert payload["rawCommand"] == "/分析日志"
+
+
 def test_default_log_analysis_agent_prioritizes_error_and_non_200_hits() -> None:
     preview = "\n".join(
         [
@@ -331,6 +351,8 @@ def test_timeline_log_analysis_presenter_produces_structured_result_event() -> N
     assert 'findings' in event.payload
     assert 'judgment' in event.payload
     assert 'next_steps' in event.payload
+    assert 'finding_lines' in event.payload
+    assert 'next_step_lines' in event.payload
     assert '{"' not in event.content
 
 def test_todo_detail_bridge_maps_current_step_from_task_status() -> None:

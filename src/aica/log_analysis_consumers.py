@@ -1,19 +1,54 @@
 """Consumers and presenters for structured log analysis output."""
 from __future__ import annotations
 
+import re
+
 from .log_analysis_models import LogAnalysisConsumeContext, LogAnalysisProducedResult, LogAnalysisResultConsumer
 from .text_sanitize import sanitize_text
 from .todo_models import TimelineEvent
 
 
-def _finding_text(evidence_items: list[dict], key_findings: list[dict]) -> str:
+_URL_RE = re.compile(r"https?://\S+|//\S+")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_text(value: object) -> str:
+    return _WHITESPACE_RE.sub(" ", sanitize_text(value)).strip()
+
+
+def _truncate(value: str, limit: int = 120) -> str:
+    text = _normalize_text(value)
+    return text if len(text) <= limit else f"{text[: limit - 1].rstrip()}…"
+
+
+def _strip_urls(value: str) -> str:
+    return _URL_RE.sub("", value).strip()
+
+
+def _clean_evidence(value: str) -> str:
+    parts = [
+        _normalize_text(part)
+        for part in _strip_urls(value).split("|")
+        if _normalize_text(part)
+    ]
+    return " | ".join(parts)
+
+
+def _dedupe_lines(items: list[str], *, limit: int) -> list[str]:
     lines: list[str] = []
-    for item in (evidence_items or key_findings)[:6]:
-        summary = sanitize_text(item.get("summary", ""))
-        evidence = sanitize_text(item.get("evidence", ""))
-        if summary:
-            lines.append(f"{summary} [{evidence}]".strip(" []") if evidence else summary)
-    return "\n".join(lines).strip()
+    seen: set[str] = set()
+    for item in items:
+        text = _normalize_text(item)
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        lines.append(text)
+        if len(lines) >= limit:
+            break
+    return lines
 
 
 def _judgment_text(judgment: dict) -> str:
@@ -22,8 +57,87 @@ def _judgment_text(judgment: dict) -> str:
     return "：".join(part for part in [category, reason] if part).strip()
 
 
-def _next_steps_text(next_steps: list[str]) -> str:
-    return "\n".join(sanitize_text(item) for item in next_steps[:6] if sanitize_text(item)).strip()
+def _format_conclusion(payload: LogAnalysisProducedResult) -> str:
+    issue = sanitize_text(payload.result_payload.primary_issue)
+    if issue:
+        return issue
+    return _judgment_text(payload.result_payload.preliminary_judgment or {})
+
+
+def _format_finding_line(item: dict) -> str:
+    kind = sanitize_text(item.get("kind", ""))
+    summary = _normalize_text(item.get("summary", ""))
+    evidence = _clean_evidence(sanitize_text(item.get("evidence", "")))
+    source = sanitize_text(item.get("source", ""))
+    line_no = int(item.get("line_no", 0) or 0)
+
+    summary = _strip_urls(summary)
+
+    if kind == "exception":
+        prefix = f"{source}:{line_no}" if source and line_no else "异常"
+        if "：" in summary:
+            _, detail = summary.split("：", 1)
+            detail = detail.strip()
+        else:
+            detail = summary
+        detail = detail.replace("TypeError: ", "").replace("ReferenceError: ", "")
+        detail = _truncate(detail, 88)
+        if evidence:
+            return f"{prefix} 命中异常，{detail} [{evidence}]"
+        return f"{prefix} 命中异常，{detail}"
+
+    if kind == "error_response":
+        prefix = f"{source}:{line_no}" if source and line_no else "接口异常"
+        return _truncate(f"{prefix} {summary} [{evidence}]".strip(), 120)
+
+    prefix = f"{source}:{line_no}" if source and line_no else "线索"
+    return _truncate(f"{prefix} {summary} [{evidence}]".strip(), 120)
+
+
+def _finding_lines(evidence_items: list[dict], key_findings: list[dict]) -> list[str]:
+    source_items = evidence_items or key_findings
+    return _dedupe_lines([_format_finding_line(item) for item in source_items], limit=3)
+
+
+def _next_step_lines(next_steps: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for item in next_steps:
+        text = _normalize_text(item)
+        if not text:
+            continue
+        if text.startswith("补充信息："):
+            continue
+        cleaned.append(_truncate(text, 88))
+    return _dedupe_lines(cleaned, limit=3)
+
+
+def _missing_info_lines(payload: LogAnalysisProducedResult) -> list[str]:
+    lines = [
+        _truncate(item, 88)
+        for item in payload.result_payload.missing_information
+        if sanitize_text(item)
+    ]
+    return _dedupe_lines(lines, limit=2)
+
+
+def _material_lines(materials: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for item in materials:
+        summary = _normalize_text(item.get("summary", ""))
+        name = _normalize_text(item.get("name", ""))
+        if summary:
+            lines.append(_truncate(summary, 96))
+        elif name:
+            lines.append(_truncate(name, 96))
+    return _dedupe_lines(lines, limit=3)
+
+
+def _findings_text(lines: list[str]) -> str:
+    return "\n".join(lines).strip()
+
+
+def _next_steps_text(lines: list[str]) -> str:
+    return "\n".join(lines).strip()
 
 
 class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
@@ -34,18 +148,23 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
         key_findings = payload.key_findings or []
         next_steps = payload.suggested_next_steps or []
         judgment = payload.preliminary_judgment or {}
-        conclusion_text = sanitize_text(payload.primary_issue) or _judgment_text(judgment)
-        findings_text = _finding_text(evidence_items, key_findings)
+
+        conclusion_text = _format_conclusion(produced)
+        finding_lines = _finding_lines(evidence_items, key_findings)
+        next_step_lines = _next_step_lines(next_steps)
+        missing_lines = _missing_info_lines(produced)
+        material_lines = _material_lines(analyzed_materials)
+        findings_text = _findings_text(finding_lines)
         judgment_text = _judgment_text(judgment)
-        next_steps_text = _next_steps_text(next_steps)
+        next_steps_text = _next_steps_text(next_step_lines)
 
         summary_lines = ["日志分析结果"]
         if conclusion_text:
             summary_lines.append(conclusion_text)
-        if findings_text:
-            summary_lines.append(f"关键证据：{findings_text.splitlines()[0]}")
-        if next_steps_text:
-            summary_lines.append(f"建议下一步：{next_steps_text.splitlines()[0]}")
+        if finding_lines:
+            summary_lines.append(f"关键依据：{finding_lines[0]}")
+        if next_step_lines:
+            summary_lines.append(f"建议动作：{next_step_lines[0]}")
 
         return TimelineEvent(
             kind="log_analysis_result",
@@ -62,6 +181,10 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
                 "judgment": judgment_text,
                 "next_steps": next_steps_text,
                 "confidence": payload.confidence,
+                "finding_lines": finding_lines,
+                "next_step_lines": next_step_lines,
+                "missing_information_lines": missing_lines,
+                "material_lines": material_lines,
                 "evidence_items": evidence_items,
                 "primary_issue": payload.primary_issue,
                 "noise_items": payload.noise_items,

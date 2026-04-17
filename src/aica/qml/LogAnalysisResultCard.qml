@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 
 BaseTimelineCard {
     id: resultCard
@@ -13,56 +13,113 @@ BaseTimelineCard {
         return eventData && eventData.payload ? eventData.payload : {}
     }
 
-    function materials() {
-        var items = payloadValue().analyzed_materials
-        return Array.isArray(items) ? items : []
-    }
-
-    function materialText() {
-        var values = []
-        var items = materials()
-        for (var index = 0; index < items.length; index += 1) {
-            var item = items[index]
-            if (!item) {
-                continue
-            }
-            var name = String(item.name || item.summary || "分析材料")
-            values.push(name)
+    function splitTextLines(text) {
+        var content = String(text || "").trim()
+        if (content.length === 0) {
+            return []
         }
-        return values.length > 0 ? values.join("\n") : "未提供分析材料"
+        var parts = content.split("\n")
+        var values = []
+        for (var index = 0; index < parts.length; index += 1) {
+            var line = String(parts[index] || "").trim()
+            if (line.length > 0) {
+                values.push(line)
+            }
+        }
+        return values
     }
 
-    function findingsText() {
-        return String(payloadValue().findings || "暂无关键发现")
+    function stringList(key) {
+        var items = payloadValue()[key]
+        var values = []
+        if (items === undefined || items === null) {
+            return values
+        }
+        if (typeof items === "string") {
+            return splitTextLines(items)
+        }
+        if (Array.isArray(items) || typeof items.length === "number") {
+            for (var index = 0; index < items.length; index += 1) {
+                var text = String(items[index] || "").trim()
+                if (text.length > 0) {
+                    values.push(text)
+                }
+            }
+        }
+        return values
     }
 
     function conclusionText() {
         return String(payloadValue().conclusion || payloadValue().judgment || "暂无分析结论")
     }
 
-    function judgmentText() {
-        return String(payloadValue().judgment || "暂无初步判断")
-    }
-
-    function nextStepsText() {
-        return String(payloadValue().next_steps || "暂无建议下一步")
-    }
-
     function sections() {
-        return [
-            { "title": "分析结论", "text": conclusionText() },
-            { "title": "关键发现", "text": findingsText() },
-            { "title": "建议下一步", "text": nextStepsText() },
-            { "title": "已分析材料", "text": materialText() }
-        ]
+        var items = []
+        items.push({ "title": "分析结论", "type": "paragraph", "text": conclusionText() })
+
+        var findingLines = stringList("finding_lines")
+        if (findingLines.length === 0) {
+            findingLines = splitTextLines(payloadValue().findings || "")
+        }
+        if (findingLines.length > 0) {
+            items.push({ "title": "关键依据", "type": "list", "lines": findingLines })
+        }
+
+        var nextStepLines = stringList("next_step_lines")
+        if (nextStepLines.length === 0) {
+            nextStepLines = splitTextLines(payloadValue().next_steps || "")
+        }
+        if (nextStepLines.length > 0) {
+            items.push({ "title": "建议动作", "type": "list", "lines": nextStepLines })
+        }
+
+        var missingLines = stringList("missing_information_lines")
+        if (missingLines.length === 0) {
+            missingLines = stringList("missing_information")
+        }
+        if (missingLines.length > 0) {
+            items.push({ "title": "待补充信息", "type": "list", "lines": missingLines })
+        }
+
+        var materialLines = stringList("material_lines")
+        if (materialLines.length === 0) {
+            materialLines = splitTextLines(payloadValue().materials || "")
+        }
+        if (materialLines.length === 0) {
+            var materials = payloadValue().analyzed_materials
+            if (Array.isArray(materials) || (materials && typeof materials.length === "number")) {
+                for (var materialIndex = 0; materialIndex < materials.length; materialIndex += 1) {
+                    var item = materials[materialIndex]
+                    if (!item) {
+                        continue
+                    }
+                    var summary = String(item.summary || item.name || "").trim()
+                    if (summary.length > 0) {
+                        materialLines.push(summary)
+                    }
+                }
+            }
+        }
+        if (materialLines.length > 0) {
+            items.push({ "title": "已分析材料", "type": "list", "lines": materialLines })
+        }
+
+        return items
     }
 
     function fullCopyText() {
         var items = sections()
         var lines = []
         for (var index = 0; index < items.length; index += 1) {
-            lines.push(items[index].title)
-            lines.push(items[index].text)
+            var section = items[index]
+            lines.push(section.title)
+            if (section.type === "list") {
+                for (var itemIndex = 0; itemIndex < section.lines.length; itemIndex += 1) {
+                    lines.push("- " + section.lines[itemIndex])
+                }
+            } else {
+                lines.push(section.text)
+            }
             if (index < items.length - 1) {
                 lines.push("")
             }
@@ -149,7 +206,12 @@ BaseTimelineCard {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            if (todoDetailBridge) {
+                                            if (!todoDetailBridge) {
+                                                return
+                                            }
+                                            if (modelData.type === "list") {
+                                                todoDetailBridge.copyPlainText(modelData.lines.join("\n"))
+                                            } else {
                                                 todoDetailBridge.copyPlainText(String(modelData.text || ""))
                                             }
                                         }
@@ -158,6 +220,7 @@ BaseTimelineCard {
                             }
 
                             Text {
+                                visible: modelData.type !== "list"
                                 width: parent.width
                                 wrapMode: Text.Wrap
                                 text: modelData.text
@@ -167,6 +230,41 @@ BaseTimelineCard {
                                 font.weight: rootContext ? rootContext.bodyWeight : 400
                                 lineHeight: 18
                                 lineHeightMode: Text.FixedHeight
+                            }
+
+                            Column {
+                                visible: modelData.type === "list"
+                                width: parent.width
+                                spacing: 6
+
+                                Repeater {
+                                    model: modelData.type === "list" ? modelData.lines : []
+
+                                    delegate: Row {
+                                        width: sectionContent.width
+                                        spacing: 6
+
+                                        Text {
+                                            text: "•"
+                                            color: rootContext ? rootContext.bodyInk : "#4A5565"
+                                            font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                                            font.pixelSize: 12
+                                            font.weight: rootContext ? rootContext.bodyWeight : 400
+                                        }
+
+                                        Text {
+                                            width: parent.width - 12
+                                            wrapMode: Text.Wrap
+                                            text: modelData
+                                            color: rootContext ? rootContext.bodyInk : "#4A5565"
+                                            font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                                            font.pixelSize: 12
+                                            font.weight: rootContext ? rootContext.bodyWeight : 400
+                                            lineHeight: 18
+                                            lineHeightMode: Text.FixedHeight
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

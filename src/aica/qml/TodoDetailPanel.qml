@@ -169,7 +169,7 @@ Rectangle {
     }
 
     function submitTimelineEntry() {
-        if (addTimelineEdit.text.trim().length === 0) {
+        if (addTimelineEdit.text.trim().length === 0 && timelineEntryType !== "log_analysis") {
             return
         }
         var submittingType = timelineEntryType
@@ -1257,14 +1257,14 @@ Rectangle {
                                     anchors.rightMargin: 14
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: 14
-                                    color: addTimelineEdit.text.trim().length > 0 ? root.accentTint : root.fieldBg
+                                    color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accentTint : root.fieldBg
                                     border.width: 0
                                     border.color: "transparent"
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: root.timelineEntryType === "log_analysis" ? "提交分析" : "添加"
-                                        color: addTimelineEdit.text.trim().length > 0 ? root.accent : root.mutedInk
+                                        color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accent : root.mutedInk
                                         font.family: root.uiFont
                                         font.pixelSize: 12
                                         font.weight: root.labelWeight
@@ -1272,7 +1272,7 @@ Rectangle {
 
                                     MouseArea {
                                         anchors.fill: parent
-                                        enabled: addTimelineEdit.text.trim().length > 0
+                                        enabled: addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis"
                                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                         onClicked: root.submitTimelineEntry()
                                     }
