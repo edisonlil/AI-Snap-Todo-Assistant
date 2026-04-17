@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 
 Rectangle {
@@ -14,20 +14,17 @@ Rectangle {
     signal presetRewriteRequested(string key)
     signal customRewriteRequested(string text)
 
-    readonly property color cardBorder: "#ECEFF3"
-    readonly property color sectionBorder: "#F1F4F7"
-    readonly property color bodyText: "#374151"
-    readonly property color mutedText: "#94A3B8"
-    readonly property color titleText: "#111827"
-    readonly property color chipBorder: "#D9E0EA"
-    readonly property color inputBorder: "#DFE5EC"
-    readonly property color activeBorder: "#9FB8FF"
-
-    color: "#FFFFFF"
-    radius: 24
-    border.width: 1
-    border.color: root.cardBorder
-    implicitHeight: panelColumn.implicitHeight
+    readonly property color panelBorder: "#ECEEF2"
+    readonly property color titleText: "#111111"
+    readonly property color bodyText: "#222222"
+    readonly property color mutedText: "#999999"
+    readonly property color chipBorder: "#D8DEE8"
+    readonly property color chipText: "#5F6C80"
+    readonly property color subtleFill: "#FAFAFA"
+    readonly property color primaryFill: "#171F2E"
+    readonly property color primaryInk: "#FFFFFF"
+    readonly property color secondaryBorder: "#D7DDE6"
+    readonly property color secondaryInk: "#334155"
 
     function submitCustomRewrite() {
         var value = rewriteEdit.text.trim()
@@ -38,30 +35,35 @@ Rectangle {
         rewriteEdit.text = ""
     }
 
+    color: "#FFFFFF"
+    radius: 18
+    border.width: 1
+    border.color: root.panelBorder
+    implicitHeight: panelColumn.implicitHeight + 24
+
     Column {
         id: panelColumn
-        width: parent.width
-        spacing: 0
+        anchors.fill: parent
+        anchors.margins: 12
+        spacing: 12
 
         Item {
             width: parent.width
-            height: headerContent.implicitHeight + 28
+            height: Math.max(closeButton.height, headerColumn.implicitHeight)
 
             Column {
-                id: headerContent
+                id: headerColumn
                 anchors.left: parent.left
                 anchors.right: closeButton.left
-                anchors.leftMargin: 18
-                anchors.rightMargin: 14
+                anchors.rightMargin: 10
                 anchors.top: parent.top
-                anchors.topMargin: 14
-                spacing: 6
+                spacing: 4
 
                 Text {
                     text: "阶段总结"
                     color: root.titleText
                     font.family: root.theme.uiFont
-                    font.pixelSize: 16
+                    font.pixelSize: 15
                     font.weight: 700
                 }
 
@@ -78,21 +80,19 @@ Rectangle {
 
             Rectangle {
                 id: closeButton
-                width: 24
-                height: 24
-                radius: 8
+                width: 20
+                height: 20
+                radius: 6
                 anchors.right: parent.right
-                anchors.rightMargin: 14
                 anchors.top: parent.top
-                anchors.topMargin: 14
                 color: closeMouse.containsMouse ? "#F3F4F6" : "transparent"
 
                 Text {
                     anchors.centerIn: parent
                     text: "×"
-                    color: closeMouse.containsMouse ? "#6B7280" : root.mutedText
+                    color: closeMouse.containsMouse ? "#667085" : root.mutedText
                     font.family: root.theme.uiFont
-                    font.pixelSize: 16
+                    font.pixelSize: 15
                     font.weight: 400
                 }
 
@@ -108,232 +108,45 @@ Rectangle {
 
         Rectangle {
             width: parent.width
-            height: 1
-            color: root.sectionBorder
+            color: root.subtleFill
+            radius: 12
+            border.width: 0
+            height: Math.max(92, contentLoader.item ? (contentLoader.item.implicitHeight || contentLoader.item.height) + 20 : 92)
+
+            Loader {
+                id: contentLoader
+                anchors.fill: parent
+                anchors.margins: 10
+                sourceComponent: root.busy && !root.hasSummary ? loadingComponent : contentComponent
+            }
         }
 
-        Column {
+        Flow {
             width: parent.width
-            spacing: 0
-            padding: 16
+            spacing: 6
 
-            Rectangle {
-                id: summaryBox
-                width: parent.width - 32
-                height: Math.max(204, (summaryLoader.item ? (summaryLoader.item.implicitHeight || summaryLoader.item.height) : 0) + 32)
-                radius: 18
-                color: "#FCFCFB"
-                border.width: 1
-                border.color: "#EDF1F6"
+            Repeater {
+                model: [
+                    { key: "shorter", label: "更简短" },
+                    { key: "customer", label: "偏客户" },
+                    { key: "rd", label: "偏研发" },
+                    { key: "materials", label: "强调已收集材料" }
+                ]
 
-                Loader {
-                    id: summaryLoader
-                    anchors.fill: parent
-                    anchors.margins: 16
-                    sourceComponent: (!root.hasSummary && root.busy) ? loadingComponent : summaryComponent
-                }
-            }
-
-            Row {
-                width: parent.width - 32
-                spacing: 10
-                topPadding: 16
-                bottomPadding: 16
-
-                Rectangle {
-                    width: copyText.implicitWidth + 28
-                    height: 38
-                    radius: 12
-                    color: "#111827"
-                    border.width: 1
-                    border.color: "#111827"
-
-                    Text {
-                        id: copyText
-                        anchors.centerIn: parent
-                        text: "复制内容"
-                        color: "#FFFFFF"
-                        font.family: root.theme.uiFont
-                        font.pixelSize: 13
-                        font.weight: 700
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: root.hasSummary
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: root.copyClicked()
-                    }
-                }
-
-                Rectangle {
-                    width: refreshText.implicitWidth + 28
-                    height: 38
-                    radius: 12
+                delegate: Rectangle {
+                    width: chipTextItem.implicitWidth + 20
+                    height: 28
+                    radius: 14
                     color: "#FFFFFF"
                     border.width: 1
                     border.color: root.chipBorder
+                    opacity: (!root.busy && root.hasSummary) ? 1 : 0.58
 
                     Text {
-                        id: refreshText
+                        id: chipTextItem
                         anchors.centerIn: parent
-                        text: root.busy ? "整理中..." : "重新整理"
-                        color: root.bodyText
-                        font.family: root.theme.uiFont
-                        font.pixelSize: 13
-                        font.weight: 500
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !root.busy
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: root.refreshClicked()
-                    }
-                }
-            }
-
-            Rectangle {
-                width: parent.width - 32
-                height: 1
-                color: root.sectionBorder
-            }
-
-            Text {
-                width: parent.width - 32
-                topPadding: 14
-                bottomPadding: 8
-                text: "快速调整"
-                color: "#6B7280"
-                font.family: root.theme.uiFont
-                font.pixelSize: 13
-                font.weight: 600
-            }
-
-            Flow {
-                width: parent.width - 32
-                spacing: 8
-
-                Repeater {
-                    model: [
-                        { key: "shorter", label: "更简短" },
-                        { key: "customer", label: "偏客户" },
-                        { key: "rd", label: "偏研发" },
-                        { key: "materials", label: "强调已收集材料" }
-                    ]
-
-                    delegate: Rectangle {
-                        width: chipLabel.implicitWidth + 24
-                        height: 30
-                        radius: 15
-                        color: "#FFFFFF"
-                        border.width: 1
-                        border.color: root.chipBorder
-                        opacity: (!root.busy && root.hasSummary) ? 1 : 0.58
-
-                        Text {
-                            id: chipLabel
-                            anchors.centerIn: parent
-                            text: modelData.label
-                            color: "#475569"
-                            font.family: root.theme.uiFont
-                            font.pixelSize: 12
-                            font.weight: 500
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !root.busy && root.hasSummary
-                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: root.presetRewriteRequested(modelData.key)
-                        }
-                    }
-                }
-            }
-
-            Text {
-                width: parent.width - 32
-                topPadding: 10
-                bottomPadding: 8
-                text: "自定义调整"
-                color: "#6B7280"
-                font.family: root.theme.uiFont
-                font.pixelSize: 13
-                font.weight: 600
-            }
-
-            Rectangle {
-                width: parent.width - 32
-                height: Math.max(104, rewriteEdit.contentHeight + 34)
-                radius: 18
-                color: "#FFFFFF"
-                border.width: 1
-                border.color: rewriteEdit.activeFocus ? root.activeBorder : root.inputBorder
-
-                TextEdit {
-                    id: rewriteEdit
-                    x: 16
-                    y: 14
-                    width: parent.width - 32
-                    height: parent.height - 28
-                    wrapMode: TextEdit.Wrap
-                    selectByMouse: true
-                    textFormat: TextEdit.PlainText
-                    color: root.bodyText
-                    font.family: root.theme.uiFont
-                    font.pixelSize: 13
-                    font.weight: 400
-                    rightPadding: 72
-                    bottomPadding: 34
-
-                    Keys.onReturnPressed: function(event) {
-                        if (event.modifiers & Qt.ShiftModifier) {
-                            return
-                        }
-                        root.submitCustomRewrite()
-                        event.accepted = true
-                    }
-
-                    Keys.onEnterPressed: function(event) {
-                        if (event.modifiers & Qt.ShiftModifier) {
-                            return
-                        }
-                        root.submitCustomRewrite()
-                        event.accepted = true
-                    }
-                }
-
-                Text {
-                    visible: rewriteEdit.text.length === 0 && !rewriteEdit.activeFocus
-                    x: 16
-                    y: 14
-                    width: parent.width - 86
-                    wrapMode: Text.Wrap
-                    text: "例如：语气更稳一点；强调我已经收集了样张和日志；更适合发给客户"
-                    color: "#9CA3AF"
-                    font.family: root.theme.uiFont
-                    font.pixelSize: 12
-                    font.weight: 400
-                }
-
-                Rectangle {
-                    width: adjustText.implicitWidth + 22
-                    height: 30
-                    radius: 15
-                    anchors.right: parent.right
-                    anchors.rightMargin: 10
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 10
-                    color: "#FFFFFF"
-                    border.width: 1
-                    border.color: root.chipBorder
-                    opacity: (!root.busy && rewriteEdit.text.trim().length > 0) ? 1 : 0.68
-
-                    Text {
-                        id: adjustText
-                        anchors.centerIn: parent
-                        text: "调整"
-                        color: root.bodyText
+                        text: modelData.label
+                        color: root.chipText
                         font.family: root.theme.uiFont
                         font.pixelSize: 12
                         font.weight: 500
@@ -341,22 +154,165 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        enabled: !root.busy && rewriteEdit.text.trim().length > 0
+                        enabled: !root.busy && root.hasSummary
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: root.submitCustomRewrite()
+                        onClicked: root.presetRewriteRequested(modelData.key)
                     }
+                }
+            }
+        }
+
+        Row {
+            width: parent.width
+            spacing: 8
+            layoutDirection: Qt.RightToLeft
+
+            Rectangle {
+                width: refreshContent.implicitWidth + 22
+                height: 32
+                radius: 10
+                color: root.primaryFill
+                border.width: 0
+                opacity: root.busy ? 0.92 : 1
+
+                Row {
+                    id: refreshContent
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    BusyIndicator {
+                        width: 14
+                        height: 14
+                        running: root.busy
+                        visible: root.busy
+                    }
+
+                    Text {
+                        text: root.busy ? "整理中..." : "重新整理"
+                        color: root.primaryInk
+                        font.family: root.theme.uiFont
+                        font.pixelSize: 12
+                        font.weight: 600
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !root.busy
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.refreshClicked()
+                }
+            }
+
+            Rectangle {
+                width: copyText.implicitWidth + 22
+                height: 32
+                radius: 10
+                color: "transparent"
+                border.width: 1
+                border.color: root.secondaryBorder
+                opacity: (!root.busy && root.hasSummary) ? 1 : 0.58
+
+                Text {
+                    id: copyText
+                    anchors.centerIn: parent
+                    text: "复制内容"
+                    color: root.secondaryInk
+                    font.family: root.theme.uiFont
+                    font.pixelSize: 12
+                    font.weight: 500
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !root.busy && root.hasSummary
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.copyClicked()
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: Math.max(64, rewriteEdit.contentHeight + 18)
+            radius: 12
+            color: root.subtleFill
+            border.width: 0
+
+            TextEdit {
+                id: rewriteEdit
+                x: 12
+                y: 10
+                width: parent.width - 100
+                height: parent.height - 20
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+                textFormat: TextEdit.PlainText
+                color: root.bodyText
+                font.family: root.theme.uiFont
+                font.pixelSize: 13
+                font.weight: 400
+                rightPadding: 8
+                bottomPadding: 8
+
+                Keys.onReturnPressed: function(event) {
+                    if (event.modifiers & Qt.ShiftModifier) {
+                        return
+                    }
+                    root.submitCustomRewrite()
+                    event.accepted = true
+                }
+
+                Keys.onEnterPressed: function(event) {
+                    if (event.modifiers & Qt.ShiftModifier) {
+                        return
+                    }
+                    root.submitCustomRewrite()
+                    event.accepted = true
                 }
             }
 
             Text {
-                width: parent.width - 32
-                topPadding: 10
-                text: "先给一版，再做轻量改写。这里不是聊天窗口，只围绕当前总结做收敛式调整。"
+                visible: rewriteEdit.text.length === 0 && !rewriteEdit.activeFocus
+                x: 12
+                y: 11
+                width: parent.width - 104
                 wrapMode: Text.Wrap
-                color: "#9CA3AF"
+                text: "补充你的修改要求（如：偏客户表达）"
+                color: root.mutedText
                 font.family: root.theme.uiFont
                 font.pixelSize: 12
                 font.weight: 400
+            }
+
+            Rectangle {
+                width: inlineActionText.implicitWidth + 18
+                height: 28
+                radius: 10
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#FFFFFF"
+                border.width: 1
+                border.color: root.secondaryBorder
+                opacity: (!root.busy && rewriteEdit.text.trim().length > 0) ? 1 : 0.58
+
+                Text {
+                    id: inlineActionText
+                    anchors.centerIn: parent
+                    text: "重新生成"
+                    color: root.secondaryInk
+                    font.family: root.theme.uiFont
+                    font.pixelSize: 12
+                    font.weight: 500
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !root.busy && rewriteEdit.text.trim().length > 0
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.submitCustomRewrite()
+                }
             }
         }
     }
@@ -365,24 +321,25 @@ Rectangle {
         id: loadingComponent
 
         Item {
-            implicitHeight: 26
+            implicitHeight: 72
 
-            Row {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 10
+            Column {
+                anchors.centerIn: parent
+                spacing: 8
 
                 BusyIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
                     width: 18
                     height: 18
                     running: true
                 }
 
                 Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
                     text: "正在整理当前阶段进展..."
                     color: root.mutedText
                     font.family: root.theme.uiFont
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     font.weight: 400
                 }
             }
@@ -390,29 +347,29 @@ Rectangle {
     }
 
     Component {
-        id: summaryComponent
+        id: contentComponent
 
         Item {
-            implicitHeight: Math.max(summaryEdit.contentHeight, errorTextItem.visible ? errorTextItem.y + errorTextItem.implicitHeight : 0)
+            implicitHeight: Math.max(markdownView.contentHeight, errorTextItem.visible ? errorTextItem.y + errorTextItem.implicitHeight : 0)
 
             TextEdit {
-                id: summaryEdit
-                width: parent.width
+                id: markdownView
+                width: Math.min(parent.width, 320)
                 readOnly: true
                 selectByMouse: true
                 selectByKeyboard: true
                 wrapMode: TextEdit.Wrap
-                textFormat: TextEdit.PlainText
+                textFormat: TextEdit.MarkdownText
                 text: root.hasSummary ? root.summaryText : (root.errorText.length > 0 ? root.errorText : "暂无可查看的阶段总结")
                 color: root.hasSummary ? root.bodyText : root.mutedText
                 font.family: root.theme.uiFont
-                font.pixelSize: 14
+                font.pixelSize: 13
                 font.weight: 400
             }
 
             Text {
                 id: errorTextItem
-                y: summaryEdit.contentHeight + 10
+                y: markdownView.contentHeight + 8
                 width: parent.width
                 visible: root.errorText.length > 0 && root.hasSummary
                 wrapMode: Text.Wrap
