@@ -2364,7 +2364,7 @@ class _TodoDetailBridge(QObject):
         self.exportPlanRequested.emit(self._todo_id, payload)
 
 
-class _StageSummaryPanelWindow(QQuickView):
+class _StageSummaryWindow(QQuickView):
     def __init__(
         self,
         bridge: _TodoDetailBridge,
@@ -2485,10 +2485,10 @@ class TodoDetailPanel(QQuickView):
         super().__init__(parent)
         self._bridge = _TodoDetailBridge()
         self._panel_width = 396
-        self._stage_summary_panel_width = 332
-        self._stage_summary_panel_gap = 18
+        self._stage_summary_window_width = 332
+        self._stage_summary_window_gap = 18
         self._stage_summary_top_offset = 84
-        self._stage_summary_panel_height = 632
+        self._stage_summary_window_height = 632
         self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
@@ -2511,10 +2511,10 @@ class TodoDetailPanel(QQuickView):
             )
         )
         self._ensure_qml_loaded()
-        self._stage_summary_window = _StageSummaryPanelWindow(
+        self._stage_summary_window = _StageSummaryWindow(
             self._bridge,
-            panel_width=self._stage_summary_panel_width,
-            panel_height=self._stage_summary_panel_height,
+            panel_width=self._stage_summary_window_width,
+            panel_height=self._stage_summary_window_height,
             screen_margin=self._screen_margin,
         )
 
@@ -2604,7 +2604,7 @@ class TodoDetailPanel(QQuickView):
             self._stage_summary_window.show_near(
                 self,
                 anchor_width=self._panel_width,
-                anchor_gap=self._stage_summary_panel_gap,
+                anchor_gap=self._stage_summary_window_gap,
                 top_offset=self._stage_summary_top_offset,
             )
             self._stage_summary_window_visible = True
