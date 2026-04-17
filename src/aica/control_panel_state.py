@@ -17,6 +17,7 @@ from aica.paths import save_storage_paths, storage_config_file
 MEGABYTE = 1024 * 1024
 TASK_NAMES = (
     "analysis",
+    "log_analysis",
     "plan_export",
     "context_summary",
 )

@@ -284,6 +284,7 @@ _TASK_LABELS = {
     "plan_export": "方案导出",
 }
 _TASK_LABELS["context_summary"] = "上下文摘要"
+_TASK_LABELS["log_analysis"] = "日志分析"
 _SECTION_GROUPS = [
     {
         "id": "business",

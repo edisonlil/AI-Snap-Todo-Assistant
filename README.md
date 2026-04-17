@@ -148,14 +148,18 @@ python -m pip install -r requirements-build.txt
       "provider_id": "siliconflow",
       "model_id": "qwen25-vl-72b"
     },
-    "title_generation": {
+    "log_analysis": {
       "provider_id": "siliconflow",
-      "model_id": "qwen3-8b"
+      "model_id": "qwen25-vl-72b"
     },
     "plan_export": {
       "provider_id": "siliconflow",
       "model_id": "qwen25-vl-72b"
     },
+    "context_summary": {
+      "provider_id": "siliconflow",
+      "model_id": "qwen3-8b"
+    }
   },
   "hotkeys": {
     "capture": "Alt+A"
@@ -176,8 +180,9 @@ python -m pip install -r requirements-build.txt
 - `providers[].models[].capabilities`：能力标签，当前使用 `vision_chat` / `text_chat`
 - `task_model_bindings`：为不同任务绑定供应商与模型
 - `task_model_bindings.analysis`：截图分析
-- `task_model_bindings.title_generation`：标题生成
+- `task_model_bindings.log_analysis`：日志分析
 - `task_model_bindings.plan_export`：方案导出
+- `task_model_bindings.context_summary`：上下文摘要压缩
 - `analysis_rules.json`：截图分析规则配置
 - `prompt_debug/`：截图分析 Prompt 调试快照
 - `max_image_bytes`：图片压缩阈值，默认 `4MB`
@@ -217,13 +222,13 @@ python .\run_aica.py
 推荐的回归命令：
 
 ```powershell
-pytest tests\test_overlay.py tests\test_compress.py tests\test_analysis_rules.py tests\test_single_instance.py tests\test_analysis_flow.py tests\test_result_flow.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_timeline_entry_dedup.py tests\test_ticket_field_resolver.py -q
+pytest tests\test_environment_access.py tests\test_log_analysis.py tests\test_context_summary.py tests\test_todo_detail_panel.py -q
 ```
 
 运行完整测试：
 
 ```powershell
-pytest -q
+pytest tests -q
 ```
 
 快速语法与导入检查：

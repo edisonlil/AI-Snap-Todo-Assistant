@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
+from aica.control_panel_state import TASK_NAMES
 from aica.context_summary_models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
 from aica.context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from aica.llm.service import LLMService
@@ -90,6 +91,11 @@ def test_context_summary_service_hides_failure_mode_from_callers() -> None:
     result = ContextSummaryService(agent=_FailingAgent()).summarize(request)
 
     assert result.problem_brief == "本地降级"
+
+
+def test_control_panel_runtime_task_names_include_log_analysis_and_context_summary() -> None:
+    assert "log_analysis" in TASK_NAMES
+    assert "context_summary" in TASK_NAMES
 
 
 def test_llm_service_resolves_context_summary_text_model() -> None:
