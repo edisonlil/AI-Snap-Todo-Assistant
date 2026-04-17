@@ -525,6 +525,8 @@ class _TodoDetailBridge(QObject):
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
     exportPlanRequested = pyqtSignal(str, object)
+    stageSummaryRequested = pyqtSignal(str, object)
+    stageSummaryRewriteRequested = pyqtSignal(str, object)
 
     def __init__(
         self,
@@ -576,6 +578,12 @@ class _TodoDetailBridge(QObject):
         self._environment_access_summary_text = "环境访问 · 无可用环境"
         self._environment_access_popover_open = False
         self._environment_access_message = ""
+        self._stage_summary_visible = False
+        self._stage_summary_busy = False
+        self._stage_summary_text = ""
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = False
+        self._stage_summary_pending_request_id = ""
 
     @pyqtProperty(str, notify=dataChanged)
     def environmentAccessSummaryText(self) -> str:
@@ -700,6 +708,26 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=timelineExpandedChanged)
     def timelineExpanded(self) -> bool:
         return self._timeline_expanded
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def stageSummaryVisible(self) -> bool:
+        return self._stage_summary_visible
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def stageSummaryBusy(self) -> bool:
+        return self._stage_summary_busy
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryText(self) -> str:
+        return self._stage_summary_text
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryError(self) -> str:
+        return self._stage_summary_error
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasStageSummary(self) -> bool:
+        return bool(self._stage_summary_text.strip())
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -950,6 +978,7 @@ class _TodoDetailBridge(QObject):
         task_status_map: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self._clear_draft_timeline_attachments()
+        self._reset_stage_summary_state()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
@@ -1606,6 +1635,55 @@ class _TodoDetailBridge(QObject):
         self.timelineExpandedChanged.emit()
 
     @pyqtSlot()
+    def toggleStageSummary(self) -> None:
+        self._stage_summary_visible = not self._stage_summary_visible
+        self.dataChanged.emit()
+        if self._stage_summary_visible and not self._stage_summary_requested_once:
+            self.refreshStageSummary()
+
+    @pyqtSlot()
+    def refreshStageSummary(self) -> None:
+        if self._todo_id is None:
+            return
+        payload = self._build_payload()
+        if payload is None:
+            return
+        request_id = str(uuid.uuid4())
+        self._stage_summary_busy = True
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = True
+        self._stage_summary_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.stageSummaryRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "todoPayload": payload,
+            },
+        )
+
+    @pyqtSlot()
+    def copyStageSummary(self) -> None:
+        text = self._stage_summary_text.strip()
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+
+    @pyqtSlot(str)
+    def rewriteStageSummaryWithPreset(self, preset_key: str) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key=str(preset_key or "").strip(),
+            instruction="",
+        )
+
+    @pyqtSlot(str)
+    def rewriteStageSummary(self, instruction: str) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key="",
+            instruction=str(instruction or "").strip(),
+        )
+
+    @pyqtSlot()
     def saveTodo(self) -> None:
         self.timelineChanged.emit()
         self._emit_save_request()
@@ -1755,6 +1833,72 @@ class _TodoDetailBridge(QObject):
         if self._todo_id is None or payload is None:
             return
         self.saveRequested.emit(self._todo_id, payload)
+
+    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str) -> None:
+        if self._todo_id is None:
+            return
+        current_text = self._stage_summary_text.strip()
+        if not current_text:
+            return
+        if not preset_key and not instruction:
+            return
+        request_id = str(uuid.uuid4())
+        self._stage_summary_busy = True
+        self._stage_summary_error = ""
+        self._stage_summary_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.stageSummaryRewriteRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "currentText": current_text,
+                "presetKey": preset_key,
+                "instruction": instruction,
+            },
+        )
+
+    def _reset_stage_summary_state(self, *, keep_visibility: bool = False) -> None:
+        self._stage_summary_visible = self._stage_summary_visible if keep_visibility else False
+        self._stage_summary_busy = False
+        self._stage_summary_text = ""
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = False
+        self._stage_summary_pending_request_id = ""
+
+    def reset_stage_summary_session(self) -> None:
+        self._reset_stage_summary_state()
+        self.dataChanged.emit()
+
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._stage_summary_pending_request_id:
+            return False
+        normalized = sanitize_text(summary_text).strip()
+        self._stage_summary_busy = False
+        self._stage_summary_pending_request_id = ""
+        self._stage_summary_error = ""
+        if normalized:
+            self._stage_summary_text = normalized
+        elif not self._stage_summary_text.strip():
+            self._stage_summary_error = "暂无可查看的阶段总结"
+        self.dataChanged.emit()
+        return True
+
+    def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._stage_summary_pending_request_id:
+            return False
+        self._stage_summary_busy = False
+        self._stage_summary_pending_request_id = ""
+        normalized = sanitize_text(message).strip()
+        if normalized:
+            self._stage_summary_error = normalized
+        elif not self._stage_summary_text.strip():
+            self._stage_summary_error = "阶段总结整理失败"
+        self.dataChanged.emit()
+        return True
 
     def _apply_sync_records(self, sync_records: list[dict[str, object]]) -> None:
         if not sync_records:
@@ -2228,6 +2372,8 @@ class TodoDetailPanel(QQuickView):
     complete_requested = pyqtSignal(str)
     delete_requested = pyqtSignal(str)
     export_plan_requested = pyqtSignal(str, object)
+    stage_summary_requested = pyqtSignal(str, object)
+    stage_summary_rewrite_requested = pyqtSignal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2266,6 +2412,8 @@ class TodoDetailPanel(QQuickView):
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
         self._bridge.exportPlanRequested.connect(self.export_plan_requested)
+        self._bridge.stageSummaryRequested.connect(self.stage_summary_requested)
+        self._bridge.stageSummaryRewriteRequested.connect(self.stage_summary_rewrite_requested)
         self._bridge.panelDragStarted.connect(self._begin_panel_drag)
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
@@ -2393,7 +2541,13 @@ class TodoDetailPanel(QQuickView):
 
     def _close_panel(self) -> None:
         self._bridge._clear_draft_timeline_attachments()
-        self._bridge.dataChanged.emit()
+        self._bridge.reset_stage_summary_session()
         self.hide()
         self.closed.emit()
+
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text)
+
+    def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
 

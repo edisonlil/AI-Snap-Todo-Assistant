@@ -73,12 +73,15 @@ from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
 from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
-from .context_summary_models import ContextSummaryRequest
+from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
 from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
+from .models import TicketSummaryFields
 from .parser import ResultParser
+from .text_sanitize import sanitize_text
+from .todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _PLAN_EXPORT_SYSTEM_PROMPT = (
@@ -86,6 +89,17 @@ _PLAN_EXPORT_SYSTEM_PROMPT = (
     "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
 )
 _PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
+_STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
+    "你是一位阶段总结整理助手。"
+    "你只能基于已有总结做轻量调整，不新增事实，不编造时间线，不做开放聊天。"
+    "输出必须是纯文本，不要 Markdown，不要解释。"
+)
+_STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
+    "shorter": "把现有总结整理得更简短，保留关键结论、当前进展和待确认点。",
+    "customer": "把现有总结整理成更适合发给客户的表述，语气克制、清楚，弱化内部排查术语。",
+    "rd": "把现有总结整理成更适合发给研发同学的表述，保留技术线索、日志依据和待确认项。",
+    "materials": "在不新增事实的前提下，强调已经收集到的材料、截图、日志和已确认信息。",
+}
 
 
 def _format_plan_export_attachment_text(attachments_payload: object) -> str:
@@ -629,6 +643,178 @@ def build_plan_export_filename(title: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(title or "").strip())
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
     return f"{cleaned or '待办处理方案'}.md"
+
+
+def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
+    payload = dict(todo_payload or {}) if isinstance(todo_payload, dict) else {}
+    timeline_payload = payload.get("timeline", [])
+    timeline: list[TimelineEvent] = []
+    if isinstance(timeline_payload, list):
+        for item in timeline_payload:
+            if isinstance(item, TimelineEvent):
+                timeline.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            timeline.append(
+                TimelineEvent(
+                    id=str(item.get("id", "")).strip(),
+                    timestamp=str(item.get("timestamp", "")).strip(),
+                    created_at=str(item.get("created_at", item.get("timestamp", "")) or "").strip(),
+                    kind=str(item.get("kind", "analysis")).strip() or "analysis",
+                    scenario=str(item.get("scenario", "")).strip(),
+                    event_type=str(item.get("event_type", item.get("type", "default"))).strip() or "default",
+                    payload=dict(item.get("payload", {}) or {}),
+                    status=str(item.get("status", "")).strip(),
+                    content=str(item.get("content", "")).strip(),
+                    attachments=[
+                        attachment
+                        if isinstance(attachment, TimelineAttachment)
+                        else TimelineAttachment(
+                            id=str(dict(attachment or {}).get("id", "")).strip(),
+                            name=str(dict(attachment or {}).get("name", "")).strip(),
+                            path=str(dict(attachment or {}).get("path", "")).strip(),
+                            size_bytes=int(dict(attachment or {}).get("sizeBytes", dict(attachment or {}).get("size_bytes", 0)) or 0),
+                        )
+                        for attachment in list(item.get("attachments", []) or [])
+                        if isinstance(attachment, (dict, TimelineAttachment))
+                    ],
+                )
+            )
+
+    conclusion_payload = payload.get("conclusion")
+    conclusion = (
+        conclusion_payload
+        if isinstance(conclusion_payload, TodoConclusion)
+        else TodoConclusion(**dict(conclusion_payload or {}))
+    )
+    return TodoItem(
+        id=str(todo_id or "").strip(),
+        title=str(payload.get("title", "")).strip(),
+        current_summary=str(payload.get("current_summary", "")).strip(),
+        summary_fields=TicketSummaryFields.from_dict(payload.get("summary_fields")),
+        timeline=timeline,
+        conclusion=conclusion,
+    )
+
+
+def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:
+    normalized_preset = sanitize_text(preset_key).strip()
+    normalized_custom = sanitize_text(custom_instruction).strip()
+    if normalized_custom:
+        return normalized_custom
+    return _STAGE_SUMMARY_PRESET_INSTRUCTIONS.get(normalized_preset, "")
+
+
+def _rewrite_stage_summary_locally(current_text: str, preset_key: str, custom_instruction: str) -> str:
+    normalized_text = sanitize_text(current_text).strip()
+    if not normalized_text:
+        return ""
+    normalized_preset = sanitize_text(preset_key).strip()
+    instruction = _stage_summary_rewrite_instruction(normalized_preset, custom_instruction)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    if normalized_preset == "shorter":
+        shortened = lines[:4] if lines else [normalized_text]
+        return "\n".join(shortened)[:220].strip()
+    if normalized_preset == "customer":
+        filtered = [
+            line for line in lines
+            if not any(keyword in line.lower() for keyword in ("trace", "request_id", "trad", "url", "日志路径"))
+        ]
+        selected = filtered or lines
+        return "\n".join(selected[:5]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
+    if normalized_preset == "rd":
+        return "\n".join(lines[:6]).replace("下一步关注", "建议排查").strip()
+    if normalized_preset == "materials":
+        material_lines = [
+            line for line in lines
+            if any(keyword in line.lower() for keyword in ("截图", "附件", "日志", "request_id", "trace", "材料"))
+        ]
+        selected = material_lines or lines[:5]
+        return "\n".join(selected).strip()
+    if instruction:
+        return f"{normalized_text}\n\n按当前要求整理：{instruction}".strip()
+    return normalized_text
+
+
+class StageSummaryWorker(QThread):
+    finished = pyqtSignal(str, str, str)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        llm_service: LLMService,
+        todo_id: str,
+        request_id: str,
+        mode: str,
+        payload: dict[str, object],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._llm_service = llm_service
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._mode = str(mode or "rollup").strip() or "rollup"
+        self._payload = dict(payload or {})
+
+    def run(self) -> None:
+        try:
+            if self._mode == "rewrite":
+                text = self._rewrite_summary()
+            else:
+                text = self._build_rollup_summary()
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+            return
+        self.finished.emit(self._todo_id, self._request_id, text)
+
+    def _build_rollup_summary(self) -> str:
+        todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
+        request = build_context_summary_request_for_todo(
+            todo,
+            summary_goal="timeline_rollup",
+            description=sanitize_text(todo.current_summary).strip() or sanitize_text(todo.title).strip(),
+            max_items=12,
+            max_chars=2200,
+        )
+        result = ContextSummaryService(self._llm_service).summarize(request)
+        summary_text = sanitize_text(result.summary_text).strip()
+        return summary_text or "暂无可查看的阶段总结"
+
+    def _rewrite_summary(self) -> str:
+        current_text = sanitize_text(self._payload.get("currentText", "")).strip()
+        if not current_text:
+            raise ValueError("暂无可调整的阶段总结")
+        preset_key = sanitize_text(self._payload.get("presetKey", "")).strip()
+        custom_instruction = sanitize_text(self._payload.get("instruction", "")).strip()
+        instruction = _stage_summary_rewrite_instruction(preset_key, custom_instruction)
+        if not instruction:
+            return current_text
+        try:
+            rewritten = self._llm_service.run_task(
+                "context_summary",
+                messages=[
+                    Message(role="system", content=_STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT),
+                    Message(
+                        role="user",
+                        content=(
+                            "请只基于下面这版阶段总结做轻量整理。\n"
+                            f"整理要求：{instruction}\n\n"
+                            "现有总结：\n"
+                            f"{current_text}"
+                        ),
+                    ),
+                ],
+                temperature=0.2,
+            )
+            normalized = sanitize_text(rewritten).strip()
+            if normalized:
+                return normalized
+        except Exception:  # noqa: BLE001
+            pass
+        fallback = _rewrite_stage_summary_locally(current_text, preset_key, custom_instruction)
+        return fallback or current_text
 
 
 class PlanExportWorker(_BaseVisionWorker):

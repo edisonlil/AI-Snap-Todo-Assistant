@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>阶段总结 + 轻量改写原型 v2</title>
+  <title>阶段总结 + 轻改写原型 v3</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -76,7 +75,7 @@
       font-size: 16px;
       color: #c0c4cc;
     }
-    .timeline-head .gen-btn {
+    .timeline-head .view-btn {
       margin-left: auto;
       border: 1px solid #d9e0ea;
       background: #fff;
@@ -85,77 +84,56 @@
       padding: 8px 14px;
       font-size: 13px;
       cursor: pointer;
+      transition: .15s ease;
     }
-    .timeline-list {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .timeline-card {
-      border: 2px solid #cfe0ff;
-      background: #fbfdff;
-      border-radius: 26px;
-      padding: 14px 18px 18px;
-    }
-    .timeline-meta {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: #b8c0cc;
-      font-size: 14px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-    .timeline-meta .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      background: #d8dee9;
-    }
-    .timeline-text {
-      font-size: 16px;
-      color: #374151;
-      line-height: 1.7;
+    .timeline-head .view-btn:hover {
+      background: #f8fafc;
     }
 
-    .overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(17,24,39,.08);
+    .summary-panel {
       display: none;
-      z-index: 10;
-    }
-    .overlay.show { display: block; }
-
-    .drawer {
-      position: absolute;
-      top: 236px;
-      right: 18px;
-      width: 430px;
+      margin-bottom: 18px;
       background: #fff;
       border: 1px solid #eceff3;
       border-radius: 24px;
-      box-shadow: 0 24px 60px rgba(15,23,42,.14);
-      display: none;
-      z-index: 20;
+      box-shadow: 0 8px 24px rgba(15,23,42,.06);
       overflow: hidden;
     }
-    .drawer.show { display: block; }
+    .summary-panel.show { display: block; }
 
-    .drawer-header {
+    .panel-header {
       padding: 16px 18px 12px;
       border-bottom: 1px solid #f1f4f7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
-    .drawer-title {
+    .panel-title-wrap { min-width: 0; }
+    .panel-title {
       font-size: 16px;
       font-weight: 700;
       color: #111827;
       margin-bottom: 6px;
     }
-    .drawer-sub {
+    .panel-sub {
       font-size: 12px;
       color: #94a3b8;
       line-height: 1.5;
+    }
+    .close-btn {
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 8px;
+    }
+    .close-btn:hover {
+      background: #f3f4f6;
+      color: #6b7280;
     }
 
     .content {
@@ -205,6 +183,28 @@
       margin-bottom: 8px;
       font-weight: 600;
     }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chip {
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #475569;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .chip:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
     .rewrite-wrap {
       position: relative;
     }
@@ -247,6 +247,38 @@
       line-height: 1.5;
     }
 
+    .timeline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .timeline-card {
+      border: 2px solid #cfe0ff;
+      background: #fbfdff;
+      border-radius: 26px;
+      padding: 14px 18px 18px;
+    }
+    .timeline-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #b8c0cc;
+      font-size: 14px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .timeline-meta .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #d8dee9;
+    }
+    .timeline-text {
+      font-size: 16px;
+      color: #374151;
+      line-height: 1.7;
+    }
+
     .toast {
       position: fixed;
       left: 50%;
@@ -264,8 +296,6 @@
   </style>
 </head>
 <body>
-  <div class="overlay" id="overlay"></div>
-
   <div class="wrap">
     <div class="panel">
       <div class="title-row">
@@ -281,7 +311,44 @@
       <div class="timeline-head">
         <div class="h">时间线历史</div>
         <div class="count">4 条</div>
-        <button class="gen-btn" id="openSummary">生成阶段总结</button>
+        <button class="view-btn" id="toggleSummary">查看阶段总结</button>
+      </div>
+
+      <div class="summary-panel" id="summaryPanel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-title">阶段总结</div>
+            <div class="panel-sub">系统已先整理出一版结果，你可以直接复制，也可以做轻量调整，不做开放聊天。</div>
+          </div>
+          <button class="close-btn" id="closeSummary">×</button>
+        </div>
+
+        <div class="content">
+          <div class="text-box" id="summaryText"></div>
+
+          <div class="actions">
+            <button class="btn primary" id="copyBtn">复制内容</button>
+            <button class="btn" id="regenBtn">重新整理</button>
+          </div>
+
+          <div class="rewrite-box">
+            <div class="rewrite-label">快速调整</div>
+
+            <div class="chips">
+              <button class="chip" data-type="short">更简短</button>
+              <button class="chip" data-type="customer">偏客户</button>
+              <button class="chip" data-type="rd">偏研发</button>
+              <button class="chip" data-type="material">强调已收集材料</button>
+            </div>
+
+            <div class="rewrite-label">自定义调整</div>
+            <div class="rewrite-wrap">
+              <textarea class="rewrite-input" id="rewriteInput" placeholder="例如：语气更稳一点；强调我已经收集了样张和日志；更适合发客户"></textarea>
+              <button class="rewrite-submit" id="rewriteBtn">调整</button>
+            </div>
+            <div class="hint">先给一版，再做轻量改写。这里不是聊天窗口，只围绕当前总结做收敛式调整。</div>
+          </div>
+        </div>
       </div>
 
       <div class="timeline-list">
@@ -304,40 +371,15 @@
           <div class="timeline-text">已整理客户提供的样张和结果文件，待补充环境信息后同步给研发。</div>
         </div>
       </div>
-
-      <div class="drawer" id="drawer">
-        <div class="drawer-header">
-          <div class="drawer-title">阶段总结</div>
-          <div class="drawer-sub">先生成一版，再围绕这版结果做轻量改写，不做开放聊天。</div>
-        </div>
-
-        <div class="content">
-          <div class="text-box" id="summaryText"></div>
-
-          <div class="actions">
-            <button class="btn primary" id="copyBtn">复制内容</button>
-            <button class="btn" id="regenBtn">重新生成</button>
-          </div>
-
-          <div class="rewrite-box">
-            <div class="rewrite-label">补充你的修改要求</div>
-            <div class="rewrite-wrap">
-              <textarea class="rewrite-input" id="rewriteInput" placeholder="例如：再简短一点；语气更像发客户；强调我已经收集了样张和日志"></textarea>
-              <button class="rewrite-submit" id="rewriteBtn">调整</button>
-            </div>
-            <div class="hint">这里只做围绕当前总结的轻改写。按一句要求去调，不做长对话。</div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
   <script>
-    const overlay = document.getElementById('overlay');
-    const drawer = document.getElementById('drawer');
-    const openSummary = document.getElementById('openSummary');
+    const summaryPanel = document.getElementById('summaryPanel');
+    const toggleSummary = document.getElementById('toggleSummary');
+    const closeSummary = document.getElementById('closeSummary');
     const summaryText = document.getElementById('summaryText');
     const copyBtn = document.getElementById('copyBtn');
     const regenBtn = document.getElementById('regenBtn');
@@ -359,26 +401,50 @@
       summaryText.textContent = currentText;
     }
 
-    function openDrawer() {
-      drawer.classList.add('show');
-      overlay.classList.add('show');
+    function openPanel() {
+      summaryPanel.classList.add('show');
+      toggleSummary.textContent = '收起阶段总结';
       renderText();
     }
 
-    function closeDrawer() {
-      drawer.classList.remove('show');
-      overlay.classList.remove('show');
+    function closePanel() {
+      summaryPanel.classList.remove('show');
+      toggleSummary.textContent = '查看阶段总结';
     }
 
-    openSummary.onclick = openDrawer;
-    overlay.onclick = closeDrawer;
+    toggleSummary.onclick = () => {
+      if (summaryPanel.classList.contains('show')) {
+        closePanel();
+      } else {
+        openPanel();
+      }
+    };
+    closeSummary.onclick = closePanel;
 
     copyBtn.onclick = () => showToast('已复制阶段总结');
     regenBtn.onclick = () => {
       currentText = originalText;
       renderText();
-      showToast('已重新生成');
+      showToast('已重新整理');
     };
+
+    function applyPreset(type) {
+      if (type === 'short') {
+        currentText = "已收到客户提供的原始文件、转换结果和问题样张，问题可稳定复现。下一步同步研发排查 PDF 转换链路中的异常大字内容。";
+      } else if (type === 'customer') {
+        currentText = "目前已收到您提供的原始文件、转换结果和问题样张，现已确认该问题可稳定复现。我们这边已完成初步整理，并准备同步研发进一步排查。后续有进展会第一时间同步您。";
+      } else if (type === 'rd') {
+        currentText = "问题现象：PDF 转换后首页出现异常大字内容。\n\n已完成：\n1. 已收集原始文件、转换结果、问题样张\n2. 已确认问题可稳定复现\n3. 已完成初步整理\n\n请协助排查 PDF 转换链路中的内容来源异常。";
+      } else if (type === 'material') {
+        currentText = "目前已收到客户提供的原始文件、转换结果、问题样张，并已完成初步整理。如有需要，也可继续补充相关日志后同步研发进一步排查 PDF 转换链路中的异常大字内容。";
+      }
+      renderText();
+      showToast('已调整内容');
+    }
+
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.onclick = () => applyPreset(chip.dataset.type);
+    });
 
     function applyRewrite() {
       const cmd = rewriteInput.value.trim();
@@ -388,10 +454,12 @@
       }
 
       if (cmd.includes('简短')) {
-        currentText = "已收到客户提供的原始文件、转换结果和问题样张，问题可稳定复现。我们已完成初步整理，下一步同步研发排查 PDF 转换链路中的异常大字内容。";
+        currentText = "已收到客户提供的原始文件、转换结果和问题样张，问题可稳定复现。下一步同步研发排查 PDF 转换链路中的异常大字内容。";
       } else if (cmd.includes('客户')) {
         currentText = "目前已收到您提供的原始文件、转换结果和问题样张，现已确认该问题可稳定复现。我们这边已完成初步整理，并准备同步研发进一步排查。后续有进展会第一时间同步您。";
-      } else if (cmd.includes('样张') || cmd.includes('日志')) {
+      } else if (cmd.includes('研发')) {
+        currentText = "问题现象：PDF 转换后首页出现异常大字内容。\n\n已完成：\n1. 已收集原始文件、转换结果、问题样张\n2. 已确认问题可稳定复现\n3. 已完成初步整理\n\n请协助排查 PDF 转换链路中的内容来源异常。";
+      } else if (cmd.includes('样张') || cmd.includes('日志') || cmd.includes('材料')) {
         currentText = "目前已收到客户提供的原始文件、转换结果、问题样张，并已完成初步整理。如有需要，也可继续补充相关日志后同步研发进一步排查 PDF 转换链路中的异常大字内容。";
       } else {
         currentText = currentText + "\n\n【按要求调整】" + cmd;

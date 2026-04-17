@@ -170,3 +170,85 @@ def test_removing_draft_attachment_does_not_touch_existing_event_attachments(mon
     assert bridge.timeline[0]["attachmentCount"] == 1
     assert bridge.timeline[0]["attachments"][0]["path"] == f"/{event_id}/event.txt"
     assert removed_paths == ["/__draft_timeline__/draft.txt"]
+
+
+def test_toggle_stage_summary_requests_once_without_saving() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[tuple[str, dict[str, object]]] = []
+    saved: list[tuple[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.toggleStageSummary()
+
+    assert bridge.stageSummaryVisible is True
+    assert bridge.stageSummaryBusy is True
+    assert bridge.hasStageSummary is False
+    assert len(requested) == 1
+    assert requested[0][0] == "todo-1"
+    assert isinstance(requested[0][1]["todoPayload"], dict)
+    assert saved == []
+
+    bridge.toggleStageSummary()
+    bridge.toggleStageSummary()
+
+    assert len(requested) == 1
+
+
+def test_stage_summary_result_resets_when_switching_todo() -> None:
+    bridge = _build_bridge(Path("unused"))
+    first_todo = _build_todo("todo-1")
+    second_todo = _build_todo("todo-2")
+    bridge.set_todo(first_todo)
+
+    requested: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+
+    assert bridge.apply_stage_summary_result("todo-1", request_id, "阶段总结内容") is True
+    assert bridge.stageSummaryText == "阶段总结内容"
+    assert bridge.hasStageSummary is True
+
+    bridge.set_todo(second_todo)
+
+    assert bridge.stageSummaryVisible is False
+    assert bridge.stageSummaryBusy is False
+    assert bridge.stageSummaryText == ""
+    assert bridge.stageSummaryError == ""
+    assert bridge.hasStageSummary is False
+
+
+def test_stage_summary_rewrite_does_not_change_save_payload() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    original_payload = bridge._build_payload()  # noqa: SLF001
+    assert original_payload is not None
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", request_id, "第一版阶段总结")
+
+    bridge.rewriteStageSummaryWithPreset("shorter")
+
+    assert bridge.stageSummaryBusy is True
+    assert len(rewritten) == 1
+    assert rewritten[0]["currentText"] == "第一版阶段总结"
+    assert rewritten[0]["presetKey"] == "shorter"
+
+    current_payload = bridge._build_payload()  # noqa: SLF001
+    assert current_payload["title"] == original_payload["title"]
+    assert current_payload["current_summary"] == original_payload["current_summary"]
+    assert current_payload["summary_fields"] == original_payload["summary_fields"]
+    assert current_payload["timeline"] == original_payload["timeline"]
+    assert current_payload["conclusion"].content == original_payload["conclusion"].content
+    assert current_payload["conclusion"].attachments == original_payload["conclusion"].attachments

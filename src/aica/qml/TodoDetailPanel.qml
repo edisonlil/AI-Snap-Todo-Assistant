@@ -1089,19 +1089,88 @@ Rectangle {
                                 font.weight: root.bodyWeight
                             }
 
-                            Text {
+                            Row {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
-                                color: "#98A2B2"
-                                font.family: root.uiFont
-                                font.pixelSize: 11
-                                font.weight: root.labelWeight
+                                spacing: 12
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: todoDetailBridge.toggleTimeline()
+                                Rectangle {
+                                    width: summaryToggleText.implicitWidth + 24
+                                    height: 30
+                                    radius: 15
+                                    color: "#FFFFFF"
+                                    border.width: 1
+                                    border.color: root.fieldLine
+
+                                    Text {
+                                        id: summaryToggleText
+                                        anchors.centerIn: parent
+                                        text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "查看阶段总结"
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: todoDetailBridge.toggleStageSummary()
+                                    }
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
+                                    color: "#98A2B2"
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: 500
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: todoDetailBridge.toggleTimeline()
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            width: parent.width
+                            height: todoDetailBridge.stageSummaryVisible ? stageSummaryPanel.implicitHeight : 0
+                            opacity: todoDetailBridge.stageSummaryVisible ? 1 : 0
+                            clip: true
+
+                            Behavior on height {
+                                NumberAnimation {
+                                    duration: 180
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: 140
+                                }
+                            }
+
+                            StageSummaryPanel {
+                                id: stageSummaryPanel
+                                width: parent.width
+                                theme: root
+                                busy: todoDetailBridge.stageSummaryBusy
+                                summaryText: todoDetailBridge.stageSummaryText
+                                errorText: todoDetailBridge.stageSummaryError
+                                hasSummary: todoDetailBridge.hasStageSummary
+                                onCloseClicked: todoDetailBridge.toggleStageSummary()
+                                onCopyClicked: todoDetailBridge.copyStageSummary()
+                                onRefreshClicked: todoDetailBridge.refreshStageSummary()
+                                onPresetRewriteRequested: function(key) {
+                                    todoDetailBridge.rewriteStageSummaryWithPreset(key)
+                                }
+                                onCustomRewriteRequested: function(text) {
+                                    todoDetailBridge.rewriteStageSummary(text)
                                 }
                             }
                         }

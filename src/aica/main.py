@@ -42,6 +42,7 @@ from aica.worker import (
     AIWorker,
     MultiCaptureAIWorker,
     PlanExportWorker,
+    StageSummaryWorker,
     build_plan_export_filename,
 )
 
@@ -149,6 +150,7 @@ def main() -> None:
     analysis_metrics_store = AnalysisMetricsStore()
     plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
+    stage_summary_workers: list[StageSummaryWorker] = []
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -561,6 +563,11 @@ def main() -> None:
             log_analysis_workers.remove(worker)
         worker.deleteLater()
 
+    def _cleanup_stage_summary_worker(worker: StageSummaryWorker) -> None:
+        if worker in stage_summary_workers:
+            stage_summary_workers.remove(worker)
+        worker.deleteLater()
+
     def _on_log_analysis_finished(task_id: str) -> None:
         task = log_analysis_store.get_task(task_id)
         if task is not None and todo_controller.detail_todo_id == task.todo_id:
@@ -627,6 +634,44 @@ def main() -> None:
         _show_todo_detail(todo_id)
         _refresh_todo_panel()
 
+    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str) -> None:
+        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text)
+
+    def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
+        todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
+
+    def _start_stage_summary_worker(todo_id: str, request_id: str, mode: str, payload: dict[str, object]) -> None:
+        config = config_mgr.load()
+        worker = StageSummaryWorker(
+            llm_service=LLMService(config),
+            todo_id=todo_id,
+            request_id=request_id,
+            mode=mode,
+            payload=payload,
+        )
+        stage_summary_workers.append(worker)
+        worker.finished.connect(_on_stage_summary_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _text, current=worker: _cleanup_stage_summary_worker(current))
+        worker.error.connect(_on_stage_summary_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
+        worker.start()
+
+    def _on_stage_summary_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        _start_stage_summary_worker(todo_id, request_id, "rollup", payload)
+
+    def _on_stage_summary_rewrite_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        _start_stage_summary_worker(todo_id, request_id, "rewrite", payload)
+
     def _on_control_panel_saved(saved_config) -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
@@ -655,6 +700,8 @@ def main() -> None:
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
     todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
+    todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
+    todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
 
     try:
         _refresh_todo_panel()
