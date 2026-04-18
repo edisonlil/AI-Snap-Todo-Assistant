@@ -1,12 +1,12 @@
 # AI Snap Todo Assistant
 
-面向 Windows 的 AI 工单待办助手。
+面向 Windows 与 macOS 的 AI 工单待办助手。
 
 围绕“截图采集上下文 -> AI 结构化提取 -> 创建/追加待办 -> 持续跟进时间线”设计，适合技术支持、售后、实施、交付等需要高频处理工单上下文的场景。
 
 ## 产品定位
 
-- 使用 `Alt+A` 快速截取群聊、报错和工单上下文
+- 使用全局热键快速截取群聊、报错和工单上下文
 - 由 AI 提取结构化字段和本次新增跟进内容
 - 未选中待办时创建新待办
 - 已选中待办时追加到现有待办，并保持时间线连续
@@ -14,7 +14,7 @@
 
 ## 当前能力
 
-- 全局热键截图：`Alt+A`
+- 全局热键截图：Windows 默认 `Alt+A`，macOS 默认 `Command+Shift+A`
 - 截图覆盖层支持框选与标注
 - 单张截图分析与多张截图合并分析
 - AI 结构化提取工单信息
@@ -31,6 +31,7 @@
 ## 运行环境
 
 - Windows 10 或更高版本
+- macOS 13 或更高版本（当前以 Apple Silicon 为主）
 - Python 3.10+
 - 可访问模型供应商接口
   - `openai_compatible`
@@ -39,9 +40,19 @@
 
 ## 安装
 
+Windows：
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+macOS：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
@@ -161,7 +172,7 @@ python -m pip install -r requirements-build.txt
       "model_id": "qwen3-8b"
     }
   },
-  "hotkeys": {
+ "hotkeys": {
     "capture": "Alt+A"
   },
   "max_image_bytes": 4194304
@@ -190,6 +201,7 @@ python -m pip install -r requirements-build.txt
 补充说明：
 
 - 首次运行或任务绑定缺少可用 `api_key` / 模型时，程序会弹窗引导配置
+- Windows 默认截图热键为 `Alt+A`；macOS 新建配置默认使用 `Command+Shift+A`
 - 旧版 `config.json` 会在加载时自动迁移到新 schema
 - 运行时内部只使用新配置结构，不再依赖旧顶层字段
 
@@ -206,8 +218,16 @@ python -m pip install -r requirements-build.txt
 
 ## 启动
 
+Windows：
+
 ```powershell
 python .\run_aica.py
+```
+
+macOS：
+
+```bash
+python run_aica.py
 ```
 
 如果使用 conda 环境，例如：
@@ -221,8 +241,16 @@ python .\run_aica.py
 
 推荐的回归命令：
 
+Windows：
+
 ```powershell
 pytest tests\test_environment_access.py tests\test_log_analysis.py tests\test_context_summary.py tests\test_todo_detail_panel.py -q
+```
+
+macOS：
+
+```bash
+pytest tests/test_environment_access.py tests/test_log_analysis.py tests/test_context_summary.py tests/test_todo_detail_panel.py -q
 ```
 
 运行完整测试：
@@ -233,8 +261,16 @@ pytest tests -q
 
 快速语法与导入检查：
 
+Windows：
+
 ```powershell
 python -m compileall src\aica run_aica.py
+```
+
+macOS：
+
+```bash
+python -m compileall src/aica run_aica.py
 ```
 
 ## 打包
@@ -250,6 +286,17 @@ Windows `onefile`：
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ```
+
+macOS `.app`：
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+## macOS 权限说明
+
+- 首次在 macOS 使用全局截图热键时，可能需要在“系统设置 > 隐私与安全性”中为终端或打包后的 `AICA.app` 开启“辅助功能”和“输入监听”权限。
+- 如果权限未开启，AICA 会继续启动，并保留菜单栏入口；授权后重启应用即可重新启用热键。
 
 ## 控制面板更新
 

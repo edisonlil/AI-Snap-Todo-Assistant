@@ -11,7 +11,7 @@ Rectangle {
     readonly property color fieldBg: "#FCFBF8"
     readonly property color fieldLine: "#E4DFD4"
     readonly property color accent: "#3D7CFF"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: focusHintBridge ? focusHintBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 10
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400

@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .runtime import RUNTIME_CAPABILITIES
+
 
 @dataclass
 class TextAnnotation:
@@ -273,7 +275,7 @@ class AnnotationDialog(QDialog):
             QDialog {
                 background-color: #f6f7f9;
                 color: #111827;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                font-family: %s;
             }
             QFrame#annotToolbar, QFrame#annotFooter {
                 background-color: #ffffff;
@@ -313,6 +315,7 @@ class AnnotationDialog(QDialog):
                 border-radius: 12px;
             }
             """
+            % RUNTIME_CAPABILITIES.widget_font_css
         )
 
     def _setup_shortcuts(self) -> None:

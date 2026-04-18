@@ -17,7 +17,7 @@ from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.analysis_metrics import AnalysisMetricsStore
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
-from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
+from aica.config import ConfigManager
 from aica.context_summary_models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
@@ -30,6 +30,7 @@ from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
 from aica.result_flow import ResultFlowCoordinator
+from aica.runtime import RUNTIME_CAPABILITIES, hotkey_failure_message
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
 from aica.ticket_enrichment import TicketEnrichmentService, build_feature_point_provider
 from aica.todo_controller import TodoController
@@ -105,16 +106,43 @@ def _format_ts(value: str) -> str:
         return value
 
 
+def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyManager:
+    default_hotkey = RUNTIME_CAPABILITIES.default_capture_hotkey
+    try:
+        return HotkeyManager(
+            initial_config.hotkeys.capture,
+            platform_id=RUNTIME_CAPABILITIES.platform_id,
+        )
+    except ValueError:
+        initial_config.hotkeys.capture = default_hotkey
+        config_mgr.save(initial_config)
+        return HotkeyManager(default_hotkey, platform_id=RUNTIME_CAPABILITIES.platform_id)
+
+
+def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) -> Exception | None:
+    try:
+        hotkey_mgr.start()
+        _append_startup_log(startup_log_file, "startup: hotkey listener started")
+        return None
+    except Exception as exc:  # pragma: no cover - exercised via tests with monkeypatch
+        _append_startup_log(
+            startup_log_file,
+            f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
+        )
+        return exc
+
+
 def main() -> None:
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
         show_already_running_message()
         return
 
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
+    if RUNTIME_CAPABILITIES.is_windows:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
 
     startup_log_file = _setup_exception_handler()
     _append_startup_log(startup_log_file, "startup: main entered")
@@ -126,12 +154,7 @@ def main() -> None:
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
-    try:
-        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
-    except ValueError:
-        initial_config.hotkeys.capture = DEFAULT_CAPTURE_HOTKEY
-        config_mgr.save(initial_config)
-        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
+    hotkey_mgr = _build_hotkey_manager(config_mgr, initial_config)
     control_panel = ControlPanelWindow(config_mgr)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
@@ -676,7 +699,7 @@ def main() -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
         except ValueError:
-            hotkey_mgr.update_hotkey(DEFAULT_CAPTURE_HOTKEY)
+            hotkey_mgr.update_hotkey(RUNTIME_CAPABILITIES.default_capture_hotkey)
         log_analysis_orchestrator.update_app_config(saved_config)
 
     control_panel.config_saved.connect(_on_control_panel_saved)
@@ -711,18 +734,17 @@ def main() -> None:
         else:
             _append_startup_log(startup_log_file, "startup: system tray unavailable")
             _show_control_panel("models")
-        try:
-            hotkey_mgr.start()
-            _append_startup_log(startup_log_file, "startup: hotkey listener started")
-        except Exception as exc:
-            _append_startup_log(
-                startup_log_file,
-                f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
-            )
+        hotkey_error = _start_hotkey_listener(hotkey_mgr, startup_log_file)
+        if hotkey_error is not None:
             QMessageBox.warning(
                 None,
-                "???????",
-                f"???????????????????\n???????????????????\n\n??: {startup_log_file}\n{exc}",
+                "截图热键不可用",
+                hotkey_failure_message(
+                    hotkey_mgr.hotkey,
+                    hotkey_error,
+                    log_file=startup_log_file,
+                    platform_id=RUNTIME_CAPABILITIES.platform_id,
+                ),
             )
         sys.exit(app.exec())
     finally:

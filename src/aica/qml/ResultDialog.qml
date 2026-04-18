@@ -14,7 +14,7 @@ Rectangle {
     readonly property color mutedInk: "#A9B1BD"
     readonly property color fieldBg: "#F7F7F4"
     readonly property color fieldLine: "#E7E4DD"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: resultDialogBridge ? resultDialogBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 22
     readonly property int cardRadius: 28
     readonly property int sectionGap: 10

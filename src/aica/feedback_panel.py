@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from aica.feedback import FeedbackCollector, FeedbackData
+from aica.runtime import RUNTIME_CAPABILITIES
 
 
 class FeedbackPanel(QDialog):
@@ -174,7 +175,7 @@ class FeedbackPanel(QDialog):
             QDialog#feedbackDialog {
                 background-color: #ffffff;
                 color: #111827;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                font-family: %s;
             }
             QFrame#surface {
                 background-color: #ffffff;
@@ -222,7 +223,7 @@ class FeedbackPanel(QDialog):
                 border-radius: 10px;
                 padding: 12px 14px;
                 selection-background-color: #dbeafe;
-                font-family: 'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace;
+                font-family: %s;
                 font-size: 12px;
                 line-height: 1.55;
             }
@@ -278,6 +279,7 @@ class FeedbackPanel(QDialog):
                 background-color: #f3f4f6;
             }
             """
+            % (RUNTIME_CAPABILITIES.widget_font_css, RUNTIME_CAPABILITIES.monospace_font_css)
         )
 
     def showEvent(self, event) -> None:  # noqa: N802

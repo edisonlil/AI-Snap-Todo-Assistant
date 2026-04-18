@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .runtime import RUNTIME_CAPABILITIES
 from .analysis_intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .focus_hint_dialog import FocusHintDialog
 
@@ -52,11 +53,7 @@ class FloatingToolbar(QWidget):
         self.set_single_capture_mode()
 
     def _setup_ui(self) -> None:
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setWindowFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         root_layout = QHBoxLayout(self)
@@ -169,7 +166,7 @@ class FloatingToolbar(QWidget):
             QWidget {
                 background: transparent;
                 color: #111827;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                font-family: %s;
             }
             QFrame#toolbarSurface {
                 background-color: rgba(255, 255, 255, 244);
@@ -312,6 +309,7 @@ class FloatingToolbar(QWidget):
                 border: 1px solid rgba(229, 231, 235, 0.9);
             }
             """
+            % RUNTIME_CAPABILITIES.widget_font_css
         )
 
     def set_single_capture_mode(self) -> None:
@@ -339,11 +337,7 @@ class FloatingToolbar(QWidget):
 
         if overlay is None:
             self.setParent(None)
-            self.setWindowFlags(
-                Qt.WindowType.FramelessWindowHint
-                | Qt.WindowType.WindowStaysOnTopHint
-                | Qt.WindowType.Tool
-            )
+            self.setWindowFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         else:
             self.setParent(overlay)
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Widget)

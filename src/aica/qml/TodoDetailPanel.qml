@@ -27,7 +27,7 @@ Rectangle {
     readonly property color timelineBg: "#F7F7F4"
     readonly property color accent: "#3D7CFF"
     readonly property color accentTint: "#EEF4FF"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16
@@ -1769,4 +1769,3 @@ Rectangle {
 
     Component.onCompleted: syncFields()
 }
-

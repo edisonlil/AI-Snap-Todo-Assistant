@@ -8,21 +8,24 @@ Rectangle {
     height: 760
     color: "transparent"
 
-    readonly property color shellBg: "#F6F2EA"
-    readonly property color panelBg: "#FCF9F3"
-    readonly property color panelAltBg: "#F3EEE5"
-    readonly property color panelLine: "#E7DDCF"
+    readonly property color shellBg: "#FFFFFF"
+    readonly property color panelBg: "#FFFFFF"
+    readonly property color panelAltBg: "#F5F5F5"
+    readonly property color panelLine: "#E5E7EB"
     readonly property color titleInk: "#18202E"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#7C8795"
-    readonly property color accent: "#3E7B67"
-    readonly property color accentSoft: "#D8EAE2"
-    readonly property color navIdle: "#F1EBE0"
+    readonly property color accent: "#3D7CFF"
+    readonly property color accentSoft: "#EEF4FF"
+    readonly property color navIdle: "#F5F5F5"
+    readonly property color inputBg: "#F7F7F8"
+    readonly property color hoverBg: "#EEF2F6"
+    readonly property color pressedBg: "#E5EAF1"
     readonly property color errorBg: "#FDECEC"
     readonly property color errorInk: "#B42318"
     readonly property color successBg: "#E7F5ED"
     readonly property color successInk: "#17663A"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI"
     readonly property var projectLevelOptions: [
         { value: "normal", text: "常规" },
         { value: "important", text: "重要" }
@@ -224,15 +227,15 @@ Rectangle {
     component PlainButton: Rectangle {
         id: buttonRoot
         property string label: ""
-        property color fillColor: "#FFFDFC"
-        property color inkColor: root.titleInk
-        property int strokeWidth: 1
+        property color fillColor: root.accent
+        property color inkColor: "#FFFFFF"
+        property int strokeWidth: 0
         signal clicked
 
         radius: 16
         color: fillColor
         border.width: strokeWidth
-        border.color: root.panelLine
+        border.color: fillColor
         implicitWidth: buttonText.implicitWidth + 28
         implicitHeight: 38
 
@@ -280,7 +283,7 @@ Rectangle {
                 width: 48
                 height: 26
                 radius: 13
-                color: toggleRoot.checked ? root.accent : "#D7CCBE"
+                color: toggleRoot.checked ? root.accent : "#D1D5DB"
 
                 Rectangle {
                     width: 22
@@ -288,9 +291,9 @@ Rectangle {
                     radius: 11
                     x: toggleRoot.checked ? parent.width - width - 2 : 2
                     y: 2
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: toggleRoot.checked ? "#D1E4DA" : "#E0D4C5"
+                    border.color: toggleRoot.checked ? "#D5DBE5" : "#D1D5DB"
                 }
             }
         }
@@ -305,8 +308,8 @@ Rectangle {
     component WindowButton: Rectangle {
         id: windowButton
         property string label: ""
-        property color hoverColor: "#EEE5D8"
-        property color pressedColor: "#E5D9C7"
+        property color hoverColor: root.hoverBg
+        property color pressedColor: root.pressedBg
         property color inkColor: root.bodyInk
         property int fontPixelSize: 15
         signal clicked
@@ -346,7 +349,7 @@ Rectangle {
         bottomPadding: 11
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: input.activeFocus ? root.accent : root.panelLine
         }
@@ -390,7 +393,7 @@ Rectangle {
 
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: combo.activeFocus ? root.accent : root.panelLine
         }
@@ -407,7 +410,7 @@ Rectangle {
         implicitHeight: 96
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: area.activeFocus ? root.accent : root.panelLine
         }
@@ -522,7 +525,7 @@ Rectangle {
         Rectangle {
             anchors.fill: parent
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
         }
@@ -592,7 +595,7 @@ Rectangle {
 
             background: Rectangle {
                 radius: 16
-                color: "#FFFEFC"
+                color: root.panelBg
                 border.width: 1
                 border.color: root.panelLine
             }
@@ -606,7 +609,7 @@ Rectangle {
                     height: addLabel.implicitHeight + 14
                     radius: 12
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: addMouseArea.pressed ? "#E7F5ED" : addMouseArea.containsMouse ? "#F1FAF5" : "#FFFFFF"
+                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.hoverBg : root.panelBg
 
                     Text {
                         id: addLabel
@@ -635,7 +638,7 @@ Rectangle {
                     height: textOnlyLabel.implicitHeight + 14
                     radius: 12
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: textOnlyMouseArea.pressed ? "#F6F0E6" : textOnlyMouseArea.containsMouse ? "#FBF6EE" : "#FFFFFF"
+                    color: textOnlyMouseArea.pressed ? root.pressedBg : textOnlyMouseArea.containsMouse ? root.hoverBg : root.panelBg
 
                     Text {
                         id: textOnlyLabel
@@ -670,7 +673,7 @@ Rectangle {
                         width: optionList.width
                         height: optionText.implicitHeight + 14
                         radius: 12
-                        color: optionMouseArea.pressed ? "#EDE6D9" : optionMouseArea.containsMouse ? "#F7F1E7" : "transparent"
+                        color: optionMouseArea.pressed ? root.pressedBg : optionMouseArea.containsMouse ? root.hoverBg : "transparent"
 
                         Text {
                             id: optionText
@@ -719,7 +722,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 radius: 20
-                color: "#FAF5EC"
+                color: root.panelAltBg
 
                 MouseArea {
                     anchors.fill: parent
@@ -791,7 +794,7 @@ Rectangle {
                 SectionCard {
                     Layout.preferredWidth: 220
                     Layout.fillHeight: true
-                    color: "#F8F2E8"
+                    color: root.panelAltBg
                     radius: 26
 
                     ColumnLayout {
@@ -1001,7 +1004,7 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         implicitHeight: providerContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        color: root.panelAltBg
 
                                         ColumnLayout {
                                             id: providerContent
@@ -1078,7 +1081,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "models"
                                     Layout.fillWidth: true
                                     implicitHeight: bindingContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: bindingContent
@@ -1153,7 +1156,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: hotkeyContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: hotkeyContent
@@ -1170,7 +1173,7 @@ Rectangle {
                                         }
 
                                         Text {
-                                            text: "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+                                            text: controlPanelBridge.hotkeyHelpText
                                             color: root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 11
@@ -1181,7 +1184,7 @@ Rectangle {
                                         SettingsInput {
                                             Layout.fillWidth: true
                                             text: controlPanelBridge.captureHotkey
-                                            placeholderText: "Alt+A"
+                                            placeholderText: controlPanelBridge.hotkeyPlaceholder
                                             onTextEdited: controlPanelBridge.updateCaptureHotkey(text)
                                         }
                                     }
@@ -1191,7 +1194,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: imageContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: imageContent
@@ -1229,7 +1232,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: analysisRulesContent
@@ -1316,7 +1319,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: promptDebugContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: promptDebugContent
@@ -1381,7 +1384,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 implicitHeight: debugItemColumn.implicitHeight + 18
                                                 radius: 16
-                                                color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accentSoft : "#FFFCF7"
+                                                color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accentSoft : root.panelBg
                                                 border.width: 1
                                                 border.color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accent : root.panelLine
 
@@ -1494,7 +1497,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "storage"
                                     Layout.fillWidth: true
                                     implicitHeight: storageContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: storageContent
@@ -1639,7 +1642,7 @@ Rectangle {
                                     visible: false && controlPanelBridge.currentSection === "projects"
                                     Layout.fillWidth: true
                                     implicitHeight: projectManagerContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: projectManagerContent
@@ -1715,7 +1718,7 @@ Rectangle {
                                                 Layout.preferredWidth: 340
                                                 implicitHeight: 520
                                                 radius: 18
-                                                color: "#FFF9F1"
+                                                color: root.panelAltBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -1745,7 +1748,7 @@ Rectangle {
                                                             width: ListView.view.width
                                                             height: projectInfoColumn.implicitHeight + 20
                                                             radius: 14
-                                                            color: currentProject ? root.accentSoft : "#FFFCF7"
+                                                            color: currentProject ? root.accentSoft : root.panelBg
                                                             border.width: 1
                                                             border.color: currentProject ? root.accent : root.panelLine
 
@@ -1823,7 +1826,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 implicitHeight: projectFormColumn.implicitHeight + 24
                                                 radius: 18
-                                                color: "#FFF9F1"
+                                                color: root.panelAltBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -1931,7 +1934,7 @@ Rectangle {
                                                             Layout.fillWidth: true
                                                             implicitHeight: 44
                                                             radius: 16
-                                                            color: "#FFFEFC"
+                                                            color: root.inputBg
                                                             border.width: 1
                                                             border.color: root.panelLine
 
@@ -1974,7 +1977,7 @@ Rectangle {
                                                             Layout.fillWidth: true
                                                             implicitHeight: 44
                                                             radius: 16
-                                                            color: "#FFFEFC"
+                                                            color: root.inputBg
                                                             border.width: 1
                                                             border.color: root.panelLine
 
@@ -2120,7 +2123,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "integrations"
                                     Layout.fillWidth: true
                                     implicitHeight: integrationIntro.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: integrationIntro
@@ -2138,7 +2141,7 @@ Rectangle {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
+                                            text: controlPanelBridge.integrationScriptHelpText
                                             color: root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 11
@@ -2156,7 +2159,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "integrations" && controlPanelBridge.integrationScripts.length === 0
                                     Layout.fillWidth: true
                                     implicitHeight: emptyIntegrationContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: emptyIntegrationContent
@@ -2189,7 +2192,7 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         implicitHeight: integrationContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        color: root.panelAltBg
 
                                         ColumnLayout {
                                             id: integrationContent
@@ -2216,11 +2219,11 @@ Rectangle {
                                                     }
 
                                                     Text {
-                                                        text: modelData.enabled ? "已启用" : "已停用"
-                                                        color: modelData.enabled ? root.successInk : root.labelInk
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: 11
-                                                        font.weight: 600
+                                                text: modelData.supported ? (modelData.enabled ? "已启用" : "已停用") : "当前平台不支持"
+                                                color: modelData.supported ? (modelData.enabled ? root.successInk : root.labelInk) : root.errorInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
                                                     }
                                                 }
 
@@ -2243,8 +2246,8 @@ Rectangle {
 
                                             Text {
                                                 Layout.fillWidth: true
-                                                text: modelData.exists ? "脚本文件存在" : "警告：当前脚本路径不存在"
-                                                color: modelData.exists ? root.labelInk : root.errorInk
+                                                text: !modelData.supported ? modelData.supportMessage : (modelData.exists ? "脚本文件存在" : "警告：当前脚本路径不存在")
+                                                color: modelData.supported && modelData.exists ? root.labelInk : root.errorInk
                                                 font.family: root.uiFont
                                                 font.pixelSize: 11
                                                 wrapMode: Text.Wrap
@@ -2280,7 +2283,7 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         implicitHeight: locationContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        color: root.panelAltBg
 
                                         ColumnLayout {
                                             id: locationContent
@@ -2335,7 +2338,7 @@ Rectangle {
             width: 12
             height: 12
             radius: 4
-            color: "#D8EAE2"
+            color: root.accentSoft
             opacity: 0.95
         }
 

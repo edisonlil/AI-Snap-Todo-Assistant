@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
+from .runtime import RUNTIME_CAPABILITIES
 from .todo_store import TodoItem
 
 
@@ -183,11 +184,7 @@ class TodoPanel(QQuickView):
         self._snap_margin = 18
         self._snap_threshold = 28
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)

@@ -225,6 +225,7 @@ from .models import TicketSummaryFields
 from .environment_access import EnvironmentAccessService
 from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
 from .paths import todo_attachments_dir
+from .runtime import RUNTIME_CAPABILITIES
 from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from .ticket_enrichment import ROOT_CAUSE_OPTIONS
 from .ticket_field_resolver import (
@@ -613,6 +614,10 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_error = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
 
     @pyqtProperty(str, notify=dataChanged)
     def environmentAccessSummaryText(self) -> str:
@@ -2458,11 +2463,7 @@ class _StageSummaryWindow(QQuickView):
         self._anchor_gap = 0
         self._top_offset = 0
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
@@ -2636,11 +2637,7 @@ class TodoDetailPanel(QQuickView):
         self._drag_offset_y = 0
         self._stage_summary_window_visible = False
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
@@ -2835,4 +2832,3 @@ class TodoDetailPanel(QQuickView):
 
     def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
-

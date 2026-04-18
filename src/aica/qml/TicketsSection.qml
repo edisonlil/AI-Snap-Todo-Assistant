@@ -443,7 +443,7 @@ ColumnLayout {
         theme: ticketSection.theme
         Layout.fillWidth: true
         implicitHeight: ticketContent.implicitHeight + 32
-        color: "#F6F0E6"
+        color: theme.panelAltBg
 
         Popup {
             id: copyToast
@@ -493,7 +493,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 implicitHeight: ticketTotalCount > 0 ? 676 : 220
                 radius: 14
-                color: "#FDF9F2"
+                color: theme.panelAltBg
                 border.width: 1
                 border.color: theme.panelLine
 
@@ -568,7 +568,7 @@ ColumnLayout {
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 1
-                        color: "#E9E0D2"
+                        color: theme.panelLine
                     }
 
                     Item {
@@ -718,7 +718,7 @@ ColumnLayout {
                                 Rectangle {
                                     width: parent.width
                                     height: 1
-                                    color: "#E9E0D2"
+                                    color: theme.panelLine
                                 }
 
                                 ListView {
@@ -911,7 +911,7 @@ ColumnLayout {
                                                 anchors.leftMargin: tableFlickable.sidePadding
                                                 anchors.rightMargin: tableFlickable.sidePadding
                                                 height: 1
-                                                color: "#F0E8DD"
+                                                color: theme.panelLine
                                             }
                                         }
                                     }
@@ -929,7 +929,7 @@ ColumnLayout {
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         height: 1
-                                        color: "#E9E0D2"
+                                        color: theme.panelLine
                                     }
 
                                     Row {
@@ -993,9 +993,9 @@ ColumnLayout {
                                                 width: pageItem.current ? 44 : 60
                                                 height: 36
                                                 radius: 16
-                                                color: pageItem.current ? "#F4ECDD" : "#FFFEFC"
+                                                color: pageItem.current ? theme.accentSoft : theme.inputBg
                                                 border.width: 1
-                                                border.color: pageItem.enabled ? theme.panelLine : "#EEE5D8"
+                                                border.color: theme.panelLine
                                                 opacity: pageItem.enabled ? 1.0 : 0.56
 
                                                 Text {
@@ -1166,9 +1166,9 @@ ColumnLayout {
                 Rectangle {
                     Layout.fillWidth: true
                     radius: 22
-                    color: "#FFFCF8"
+                    color: theme.panelAltBg
                     border.width: 1
-                    border.color: "#ECE4D8"
+                    border.color: theme.panelLine
                     implicitHeight: ticketDetailColumn.implicitHeight + 40
 
                     ColumnLayout {
@@ -1227,7 +1227,7 @@ ColumnLayout {
                         Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: 1
-                            color: "#E9E0D3"
+                            color: theme.panelLine
                         }
 
                         GridLayout {
@@ -1298,7 +1298,7 @@ ColumnLayout {
                                                     width: 2
                                                     height: Math.max(0, parent.height - 24)
                                                     radius: 1
-                                                    color: "#E4DCCF"
+                                                    color: theme.panelLine
                                                 }
                                             }
 
@@ -1350,9 +1350,9 @@ ColumnLayout {
 
                                                         delegate: Rectangle {
                                                             radius: 14
-                                                            color: "#F6F2EA"
+                                                            color: theme.inputBg
                                                             border.width: 1
-                                                            border.color: "#E5DCD0"
+                                                            border.color: theme.panelLine
                                                             width: attachmentText.implicitWidth + 24
                                                             height: 30
 
@@ -1372,7 +1372,7 @@ ColumnLayout {
                                                     visible: index < controlPanelBridge.selectedTicket.timeline.length - 1
                                                     Layout.fillWidth: true
                                                     implicitHeight: 1
-                                                    color: "#EEE5D8"
+                                                    color: theme.panelLine
                                                     Layout.topMargin: 8
                                                 }
                                             }

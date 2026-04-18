@@ -6,7 +6,7 @@ Rectangle {
     width: 443
     height: 632
     color: "transparent"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
     readonly property real preferredHeight: panel.preferredHeight
     onPreferredHeightChanged: stageSummaryWindowBridge.syncPanelSize()
 

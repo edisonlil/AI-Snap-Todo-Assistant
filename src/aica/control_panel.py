@@ -240,6 +240,7 @@ from aica.analysis_rules import (
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.control_panel_state import (
     build_script_integration,
+    describe_script_integration_support,
     format_image_limit_megabytes,
     list_script_integrations,
     load_integration_config,
@@ -272,6 +273,7 @@ from aica.paths import (
     qml_dir,
 )
 from aica.models import TicketSummaryFields, is_unknown_text
+from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import now_iso
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
@@ -642,6 +644,30 @@ class _ControlPanelBridge(QObject):
     def windowMaximized(self) -> bool:
         return self._window_maximized
 
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
+
+    @pyqtProperty(str, constant=True)
+    def integrationScriptFilter(self) -> str:
+        return RUNTIME_CAPABILITIES.integration_script_filter
+
+    @pyqtProperty(str, constant=True)
+    def integrationScriptHelpText(self) -> str:
+        if RUNTIME_CAPABILITIES.is_windows:
+            return "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
+        return "支持导入 .py、.pyw、.sh。已存在的 Windows 专用脚本会保留配置，但会标记为当前平台不支持。"
+
+    @pyqtProperty(str, constant=True)
+    def hotkeyHelpText(self) -> str:
+        if RUNTIME_CAPABILITIES.is_macos:
+            return "支持形如 Command+Shift+A、Option+A、Control+Shift+F8，至少需要一个修饰键。"
+        return "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+
+    @pyqtProperty(str, constant=True)
+    def hotkeyPlaceholder(self) -> str:
+        return RUNTIME_CAPABILITIES.default_capture_hotkey
+
     @pyqtProperty("QVariantList", notify=dataChanged)
     def providers(self):  # noqa: ANN201
         return [_provider_payload(provider) for provider in self._config.providers]
@@ -727,6 +753,7 @@ class _ControlPanelBridge(QObject):
         payload = []
         for integration in self._script_integrations:
             script_path = script_integration_display_path(integration)
+            supported, support_message = describe_script_integration_support(integration)
             payload.append(
                 {
                     "id": str(integration.get("id") or "").strip(),
@@ -734,6 +761,8 @@ class _ControlPanelBridge(QObject):
                     "enabled": bool(integration.get("enabled", True)),
                     "scriptPath": script_path,
                     "exists": bool(script_path) and Path(script_path).exists(),
+                    "supported": supported,
+                    "supportMessage": support_message,
                 }
             )
         return payload
@@ -1529,7 +1558,7 @@ class _ControlPanelBridge(QObject):
             None,
             "选择外部脚本",
             str(app_data_dir()),
-            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+            self.integrationScriptFilter,
         )
         if not selected_path:
             return
@@ -1538,7 +1567,14 @@ class _ControlPanelBridge(QObject):
             for item in self._script_integrations
             if str(item.get("id") or "").strip()
         }
-        self._script_integrations.append(build_script_integration(selected_path, existing_ids))
+        try:
+            integration = build_script_integration(selected_path, existing_ids)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return
+        self._script_integrations.append(integration)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -1554,14 +1590,18 @@ class _ControlPanelBridge(QObject):
             None,
             "选择外部脚本",
             start_dir,
-            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+            self.integrationScriptFilter,
         )
         if not selected_path:
             return
-        self._replace_script_integration(
-            target_id,
-            update_script_integration_path(integration, selected_path),
-        )
+        try:
+            updated = update_script_integration_path(integration, selected_path)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return
+        self._replace_script_integration(target_id, updated)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -1982,12 +2022,7 @@ class ControlPanelWindow(QWidget):
         self._layout: QVBoxLayout | None = None
 
         self.setObjectName("controlPanelWindow")
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowSystemMenuHint
-            | Qt.WindowType.WindowMinMaxButtonsHint
-        )
+        self.setWindowFlags(RUNTIME_CAPABILITIES.control_panel_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("AICA 控制面板")
         self.resize(1040, 760)
