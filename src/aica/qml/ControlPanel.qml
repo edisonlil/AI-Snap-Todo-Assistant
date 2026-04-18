@@ -840,9 +840,9 @@ Rectangle {
         signal clicked
 
         radius: 10
-        color: active ? "#111111" : "#FFFFFF"
+        color: active ? "#2A313F" : "#FFFFFF"
         border.width: 1
-        border.color: active ? "#111111" : "#E5E7EB"
+        border.color: active ? "#2A313F" : "#E5E7EB"
         implicitWidth: tabText.implicitWidth + 32
         implicitHeight: 34
 
