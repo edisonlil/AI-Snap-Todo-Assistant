@@ -13,3 +13,4 @@ logs/
 .manual_test_tmp/
 manual_verification_tmp/
 .tmp_test/
+*.db
