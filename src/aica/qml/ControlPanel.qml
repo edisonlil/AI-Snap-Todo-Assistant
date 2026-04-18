@@ -33,6 +33,7 @@ Rectangle {
     property var projectDraft: emptyProjectDraft()
     property string projectAliasInput: ""
     property string projectViewMode: "list"
+    property string selectedProviderId: ""
 
     function optionIndex(options, value) {
         for (var index = 0; index < options.length; index += 1) {
@@ -50,6 +51,33 @@ Rectangle {
             }
         }
         return value || ""
+    }
+
+    function ensureSelectedProvider() {
+        if (!controlPanelBridge || controlPanelBridge.currentSection !== "models") {
+            return
+        }
+        var providers = controlPanelBridge.providers || []
+        if (!providers.length) {
+            selectedProviderId = ""
+            return
+        }
+        for (var index = 0; index < providers.length; index += 1) {
+            if (providers[index].id === selectedProviderId) {
+                return
+            }
+        }
+        selectedProviderId = providers[0].id
+    }
+
+    function selectedProviderPayload() {
+        var providers = controlPanelBridge ? (controlPanelBridge.providers || []) : []
+        for (var index = 0; index < providers.length; index += 1) {
+            if (providers[index].id === selectedProviderId) {
+                return providers[index]
+            }
+        }
+        return providers.length ? providers[0] : null
     }
 
     function fuzzyMatch(text, query) {
@@ -222,7 +250,15 @@ Rectangle {
         function onProjectDateSelected(fieldName, value) {
             root.updateProjectDraft(fieldName, value)
         }
+        function onDataChanged() {
+            root.ensureSelectedProvider()
+        }
+        function onCurrentSectionChanged() {
+            root.ensureSelectedProvider()
+        }
     }
+
+    Component.onCompleted: ensureSelectedProvider()
 
     component PlainButton: Rectangle {
         id: buttonRoot
@@ -424,7 +460,7 @@ Rectangle {
         signal valueCommitted(string value, string capabilities)
 
         implicitWidth: 200
-        implicitHeight: 44
+        implicitHeight: 32
 
         function filteredOptions() {
             var keyword = input.text || ""
@@ -524,10 +560,10 @@ Rectangle {
 
         Rectangle {
             anchors.fill: parent
-            radius: 16
-            color: root.inputBg
+            radius: 8
+            color: "#FFFFFF"
             border.width: 1
-            border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
+            border.color: input.activeFocus || popup.visible ? "#2563EB" : "#D1D5DB"
         }
 
         TextField {
@@ -535,12 +571,12 @@ Rectangle {
             anchors.fill: parent
             color: root.titleInk
             font.family: root.uiFont
-            font.pixelSize: 12
+            font.pixelSize: 13
             selectByMouse: true
-            leftPadding: 14
-            rightPadding: 36
-            topPadding: 11
-            bottomPadding: 11
+            leftPadding: 10
+            rightPadding: 32
+            topPadding: 0
+            bottomPadding: 0
             placeholderText: comboRoot.placeholderText
             background: Item {}
             onTextEdited: popup.open()
@@ -553,7 +589,7 @@ Rectangle {
 
         Canvas {
             x: comboRoot.width - width - 14
-            y: 19
+            y: (comboRoot.height - height) / 2
             width: 10
             height: 6
             contextType: "2d"
@@ -586,40 +622,39 @@ Rectangle {
 
         Popup {
             id: popup
-            y: comboRoot.height + 6
+            y: comboRoot.height + 4
             width: comboRoot.width
-            padding: 8
+            padding: 0
             modal: false
             focus: true
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
             background: Rectangle {
-                radius: 16
-                color: root.panelBg
+                radius: 10
+                color: "#FFFFFF"
                 border.width: 1
-                border.color: root.panelLine
+                border.color: "#E5E7EB"
             }
 
             contentItem: Column {
                 width: popup.width - popup.leftPadding - popup.rightPadding
-                spacing: 6
+                spacing: 0
 
                 Rectangle {
                     width: parent.width
-                    height: addLabel.implicitHeight + 14
-                    radius: 12
+                    height: addLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.hoverBg : root.panelBg
+                    color: addMouseArea.pressed ? "#E5EEFF" : addMouseArea.containsMouse ? "#F0F7FF" : "#FFFFFF"
 
                     Text {
                         id: addLabel
                         anchors.fill: parent
                         anchors.margins: 10
                         text: "添加并使用: " + (input.text || "").trim()
-                        color: root.accent
+                        color: "#2563EB"
                         font.family: root.uiFont
-                        font.pixelSize: 12
-                        font.weight: 700
+                        font.pixelSize: 13
+                        font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                     }
@@ -635,10 +670,9 @@ Rectangle {
 
                 Rectangle {
                     width: parent.width
-                    height: textOnlyLabel.implicitHeight + 14
-                    radius: 12
+                    height: textOnlyLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: textOnlyMouseArea.pressed ? root.pressedBg : textOnlyMouseArea.containsMouse ? root.hoverBg : root.panelBg
+                    color: textOnlyMouseArea.pressed ? "#F3F4F6" : textOnlyMouseArea.containsMouse ? "#F9FAFB" : "#FFFFFF"
 
                     Text {
                         id: textOnlyLabel
@@ -647,7 +681,7 @@ Rectangle {
                         text: "添加为仅文本模型"
                         color: root.bodyInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
@@ -671,9 +705,8 @@ Rectangle {
 
                     delegate: Rectangle {
                         width: optionList.width
-                        height: optionText.implicitHeight + 14
-                        radius: 12
-                        color: optionMouseArea.pressed ? root.pressedBg : optionMouseArea.containsMouse ? root.hoverBg : "transparent"
+                        height: optionText.implicitHeight + 16
+                        color: optionMouseArea.pressed ? "#ECEFF3" : optionMouseArea.containsMouse ? "#F3F4F6" : "transparent"
 
                         Text {
                             id: optionText
@@ -682,7 +715,7 @@ Rectangle {
                             text: modelData.text
                             color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -697,6 +730,137 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    component ModelFieldInput: TextField {
+        id: input
+        color: root.titleInk
+        font.family: root.uiFont
+        font.pixelSize: 13
+        selectByMouse: true
+        leftPadding: 10
+        rightPadding: 10
+        topPadding: 0
+        bottomPadding: 0
+        implicitHeight: 32
+        background: Rectangle {
+            radius: 8
+            color: "#FFFFFF"
+            border.width: 1
+            border.color: input.activeFocus ? "#2563EB" : "#D1D5DB"
+        }
+    }
+
+    component ModelFieldCombo: ComboBox {
+        id: combo
+        textRole: "text"
+        font.family: root.uiFont
+        font.pixelSize: 13
+        implicitHeight: 32
+        leftPadding: 10
+        rightPadding: 30
+        topPadding: 0
+        bottomPadding: 0
+
+        contentItem: Text {
+            text: combo.displayText
+            color: root.titleInk
+            font.family: root.uiFont
+            font.pixelSize: 13
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+
+        indicator: Canvas {
+            x: combo.width - width - 12
+            y: (combo.height - height) / 2
+            width: 10
+            height: 6
+            contextType: "2d"
+            onPaint: {
+                context.reset()
+                context.moveTo(0, 0)
+                context.lineTo(width, 0)
+                context.lineTo(width / 2, height)
+                context.closePath()
+                context.fillStyle = "#6B7280"
+                context.fill()
+            }
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: "#FFFFFF"
+            border.width: 1
+            border.color: combo.activeFocus ? "#2563EB" : "#D1D5DB"
+        }
+
+        popup: Popup {
+            y: combo.height + 4
+            width: combo.width
+            padding: 0
+            implicitHeight: Math.min(contentItem.implicitHeight, 220)
+            background: Rectangle {
+                radius: 10
+                color: "#FFFFFF"
+                border.width: 1
+                border.color: "#E5E7EB"
+            }
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: combo.popup.visible ? combo.delegateModel : null
+                currentIndex: combo.highlightedIndex
+            }
+        }
+
+        delegate: ItemDelegate {
+            width: combo.width
+            height: 36
+            padding: 10
+            background: Rectangle {
+                color: highlighted ? "#F3F4F6" : "#FFFFFF"
+            }
+            contentItem: Text {
+                text: modelData.text
+                color: root.titleInk
+                font.family: root.uiFont
+                font.pixelSize: 13
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+        }
+    }
+
+    component ModelPageTab: Rectangle {
+        id: tabRoot
+        property string label: ""
+        property bool active: false
+        signal clicked
+
+        radius: 10
+        color: active ? "#111111" : "#FFFFFF"
+        border.width: 1
+        border.color: active ? "#111111" : "#E5E7EB"
+        implicitWidth: tabText.implicitWidth + 32
+        implicitHeight: 34
+
+        Text {
+            id: tabText
+            anchors.centerIn: parent
+            text: tabRoot.label
+            color: active ? "#FFFFFF" : root.titleInk
+            font.family: root.uiFont
+            font.pixelSize: 13
+            font.weight: 600
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: tabRoot.clicked()
         }
     }
 
@@ -991,154 +1155,200 @@ Rectangle {
                                 width: scrollArea.availableWidth
                                 spacing: 18
 
-                                Repeater {
-                                    model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.providers : []
+                                ColumnLayout {
+                                    visible: controlPanelBridge.currentSection === "models"
+                                    Layout.fillWidth: true
+                                    spacing: 14
 
-                                    delegate: SectionCard {
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        implicitHeight: providerContent.implicitHeight + 32
-                                        color: root.panelAltBg
+                                        spacing: 16
+
+                                        Text {
+                                            text: "模型供应商"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 18
+                                            font.weight: 600
+                                        }
+
+                                        Item {
+                                            Layout.fillWidth: true
+                                        }
+
+                                        Row {
+                                            spacing: 12
+
+                                            Repeater {
+                                                model: controlPanelBridge.providers
+
+                                                delegate: ModelPageTab {
+                                                    label: modelData.name
+                                                    active: root.selectedProviderId === modelData.id
+                                                    onClicked: root.selectedProviderId = modelData.id
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: providerForm.implicitHeight + 40
+                                        radius: 14
+                                        color: "#FFFFFF"
+                                        border.width: 1
+                                        border.color: "#EAECF0"
 
                                         ColumnLayout {
-                                            id: providerContent
+                                            id: providerForm
                                             anchors.fill: parent
-                                            anchors.margins: 16
+                                            anchors.margins: 20
                                             spacing: 12
 
                                             Text {
-                                                text: modelData.name
-                                                color: root.titleInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 15
-                                                font.weight: 700
-                                            }
-
-                                            Text {
-                                                text: modelData.kind
-                                                color: root.labelInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 11
-                                            }
-
-                                            Text {
                                                 text: "API Key"
-                                                color: root.labelInk
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
                                                 echoMode: TextInput.Password
-                                                text: modelData.apiKey
-                                                placeholderText: "输入 " + modelData.name + " 的 API Key"
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "api_key", text)
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().apiKey : ""
+                                                placeholderText: root.selectedProviderPayload() ? ("输入 " + root.selectedProviderPayload().name + " 的 API Key") : ""
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "api_key", text)
                                             }
 
                                             Text {
                                                 text: "Base URL"
-                                                color: root.labelInk
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
-                                                enabled: modelData.baseUrlEnabled
-                                                text: modelData.baseUrl
-                                                placeholderText: modelData.baseUrlEnabled ? "https://..." : "该供应商无需设置"
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "base_url", text)
+                                                enabled: root.selectedProviderPayload() ? root.selectedProviderPayload().baseUrlEnabled : false
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().baseUrl : ""
+                                                placeholderText: root.selectedProviderPayload() && root.selectedProviderPayload().baseUrlEnabled ? "https://..." : "该供应商无需设置"
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "base_url", text)
                                             }
 
                                             Text {
-                                                text: "超时时间 (秒)"
-                                                color: root.labelInk
+                                                text: "超时时间（秒）"
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
-                                                text: modelData.timeoutSeconds
                                                 inputMethodHints: Qt.ImhDigitsOnly
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "timeout_seconds", text)
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().timeoutSeconds : ""
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "timeout_seconds", text)
                                             }
                                         }
                                     }
-                                }
 
-                                SectionCard {
-                                    visible: controlPanelBridge.currentSection === "models"
-                                    Layout.fillWidth: true
-                                    implicitHeight: bindingContent.implicitHeight + 32
-                                    color: root.panelAltBg
-
-                                    ColumnLayout {
-                                        id: bindingContent
-                                        anchors.fill: parent
-                                        anchors.margins: 16
-                                        spacing: 12
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 16
 
                                         Text {
                                             text: "任务模型绑定"
                                             color: root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: 15
-                                            font.weight: 700
+                                            font.pixelSize: 18
+                                            font.weight: 600
                                         }
 
-                                        Repeater {
-                                            model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.taskBindings : []
+                                        Item {
+                                            Layout.fillWidth: true
+                                        }
+                                    }
 
-                                            delegate: ColumnLayout {
-                                                Layout.fillWidth: true
-                                                spacing: 8
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: taskBindingColumn.implicitHeight + 40
+                                        radius: 14
+                                        color: "#FFFFFF"
+                                        border.width: 1
+                                        border.color: "#EAECF0"
 
-                                                Text {
-                                                    text: modelData.label
-                                                    color: root.bodyInk
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 12
-                                                    font.weight: 600
-                                                }
+                                        ColumnLayout {
+                                            id: taskBindingColumn
+                                            anchors.fill: parent
+                                            anchors.margins: 20
+                                            spacing: 8
 
-                                                SettingsCombo {
-                                                    id: providerCombo
+                                            Repeater {
+                                                model: controlPanelBridge.taskBindings
+
+                                                delegate: Rectangle {
                                                     Layout.fillWidth: true
-                                                    model: modelData.providerOptions
-                                                    currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId)
-                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
-                                                }
+                                                    implicitHeight: bindingMeta.visible ? bindingMeta.implicitHeight + 50 : 52
+                                                    radius: 8
+                                                    color: bindingMouse.containsMouse ? "#F9FAFB" : "transparent"
 
-                                                SearchableModelCombo {
-                                                    id: modelCombo
-                                                    Layout.fillWidth: true
-                                                    model: modelData.modelOptions
-                                                    value: modelData.modelId
-                                                    placeholderText: "输入或搜索模型名"
-                                                    onValueCommitted: (value, capabilities) => controlPanelBridge.addOrSelectTaskBindingModel(modelData.id, value, capabilities)
-                                                }
+                                                    ColumnLayout {
+                                                        anchors.fill: parent
+                                                        anchors.leftMargin: 4
+                                                        anchors.rightMargin: 4
+                                                        anchors.topMargin: 10
+                                                        anchors.bottomMargin: 10
+                                                        spacing: 6
 
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: modelData.performanceSummary
-                                                    color: root.labelInk
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 11
-                                                    wrapMode: Text.Wrap
-                                                }
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 12
 
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    visible: modelData.speedHint.length > 0
-                                                    text: modelData.speedHint
-                                                    color: "#B7793F"
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 11
-                                                    wrapMode: Text.Wrap
+                                                            Text {
+                                                                Layout.preferredWidth: 160
+                                                                text: modelData.label
+                                                                color: root.titleInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 14
+                                                                font.weight: 500
+                                                                verticalAlignment: Text.AlignVCenter
+                                                            }
+
+                                                            ModelFieldCombo {
+                                                                id: providerCombo
+                                                                Layout.preferredWidth: 150
+                                                                model: modelData.providerOptions
+                                                                currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId)
+                                                                onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
+                                                            }
+
+                                                            SearchableModelCombo {
+                                                                Layout.fillWidth: true
+                                                                model: modelData.modelOptions
+                                                                value: modelData.modelId
+                                                                placeholderText: "选择或输入模型"
+                                                                onValueCommitted: (value, capabilities) => controlPanelBridge.addOrSelectTaskBindingModel(modelData.id, value, capabilities)
+                                                            }
+                                                        }
+
+                                                        Text {
+                                                            id: bindingMeta
+                                                            Layout.fillWidth: true
+                                                            Layout.leftMargin: 172
+                                                            visible: modelData.performanceSummary.length > 0 || modelData.speedHint.length > 0
+                                                            text: modelData.speedHint.length > 0 ? (modelData.performanceSummary + " · " + modelData.speedHint) : modelData.performanceSummary
+                                                            color: "#6B7280"
+                                                            font.family: root.uiFont
+                                                            font.pixelSize: 11
+                                                            wrapMode: Text.Wrap
+                                                        }
+                                                    }
+
+                                                    MouseArea {
+                                                        id: bindingMouse
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        acceptedButtons: Qt.NoButton
+                                                    }
                                                 }
                                             }
                                         }
