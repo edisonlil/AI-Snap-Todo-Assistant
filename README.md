@@ -21,9 +21,11 @@
 - AI 二次生成更适合展示和保存的标题
 - 待办浮动面板与详情侧栏
 - 待办详情框支持通过顶部标题栏拖拽移动
+- 项目管理面板支持按项目维护待办上下文
+- 项目支持日期选择与项目级别设置
 - 时间线附件上传、预览与导出
 - 本地待办持久化
-- 反馈采集与 Prompt 优化
+- 反馈采集与 Prompt 调试
 - 单实例运行保护
 
 ## 运行环境
@@ -146,17 +148,17 @@ python -m pip install -r requirements-build.txt
       "provider_id": "siliconflow",
       "model_id": "qwen25-vl-72b"
     },
-    "title_generation": {
+    "log_analysis": {
       "provider_id": "siliconflow",
-      "model_id": "qwen3-8b"
+      "model_id": "qwen25-vl-72b"
     },
     "plan_export": {
       "provider_id": "siliconflow",
       "model_id": "qwen25-vl-72b"
     },
-    "prompt_optimization": {
+    "context_summary": {
       "provider_id": "siliconflow",
-      "model_id": "qwen25-vl-72b"
+      "model_id": "qwen3-8b"
     }
   },
   "hotkeys": {
@@ -178,9 +180,11 @@ python -m pip install -r requirements-build.txt
 - `providers[].models[].capabilities`：能力标签，当前使用 `vision_chat` / `text_chat`
 - `task_model_bindings`：为不同任务绑定供应商与模型
 - `task_model_bindings.analysis`：截图分析
-- `task_model_bindings.title_generation`：标题生成
+- `task_model_bindings.log_analysis`：日志分析
 - `task_model_bindings.plan_export`：方案导出
-- `task_model_bindings.prompt_optimization`：Prompt 优化
+- `task_model_bindings.context_summary`：上下文摘要压缩
+- `analysis_rules.json`：截图分析规则配置
+- `prompt_debug/`：截图分析 Prompt 调试快照
 - `max_image_bytes`：图片压缩阈值，默认 `4MB`
 
 补充说明：
@@ -194,7 +198,8 @@ python -m pip install -r requirements-build.txt
 程序默认使用 `~/.aica/` 目录保存本地数据：
 
 - `~/.aica/config.json`
-- `~/.aica/prompts.json`
+- `~/.aica/analysis_rules.json`
+- `~/.aica/prompt_debug/`
 - `~/.aica/todos.json`
 - `~/.aica/feedback/feedback.jsonl`
 - `~/.aica/feedback/images/`
@@ -217,13 +222,13 @@ python .\run_aica.py
 推荐的回归命令：
 
 ```powershell
-pytest tests\test_overlay.py tests\test_compress.py tests\test_prompts.py tests\test_single_instance.py tests\test_analysis_flow.py tests\test_result_flow.py tests\test_todo_store.py tests\test_todo_controller.py tests\test_timeline_entry_dedup.py tests\test_ticket_field_resolver.py -q
+pytest tests\test_environment_access.py tests\test_log_analysis.py tests\test_context_summary.py tests\test_todo_detail_panel.py -q
 ```
 
 运行完整测试：
 
 ```powershell
-pytest -q
+pytest tests -q
 ```
 
 快速语法与导入检查：
@@ -248,11 +253,110 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 
 ## 控制面板更新
 
-当前版本已经切换为“系统托盘 + 统一控制面板”入口，控制面板负责模型供应商、任务模型、截图热键、压缩阈值与本地目录跳转等配置。详细变更记录见下方 `Changelog`。
+当前版本已经切换为“系统托盘 + 统一控制面板”入口，控制面板负责模型供应商、任务模型、截图热键、压缩阈值与本地目录跳转等配置，并新增了项目管理能力、项目日期/项目级别设置以及窗口最大化支持。详细变更记录见下方 `Changelog`。
 
 ## Changelog
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
+### 2026-04-17
+
+- 阶段总结窗口与交互升级：
+  - 新增阶段总结功能，支持从待办详情中触发阶段性总结
+  - 将阶段总结面板重构为独立窗口，持续优化布局、尺寸同步、交互逻辑与视觉样式
+  - 完善邻居面板位置解析能力，提升阶段总结窗口与待办详情联动时的定位稳定性
+- 上下文摘要能力增强：
+  - 控制面板补充日志分析与上下文摘要相关入口，便于统一配置和使用
+  - 重构上下文摘要代理的提示词与规则，提升摘要结果的结构化与可控性
+  - 在时间线总结中新增“当前结论”段落，方便快速查看阶段性判断
+- 存储与界面细节完善：
+  - 存储层新增任务完成时间字段，支持更准确的完成状态记录与后续筛选统计
+  - 调整待办详情面板与待办面板配色，统一近期新增窗口的视觉风格
+  - 补充热键、上下文摘要与存储相关测试，覆盖新增交互和数据字段
+
+### 2026-04-16
+
+- 时间线架构与日志分析链路重构：
+  - 重构待办时间线卡片体系，拆分基础卡片与日志分析卡片，完善时间线扩展能力
+  - 集成日志分析代理系统，新增日志分析命令、任务卡片、结果卡片及编排与持久化链路
+  - 接入日志分析能力到主流程与控制面板，为后续上下文摘要和时间线总结打基础
+- 时间线交互与反馈优化：
+  - 新增时间线卡片删除功能，补齐时间线内容清理操作
+  - 增加日志分析进度显示，提升长任务执行过程中的可见性
+  - 调整日志分析命令的显示逻辑，避免在不合适场景下暴露操作入口
+- 上下文摘要能力落地：
+  - 新增上下文摘要代理、模型与服务层，形成独立的摘要能力模块
+  - 支持基于日志分析结果生成上下文摘要，作为时间线总结能力的底层支撑
+  - 补充日志分析与上下文摘要测试，覆盖核心流程与命令隐藏逻辑
+
+### 2026-04-15
+
+- 项目环境访问与 OTP 能力扩展：
+  - 新增项目环境访问管理能力，可在待办相关流程中维护环境访问信息
+  - 增强 OTP 能力，支持多种算法与配置项，并补充 OTP 密钥提取脚本
+  - 优化环境访问弹窗中的 OTP 展示与复制体验，减少手动处理成本
+- 待办附件与摘要信息增强：
+  - 待办草稿新增附件支持，补齐草稿阶段的附件管理链路
+  - 优化附件相关操作体验，提升附件增删改查的顺畅度
+  - 待办摘要新增产品线字段，方便在列表和概览中快速识别业务归属
+- 工单面板操作体验优化：
+  - 控制面板新增工单复制功能与“今日完成”筛选选项，提升日常检索和复用效率
+  - 调整工单表格列宽、布局间距与操作列呈现，改善高信息密度场景下的可读性
+- 设计探索：
+  - 新增阶段总结轻量改写原型页面，用于支持总结内容的轻量化重写与方案验证
+
+### 2026-04-14
+
+- 工单列表与字段编辑能力升级：
+  - 重构工单列表界面并新增筛选功能，提升工单检索与批量浏览效率
+  - 控制面板新增工单复制、删除以及新字段支持，补齐工单维护操作链路
+  - 新增产品线字段并实现功能点自动刷新，进一步完善工单上下文字段
+- QML 组件与交互细节优化：
+  - 新增可选择复制的文本组件，并替换原有文本控件，增强信息复制体验
+  - 优化 `DetailField` 组件实现，重构字段编辑状态管理机制，降低复杂字段编辑的维护成本
+- 存储与配置修复：
+  - 修复产品线字段存储与同步逻辑，避免字段数据在持久化和联动过程中丢失
+  - 增加推荐兼容性 API 超时时间，改善弱网或慢响应场景下的稳定性
+
+### 2026-04-13
+
+- 工单详情页与字段体系完善：
+  - 新增工单详情页面，并持续重构页面布局与样式，提升详情展示与编辑体验
+  - 控制面板补充产品线、版本号、ACH 单号、ACH 填写时间等字段支持
+  - 存储层新增工单增强字段、结论字段以及 ACH 相关字段支持，确保新字段可完整落盘
+- 根因分析与表单交互优化：
+  - 新增根因分析级联选择功能，支持更结构化的问题归因录入
+  - 重构级联选择器 UI 组件，并调整根因描述字段布局，提升复杂表单的可用性
+- 待办时间线体验优化：
+  - 持续优化待办事项时间线功能，改善时间线内容维护与浏览体验
+- 控制面板结构增强：
+  - 重构控制面板界面结构并增强工单管理能力，为后续工单相关功能扩展打下基础
+
+### 2026-04-12
+
+- 控制面板能力与界面重构：
+  - 新增窗口边缘调整大小能力，支持在不同屏幕尺寸下灵活调整控制面板布局
+  - 重构控制面板界面结构并拆分复用组件（按钮、分组卡片、输入框、下拉框等），降低后续配置模块维护成本
+  - 新增项目视图模式切换与管理入口，完善项目维度下的浏览与操作体验
+- 工单管理与存储能力升级：
+  - 控制面板新增工单管理相关入口与界面联动，补齐工单信息维护链路
+  - SQLite 存储层新增工单版本字段支持，覆盖模型、仓储与控制面板展示，提升工单状态演进可追踪性
+  - 打包配置新增 SQLite schema 文件（`src/aica/storage/sqlite/schema.sql`）纳入，确保构建产物包含完整数据库结构
+- 分析流程与规则调试升级：
+  - 重构截图分析流程，进一步梳理分析链路中的 worker、结果回传与状态衔接
+  - 新增分析规则管理与调试追踪能力，可记录 Prompt 快照与相关调试信息，便于排查分析结果和规则配置问题
+- 待办分析辅助能力：
+  - 新增 `aica-todo-reader` skill，可直接查询 `aica.db` 中的待办、时间线与统计信息，用于历史工单回顾、客户问题汇总和数据分析
+- 测试覆盖补充：
+  - 新增屏幕坐标与虚拟几何相关测试，提升多屏与复杂显示布局场景下的稳定性验证
+
+### 2026-04-11
+
+- 控制面板能力扩展：
+  - 新增项目管理模块，用于维护项目维度的待办上下文
+  - 新增项目日期选择器，便于按日期管理项目记录
+  - 新增项目级别设置，支持给项目标记优先级或层级信息
+  - 支持控制面板窗口最大化，提升大屏下的操作体验
 
 ### 2026-04-10
 
@@ -302,7 +406,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 - 模型架构重构：
   - 模型调用从 worker 中抽离，新增统一 `LLMService`、Provider Registry 和任务绑定层
   - 首批内置两类供应商：`openai_compatible` 与 `gemini`
-  - 截图分析、标题生成、方案导出、Prompt 优化全部改为通过任务绑定选择模型
+  - 截图分析、方案导出全部改为通过任务绑定选择模型
 - 配置体系升级：
   - `config.json` 改为 `providers + task_model_bindings` 新 schema
   - 模型供应商与模型均支持配置

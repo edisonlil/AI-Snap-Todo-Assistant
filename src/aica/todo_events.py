@@ -16,8 +16,8 @@ from typing import Any, Protocol
 from .paths import (
     error_log_file as default_error_log_file,
     integrations_file as default_integrations_file,
-    todo_bindings_file as default_todo_bindings_file,
 )
+from .storage.sqlite.repositories import SQLiteBindingRepository
 from .text_sanitize import (
     find_invalid_surrogate_paths,
     sanitize_json_like,
@@ -84,7 +84,11 @@ def serialize_timeline_event(event: TimelineEvent) -> dict[str, Any]:
         "timestamp": event.timestamp,
         "kind": event.kind,
         "scenario": event.scenario,
+        "type": event.event_type,
+        "payload": dict(event.payload),
+        "status": event.status,
         "content": event.content,
+        "created_at": event.created_at,
         "attachments": [serialize_timeline_attachment(item) for item in event.attachments],
     }
 
@@ -99,6 +103,7 @@ def serialize_todo_item(todo: TodoItem) -> dict[str, Any]:
         "created_at": todo.created_at,
         "updated_at": todo.updated_at,
         "timeline": [serialize_timeline_event(event) for event in todo.timeline],
+        "project_link": todo.project_link.to_dict(),
     }
 
 
@@ -364,50 +369,52 @@ class TodoIntegrationRegistry:
 
 class TodoBindingStore:
     def __init__(self, store_path: str | None = None) -> None:
-        self._path = store_path or str(default_todo_bindings_file())
+        self._repository = SQLiteBindingRepository(store_path)
         self._lock = threading.Lock()
 
     @property
     def path(self) -> str:
-        return self._path
+        return self._repository.path
 
     def list_bindings(self, todo_id: str) -> list[TodoBinding]:
         with self._lock:
-            items = [
-                item
-                for item in self._load_items_unlocked()
-                if item.todo_id == todo_id and item.is_bound
-            ]
-        return sorted(items, key=lambda item: item.updated_at, reverse=True)
+            payloads = self._repository.list_bindings(todo_id)
+        items: list[TodoBinding] = []
+        for payload in payloads:
+            binding = TodoBinding.from_dict(payload)
+            if binding is not None:
+                items.append(binding)
+        return items
 
     def list_binding_payloads(self, todo_id: str) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self.list_bindings(todo_id)]
 
     def list_records(self, todo_id: str) -> list[TodoBinding]:
         with self._lock:
-            items = [
-                item
-                for item in self._load_items_unlocked()
-                if item.todo_id == todo_id
-            ]
-        return sorted(items, key=lambda item: item.updated_at, reverse=True)
+            payloads = self._repository.list_records(todo_id)
+        items: list[TodoBinding] = []
+        for payload in payloads:
+            binding = TodoBinding.from_dict(payload)
+            if binding is not None:
+                items.append(binding)
+        return items
 
     def list_record_payloads(self, todo_id: str) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self.list_records(todo_id)]
 
     def get_binding(self, todo_id: str, integration_id: str) -> TodoBinding | None:
         with self._lock:
-            binding = self._find_record(self._load_items_unlocked(), todo_id, integration_id)
-        if binding is None or not binding.is_bound:
-            return None
-        return binding
+            payload = self._repository.get_binding(todo_id, integration_id)
+        return TodoBinding.from_dict(payload) if payload is not None else None
 
     def get_record(self, todo_id: str, integration_id: str) -> TodoBinding | None:
         with self._lock:
-            return self._find_record(self._load_items_unlocked(), todo_id, integration_id)
+            payload = self._repository.get_record(todo_id, integration_id)
+        return TodoBinding.from_dict(payload) if payload is not None else None
 
     def has_binding(self, todo_id: str, integration_id: str) -> bool:
-        return self.get_binding(todo_id, integration_id) is not None
+        with self._lock:
+            return self._repository.has_binding(todo_id, integration_id)
 
     def upsert_binding(
         self,
@@ -421,42 +428,19 @@ class TodoBindingStore:
         metadata: dict[str, Any] | None = None,
         deleted_locally: bool | None = None,
     ) -> TodoBinding | None:
-        if not _sanitize_text(external_id):
-            return None
         with self._lock:
-            items = self._load_items_unlocked()
-            binding = self._find_record(items, todo_id, integration_id)
-            now = _now_iso()
-            if binding is None:
-                binding = TodoBinding(
-                    todo_id=todo_id,
-                    integration_id=integration_id,
-                    external_id=external_id,
-                    external_url=external_url,
-                    created_at=now,
-                    updated_at=now,
-                    last_event_id=event.event_id if event is not None else "",
-                    last_event_type=str(event.event_type) if event is not None else "",
-                    last_sync_status=sync_status,
-                    metadata=metadata or {},
-                    deleted_locally=bool(deleted_locally),
-                )
-                items.append(binding)
-            else:
-                binding.external_id = external_id
-                binding.external_url = _sanitize_text(external_url) or binding.external_url
-                binding.updated_at = now
-                if event is not None:
-                    binding.last_event_id = event.event_id
-                    binding.last_event_type = str(event.event_type)
-                if sync_status:
-                    binding.last_sync_status = sync_status
-                if metadata is not None:
-                    binding.metadata = _normalize_metadata(metadata)
-                if deleted_locally is not None:
-                    binding.deleted_locally = deleted_locally
-            self._save_items_unlocked(items)
-            return binding
+            payload = self._repository.upsert_binding(
+                todo_id,
+                integration_id,
+                external_id,
+                external_url=external_url,
+                event_id=event.event_id if event is not None else "",
+                event_type=str(event.event_type) if event is not None else "",
+                sync_status=sync_status,
+                metadata=metadata,
+                deleted_locally=deleted_locally,
+            )
+        return TodoBinding.from_dict(payload) if payload is not None else None
 
     def update_sync_status(
         self,
@@ -470,30 +454,17 @@ class TodoBindingStore:
         external_url: str = "",
     ) -> TodoBinding | None:
         with self._lock:
-            items = self._load_items_unlocked()
-            binding = self._find_record(items, todo_id, integration_id)
-            if binding is None:
-                binding = TodoBinding(
-                    todo_id=todo_id,
-                    integration_id=integration_id,
-                    created_at=_now_iso(),
-                    updated_at=_now_iso(),
-                )
-                items.append(binding)
-            binding.updated_at = _now_iso()
-            if event is not None:
-                binding.last_event_id = event.event_id
-                binding.last_event_type = str(event.event_type)
-            if sync_status:
-                binding.last_sync_status = sync_status
-            if metadata is not None:
-                binding.metadata = _normalize_metadata(metadata)
-            if external_url:
-                binding.external_url = _sanitize_text(external_url)
-            if deleted_locally is not None:
-                binding.deleted_locally = deleted_locally
-            self._save_items_unlocked(items)
-            return binding
+            payload = self._repository.update_sync_status(
+                todo_id,
+                integration_id,
+                event_id=event.event_id if event is not None else "",
+                event_type=str(event.event_type) if event is not None else "",
+                sync_status=sync_status,
+                metadata=metadata,
+                deleted_locally=deleted_locally,
+                external_url=external_url,
+            )
+        return TodoBinding.from_dict(payload) if payload is not None else None
 
     def mark_deleted_locally(self, todo_id: str, integration_id: str) -> TodoBinding | None:
         return self.update_sync_status(
@@ -501,40 +472,6 @@ class TodoBindingStore:
             integration_id,
             sync_status="deleted_locally",
             deleted_locally=True,
-        )
-
-    def _load_items_unlocked(self) -> list[TodoBinding]:
-        path = Path(self._path)
-        if not path.exists():
-            return []
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-        if not isinstance(payload, list):
-            return []
-        items: list[TodoBinding] = []
-        for item in payload:
-            binding = TodoBinding.from_dict(item)
-            if binding is not None:
-                items.append(binding)
-        return items
-
-    def _save_items_unlocked(self, items: list[TodoBinding]) -> None:
-        path = Path(self._path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = sanitize_json_like([item.to_dict() for item in items])
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    @staticmethod
-    def _find_record(items: list[TodoBinding], todo_id: str, integration_id: str) -> TodoBinding | None:
-        return next(
-            (
-                item
-                for item in items
-                if item.todo_id == todo_id and item.integration_id == integration_id
-            ),
-            None,
         )
 
 
@@ -612,6 +549,7 @@ class ScriptEventHandler(TodoEventHandler):
     def _requires_existing_binding(event_type: TodoDomainEventType) -> bool:
         return event_type not in {
             TodoDomainEventType.CREATED,
+            TodoDomainEventType.APPENDED,
             TodoDomainEventType.MANUAL_SYNC,
         }
 

@@ -4,3 +4,12 @@ __pycache__/
 build/
 dist/
 *.spec.bak
+.codex_tmp/
+.manual_debug/
+.manual_test_runs/
+.manual_test_tmp/
+.tmp/
+logs/
+.manual_test_tmp/
+manual_verification_tmp/
+.tmp_test/

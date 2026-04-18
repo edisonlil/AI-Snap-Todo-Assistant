@@ -1,233 +1,123 @@
-import json
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+import os
+import sqlite3
 from pathlib import Path
+import sys
+import tempfile
 
-from aica.models import EvidenceItem, TicketSnapshot, TicketSummaryFields, UNKNOWN_TEXT
-from aica.ticket_field_resolver import DEFAULT_PRODUCT_LINE, TICKET_TYPE_OPTIONS
-from aica.todo_store import TimelineAttachment, TimelineEvent, TodoStore
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.storage.sqlite.repositories import SQLiteStorageMigrator, SQLiteTodoRepository
+from aica.todo_models import TodoStatus
 
 
-def _snapshot(
-    title: str,
-    summary: str,
-    timeline: str,
-    *,
-    group_name: str = "group-a",
-    environment: str = "prod",
-    product_line: str = "line-a",
-    ticket_type: str = TICKET_TYPE_OPTIONS[0],
-    evidence_items: list[EvidenceItem] | None = None,
-) -> TicketSnapshot:
+def _make_db_path(name: str) -> Path:
+    fd, raw_path = tempfile.mkstemp(prefix=f"{name}-", suffix=".db", dir=Path.cwd())
+    os.close(fd)
+    path = Path(raw_path)
+    path.unlink(missing_ok=True)
+    return path
+
+
+def _build_snapshot(title: str) -> TicketSnapshot:
     return TicketSnapshot(
         title=title,
         fields=TicketSummaryFields(
-            group_name=group_name,
-            environment=environment,
-            product_line=product_line,
-            ticket_type=ticket_type,
+            group_name="test-group",
+            environment="prod",
+            ticket_type="investigation",
         ),
-        current_summary=summary,
-        timeline_entry=timeline,
-        evidence_items=evidence_items or [],
+        current_summary=f"{title} summary",
+        timeline_entry=f"{title} timeline",
     )
 
 
-def test_create_todo_from_analysis_persists_structured_item(tmp_path: Path):
-    store = TodoStore(str(tmp_path / "todos.json"))
+def test_todo_completed_at_defaults_to_empty() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-default")))
 
-    todo = store.create_todo_from_analysis(
-        _snapshot("upload failed", "check whether file still exists", "customer reported upload failed"),
-        "todo assistant",
-    )
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-one"), "analysis")
 
-    todos = store.list_active_todos()
-    assert len(todos) == 1
-    assert todos[0].id == todo.id
-    assert todos[0].title == "upload failed"
-    assert todos[0].summary_fields.group_name == "group-a"
-    assert todos[0].current_summary == "check whether file still exists"
-    assert todos[0].timeline[0].content == "customer reported upload failed"
+    assert todo.status == TodoStatus.OPEN
+    assert todo.completed_at == ""
 
 
-def test_append_analysis_preserves_existing_title_and_summary(tmp_path: Path):
-    store = TodoStore(str(tmp_path / "todos.json"))
-    todo = store.create_todo_from_analysis(
-        _snapshot("upload failed", "initial summary", "first record"),
-        "todo assistant",
-    )
+def test_complete_todo_sets_completed_at() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-complete")))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-two"), "analysis")
 
-    updated = store.append_analysis_to_todo(
-        todo.id,
-        _snapshot(
-            "new title from screenshot",
-            "new summary from screenshot",
-            "new follow-up: observed http 500",
-            group_name="new-group",
-            environment="staging",
-        ),
-        "todo assistant",
-    )
+    assert repository.complete_todo(todo.id) is True
 
+    updated = repository.get_todo(todo.id)
     assert updated is not None
-    assert updated.timeline_count == 2
-    assert updated.title == "upload failed"
-    assert updated.current_summary == "initial summary"
-    assert updated.summary_fields.group_name == "group-a"
-    assert updated.summary_fields.environment == "prod"
-    assert updated.timeline[-1].content == "new follow-up: observed http 500"
+    assert updated.status == TodoStatus.DONE
+    assert updated.completed_at
+    assert updated.updated_at == updated.completed_at
 
 
-def test_append_analysis_backfills_unknown_fields_only(tmp_path: Path):
-    store = TodoStore(str(tmp_path / "todos.json"))
-    todo = store.create_todo_from_analysis(
-        _snapshot(
-            "upload failed",
-            "initial summary",
-            "first record",
-            group_name=UNKNOWN_TEXT,
-            environment=UNKNOWN_TEXT,
-        ),
-        "todo assistant",
-    )
+def test_today_done_uses_completed_at_instead_of_updated_at() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-filter")))
+    today_todo = repository.create_todo_from_analysis(_build_snapshot("done-today"), "analysis")
+    stale_todo = repository.create_todo_from_analysis(_build_snapshot("done-earlier"), "analysis")
 
-    updated = store.append_analysis_to_todo(
-        todo.id,
-        _snapshot(
-            "new title from screenshot",
-            "new summary from screenshot",
-            "new follow-up: observed http 500",
-            group_name="recognized-group",
-            environment="staging",
-        ),
-        "todo assistant",
-    )
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    old_day = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            "UPDATE todos SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (TodoStatus.DONE, f"{today}T10:00:00", f"{old_day}T09:00:00", today_todo.id),
+        )
+        connection.execute(
+            "UPDATE todos SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (TodoStatus.DONE, f"{old_day}T10:00:00", f"{today}T09:00:00", stale_todo.id),
+        )
 
-    assert updated is not None
-    assert updated.summary_fields.group_name == "recognized-group"
-    assert updated.summary_fields.environment == "staging"
-    assert updated.summary_fields.product_line == DEFAULT_PRODUCT_LINE
+    today_done = repository.list_todos(status="today_done")
+
+    assert [todo.id for todo in today_done] == [today_todo.id]
 
 
-def test_legacy_evidence_is_folded_into_timeline_when_loading(tmp_path: Path):
-    path = tmp_path / "todos.json"
-    payload = [
-        {
-            "id": "1",
-            "title": "接口异常",
-            "current_summary": "已有摘要",
-            "status": "open",
-            "timeline": [
-                {
-                    "content": "客户补充接口详情",
-                    "evidence_items": [
-                        {
-                            "type": "request_param",
-                            "label": "task_id",
-                            "value": "abc123",
-                        }
-                    ],
-                }
-            ],
-        }
-    ]
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-    store = TodoStore(str(path))
-    todo = store.get_todo("1")
-
-    assert todo is not None
-    assert "客户补充接口详情" in todo.timeline[0].content
-    assert "task_id" in todo.timeline[0].content
-    assert "abc123" in todo.timeline[0].content
-
-
-def test_update_todo_persists_fields_and_timeline(tmp_path: Path):
-    store = TodoStore(str(tmp_path / "todos.json"))
-    todo = store.create_todo_from_analysis(
-        _snapshot("original title", "original summary", "original timeline"),
-        "todo assistant",
-    )
-
-    updated = store.update_todo(
-        todo.id,
-        title="new title",
-        current_summary="new summary",
-        summary_fields=TicketSummaryFields(
-            group_name="new-group",
-            environment="test",
-            product_line="new-line",
-            ticket_type=TICKET_TYPE_OPTIONS[1],
-        ),
-        timeline=[TimelineEvent(content="edited timeline")],
-    )
-
-    assert updated is not None
-    reloaded = store.get_todo(todo.id)
-    assert reloaded is not None
-    assert reloaded.title == "new title"
-    assert reloaded.current_summary == "new summary"
-    assert reloaded.summary_fields.product_line == DEFAULT_PRODUCT_LINE
-    assert reloaded.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[1]
-    assert reloaded.timeline[0].content == "edited timeline"
-
-
-def test_update_todo_persists_timeline_attachments(tmp_path: Path):
-    store = TodoStore(str(tmp_path / "todos.json"))
-    todo = store.create_todo_from_analysis(
-        _snapshot("original title", "original summary", "original timeline"),
-        "todo assistant",
-    )
-
-    updated = store.update_todo(
-        todo.id,
-        timeline=[
-            TimelineEvent(
-                content="edited timeline",
-                attachments=[
-                    TimelineAttachment(
-                        name="evidence.txt",
-                        path=str(tmp_path / "copied" / "evidence.txt"),
-                        size_bytes=128,
-                    )
-                ],
+def test_schema_migration_adds_completed_at_column() -> None:
+    db_path = _make_db_path("legacy-todo")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE todos (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              current_summary TEXT NOT NULL DEFAULT '',
+              group_name TEXT NOT NULL DEFAULT '',
+              environment TEXT NOT NULL DEFAULT '',
+              product_line TEXT NOT NULL DEFAULT '',
+              ticket_type TEXT NOT NULL DEFAULT '',
+              ach_no TEXT NOT NULL DEFAULT '',
+              ach_filled_at TEXT NOT NULL DEFAULT '',
+              ticket_version TEXT NOT NULL DEFAULT '',
+              feature_point TEXT NOT NULL DEFAULT '',
+              feature_point_source TEXT NOT NULL DEFAULT '',
+              root_cause_desc TEXT NOT NULL DEFAULT '',
+              root_cause_desc_source TEXT NOT NULL DEFAULT '',
+              root_cause TEXT NOT NULL DEFAULT '',
+              root_cause_source TEXT NOT NULL DEFAULT '',
+              conclusion_content TEXT NOT NULL DEFAULT '',
+              conclusion_updated_at TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
             )
-        ],
-    )
+            """
+        )
 
-    assert updated is not None
-    reloaded = store.get_todo(todo.id)
-    assert reloaded is not None
-    assert reloaded.timeline[0].attachments[0].name == "evidence.txt"
-    assert reloaded.timeline[0].attachments[0].size_bytes == 128
+    SQLiteStorageMigrator(db_path).ensure_schema()
 
-
-def test_legacy_summary_json_is_migrated(tmp_path: Path):
-    path = tmp_path / "todos.json"
-    legacy_payload = [
-        {
-            "id": "1",
-            "title": "legacy todo",
-            "summary": json.dumps(
-                {
-                    "group_name": "legacy-group",
-                    "environment": "prod",
-                    "product_line": "legacy-line",
-                    "ticket_type": TICKET_TYPE_OPTIONS[0],
-                    "current_summary": "legacy summary",
-                },
-                ensure_ascii=False,
-            ),
-            "status": "open",
-            "timeline": [{"summary": "legacy timeline"}],
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(todos)").fetchall()
         }
-    ]
-    path.write_text(json.dumps(legacy_payload, ensure_ascii=False), encoding="utf-8")
 
-    store = TodoStore(str(path))
-    todo = store.get_todo("1")
-
-    assert todo is not None
-    assert todo.summary_fields.group_name == "legacy-group"
-    assert todo.summary_fields.product_line == DEFAULT_PRODUCT_LINE
-    assert todo.summary_fields.ticket_type == TICKET_TYPE_OPTIONS[0]
-    assert todo.current_summary == "legacy summary"
-    assert todo.timeline[0].content == "legacy timeline"
+    assert "completed_at" in columns

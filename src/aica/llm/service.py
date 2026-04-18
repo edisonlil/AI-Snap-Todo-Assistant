@@ -38,6 +38,8 @@ class TaskExecutionError(LLMServiceError):
 @dataclass
 class ResolvedTaskModel:
     reference: ModelReference
+    task_name: TaskName
+    fallback_used: bool = False
 
 
 class LLMService:
@@ -98,6 +100,29 @@ class LLMService:
             ) from exc
 
     def resolve_task_model(self, task_name: TaskName) -> ResolvedTaskModel:
+        if task_name == "log_analysis":
+            try:
+                return self._resolve_task_model_without_fallback(task_name)
+            except ModelResolutionError:
+                resolved = self._resolve_task_model_without_fallback("analysis")
+                return ResolvedTaskModel(
+                    reference=resolved.reference,
+                    task_name="analysis",
+                    fallback_used=True,
+                )
+        if task_name == "context_summary":
+            try:
+                return self._resolve_task_model_without_fallback(task_name)
+            except ModelResolutionError:
+                resolved = self._resolve_context_summary_fallback()
+                return ResolvedTaskModel(
+                    reference=resolved.reference,
+                    task_name=resolved.task_name,
+                    fallback_used=True,
+                )
+        return self._resolve_task_model_without_fallback(task_name)
+
+    def _resolve_task_model_without_fallback(self, task_name: TaskName) -> ResolvedTaskModel:
         binding = getattr(self._config.task_model_bindings, task_name, None)
         if not isinstance(binding, TaskModelBinding):
             raise ModelResolutionError(f"Task binding missing: {task_name}")
@@ -118,7 +143,7 @@ class LLMService:
                 f"Model capability mismatch: {provider.name} / {model.name} lacks {required_capability}"
             )
 
-        return ResolvedTaskModel(reference=self._build_reference(provider, model))
+        return ResolvedTaskModel(reference=self._build_reference(provider, model), task_name=task_name)
 
     def describe_task_model(self, task_name: TaskName) -> str:
         return self.resolve_task_model(task_name).reference.display_name
@@ -138,8 +163,35 @@ class LLMService:
 
     @staticmethod
     def _required_capability(task_name: TaskName) -> str:
+        if task_name == "context_summary":
+            return "text_chat"
         return "vision_chat"
 
     @staticmethod
     def _max_attempts(task_name: TaskName) -> int:
-        return 1 if task_name == "analysis" else 3
+        return 1 if task_name in {"analysis", "log_analysis", "context_summary"} else 3
+
+    def _resolve_context_summary_fallback(self) -> ResolvedTaskModel:
+        try:
+            resolved = self._resolve_task_model_without_fallback("analysis")
+            if "text_chat" in resolved.reference.capabilities:
+                return ResolvedTaskModel(
+                    reference=resolved.reference,
+                    task_name="analysis",
+                    fallback_used=True,
+                )
+        except ModelResolutionError:
+            pass
+
+        for provider in self._config.providers:
+            if not provider.api_key:
+                continue
+            for model in provider.models:
+                if "text_chat" not in model.capabilities:
+                    continue
+                return ResolvedTaskModel(
+                    reference=self._build_reference(provider, model),
+                    task_name="context_summary",
+                    fallback_used=True,
+                )
+        raise ModelResolutionError("No text_chat model available for context_summary")

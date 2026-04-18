@@ -1,4 +1,4 @@
-"""QML-backed detail panel for a todo item and its timeline."""
+﻿"""QML-backed detail panel for a todo item and its timeline."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from urllib.parse import urlsplit
 from urllib.parse import unquote, urlparse
 import uuid
 
@@ -137,6 +138,14 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def clipboard():
             return _Clipboard()
 
+        @staticmethod
+        def screenAt(_point):
+            return None
+
+        @staticmethod
+        def screens():
+            return []
+
     class _Context:  # type: ignore[no-redef]
         def setContextProperty(self, *_args, **_kwargs):
             return None
@@ -196,6 +205,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
         @staticmethod
+        def screens():
+            return []
+
+        @staticmethod
         def clipboard():
             return _Clipboard()
 
@@ -209,19 +222,48 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return "", ""
 
 from .models import TicketSummaryFields
+from .environment_access import EnvironmentAccessService
+from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
 from .paths import todo_attachments_dir
+from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
+from .ticket_enrichment import ROOT_CAUSE_OPTIONS
 from .ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
     resolve_product_line,
 )
 from .text_sanitize import sanitize_text
-from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
+from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
-_MANUAL_SCENARIO = "\u624b\u52a8\u8ddf\u8fdb"
+_MANUAL_SCENARIO = "\u95ee\u9898\u53cd\u9988"
 _SYSTEM_SCENARIO = "\u7cfb\u7edf\u8bb0\u5f55"
+_CONCLUSION_SCENARIO = "\u95ee\u9898\u7ed3\u8bba"
+_LOG_ANALYSIS_TASK_SCENARIO = "\u65e5\u5fd7\u5206\u6790\u4efb\u52a1"
+_LOG_ANALYSIS_RESULT_SCENARIO = "\u65e5\u5fd7\u5206\u6790\u7ed3\u679c"
+_CONCLUSION_ATTACHMENT_TARGET = "__conclusion__"
+_DRAFT_TIMELINE_ATTACHMENT_TARGET = "__draft_timeline__"
+_ENTRY_TYPE_FOLLOW_UP = "follow_up"
+_ENTRY_TYPE_CONCLUSION = "conclusion"
+_ENTRY_TYPE_LOG_ANALYSIS = "log_analysis"
+_TIMELINE_EVENT_TYPE_DEFAULT = "default"
+_TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND = "log_analysis_command"
+_TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT = "log_analysis_result"
+_RUNNING_STATUS = "running"
+_SUCCESS_STATUS = "success"
+_FAILED_STATUS = "failed"
+_LOG_ANALYSIS_STEP_LABELS = [
+    "\u6b63\u5728\u6536\u96c6\u9644\u4ef6...",
+    "\u6b63\u5728\u6784\u5efa\u6392\u67e5\u4e0a\u4e0b\u6587...",
+    "\u6b63\u5728\u68c0\u7d22\u65e5\u5fd7...",
+    "\u6b63\u5728\u751f\u6210\u7ed3\u679c...",
+]
+_ENTRY_COMMAND_PREFIXES = {
+    "/问题反馈": _ENTRY_TYPE_FOLLOW_UP,
+    "/问题跟进": _ENTRY_TYPE_FOLLOW_UP,
+    "/问题结论": _ENTRY_TYPE_CONCLUSION,
+}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
@@ -239,9 +281,122 @@ def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
 
 
 def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
+    if kind == "conclusion":
+        return _CONCLUSION_SCENARIO
     if kind == "manual":
         return _MANUAL_SCENARIO
     return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
+
+
+def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
+    content = sanitize_text(value).strip()
+    normalized_type = (
+        entry_type
+        if entry_type in {_ENTRY_TYPE_FOLLOW_UP, _ENTRY_TYPE_CONCLUSION, _ENTRY_TYPE_LOG_ANALYSIS}
+        else _ENTRY_TYPE_FOLLOW_UP
+    )
+    if not content:
+        return "", normalized_type
+
+    for prefix, prefix_type in _ENTRY_COMMAND_PREFIXES.items():
+        if content == prefix:
+            return "", prefix_type
+        if content.startswith(f"{prefix} ") or content.startswith(f"{prefix}\n"):
+            return content[len(prefix):].strip(), prefix_type
+
+    if content == "/":
+        return "", normalized_type
+    return content, normalized_type
+
+
+def _normalize_display_timeline(events: list[TimelineEvent]) -> list[TimelineEvent]:
+    latest_conclusion: TimelineEvent | None = None
+    remaining: list[TimelineEvent] = []
+    for event in events:
+        if str(event.kind or "").strip() == "conclusion":
+            latest_conclusion = event
+            continue
+        remaining.append(event)
+    if latest_conclusion is None:
+        return list(reversed(remaining))
+    return [latest_conclusion] + list(reversed(remaining))
+
+
+def _timeline_event_type(event: TimelineEvent) -> str:
+    explicit = str(getattr(event, "event_type", "") or "").strip()
+    if explicit:
+        return explicit
+    kind = str(event.kind or "").strip()
+    if kind == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND
+    if kind == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT
+    if str(event.scenario or "").strip() == _LOG_ANALYSIS_RESULT_SCENARIO:
+        return _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT
+    return _TIMELINE_EVENT_TYPE_DEFAULT
+
+
+def _normalize_card_status(value: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"queued", _RUNNING_STATUS}:
+        return _RUNNING_STATUS
+    if normalized in {"completed", _SUCCESS_STATUS}:
+        return _SUCCESS_STATUS
+    if normalized == _FAILED_STATUS:
+        return _FAILED_STATUS
+    return ""
+
+
+def _timeline_card_label(event_type: str, scenario: str) -> str:
+    if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+        return _LOG_ANALYSIS_TASK_SCENARIO
+    if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+        return _LOG_ANALYSIS_RESULT_SCENARIO
+    return str(scenario or _SYSTEM_SCENARIO).strip() or _SYSTEM_SCENARIO
+
+
+def _clone_dict(value: object) -> dict[str, object]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _clone_list(value: object) -> list[object]:
+    return list(value) if isinstance(value, list) else []
+
+
+def _project_status_label(status: str) -> str:
+    mapping = {
+        "matched": "已关联项目",
+        "unmatched": "未匹配项目",
+        "conflict": "匹配冲突",
+        "expired": "命中过保项目",
+        "manual": "手动指定项目",
+    }
+    return mapping.get(str(status or "").strip(), "未匹配项目")
+
+
+def _project_status_detail(todo: TodoItem) -> str:
+    link = todo.project_link
+    status = str(link.match_status or "").strip()
+    if status == "matched":
+        project_name = str(link.project_snapshot.get("project_name") or "").strip()
+        task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+        if project_name and task_order_no:
+            return f"{project_name} {task_order_no}"
+        return project_name or task_order_no or "已根据群聊名称命中项目主数据。"
+    if status == "conflict":
+        reason = str(link.match_reason or "").strip()
+        if reason.startswith("multiple_active_projects:"):
+            return "命中了多个有效项目，请在项目管理页收敛别名。"
+        return reason or "当前群聊名称命中了多个有效项目。"
+    if status == "expired":
+        project_name = str(link.project_snapshot.get("project_name") or "").strip()
+        return f"{project_name} 已过保。" if project_name else "当前群聊名称只命中过保项目。"
+    if status == "manual":
+        return "当前待办使用了手动项目关联结果。"
+    reason = str(link.match_reason or "").strip()
+    if reason == "missing_group_name":
+        return "当前待办缺少群聊名称，无法自动匹配项目。"
+    return "当前群聊名称尚未命中任何项目别名。"
 
 
 def _coerce_dropped_file_paths(urls: object) -> list[str]:
@@ -303,6 +458,65 @@ def _clamp_panel_position(
     return clamped_x, clamped_y
 
 
+def _resolve_neighbor_panel_x(
+    anchor_left: int,
+    anchor_width: int,
+    *,
+    panel_width: int,
+    available_left: int,
+    available_right: int,
+    margin: int,
+    gap: int,
+) -> int:
+    min_x = available_left + margin
+    max_x = available_right - panel_width - margin
+    right_x = anchor_left + anchor_width + gap
+    left_x = anchor_left - gap - panel_width
+
+    right_space = max(0, (available_right - margin) - (anchor_left + anchor_width + gap))
+    left_space = max(0, (anchor_left - gap) - (available_left + margin))
+    right_fits = right_x <= max_x
+    left_fits = left_x >= min_x
+
+    if right_fits and not left_fits:
+        return right_x
+    if left_fits and not right_fits:
+        return left_x
+    if right_space >= left_space:
+        return right_x
+    return left_x
+
+
+def _screen_for_point(point):
+    screen_at = getattr(QGuiApplication, "screenAt", None)
+    if callable(screen_at):
+        screen = screen_at(point)
+        if screen is not None:
+            return screen
+    return QApplication.primaryScreen()
+
+
+def _virtual_available_geometry():
+    screens = QApplication.screens()
+    if not screens:
+        primary = QApplication.primaryScreen()
+        return primary.availableGeometry() if primary is not None else None
+
+    bounds = _resolve_available_geometry(screens[0])
+    if bounds is None:
+        return None
+    for screen in screens[1:]:
+        geometry = _resolve_available_geometry(screen)
+        if geometry is None:
+            continue
+        united = getattr(bounds, "united", None)
+        if callable(united):
+            bounds = united(geometry)
+        else:
+            return geometry
+    return bounds
+
+
 def _resolve_available_geometry(screen_or_geometry):
     if screen_or_geometry is None:
         return None
@@ -312,24 +526,43 @@ def _resolve_available_geometry(screen_or_geometry):
     return screen_or_geometry
 
 
+def _is_openable_target(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    parsed = urlsplit(text)
+    return bool(parsed.scheme and parsed.netloc)
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
+    environmentAccessMessageChanged = pyqtSignal()
     panelDragStarted = pyqtSignal(float, float)
     panelDragMoved = pyqtSignal()
     panelDragFinished = pyqtSignal()
 
     saveRequested = pyqtSignal(str, object)
+    logAnalysisRequested = pyqtSignal(str, object)
     attachmentSelectionRequested = pyqtSignal(str)
     clipboardImagePasteRequested = pyqtSignal(str)
+    draftAttachmentSelectionRequested = pyqtSignal()
+    draftClipboardImagePasteRequested = pyqtSignal()
     manualSyncRequested = pyqtSignal(str)
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
     exportPlanRequested = pyqtSignal(str, object)
+    stageSummaryRequested = pyqtSignal(str, object)
+    stageSummaryRewriteRequested = pyqtSignal(str, object)
 
-    def __init__(self, attachment_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        attachment_root: Path | None = None,
+        *,
+        environment_access_service: EnvironmentAccessService | None = None,
+    ) -> None:
         super().__init__()
         self._todo_id: str | None = None
         self._title = ""
@@ -337,13 +570,29 @@ class _TodoDetailBridge(QObject):
         self._environment = _EMPTY_TEXT
         self._product_line = _EMPTY_TEXT
         self._ticket_type = _EMPTY_TEXT
+        self._feature_point = ""
+        self._feature_point_source = ""
+        self._root_cause_desc = ""
+        self._root_cause_desc_source = ""
+        self._root_cause = ""
+        self._root_cause_source = ""
         self._current_summary = ""
+        self._conclusion_content = ""
+        self._conclusion_updated_at = ""
+        self._conclusion_attachments: list[dict[str, object]] = []
+        self._draft_timeline_attachments: list[dict[str, object]] = []
         self._overview = ""
         self._created_at = ""
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
+        self._display_timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
+        self._project_match_status = "未匹配项目"
+        self._project_match_detail = "当前群聊名称尚未命中任何项目别名。"
+        self._project_name = ""
+        self._project_task_order_no = ""
+        self._project_manager = ""
         self._sync_integration_id = ""
         self._sync_status = "未同步"
         self._sync_status_detail = "当前待办还没有外部绑定。"
@@ -351,6 +600,39 @@ class _TodoDetailBridge(QObject):
         self._sync_event_label = ""
         self._sync_updated_at = ""
         self._sync_records: list[dict[str, object]] = []
+        self._environment_access_service = environment_access_service or EnvironmentAccessService(
+            SQLiteProjectEnvironmentRepository()
+        )
+        self._environment_access_groups: list[dict[str, object]] = []
+        self._environment_access_summary_text = "环境访问 · 无可用环境"
+        self._environment_access_popover_open = False
+        self._environment_access_message = ""
+        self._stage_summary_visible = False
+        self._stage_summary_busy = False
+        self._stage_summary_text = ""
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = False
+        self._stage_summary_pending_request_id = ""
+
+    @pyqtProperty(str, notify=dataChanged)
+    def environmentAccessSummaryText(self) -> str:
+        return self._environment_access_summary_text
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def environmentAccessPopoverOpen(self) -> bool:
+        return self._environment_access_popover_open
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasEnvironmentAccess(self) -> bool:
+        return any(bool(group.get("entries")) for group in self._environment_access_groups)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def environmentAccessGroups(self):  # noqa: ANN201
+        return self._environment_access_groups
+
+    @pyqtProperty(str, notify=environmentAccessMessageChanged)
+    def environmentAccessMessage(self) -> str:
+        return self._environment_access_message
 
     @pyqtProperty(str, notify=dataChanged)
     def title(self) -> str:
@@ -381,8 +663,60 @@ class _TodoDetailBridge(QObject):
         return list(TICKET_TYPE_OPTIONS)
 
     @pyqtProperty(str, notify=dataChanged)
+    def featurePoint(self) -> str:
+        return self._feature_point
+
+    @pyqtProperty(str, notify=dataChanged)
+    def featurePointSource(self) -> str:
+        return self._feature_point_source
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseDesc(self) -> str:
+        return self._root_cause_desc
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseDescSource(self) -> str:
+        return self._root_cause_desc_source
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCause(self) -> str:
+        return self._root_cause
+
+    @pyqtProperty(str, notify=dataChanged)
+    def rootCauseSource(self) -> str:
+        return self._root_cause_source
+
+    @pyqtProperty("QVariantList", constant=True)
+    def rootCauseOptions(self):  # noqa: ANN201
+        return list(ROOT_CAUSE_OPTIONS)
+
+    @pyqtProperty(str, notify=dataChanged)
     def currentSummary(self) -> str:
         return self._current_summary
+
+    @pyqtProperty(str, notify=dataChanged)
+    def conclusionContent(self) -> str:
+        return self._conclusion_content
+
+    @pyqtProperty(str, notify=dataChanged)
+    def conclusionUpdatedAtLabel(self) -> str:
+        return _format_ts(self._conclusion_updated_at) if self._conclusion_updated_at else ""
+
+    @pyqtProperty(int, notify=dataChanged)
+    def conclusionAttachmentCount(self) -> int:
+        return len(self._conclusion_attachments)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def conclusionAttachments(self):  # noqa: ANN201
+        return self._conclusion_attachments
+
+    @pyqtProperty(int, notify=dataChanged)
+    def draftTimelineAttachmentCount(self) -> int:
+        return len(self._draft_timeline_attachments)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def draftTimelineAttachments(self):  # noqa: ANN201
+        return self._draft_timeline_attachments
 
     @pyqtProperty(str, notify=dataChanged)
     def createdAtLabel(self) -> str:
@@ -394,15 +728,55 @@ class _TodoDetailBridge(QObject):
 
     @pyqtProperty(int, notify=timelineChanged)
     def timelineCount(self) -> int:
-        return len(self._timeline)
+        return len(self._display_timeline)
 
     @pyqtProperty("QVariantList", notify=timelineChanged)
     def timeline(self):  # noqa: ANN201
-        return self._timeline
+        return self._display_timeline
 
     @pyqtProperty(bool, notify=timelineExpandedChanged)
     def timelineExpanded(self) -> bool:
         return self._timeline_expanded
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def stageSummaryVisible(self) -> bool:
+        return self._stage_summary_visible
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def stageSummaryBusy(self) -> bool:
+        return self._stage_summary_busy
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryText(self) -> str:
+        return self._stage_summary_text
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryError(self) -> str:
+        return self._stage_summary_error
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasStageSummary(self) -> bool:
+        return bool(self._stage_summary_text.strip())
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectMatchStatus(self) -> str:
+        return self._project_match_status
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectMatchDetail(self) -> str:
+        return self._project_match_detail
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectName(self) -> str:
+        return self._project_name
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectTaskOrderNo(self) -> str:
+        return self._project_task_order_no
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectManager(self) -> str:
+        return self._project_manager
 
     @pyqtProperty(str, notify=dataChanged)
     def syncIntegrationId(self) -> str:
@@ -440,7 +814,200 @@ class _TodoDetailBridge(QObject):
     def syncRecords(self):  # noqa: ANN201
         return self._sync_records
 
-    def set_todo(self, todo: TodoItem, sync_records: list[dict[str, object]] | None = None) -> None:
+    @pyqtSlot()
+    def toggleEnvironmentAccessPopover(self) -> None:
+        self._environment_access_popover_open = not self._environment_access_popover_open
+        self.dataChanged.emit()
+
+    @pyqtSlot()
+    def closeEnvironmentAccessPopover(self) -> None:
+        if not self._environment_access_popover_open:
+            return
+        self._environment_access_popover_open = False
+        self.dataChanged.emit()
+
+    @pyqtSlot(str)
+    def toggleEnvironmentGroup(self, group_id: str) -> None:
+        normalized_group_id = str(group_id or "").strip()
+        if not normalized_group_id:
+            return
+        changed = False
+        next_groups: list[dict[str, object]] = []
+        for group in self._environment_access_groups:
+            next_group = dict(group)
+            is_target = str(group.get("id") or "") == normalized_group_id
+            current = bool(group.get("expanded", False))
+            next_value = not current if is_target else False
+            if current != next_value:
+                changed = True
+            next_group["expanded"] = next_value
+            next_group["entries"] = [dict(entry) for entry in group.get("entries", []) if isinstance(entry, dict)]
+            next_groups.append(next_group)
+        if changed:
+            self._environment_access_groups = next_groups
+            self.dataChanged.emit()
+
+    @staticmethod
+    def _clone_environment_groups(
+        groups: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        cloned_groups: list[dict[str, object]] = []
+        for group in groups:
+            next_group = dict(group)
+            next_group["entries"] = [
+                dict(entry)
+                for entry in group.get("entries", [])
+                if isinstance(entry, dict)
+            ]
+            cloned_groups.append(next_group)
+        return cloned_groups
+
+    def _replace_environment_groups(self, groups: list[dict[str, object]]) -> None:
+        self._environment_access_groups = self._clone_environment_groups(groups)
+        self.dataChanged.emit()
+
+    def _set_group_expanded_state(self, target_entry_id: str = "") -> None:
+        normalized_entry_id = str(target_entry_id or "").strip()
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group in next_groups:
+            entries = group.get("entries", [])
+            has_target = any(
+                str(entry.get("id") or "") == normalized_entry_id
+                for entry in entries
+                if isinstance(entry, dict)
+            )
+            group["expanded"] = has_target if normalized_entry_id else bool(group.get("expanded", False))
+        self._environment_access_groups = next_groups
+
+    @staticmethod
+    def _iterate_environment_entries(groups: list[dict[str, object]]):
+        for group in groups:
+            entries = group.get("entries", [])
+            if not isinstance(entries, list):
+                continue
+            yield group, entries
+
+    @staticmethod
+    def _copy_entry_shape(group: dict[str, object], entry: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+        return dict(group), dict(entry)
+
+    def _update_environment_entries(self, updater) -> bool:
+        changed = False
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group, entries in self._iterate_environment_entries(next_groups):
+            for index, entry in enumerate(entries):
+                updated_entry, entry_changed = updater(dict(entry))
+                if entry_changed:
+                    entries[index] = updated_entry
+                    changed = True
+        if changed:
+            self._environment_access_groups = next_groups
+            self.dataChanged.emit()
+        return changed
+
+    @pyqtSlot(str)
+    def startEnvironmentLogin(self, entry_id: str) -> None:
+        result = self._environment_access_service.prepare_login(str(entry_id or "").strip())
+        if result is None:
+            self._set_environment_access_message("未找到环境访问项")
+            return
+        opened = self._open_environment_target(result.entry.url_or_host)
+        copied_username = False
+        if result.username:
+            QApplication.clipboard().setText(result.username)
+            copied_username = True
+        helper_available = bool(
+            str(result.username or "").strip()
+            or result.has_password
+            or result.entry.requires_otp
+        )
+        self._activate_environment_entry(
+            result.entry.id,
+            login_activated=helper_available,
+            password_available=result.has_password,
+            otp_available=result.entry.requires_otp,
+            otp_code=result.otp_code,
+            otp_remaining_seconds=result.otp_remaining_seconds,
+        )
+        access_name = result.entry.access_name or "访问入口"
+        if opened and copied_username:
+            message = f"已打开 {access_name}，并复制账号"
+        elif opened:
+            message = f"已打开 {access_name}"
+        elif copied_username:
+            message = f"已复制 {access_name} 账号"
+        else:
+            message = f"已准备 {access_name} 登录动作"
+        self._set_environment_access_message(message)
+
+    @pyqtSlot(str)
+    def copyEnvironmentUsername(self, entry_id: str) -> None:
+        entry_id = str(entry_id or "").strip()
+        if not entry_id:
+            self._set_environment_access_message("当前访问方式未配置账号")
+            return
+        username = ""
+        for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
+            for entry in entries:
+                if str(entry.get("id") or "") == entry_id:
+                    username = str(entry.get("username") or "").strip()
+                    break
+            if username:
+                break
+        if not username:
+            self._set_environment_access_message("当前访问方式未配置账号")
+            return
+        QApplication.clipboard().setText(username)
+        self._set_environment_access_message("已复制账号")
+
+    @pyqtSlot(str)
+    def copyEnvironmentPassword(self, entry_id: str) -> None:
+        password = self._environment_access_service.get_password(str(entry_id or "").strip())
+        if not password:
+            self._set_environment_access_message("当前访问方式未配置密码")
+            return
+        QApplication.clipboard().setText(password)
+        self._set_environment_access_message("已复制密码")
+
+    @pyqtSlot(str)
+    def copyEnvironmentOtp(self, entry_id: str) -> None:
+        code, remaining = self._environment_access_service.get_otp_code(str(entry_id or "").strip())
+        if not code:
+            self._set_environment_access_message("当前访问方式暂无可用验证码")
+            return
+        QApplication.clipboard().setText(code)
+        self._update_entry_otp_state(str(entry_id or "").strip(), code, remaining)
+        self._set_environment_access_message("已复制验证码")
+
+    @pyqtSlot()
+    def refreshEnvironmentOtpState(self) -> None:
+        def _updater(entry: dict[str, object]) -> tuple[dict[str, object], bool]:
+            if not bool(entry.get("loginActivated", False)):
+                return entry, False
+            if not bool(entry.get("canCopyOtp", False)):
+                return entry, False
+            next_code, next_remaining = self._environment_access_service.get_otp_code(
+                str(entry.get("id") or "")
+            )
+            if (
+                int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining
+                and str(entry.get("otpCode") or "") == next_code
+            ):
+                return entry, False
+            entry["otpCode"] = next_code
+            entry["otpRemainingSeconds"] = next_remaining
+            return entry, True
+
+        self._update_environment_entries(_updater)
+
+    def set_todo(
+        self,
+        todo: TodoItem,
+        sync_records: list[dict[str, object]] | None = None,
+        task_status_map: dict[str, dict[str, object]] | None = None,
+    ) -> None:
+        self._clear_draft_timeline_attachments()
+        self._reset_stage_summary_state()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
@@ -449,33 +1016,321 @@ class _TodoDetailBridge(QObject):
             todo.summary_fields.ticket_type,
             summary_text=todo.current_summary,
         )
+        self._feature_point = str(todo.summary_fields.feature_point or "").strip()
+        self._feature_point_source = str(todo.summary_fields.feature_point_source or "").strip()
+        self._root_cause_desc = str(todo.summary_fields.root_cause_desc or "").strip()
+        self._root_cause_desc_source = str(todo.summary_fields.root_cause_desc_source or "").strip()
+        self._root_cause = str(todo.summary_fields.root_cause or "").strip()
+        self._root_cause_source = str(todo.summary_fields.root_cause_source or "").strip()
         self._current_summary = todo.current_summary.strip()
+        self._conclusion_content = str(todo.conclusion.content or "").strip()
+        self._conclusion_updated_at = str(todo.conclusion.updated_at or "").strip()
+        self._conclusion_attachments = [self._attachment_to_dict(item) for item in todo.conclusion.attachments]
         self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
         self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
         self._updated_at = _format_ts(todo.updated_at)
-        self._timeline = [
-            {
-                "id": event.id,
-                "timestamp": event.timestamp,
-                "timeLabel": _format_ts(event.timestamp),
-                "scenario": _normalize_timeline_scenario(event.kind, event.scenario),
-                "content": event.content.strip(),
-                "kind": event.kind,
-                "attachments": [self._attachment_to_dict(item) for item in event.attachments],
-                "attachmentCount": len(event.attachments),
-            }
-            for event in reversed(todo.timeline)
+        task_status_map = task_status_map or {}
+        timeline_items = [
+            self._build_timeline_item(event, task_status_map.get(event.id, {}))
+            for event in _normalize_display_timeline(todo.timeline)
         ]
+        result_event_ids: dict[str, str] = {}
+        for item in timeline_items:
+            if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+                continue
+            payload = _clone_dict(item.get("payload", {}))
+            source_event_id = str(payload.get("source_timeline_entry_id", "") or "").strip()
+            if source_event_id and source_event_id not in result_event_ids:
+                result_event_ids[source_event_id] = str(item.get("id") or "")
+        for item in timeline_items:
+            if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+                continue
+            payload = _clone_dict(item.get("payload", {}))
+            result_event_id = str(payload.get("result_event_id", "") or result_event_ids.get(str(item.get("id") or ""), "")).strip()
+            if result_event_id:
+                payload["result_event_id"] = result_event_id
+                item["payload"] = payload
+        self._timeline = timeline_items
+        self._refresh_display_timeline()
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
+        self._project_match_status = _project_status_label(todo.project_link.match_status)
+        self._project_match_detail = _project_status_detail(todo)
+        self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
+        self._project_task_order_no = str(todo.project_link.project_snapshot.get("task_order_no") or "").strip()
+        self._project_manager = str(todo.project_link.project_snapshot.get("project_manager") or "").strip()
+        self._load_environment_access(todo.project_link.project_id)
         self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
         self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
+
+    def _build_timeline_item(self, event: TimelineEvent, status_payload: dict[str, object]) -> dict[str, object]:
+        event_type = _timeline_event_type(event)
+        normalized_scenario = _normalize_timeline_scenario(event.kind, event.scenario)
+        payload = _clone_dict(getattr(event, "payload", {}))
+        status = _normalize_card_status(
+            str(status_payload.get("uiStatus", "") or getattr(event, "status", "") or status_payload.get("taskStatus", ""))
+        )
+        if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            normalized_scenario = _LOG_ANALYSIS_TASK_SCENARIO
+            payload = self._build_log_analysis_task_payload(event, payload, status_payload, status)
+        elif event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+            normalized_scenario = _LOG_ANALYSIS_RESULT_SCENARIO
+            payload = self._build_log_analysis_result_payload(event, payload)
+            status = _SUCCESS_STATUS
+
+        created_at = str(getattr(event, "created_at", "") or event.timestamp or "").strip()
+        attachments = [self._attachment_to_dict(item) for item in event.attachments]
+        task_status = str(status_payload.get("taskStatus", "") or "").strip()
+        card_status_label = self._status_label(status)
+        if event_type == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND and str(status_payload.get("taskStatusLabel", "") or "").strip():
+            card_status_label = str(status_payload.get("taskStatusLabel", "") or "").strip()
+        item = {
+            "id": event.id,
+            "timestamp": event.timestamp,
+            "created_at": created_at,
+            "timeLabel": _format_ts(created_at or event.timestamp),
+            "scenario": normalized_scenario,
+            "cardLabel": _timeline_card_label(event_type, normalized_scenario),
+            "content": event.content.strip(),
+            "kind": event.kind,
+            "type": event_type,
+            "payload": payload,
+            "status": status,
+            "statusLabel": card_status_label,
+            "attachments": attachments,
+            "attachmentCount": len(attachments),
+            "taskId": str(status_payload.get("taskId", "") or "").strip(),
+            "taskType": str(status_payload.get("taskType", "") or "").strip(),
+            "taskStatus": task_status,
+            "taskStatusLabel": str(status_payload.get("taskStatusLabel", "") or "").strip(),
+            "taskStatusDetail": str(status_payload.get("taskStatusDetail", "") or "").strip(),
+        }
+        return item
+
+    def _build_log_analysis_task_payload(
+        self,
+        event: TimelineEvent,
+        payload: dict[str, object],
+        status_payload: dict[str, object],
+        status: str,
+    ) -> dict[str, object]:
+        resolved = _clone_dict(payload)
+        command_text = str(
+            resolved.get("command_text", "")
+            or resolved.get("raw_command", "")
+            or status_payload.get("rawCommand", "")
+            or event.content
+            or ""
+        ).strip()
+        current_step = str(status_payload.get("currentStep", "") or resolved.get("current_step", "") or "").strip()
+        step_index = self._step_index_for_label(current_step)
+        if step_index < 0:
+            step_index = self._infer_log_analysis_step_index(status_payload)
+        if not current_step and status == _RUNNING_STATUS:
+            current_step = _LOG_ANALYSIS_STEP_LABELS[step_index]
+        failure_reason = str(
+            resolved.get("failure_reason", "")
+            or status_payload.get("errorMessage", "")
+            or status_payload.get("taskStatusDetail", "")
+            or ""
+        ).strip()
+        failure_details = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("failure_details", []))
+            if str(item).strip()
+        ]
+        if not failure_details and failure_reason:
+            failure_details = [failure_reason]
+
+        process_steps = []
+        raw_steps = _clone_list(resolved.get("process_steps", []))
+        if raw_steps:
+            for item in raw_steps:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("label", "") or "").strip()
+                step_state = str(item.get("state", "") or "").strip()
+                if label:
+                    process_steps.append({"label": label, "state": step_state})
+        if not process_steps:
+            for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS):
+                if status == _SUCCESS_STATUS:
+                    step_state = "done"
+                elif status == _RUNNING_STATUS and index == step_index:
+                    step_state = "active"
+                elif index < step_index:
+                    step_state = "done"
+                else:
+                    step_state = "pending"
+                process_steps.append({"label": label, "state": step_state})
+
+        resolved.update(
+            {
+                "command_text": command_text,
+                "raw_command": str(status_payload.get("rawCommand", "") or resolved.get("raw_command", "") or command_text).strip(),
+                "current_step": current_step,
+                "process_steps": process_steps,
+                "result_event_id": str(resolved.get("result_event_id", "") or "").strip(),
+                "failure_reason": failure_reason,
+                "failure_details": failure_details,
+                "task_id": str(status_payload.get("taskId", "") or resolved.get("task_id", "") or "").strip(),
+            }
+        )
+        return resolved
+
+    @staticmethod
+    def _step_index_for_label(current_step: str) -> int:
+        normalized = str(current_step or "").strip()
+        if not normalized:
+            return -1
+        for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS):
+            if label == normalized:
+                return index
+        return -1
+
+    @staticmethod
+    def _should_hide_timeline_item(item: dict[str, object]) -> bool:
+        if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            return False
+        payload = _clone_dict(item.get("payload", {}))
+        return bool(str(payload.get("result_event_id", "") or "").strip())
+
+    def _refresh_display_timeline(self) -> None:
+        self._display_timeline = [
+            item
+            for item in self._timeline
+            if not self._should_hide_timeline_item(item)
+        ]
+
+    def _build_log_analysis_result_payload(self, event: TimelineEvent, payload: dict[str, object]) -> dict[str, object]:
+        resolved = _clone_dict(payload)
+        analyzed_materials = [
+            dict(item)
+            for item in _clone_list(resolved.get("analyzed_materials", []))
+            if isinstance(item, dict)
+        ]
+        if not analyzed_materials:
+            raw_payload = _clone_dict(resolved.get("raw_result_payload", {}))
+            analyzed_materials = [
+                dict(item)
+                for item in _clone_list(raw_payload.get("analyzed_materials", []))
+                if isinstance(item, dict)
+            ]
+
+        findings = str(resolved.get("findings", "") or "").strip()
+        if not findings:
+            finding_items = [
+                str(item.get("summary", "") or "").strip()
+                for item in _clone_list(resolved.get("key_findings", []))
+                if isinstance(item, dict) and str(item.get("summary", "") or "").strip()
+            ]
+            findings = "\n".join(finding_items).strip()
+        if not findings:
+            findings = event.content.strip()
+
+        conclusion = str(resolved.get("conclusion", "") or resolved.get("primary_issue", "") or "").strip()
+        if not conclusion:
+            preliminary_judgment = _clone_dict(resolved.get("preliminary_judgment", {}))
+            conclusion = str(preliminary_judgment.get("reason", "") or "").strip()
+
+        judgment = str(resolved.get("judgment", "") or "").strip()
+        if not judgment:
+            preliminary_judgment = _clone_dict(resolved.get("preliminary_judgment", {}))
+            judgment = "：".join(
+                part
+                for part in [
+                    str(preliminary_judgment.get("category", "") or "").strip(),
+                    str(preliminary_judgment.get("reason", "") or "").strip(),
+                ]
+                if part
+            ).strip()
+
+        next_steps = str(resolved.get("next_steps", "") or "").strip()
+        if not next_steps:
+            next_steps = "\n".join(
+                str(item).strip()
+                for item in _clone_list(resolved.get("suggested_next_steps", []))
+                if str(item).strip()
+            ).strip()
+
+        finding_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("finding_lines", []))
+            if str(item).strip()
+        ]
+        if not finding_lines and findings:
+            finding_lines = [line.strip() for line in findings.splitlines() if line.strip()]
+
+        next_step_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("next_step_lines", []))
+            if str(item).strip()
+        ]
+        if not next_step_lines and next_steps:
+            next_step_lines = [line.strip() for line in next_steps.splitlines() if line.strip()]
+
+        missing_information_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("missing_information_lines", []))
+            if str(item).strip()
+        ]
+        material_lines = [
+            str(item).strip()
+            for item in _clone_list(resolved.get("material_lines", []))
+            if str(item).strip()
+        ]
+        if not material_lines and analyzed_materials:
+            material_lines = [
+                str(item.get("summary", "") or item.get("name", "") or "").strip()
+                for item in analyzed_materials
+                if str(item.get("summary", "") or item.get("name", "") or "").strip()
+            ]
+
+        resolved.update(
+            {
+                "source_timeline_entry_id": str(resolved.get("source_timeline_entry_id", "") or "").strip(),
+                "task_id": str(resolved.get("task_id", "") or "").strip(),
+                "analyzed_materials": analyzed_materials,
+                "conclusion": conclusion,
+                "findings": findings,
+                "judgment": judgment,
+                "next_steps": next_steps,
+                "finding_lines": finding_lines,
+                "next_step_lines": next_step_lines,
+                "missing_information_lines": missing_information_lines,
+                "material_lines": material_lines,
+            }
+        )
+        return resolved
+
+    @staticmethod
+    def _infer_log_analysis_step_index(status_payload: dict[str, object]) -> int:
+        if _clone_dict(status_payload.get("resultPayload", {})):
+            return 2
+        evidence_bundle = _clone_dict(status_payload.get("evidenceBundle", {}))
+        if _clone_list(evidence_bundle.get("parts", [])):
+            return 2
+        investigation_context = _clone_dict(status_payload.get("investigationContext", {}))
+        if any(str(value).strip() for value in investigation_context.values()):
+            return 1
+        if _clone_list(status_payload.get("attachmentSnapshot", [])):
+            return 1
+        return 0
+
+    @staticmethod
+    def _status_label(status: str) -> str:
+        mapping = {
+            _RUNNING_STATUS: "分析中",
+            _SUCCESS_STATUS: "已生成",
+            _FAILED_STATUS: "失败",
+        }
+        return mapping.get(str(status or "").strip(), "")
 
     @pyqtSlot(str, str)
     def updateField(self, name: str, value: str) -> None:
@@ -491,8 +1346,20 @@ class _TodoDetailBridge(QObject):
             self._product_line = resolve_product_line(raw_value=text)
         elif name == "ticket_type":
             self._ticket_type = normalize_ticket_type(text, summary_text=self._current_summary)
+        elif name == "feature_point":
+            self._feature_point = text
+            self._feature_point_source = "manual"
+        elif name == "root_cause_desc":
+            self._root_cause_desc = text
+            self._root_cause_desc_source = "manual"
+        elif name == "root_cause":
+            self._root_cause = text
+            self._root_cause_source = "manual"
         elif name == "current_summary":
             self._current_summary = text
+        elif name == "conclusion_content":
+            self._conclusion_content = text
+            self._conclusion_updated_at = datetime.now().isoformat()
         else:
             return
         self.dataChanged.emit()
@@ -506,20 +1373,29 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
         self.updateTimelineContent(event_id, value)
+        self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
 
     @pyqtSlot(str)
     def requestAttachmentSelection(self, event_id: str) -> None:
-        if self._find_timeline_item(event_id) is None:
+        if not self._is_valid_attachment_target(event_id):
             return
         self.attachmentSelectionRequested.emit(event_id)
 
     @pyqtSlot(str)
     def requestClipboardImagePaste(self, event_id: str) -> None:
-        if self._find_timeline_item(event_id) is None:
+        if not self._is_valid_attachment_target(event_id):
             return
         self.clipboardImagePasteRequested.emit(event_id)
+
+    @pyqtSlot()
+    def requestDraftTimelineAttachmentSelection(self) -> None:
+        self.draftAttachmentSelectionRequested.emit()
+
+    @pyqtSlot()
+    def requestDraftTimelineClipboardImagePaste(self) -> None:
+        self.draftClipboardImagePasteRequested.emit()
 
     @pyqtSlot(str, "QVariantList")
     def addTimelineAttachmentsFromUrls(self, event_id: str, urls: object) -> None:
@@ -528,6 +1404,13 @@ class _TodoDetailBridge(QObject):
             return
         self.attach_files_to_event(event_id, file_paths)
 
+    @pyqtSlot("QVariantList")
+    def addDraftTimelineAttachmentsFromUrls(self, urls: object) -> None:
+        file_paths = _coerce_dropped_file_paths(urls)
+        if not file_paths:
+            return
+        self.attach_files_to_draft_timeline(file_paths)
+
     @pyqtSlot(str)
     def previewAttachment(self, file_path: str) -> None:
         path = str(file_path or "").strip()
@@ -535,8 +1418,8 @@ class _TodoDetailBridge(QObject):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    @pyqtSlot(str, bool, bool, str)
-    def activateAttachment(self, file_path: str, is_image: bool, is_video: bool, file_name: str) -> None:
+    @pyqtSlot(str, bool, bool)
+    def copyAttachment(self, file_path: str, is_image: bool, is_video: bool) -> None:
         path = Path(str(file_path or "").strip()).expanduser()
         if not path.is_file():
             return
@@ -545,33 +1428,198 @@ class _TodoDetailBridge(QObject):
             return
         if bool(is_video):
             self._copy_file_to_clipboard(path)
+
+    @pyqtSlot(str)
+    def copyAttachmentName(self, file_name: str) -> None:
+        name = str(file_name or "").strip()
+        if not name:
+            return
+        QGuiApplication.clipboard().setText(name)
+
+    @pyqtSlot(str)
+    def copyAttachmentPath(self, file_path: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.is_file():
+            return
+        self._copy_file_path_to_clipboard(path)
+
+    @pyqtSlot(str)
+    def openAttachmentFolder(self, file_path: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.exists():
+            return
+        target_dir = path.parent if path.is_file() else path
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir)))
+
+    @pyqtSlot(str, str)
+    def downloadAttachment(self, file_path: str, file_name: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.is_file():
             return
         self._download_attachment(path, str(file_name or path.name).strip() or path.name)
 
     @pyqtSlot(str)
-    def addTimelineEntry(self, value: str) -> None:
-        content = sanitize_text(value)
-        if not content:
+    def copyPlainText(self, value: str) -> None:
+        text = str(value or "").strip()
+        if not text:
             return
-        timestamp = datetime.now().isoformat()
+        QGuiApplication.clipboard().setText(text)
+
+    @pyqtSlot(str, bool, bool, str)
+    def activateAttachment(self, file_path: str, _is_image: bool, _is_video: bool, _file_name: str) -> None:
+        path = Path(str(file_path or "").strip()).expanduser()
+        if not path.exists():
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _append_log_analysis_timeline_entry(
+        self,
+        content: str,
+        event_id: str,
+        timestamp: str,
+        attachments: list[dict[str, object]],
+        insert_index: int,
+    ) -> None:
+        command_text = content if is_log_analysis_command(content) else f"/分析日志 {content}".strip()
+        parsed_command = parse_log_analysis_command(command_text)
+        focus_text = format_log_analysis_focus(parsed_command)
         self._timeline.insert(
-            0,
+            insert_index,
             {
-                "id": str(uuid.uuid4()),
+                "id": event_id,
                 "timestamp": timestamp,
+                "created_at": timestamp,
                 "timeLabel": _format_ts(timestamp),
-                "scenario": _MANUAL_SCENARIO,
-                "content": content,
-                "kind": "manual",
-                "attachments": [],
-                "attachmentCount": 0,
+                "scenario": _LOG_ANALYSIS_TASK_SCENARIO,
+                "cardLabel": _LOG_ANALYSIS_TASK_SCENARIO,
+                "content": parsed_command.raw_command,
+                "kind": _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND,
+                "type": _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND,
+                "payload": {
+                    "command_text": parsed_command.raw_command,
+                    "raw_command": parsed_command.raw_command,
+                    "focus_text": focus_text,
+                    "current_step": _LOG_ANALYSIS_STEP_LABELS[0],
+                    "process_steps": [
+                        {"label": label, "state": "active" if index == 0 else "pending"}
+                        for index, label in enumerate(_LOG_ANALYSIS_STEP_LABELS)
+                    ],
+                    "failure_reason": "",
+                    "failure_details": [],
+                    "result_event_id": "",
+                },
+                "status": _RUNNING_STATUS,
+                "statusLabel": "排队中",
+                "attachments": attachments,
+                "attachmentCount": len(attachments),
+                "taskId": "",
+                "taskType": "log_analysis",
+                "taskStatus": "queued",
+                "taskStatusLabel": "排队中",
             },
         )
+        self._refresh_display_timeline()
         if not self._timeline_expanded:
             self._timeline_expanded = True
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
+        if self._todo_id is not None:
+            self.logAnalysisRequested.emit(
+                self._todo_id,
+                {
+                    "timelineEntryId": event_id,
+                    "rawCommand": parsed_command.raw_command,
+                    "parsedFocus": parsed_command.to_dict(),
+                    "attachments": [dict(item) for item in attachments if isinstance(item, dict)],
+                },
+            )
+
+    @pyqtSlot(str, str)
+    def addTimelineEntry(self, value: str, entry_type: str = _ENTRY_TYPE_FOLLOW_UP) -> None:
+        content, resolved_type = _normalize_entry_submission(value, entry_type)
+        if not content and resolved_type != _ENTRY_TYPE_LOG_ANALYSIS:
+            return
+        if is_log_analysis_command(content):
+            resolved_type = _ENTRY_TYPE_LOG_ANALYSIS
+        if resolved_type == _ENTRY_TYPE_CONCLUSION:
+            self._conclusion_content = content
+            draft_attachments = self._persist_draft_timeline_attachments(_CONCLUSION_ATTACHMENT_TARGET)
+            if draft_attachments:
+                self._conclusion_attachments = [*self._conclusion_attachments, *draft_attachments]
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+            self._emit_save_request()
+            return
+
+        timestamp = datetime.now().isoformat()
+        event_id = str(uuid.uuid4())
+        attachments = self._persist_draft_timeline_attachments(event_id)
+        insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
+        if resolved_type == _ENTRY_TYPE_LOG_ANALYSIS:
+            self._append_log_analysis_timeline_entry(content, event_id, timestamp, attachments, insert_index)
+            return
+
+        self._timeline.insert(
+            insert_index,
+            {
+                "id": event_id,
+                "timestamp": timestamp,
+                "created_at": timestamp,
+                "timeLabel": _format_ts(timestamp),
+                "scenario": _MANUAL_SCENARIO,
+                "cardLabel": _MANUAL_SCENARIO,
+                "content": content,
+                "kind": "manual",
+                "type": _TIMELINE_EVENT_TYPE_DEFAULT,
+                "payload": {},
+                "status": "",
+                "statusLabel": "",
+                "attachments": attachments,
+                "attachmentCount": len(attachments),
+            },
+        )
+        self._refresh_display_timeline()
+        if not self._timeline_expanded:
+            self._timeline_expanded = True
+            self.timelineExpandedChanged.emit()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+
+    @pyqtSlot(str)
+    def deleteTimelineCard(self, event_id: str) -> None:
+        event_id = str(event_id or "").strip()
+        if not event_id:
+            return
+        related_ids = self._collect_related_timeline_ids(event_id)
+        if not related_ids:
+            return
+        removed = [item for item in self._timeline if str(item.get("id") or "") in related_ids]
+        remaining = [item for item in self._timeline if str(item.get("id") or "") not in related_ids]
+        if len(remaining) == len(self._timeline):
+            return
+        for item in removed:
+            self._delete_attachments_for_item(item)
+        self._timeline = remaining
+        self._refresh_display_timeline()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+
+    def _collect_related_timeline_ids(self, event_id: str) -> set[str]:
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return set()
+        related_ids = {event_id}
+        payload = _clone_dict(item.get("payload", {}))
+        if str(item.get("type") or "") == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT:
+            source_id = str(payload.get("source_timeline_entry_id", "") or "").strip()
+            if source_id:
+                related_ids.add(source_id)
+        elif str(item.get("type") or "") == _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
+            result_id = str(payload.get("result_event_id", "") or "").strip()
+            if result_id:
+                related_ids.add(result_id)
+        return related_ids
 
     @pyqtSlot(str)
     def deleteTimelineEntry(self, event_id: str) -> None:
@@ -582,11 +1630,15 @@ class _TodoDetailBridge(QObject):
         for item in removed:
             self._delete_attachments_for_item(item)
         self._timeline = remaining
+        self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
 
     @pyqtSlot(str, str)
     def removeTimelineAttachment(self, event_id: str, attachment_id: str) -> None:
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self.removeConclusionAttachment(attachment_id)
+            return
         item = self._find_timeline_item(event_id)
         if item is None:
             return
@@ -611,10 +1663,97 @@ class _TodoDetailBridge(QObject):
         self.timelineChanged.emit()
         self._emit_save_request()
 
+    @pyqtSlot(str)
+    def removeConclusionAttachment(self, attachment_id: str) -> None:
+        remaining: list[dict[str, object]] = []
+        removed_path = ""
+        for attachment in self._conclusion_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("id") == attachment_id:
+                removed_path = str(attachment.get("path", ""))
+                continue
+            remaining.append(attachment)
+        if len(remaining) == len(self._conclusion_attachments):
+            return
+        self._conclusion_attachments = remaining
+        self._conclusion_updated_at = datetime.now().isoformat()
+        if removed_path:
+            self._remove_attachment_file(removed_path)
+        self.dataChanged.emit()
+        self._emit_save_request()
+
+    @pyqtSlot(str)
+    def removeDraftTimelineAttachment(self, attachment_id: str) -> None:
+        remaining: list[dict[str, object]] = []
+        removed_path = ""
+        for attachment in self._draft_timeline_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            if attachment.get("id") == attachment_id:
+                removed_path = str(attachment.get("path", ""))
+                continue
+            remaining.append(attachment)
+        if len(remaining) == len(self._draft_timeline_attachments):
+            return
+        self._draft_timeline_attachments = remaining
+        if removed_path:
+            self._remove_attachment_file(removed_path)
+        self.dataChanged.emit()
+
     @pyqtSlot()
     def toggleTimeline(self) -> None:
         self._timeline_expanded = not self._timeline_expanded
         self.timelineExpandedChanged.emit()
+
+    @pyqtSlot()
+    def toggleStageSummary(self) -> None:
+        self._stage_summary_visible = not self._stage_summary_visible
+        self.dataChanged.emit()
+        if self._stage_summary_visible and not self._stage_summary_requested_once:
+            self.refreshStageSummary()
+
+    @pyqtSlot()
+    def refreshStageSummary(self) -> None:
+        if self._todo_id is None:
+            return
+        payload = self._build_payload()
+        if payload is None:
+            return
+        request_id = str(uuid.uuid4())
+        self._stage_summary_busy = True
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = True
+        self._stage_summary_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.stageSummaryRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "todoPayload": payload,
+            },
+        )
+
+    @pyqtSlot()
+    def copyStageSummary(self) -> None:
+        text = self._stage_summary_text.strip()
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+
+    @pyqtSlot(str)
+    def rewriteStageSummaryWithPreset(self, preset_key: str) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key=str(preset_key or "").strip(),
+            instruction="",
+        )
+
+    @pyqtSlot(str)
+    def rewriteStageSummary(self, instruction: str) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key="",
+            instruction=str(instruction or "").strip(),
+        )
 
     @pyqtSlot()
     def saveTodo(self) -> None:
@@ -669,13 +1808,36 @@ class _TodoDetailBridge(QObject):
                         if part
                     ),
                 ),
+                feature_point=self._feature_point.strip(),
+                feature_point_source=self._feature_point_source,
+                root_cause_desc=self._root_cause_desc.strip(),
+                root_cause_desc_source=self._root_cause_desc_source,
+                root_cause=self._root_cause.strip(),
+                root_cause_source=self._root_cause_source,
             ).to_dict(),
+            "conclusion": TodoConclusion(
+                content=self._conclusion_content.strip(),
+                updated_at=self._conclusion_updated_at or datetime.now().isoformat(),
+                attachments=[
+                    TimelineAttachment(
+                        id=str(attachment.get("id", str(uuid.uuid4()))),
+                        name=str(attachment.get("name", "")).strip(),
+                        path=str(attachment.get("path", "")).strip(),
+                        size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                    )
+                    for attachment in self._conclusion_attachments
+                    if isinstance(attachment, dict)
+                ],
+            ),
             "timeline": [
                 TimelineEvent(
                     id=item["id"],
                     timestamp=item["timestamp"],
                     kind=item.get("kind", "analysis"),
                     scenario=item.get("scenario", ""),
+                    event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                    payload=_clone_dict(item.get("payload", {})),
+                    status=str(item.get("status", "") or ""),
                     content=item.get("content", "").strip(),
                     attachments=[
                         TimelineAttachment(
@@ -687,19 +1849,25 @@ class _TodoDetailBridge(QObject):
                         for attachment in item.get("attachments", [])
                         if isinstance(attachment, dict)
                     ],
+                    created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
                 )
                 for item in reversed(self._timeline)
             ],
         }
 
     def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
-        item = self._find_timeline_item(event_id)
-        if item is None or self._todo_id is None:
+        if self._todo_id is None:
             return
-        attachments = item.setdefault("attachments", [])
-        if not isinstance(attachments, list):
-            attachments = []
-            item["attachments"] = attachments
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            attachments = self._conclusion_attachments
+        else:
+            item = self._find_timeline_item(event_id)
+            if item is None:
+                return
+            attachments = item.setdefault("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+                item["attachments"] = attachments
         added = False
         for file_path in file_paths:
             attachment = self._copy_attachment(file_path, event_id)
@@ -709,15 +1877,100 @@ class _TodoDetailBridge(QObject):
             added = True
         if not added:
             return
-        item["attachmentCount"] = len(attachments)
-        self.timelineChanged.emit()
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self._conclusion_attachments = list(attachments)
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+        else:
+            item["attachmentCount"] = len(attachments)
+            self.timelineChanged.emit()
         self._emit_save_request()
+
+    def attach_files_to_draft_timeline(self, file_paths: list[str]) -> None:
+        added = False
+        attachments = list(self._draft_timeline_attachments)
+        for file_path in file_paths:
+            attachment = self._copy_attachment(file_path, _DRAFT_TIMELINE_ATTACHMENT_TARGET)
+            if attachment is None:
+                continue
+            attachments.append(attachment)
+            added = True
+        if not added:
+            return
+        self._draft_timeline_attachments = attachments
+        self.dataChanged.emit()
 
     def _emit_save_request(self) -> None:
         payload = self._build_payload()
         if self._todo_id is None or payload is None:
             return
         self.saveRequested.emit(self._todo_id, payload)
+
+    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str) -> None:
+        if self._todo_id is None:
+            return
+        current_text = self._stage_summary_text.strip()
+        if not current_text:
+            return
+        if not preset_key and not instruction:
+            return
+        request_id = str(uuid.uuid4())
+        self._stage_summary_busy = True
+        self._stage_summary_error = ""
+        self._stage_summary_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.stageSummaryRewriteRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "currentText": current_text,
+                "presetKey": preset_key,
+                "instruction": instruction,
+            },
+        )
+
+    def _reset_stage_summary_state(self, *, keep_visibility: bool = False) -> None:
+        self._stage_summary_visible = self._stage_summary_visible if keep_visibility else False
+        self._stage_summary_busy = False
+        self._stage_summary_text = ""
+        self._stage_summary_error = ""
+        self._stage_summary_requested_once = False
+        self._stage_summary_pending_request_id = ""
+
+    def reset_stage_summary_session(self) -> None:
+        self._reset_stage_summary_state()
+        self.dataChanged.emit()
+
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._stage_summary_pending_request_id:
+            return False
+        normalized = sanitize_text(summary_text).strip()
+        self._stage_summary_busy = False
+        self._stage_summary_pending_request_id = ""
+        self._stage_summary_error = ""
+        if normalized:
+            self._stage_summary_text = normalized
+        elif not self._stage_summary_text.strip():
+            self._stage_summary_error = "暂无可查看的阶段总结"
+        self.dataChanged.emit()
+        return True
+
+    def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._stage_summary_pending_request_id:
+            return False
+        self._stage_summary_busy = False
+        self._stage_summary_pending_request_id = ""
+        normalized = sanitize_text(message).strip()
+        if normalized:
+            self._stage_summary_error = normalized
+        elif not self._stage_summary_text.strip():
+            self._stage_summary_error = "阶段总结整理失败"
+        self.dataChanged.emit()
+        return True
 
     def _apply_sync_records(self, sync_records: list[dict[str, object]]) -> None:
         if not sync_records:
@@ -751,11 +2004,146 @@ class _TodoDetailBridge(QObject):
             if isinstance(item, dict)
         ]
 
+    @staticmethod
+    def _is_environment_otp_placeholder(entry: object) -> bool:
+        access_name = str(getattr(entry, "access_name", "") or "").strip().casefold()
+        if "otp" not in access_name:
+            return False
+        url_or_host = str(getattr(entry, "url_or_host", "") or "").strip()
+        username = str(getattr(entry, "username", "") or "").strip()
+        note = str(getattr(entry, "note", "") or "").strip()
+        return not any([url_or_host, username, note])
+
+    def _load_environment_access(self, project_id: str) -> None:
+        self._environment_access_popover_open = False
+        normalized_project_id = str(project_id or "").strip()
+        if not normalized_project_id:
+            self._environment_access_groups = []
+            self._environment_access_summary_text = "环境访问 · 无可用环境"
+            return
+        bundles = self._environment_access_service.list_project_environments(normalized_project_id)
+        visible_entries_by_environment = {
+            bundle.environment.id: [
+                entry
+                for entry in bundle.entries
+                if not self._is_environment_otp_placeholder(entry)
+            ]
+            for bundle in bundles
+        }
+        self._environment_access_groups = [
+            {
+                "id": bundle.environment.id,
+                "name": bundle.environment.env_name,
+                "type": bundle.environment.env_type,
+                "note": bundle.environment.note,
+                "expanded": False,
+                "entryCount": len(visible_entries_by_environment.get(bundle.environment.id, [])),
+                "summary": (
+                    f"{len(visible_entries_by_environment.get(bundle.environment.id, []))} 个可用访问方式"
+                    if visible_entries_by_environment.get(bundle.environment.id, [])
+                    else (bundle.environment.note or "暂无可直接访问入口")
+                ),
+                "entries": [
+                    {
+                        "id": entry.id,
+                        "name": entry.access_name,
+                        "type": entry.access_type,
+                        "urlOrHost": entry.url_or_host,
+                        "username": entry.username,
+                        "requiresOtp": bool(entry.requires_otp),
+                        "hasTarget": bool(entry.url_or_host.strip()),
+                        "hasPassword": bool(self._environment_access_service.get_password(entry.id)),
+                        "hasOtpSecret": bool(str(entry.otp_secret_encrypted or "").strip()),
+                        "note": entry.note,
+                        "loginActivated": False,
+                        "canCopyPassword": False,
+                        "canCopyOtp": False,
+                        "otpCode": "",
+                        "otpRemainingSeconds": 0,
+                    }
+                    for entry in visible_entries_by_environment.get(bundle.environment.id, [])
+                ],
+            }
+            for bundle in bundles
+        ]
+        group_count = len(self._environment_access_groups)
+        self._environment_access_summary_text = (
+            f"环境访问 · {group_count} 组"
+            if group_count > 0
+            else "环境访问 · 无可用环境"
+        )
+
+    def _activate_environment_entry(
+        self,
+        entry_id: str,
+        *,
+        login_activated: bool,
+        password_available: bool,
+        otp_available: bool,
+        otp_code: str,
+        otp_remaining_seconds: int,
+    ) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        if not normalized_entry_id:
+            return
+        next_groups = self._clone_environment_groups(self._environment_access_groups)
+        for group, entries in self._iterate_environment_entries(next_groups):
+            group_expanded = False
+            for index, entry in enumerate(entries):
+                is_target = str(entry.get("id") or "") == normalized_entry_id
+                should_activate = is_target and login_activated
+                next_entry = dict(entry)
+                next_entry["loginActivated"] = should_activate
+                next_entry["canCopyPassword"] = bool(password_available) if should_activate else False
+                next_entry["canCopyOtp"] = bool(otp_available) if should_activate else False
+                next_entry["otpCode"] = str(otp_code or "") if should_activate else ""
+                next_entry["otpRemainingSeconds"] = int(otp_remaining_seconds) if should_activate else 0
+                entries[index] = next_entry
+                group_expanded = group_expanded or is_target
+            group["expanded"] = group_expanded
+        self._environment_access_groups = next_groups
+        self.dataChanged.emit()
+
+    def _update_entry_otp_state(self, entry_id: str, code: str, remaining: int) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        if not normalized_entry_id:
+            return
+        def _updater(entry: dict[str, object]) -> tuple[dict[str, object], bool]:
+            if str(entry.get("id") or "") != normalized_entry_id:
+                return entry, False
+            next_remaining = max(0, int(remaining))
+            next_code = str(code or "")
+            if (
+                int(entry.get("otpRemainingSeconds", 0) or 0) == next_remaining
+                and str(entry.get("otpCode") or "") == next_code
+            ):
+                return entry, False
+            entry["otpCode"] = next_code
+            entry["otpRemainingSeconds"] = next_remaining
+            return entry, True
+
+        self._update_environment_entries(_updater)
+
+    def _set_environment_access_message(self, message: str) -> None:
+        self._environment_access_message = str(message or "").strip()
+        self.environmentAccessMessageChanged.emit()
+
+    @staticmethod
+    def _open_environment_target(target: str) -> bool:
+        normalized_target = str(target or "").strip()
+        if not _is_openable_target(normalized_target):
+            return False
+        return bool(QDesktopServices.openUrl(QUrl(normalized_target)))
+
     def _find_timeline_item(self, event_id: str) -> dict[str, object] | None:
         for item in self._timeline:
             if item.get("id") == event_id:
                 return item
         return None
+
+    @staticmethod
+    def _is_valid_attachment_target(event_id: str) -> bool:
+        return bool(event_id)
 
     @staticmethod
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
@@ -776,7 +2164,8 @@ class _TodoDetailBridge(QObject):
         source = Path(str(file_path or "")).expanduser()
         if not source.is_file() or self._todo_id is None:
             return None
-        target_dir = self._attachment_root / self._todo_id / event_id
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        target_dir = self._attachment_root / self._todo_id / target_name
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / source.name
         counter = 1
@@ -787,10 +2176,49 @@ class _TodoDetailBridge(QObject):
         return self._build_attachment_payload(target)
 
     def attach_clipboard_image_to_event(self, event_id: str, image: QImage) -> bool:
-        item = self._find_timeline_item(event_id)
-        if item is None or self._todo_id is None or image.isNull():
+        item = self._find_timeline_item(event_id) if event_id != _CONCLUSION_ATTACHMENT_TARGET else None
+        if event_id != _CONCLUSION_ATTACHMENT_TARGET and item is None:
             return False
-        target_dir = self._attachment_root / self._todo_id / event_id
+        attachment = self._save_clipboard_image(image, event_id)
+        if attachment is None:
+            return False
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            attachments = self._conclusion_attachments
+        else:
+            attachments = item.setdefault("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+                item["attachments"] = attachments
+        attachments.append(attachment)
+        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+            self._conclusion_attachments = list(attachments)
+            self._conclusion_updated_at = datetime.now().isoformat()
+            self.dataChanged.emit()
+        else:
+            item["attachmentCount"] = len(attachments)
+            self.timelineChanged.emit()
+        self._emit_save_request()
+        return True
+
+    def attach_clipboard_image_to_draft_timeline(self, image: QImage) -> bool:
+        if image.isNull():
+            return False
+        attachment = self._save_clipboard_image(image, _DRAFT_TIMELINE_ATTACHMENT_TARGET)
+        if attachment is None:
+            return False
+        self._draft_timeline_attachments = [*self._draft_timeline_attachments, attachment]
+        self.dataChanged.emit()
+        return True
+
+    def _save_clipboard_image(self, image: QImage, event_id: str) -> dict[str, object] | None:
+        if self._todo_id is None or image.isNull():
+            return None
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        if event_id not in {_CONCLUSION_ATTACHMENT_TARGET, _DRAFT_TIMELINE_ATTACHMENT_TARGET}:
+            item = self._find_timeline_item(event_id)
+            if item is None:
+                return None
+        target_dir = self._attachment_root / self._todo_id / target_name
         target_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         target = target_dir / f"clipboard_{stamp}.png"
@@ -799,16 +2227,8 @@ class _TodoDetailBridge(QObject):
             target = target_dir / f"clipboard_{stamp}_{counter}.png"
             counter += 1
         if not image.save(str(target), "PNG"):
-            return False
-        attachments = item.setdefault("attachments", [])
-        if not isinstance(attachments, list):
-            attachments = []
-            item["attachments"] = attachments
-        attachments.append(self._build_attachment_payload(target))
-        item["attachmentCount"] = len(attachments)
-        self.timelineChanged.emit()
-        self._emit_save_request()
-        return True
+            return None
+        return self._build_attachment_payload(target)
 
     def _build_attachment_payload(self, target: Path) -> dict[str, object]:
         attachment = TimelineAttachment(
@@ -818,6 +2238,37 @@ class _TodoDetailBridge(QObject):
             size_bytes=target.stat().st_size if target.exists() else 0,
         )
         return self._attachment_to_dict(attachment)
+
+    def _persist_draft_timeline_attachments(self, event_id: str) -> list[dict[str, object]]:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        if not attachments:
+            return []
+        moved: list[dict[str, object]] = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            moved_attachment = self._move_attachment_to_target(str(attachment.get("path", "")), event_id)
+            if moved_attachment is not None:
+                moved.append(moved_attachment)
+        self.dataChanged.emit()
+        return moved
+
+    def _move_attachment_to_target(self, file_path: str, event_id: str) -> dict[str, object] | None:
+        source = Path(str(file_path or "").strip()).expanduser()
+        if not source.is_file() or self._todo_id is None:
+            return None
+        target_name = "conclusion" if event_id == _CONCLUSION_ATTACHMENT_TARGET else event_id
+        target_dir = self._attachment_root / self._todo_id / target_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / source.name
+        counter = 1
+        while target.exists():
+            target = target_dir / f"{source.stem}_{counter}{source.suffix}"
+            counter += 1
+        shutil.move(str(source), str(target))
+        self._prune_empty_parent_dirs(source.parent)
+        return self._build_attachment_payload(target)
 
     def _copy_image_attachment(self, path: Path) -> None:
         image = QImage(str(path))
@@ -829,6 +2280,9 @@ class _TodoDetailBridge(QObject):
         mime_data = QMimeData()
         mime_data.setUrls([QUrl.fromLocalFile(str(path))])
         QGuiApplication.clipboard().setMimeData(mime_data)
+
+    def _copy_file_path_to_clipboard(self, path: Path) -> None:
+        QGuiApplication.clipboard().setText(str(path))
 
     def _download_attachment(self, source: Path, suggested_name: str) -> None:
         target_path, _ = QFileDialog.getSaveFileName(
@@ -860,7 +2314,14 @@ class _TodoDetailBridge(QObject):
                 return
             if target.exists():
                 target.unlink()
-            parent = target.parent
+            self._prune_empty_parent_dirs(target.parent)
+        except OSError:
+            return
+
+    def _prune_empty_parent_dirs(self, start: Path) -> None:
+        try:
+            root = self._attachment_root.resolve()
+            parent = start.resolve()
             while parent != root and parent.exists():
                 if any(parent.iterdir()):
                     break
@@ -868,6 +2329,14 @@ class _TodoDetailBridge(QObject):
                 parent = parent.parent
         except OSError:
             return
+
+    def _clear_draft_timeline_attachments(self) -> None:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            self._remove_attachment_file(str(attachment.get("path", "")))
 
     @pyqtSlot()
     def closePanel(self) -> None:
@@ -908,13 +2377,42 @@ class _TodoDetailBridge(QObject):
                         if part
                     ),
                 ),
+                feature_point=self._feature_point.strip(),
+                feature_point_source=self._feature_point_source,
+                root_cause_desc=self._root_cause_desc.strip(),
+                root_cause_desc_source=self._root_cause_desc_source,
+                root_cause=self._root_cause.strip(),
+                root_cause_source=self._root_cause_source,
             ).to_dict(),
+            "conclusion": {
+                "content": self._conclusion_content.strip(),
+                "updatedAt": self._conclusion_updated_at,
+                "attachments": [
+                    {
+                        "id": str(attachment.get("id", "")),
+                        "name": str(attachment.get("name", "")).strip(),
+                        "path": str(attachment.get("path", "")).strip(),
+                        "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        "kind": str(attachment.get("kind", "")),
+                        "isImage": bool(attachment.get("isImage", False)),
+                        "isVideo": bool(attachment.get("isVideo", False)),
+                        "isPreviewable": bool(attachment.get("isPreviewable", False)),
+                        "fileUrl": str(attachment.get("fileUrl", "")),
+                    }
+                    for attachment in self._conclusion_attachments
+                    if isinstance(attachment, dict)
+                ],
+            },
             "timeline": [
                 {
                     "id": item["id"],
                     "timestamp": item["timestamp"],
+                    "created_at": str(item.get("created_at", item.get("timestamp", "")) or ""),
                     "kind": item.get("kind", "analysis"),
                     "scenario": item.get("scenario", ""),
+                    "type": item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                    "payload": _clone_dict(item.get("payload", {})),
+                    "status": str(item.get("status", "") or ""),
                     "content": item.get("content", "").strip(),
                     "attachments": [
                         {
@@ -938,24 +2436,205 @@ class _TodoDetailBridge(QObject):
         self.exportPlanRequested.emit(self._todo_id, payload)
 
 
+class _StageSummaryWindow(QQuickView):
+    def __init__(
+        self,
+        bridge: _TodoDetailBridge,
+        *,
+        panel_width: int,
+        panel_height: int,
+        screen_margin: int,
+    ) -> None:
+        super().__init__()
+        self._bridge = bridge
+        self._panel_width = panel_width
+        self._panel_height = panel_height
+        self._screen_margin = screen_margin
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+        self._anchor_window: QQuickView | None = None
+        self._anchor_width = 0
+        self._anchor_gap = 0
+        self._top_offset = 0
+
+        self.setFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
+        self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
+        self.setSource(
+            QUrl.fromLocalFile(
+                str(Path(__file__).with_name("qml").joinpath("StageSummaryWindow.qml"))
+            )
+        )
+        self._ensure_qml_loaded()
+        self.resize(self._panel_width, self._preferred_panel_height())
+        self.hide()
+
+    def _ensure_qml_loaded(self) -> None:
+        if self.status() != QQuickView.Status.Error:
+            return
+        errors = "\n".join(error.toString() for error in self.errors())
+        raise RuntimeError(f"Failed to load StageSummaryWindow.qml:\n{errors}")
+
+    def show_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=True)
+
+    def update_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=False)
+
+    @pyqtSlot()
+    def syncPanelSize(self) -> None:
+        self._sync_geometry(activate=False)
+
+    @pyqtSlot(float, float)
+    def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
+        self._drag_active = True
+        self._drag_offset_x = max(0, int(offset_x))
+        self._drag_offset_y = max(0, int(offset_y))
+
+    @pyqtSlot()
+    def updatePanelDrag(self) -> None:
+        if not self._drag_active:
+            return
+        cursor_pos = QCursor.pos()
+        x = cursor_pos.x() - self._drag_offset_x
+        y = cursor_pos.y() - self._drag_offset_y
+        self._move_within_screen(x, y, _virtual_available_geometry())
+
+    @pyqtSlot()
+    def finishPanelDrag(self) -> None:
+        self._drag_active = False
+
+    def _preferred_panel_height(self, available_height: int | None = None) -> int:
+        preferred_height = self._panel_height
+        root_object_method = getattr(self, "rootObject", None)
+        if callable(root_object_method):
+            root_object = root_object_method()
+            if root_object is not None:
+                raw_value = root_object.property("preferredHeight")
+                if raw_value is not None:
+                    try:
+                        preferred_height = max(120, int(float(raw_value)))
+                    except (TypeError, ValueError):
+                        preferred_height = self._panel_height
+        preferred_height = min(preferred_height, self._panel_height)
+        if available_height is not None:
+            preferred_height = min(
+                preferred_height,
+                max(120, int(available_height) - self._screen_margin * 2),
+            )
+        return max(120, preferred_height)
+
+    def _sync_geometry(self, *, activate: bool) -> None:
+        anchor_window = self._anchor_window
+        if anchor_window is None:
+            return
+
+        screen = _screen_for_point(anchor_window.frameGeometry().center())
+        if screen is None:
+            return
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+
+        set_transient_parent = getattr(self, "setTransientParent", None)
+        if callable(set_transient_parent):
+            set_transient_parent(anchor_window)
+
+        x = _resolve_neighbor_panel_x(
+            anchor_window.x(),
+            self._anchor_width,
+            panel_width=self._panel_width,
+            available_left=available.left(),
+            available_right=available.right(),
+            margin=self._screen_margin,
+            gap=self._anchor_gap,
+        )
+        y = anchor_window.y() + self._top_offset
+        self.resize(self._panel_width, self._preferred_panel_height(available.height()))
+        self._move_within_screen(x, y, screen)
+
+        is_visible_method = getattr(self, "isVisible", None)
+        is_visible = bool(is_visible_method()) if callable(is_visible_method) else False
+        if activate and not is_visible:
+            self.show()
+            is_visible = True
+        if activate and is_visible:
+            self.raise_()
+            self.requestActivate()
+
+    def _move_within_screen(self, x: int, y: int, screen) -> None:
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        target_x, target_y = _clamp_panel_position(
+            int(x),
+            int(y),
+            panel_width=self.width(),
+            panel_height=self.height(),
+            available_left=available.left(),
+            available_top=available.top(),
+            available_right=available.right(),
+            available_bottom=available.bottom(),
+            margin=self._screen_margin,
+        )
+        self.setPosition(target_x, target_y)
+
+
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
+    log_analysis_requested = pyqtSignal(str, object)
     manual_sync_requested = pyqtSignal(str)
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
     delete_requested = pyqtSignal(str)
     export_plan_requested = pyqtSignal(str, object)
+    stage_summary_requested = pyqtSignal(str, object)
+    stage_summary_rewrite_requested = pyqtSignal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bridge = _TodoDetailBridge()
         self._panel_width = 396
+        self._stage_summary_window_width = 443
+        self._stage_summary_window_gap = 18
+        self._stage_summary_top_offset = 84
+        self._stage_summary_window_height = 632
         self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
         self._drag_active = False
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._stage_summary_window_visible = False
 
         self.setFlags(
             Qt.WindowType.FramelessWindowHint
@@ -971,18 +2650,30 @@ class TodoDetailPanel(QQuickView):
             )
         )
         self._ensure_qml_loaded()
+        self._stage_summary_window = _StageSummaryWindow(
+            self._bridge,
+            panel_width=self._stage_summary_window_width,
+            panel_height=self._stage_summary_window_height,
+            screen_margin=self._screen_margin,
+        )
 
         self._bridge.saveRequested.connect(self.save_requested)
+        self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
         self._bridge.attachmentSelectionRequested.connect(self._select_attachments)
         self._bridge.clipboardImagePasteRequested.connect(self._paste_clipboard_image)
+        self._bridge.draftAttachmentSelectionRequested.connect(self._select_draft_timeline_attachments)
+        self._bridge.draftClipboardImagePasteRequested.connect(self._paste_draft_timeline_clipboard_image)
         self._bridge.manualSyncRequested.connect(self.manual_sync_requested)
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
         self._bridge.exportPlanRequested.connect(self.export_plan_requested)
+        self._bridge.stageSummaryRequested.connect(self.stage_summary_requested)
+        self._bridge.stageSummaryRewriteRequested.connect(self.stage_summary_rewrite_requested)
         self._bridge.panelDragStarted.connect(self._begin_panel_drag)
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
+        self._bridge.dataChanged.connect(self._sync_stage_summary_window)
 
         self.resize(self._panel_width, self._panel_height)
         self.hide()
@@ -1011,26 +2702,86 @@ class TodoDetailPanel(QQuickView):
             return
         self._bridge.attach_clipboard_image_to_event(event_id, image)
 
-    def show_todo(self, todo: TodoItem, anchor_rect=None, sync_records: list[dict[str, object]] | None = None) -> None:
-        self._bridge.set_todo(todo, sync_records=sync_records)
+    def _select_draft_timeline_attachments(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(
+            None,
+            "\u9009\u62e9\u9644\u4ef6",
+            "",
+            "\u6240\u6709\u6587\u4ef6 (*.*)",
+        )
+        if not files:
+            return
+        self._bridge.attach_files_to_draft_timeline(list(files))
+
+    def _paste_draft_timeline_clipboard_image(self) -> None:
+        clipboard = QGuiApplication.clipboard()
+        image = clipboard.image()
+        if image.isNull():
+            return
+        self._bridge.attach_clipboard_image_to_draft_timeline(image)
+
+    def show_todo(
+        self,
+        todo: TodoItem,
+        anchor_rect=None,
+        sync_records: list[dict[str, object]] | None = None,
+        task_status_map: dict[str, dict[str, object]] | None = None,
+    ) -> None:
+        self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
+        self._stage_summary_window.hide()
+        self._stage_summary_window_visible = False
         self.resize(self._panel_width, self._panel_height)
         self._reposition(anchor_rect)
         self.show()
         self.raise_()
         self.requestActivate()
+        self._sync_stage_summary_window()
+
+    def _sync_stage_summary_window(self) -> None:
+        should_show = bool(self._bridge.stageSummaryVisible) and self.isVisible()
+        if should_show and not self._stage_summary_window_visible:
+            self._stage_summary_window.show_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._stage_summary_window_gap,
+                top_offset=self._stage_summary_top_offset,
+            )
+            self._stage_summary_window_visible = True
+            return
+        if should_show and self._stage_summary_window_visible:
+            self._stage_summary_window.update_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._stage_summary_window_gap,
+                top_offset=self._stage_summary_top_offset,
+            )
+            return
+        if not should_show and self._stage_summary_window_visible:
+            self._stage_summary_window.hide()
+            self._stage_summary_window_visible = False
 
     def _reposition(self, anchor_rect=None) -> None:
-        screen = QApplication.primaryScreen()
+        if anchor_rect is not None:
+            screen = _screen_for_point(anchor_rect.center())
+        else:
+            screen = QApplication.primaryScreen()
         if screen is None:
             return
-        available = screen.availableGeometry()
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
         if anchor_rect is None:
             x = available.right() - self.width() - self._screen_margin
             y = available.top() + self._screen_margin
         else:
-            x = anchor_rect.left() - self.width() - self._anchor_gap
-            if x < available.left() + self._screen_margin:
-                x = anchor_rect.right() + self._anchor_gap
+            left_x = anchor_rect.left() - self.width() - self._anchor_gap
+            right_x = anchor_rect.right() + self._anchor_gap
+            if left_x >= available.left() + self._screen_margin:
+                x = left_x
+            elif right_x + self.width() <= available.right() - self._screen_margin:
+                x = right_x
+            else:
+                x = left_x
             x = max(
                 available.left() + self._screen_margin,
                 min(x, available.right() - self.width() - self._screen_margin),
@@ -1049,18 +2800,10 @@ class TodoDetailPanel(QQuickView):
         cursor_pos = QCursor.pos()
         x = cursor_pos.x() - self._drag_offset_x
         y = cursor_pos.y() - self._drag_offset_y
-        self._move_within_screen(x, y, self._screen_for_point(cursor_pos))
+        self._move_within_screen(x, y, _virtual_available_geometry())
 
     def _finish_panel_drag(self) -> None:
         self._drag_active = False
-
-    def _screen_for_point(self, point: QPoint):
-        screen_at = getattr(QGuiApplication, "screenAt", None)
-        if callable(screen_at):
-            screen = screen_at(point)
-            if screen is not None:
-                return screen
-        return QApplication.primaryScreen()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
@@ -1080,5 +2823,16 @@ class TodoDetailPanel(QQuickView):
         self.setPosition(target_x, target_y)
 
     def _close_panel(self) -> None:
+        self._bridge._clear_draft_timeline_attachments()
+        self._bridge.reset_stage_summary_session()
+        self._stage_summary_window.hide()
+        self._stage_summary_window_visible = False
         self.hide()
         self.closed.emit()
+
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text)
+
+    def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
+

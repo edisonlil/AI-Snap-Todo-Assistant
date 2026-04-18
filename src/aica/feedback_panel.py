@@ -36,8 +36,7 @@ class FeedbackPanel(QDialog):
         self._save_callback = save_callback
         self._collector = FeedbackCollector()
 
-        self._save_only_button: QPushButton | None = None
-        self._save_and_optimize_button: QPushButton | None = None
+        self._save_button: QPushButton | None = None
 
         self.setObjectName("feedbackDialog")
         self._setup_ui()
@@ -128,22 +127,16 @@ class FeedbackPanel(QDialog):
         footer_layout.setContentsMargins(12, 10, 12, 10)
         footer_layout.setSpacing(8)
 
-        footer_hint = QLabel("保存并优化会在后台尝试更新对应场景的提示词。")
+        footer_hint = QLabel("保存后会保留纠错内容，并关联本次分析的 Prompt Trace。")
         footer_hint.setObjectName("footerHint")
         footer_layout.addWidget(footer_hint)
         footer_layout.addStretch()
 
-        self._save_only_button = QPushButton("仅保存反馈")
-        self._save_only_button.setObjectName("secondaryAction")
-        self._save_only_button.setMinimumWidth(92)
-        self._save_only_button.clicked.connect(lambda: self._on_save_feedback(False))
-        footer_layout.addWidget(self._save_only_button)
-
-        self._save_and_optimize_button = QPushButton("保存并优化")
-        self._save_and_optimize_button.setObjectName("primaryAction")
-        self._save_and_optimize_button.setMinimumWidth(102)
-        self._save_and_optimize_button.clicked.connect(lambda: self._on_save_feedback(True))
-        footer_layout.addWidget(self._save_and_optimize_button)
+        self._save_button = QPushButton("保存反馈")
+        self._save_button.setObjectName("primaryAction")
+        self._save_button.setMinimumWidth(102)
+        self._save_button.clicked.connect(self._on_save_feedback)
+        footer_layout.addWidget(self._save_button)
 
         surface_layout.addWidget(footer)
 
@@ -326,10 +319,10 @@ class FeedbackPanel(QDialog):
         self._feedback_data.problem_tags = []
         self._collector.save_feedback(self._feedback_data)
 
-    def _on_save_feedback(self, optimize_now: bool) -> None:
+    def _on_save_feedback(self) -> None:
         self._prepare_feedback_data()
 
         if self._save_callback:
-            self._save_callback(self._feedback_data, optimize_now)
+            self._save_callback(self._feedback_data)
 
         self.accept()

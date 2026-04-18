@@ -7,6 +7,8 @@ import re
 import shutil
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -67,16 +69,19 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def end(self):
             return None
 
+from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
-from .analysis_strategy import build_analysis_system_prompt, build_analysis_text_prompt
-from .feedback import FeedbackAnalyzer, FeedbackCollector, FeedbackData
+from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
+from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
+from .models import TicketSummaryFields
 from .parser import ResultParser
-from .prompt_optimizer import PromptOptimizer
-from .prompts import PromptManager
+from .text_sanitize import sanitize_text
+from .todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _PLAN_EXPORT_SYSTEM_PROMPT = (
@@ -84,6 +89,33 @@ _PLAN_EXPORT_SYSTEM_PROMPT = (
     "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
 )
 _PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
+_STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
+    "你是一位阶段总结整理助手。"
+    "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
+    "不新增事实，不编造时间线，不补写缺失步骤，不新增时间点、责任归因、根因和结论。"
+    "如果原文是不确定、待确认或疑似，必须保留这种不确定性。"
+    "输出必须是纯文本，不要 Markdown，不要解释。"
+)
+_STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
+    "shorter": "把现有总结整理得更简短，保留关键结论、当前进展和待确认点。",
+    "customer": "把现有总结整理成更适合发给客户的表述，语气克制、清楚，弱化内部排查术语。",
+    "rd": "把现有总结整理成更适合发给研发同学的表述，保留技术线索、日志依据和待确认项。",
+    "materials": "在不新增事实的前提下，强调已经收集到的材料、截图、日志和已确认信息。",
+}
+
+
+def _build_stage_summary_rewrite_user_prompt(current_text: str, instruction: str) -> str:
+    return (
+        "请只基于下面这版阶段总结做轻量整理。\n"
+        "约束：\n"
+        "1. 只允许压缩、重排、改口吻，不允许新增事实。\n"
+        "2. 不要新增“今天”“昨天”“随后”“最终”等时间锚点。\n"
+        "3. 不要新增责任归因、根因判断、结论或未出现的处理动作。\n"
+        "4. 原文里的“待确认”“疑似”“可能”等不确定表述必须保留。\n"
+        f"整理要求：{instruction}\n\n"
+        "现有总结：\n"
+        f"{current_text}"
+    )
 
 
 def _format_plan_export_attachment_text(attachments_payload: object) -> str:
@@ -241,6 +273,11 @@ class _BaseVisionWorker(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._analysis_stats: AnalysisRunStats | None = None
+        self._prompt_bundle: AnalysisPromptBundle | None = None
+        self._prompt_trace_id = ""
+        self._prompt_version = "built-in"
+        self._rules_manager = AnalysisRulesManager()
+        self._prompt_debug_store = PromptDebugStore()
 
     def _pixmap_to_bytes(self, pixmap: QPixmap) -> bytes:
         byte_array = QByteArray()
@@ -329,6 +366,95 @@ class _BaseVisionWorker(QThread):
             attempts=run_result.attempts,
             image_count=image_count,
             input_bytes=input_bytes,
+        )
+
+    @staticmethod
+    def _build_prompt_trace_id() -> str:
+        return f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+    def _build_prompt_bundle(self, *, image_count: int) -> AnalysisPromptBundle:
+        config = self._rules_manager.reload()
+        bundle = build_analysis_prompt_bundle_from_rules(
+            self._analysis_intent,
+            rules_config=config,
+            trace_id=self._build_prompt_trace_id(),
+            context_text=self._context_text,
+            image_count=image_count,
+        )
+        self._prompt_bundle = bundle
+        self._prompt_trace_id = bundle.trace_id
+        self._prompt_version = bundle.prompt_version
+        return bundle
+
+    def _resolve_context_text(self) -> str:
+        context_request = getattr(self, "_context_request", None)
+        if not isinstance(context_request, ContextSummaryRequest):
+            return str(getattr(self, "_context_text", "") or "").strip()
+        summary_service = getattr(self, "_context_summary_service", None)
+        if not isinstance(summary_service, ContextSummaryService):
+            return str(getattr(self, "_context_text", "") or "").strip()
+        result = summary_service.summarize(context_request)
+        return format_summary_for_analysis_context(context_request, result)
+
+    def _record_prompt_trace(
+        self,
+        *,
+        status: str,
+        raw_response: str = "",
+        error_message: str = "",
+        image_payloads: list[EncodedImage],
+    ) -> None:
+        bundle = self._prompt_bundle
+        config = self._rules_manager.config
+        if bundle is None or not config.debug.enabled:
+            return
+
+        payload = {
+            "trace_id": bundle.trace_id,
+            "timestamp": datetime.now().isoformat(),
+            "status": status,
+            "model": self._model,
+            "scenario": self._scenario,
+            "scene_type": bundle.scene_type,
+            "scene_label": bundle.scene_label,
+            "prompt_version": bundle.prompt_version,
+            "focus_hint": bundle.focus_hint,
+            "context_text": bundle.context_text,
+            "image_count": bundle.image_count,
+            "system_prompt": bundle.system_prompt,
+            "user_prompt": bundle.user_prompt,
+            "applied_rule_snapshot": bundle.applied_rule_snapshot,
+            "image_payloads": [
+                {
+                    "index": index,
+                    "byte_size": image.byte_size,
+                    "preprocess_ms": image.preprocess_ms,
+                }
+                for index, image in enumerate(image_payloads, 1)
+            ],
+            "raw_response": str(raw_response or ""),
+            "error_message": str(error_message or ""),
+            "timing_summary": self._analysis_stats.timing_summary if self._analysis_stats is not None else "",
+            "analysis_stats": (
+                {
+                    "provider_id": self._analysis_stats.provider_id,
+                    "provider_name": self._analysis_stats.provider_name,
+                    "model_id": self._analysis_stats.model_id,
+                    "model_name": self._analysis_stats.model_name,
+                    "latency_ms": self._analysis_stats.latency_ms,
+                    "llm_latency_ms": self._analysis_stats.llm_latency_ms,
+                    "preprocess_ms": self._analysis_stats.preprocess_ms,
+                    "attempts": self._analysis_stats.attempts,
+                    "image_count": self._analysis_stats.image_count,
+                    "input_bytes": self._analysis_stats.input_bytes,
+                }
+                if self._analysis_stats is not None
+                else {}
+            ),
+        }
+        self._prompt_debug_store.write_record(
+            payload,
+            max_records=config.debug.max_records,
         )
 
 
@@ -535,6 +661,170 @@ def build_plan_export_filename(title: str) -> str:
     return f"{cleaned or '待办处理方案'}.md"
 
 
+def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
+    payload = dict(todo_payload or {}) if isinstance(todo_payload, dict) else {}
+    timeline_payload = payload.get("timeline", [])
+    timeline: list[TimelineEvent] = []
+    if isinstance(timeline_payload, list):
+        for item in timeline_payload:
+            if isinstance(item, TimelineEvent):
+                timeline.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            timeline.append(
+                TimelineEvent(
+                    id=str(item.get("id", "")).strip(),
+                    timestamp=str(item.get("timestamp", "")).strip(),
+                    created_at=str(item.get("created_at", item.get("timestamp", "")) or "").strip(),
+                    kind=str(item.get("kind", "analysis")).strip() or "analysis",
+                    scenario=str(item.get("scenario", "")).strip(),
+                    event_type=str(item.get("event_type", item.get("type", "default"))).strip() or "default",
+                    payload=dict(item.get("payload", {}) or {}),
+                    status=str(item.get("status", "")).strip(),
+                    content=str(item.get("content", "")).strip(),
+                    attachments=[
+                        attachment
+                        if isinstance(attachment, TimelineAttachment)
+                        else TimelineAttachment(
+                            id=str(dict(attachment or {}).get("id", "")).strip(),
+                            name=str(dict(attachment or {}).get("name", "")).strip(),
+                            path=str(dict(attachment or {}).get("path", "")).strip(),
+                            size_bytes=int(dict(attachment or {}).get("sizeBytes", dict(attachment or {}).get("size_bytes", 0)) or 0),
+                        )
+                        for attachment in list(item.get("attachments", []) or [])
+                        if isinstance(attachment, (dict, TimelineAttachment))
+                    ],
+                )
+            )
+
+    conclusion_payload = payload.get("conclusion")
+    conclusion = (
+        conclusion_payload
+        if isinstance(conclusion_payload, TodoConclusion)
+        else TodoConclusion(**dict(conclusion_payload or {}))
+    )
+    return TodoItem(
+        id=str(todo_id or "").strip(),
+        title=str(payload.get("title", "")).strip(),
+        current_summary=str(payload.get("current_summary", "")).strip(),
+        summary_fields=TicketSummaryFields.from_dict(payload.get("summary_fields")),
+        timeline=timeline,
+        conclusion=conclusion,
+    )
+
+
+def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:
+    normalized_preset = sanitize_text(preset_key).strip()
+    normalized_custom = sanitize_text(custom_instruction).strip()
+    if normalized_custom:
+        return normalized_custom
+    return _STAGE_SUMMARY_PRESET_INSTRUCTIONS.get(normalized_preset, "")
+
+
+def _rewrite_stage_summary_locally(current_text: str, preset_key: str, custom_instruction: str) -> str:
+    normalized_text = sanitize_text(current_text).strip()
+    if not normalized_text:
+        return ""
+    normalized_preset = sanitize_text(preset_key).strip()
+    instruction = _stage_summary_rewrite_instruction(normalized_preset, custom_instruction)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    if normalized_preset == "shorter":
+        shortened = lines[:4] if lines else [normalized_text]
+        return "\n".join(shortened)[:220].strip()
+    if normalized_preset == "customer":
+        filtered = [
+            line for line in lines
+            if not any(keyword in line.lower() for keyword in ("trace", "request_id", "trad", "url", "日志路径"))
+        ]
+        selected = filtered or lines
+        return "\n".join(selected[:5]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
+    if normalized_preset == "rd":
+        return "\n".join(lines[:6]).replace("下一步关注", "建议排查").strip()
+    if normalized_preset == "materials":
+        material_lines = [
+            line for line in lines
+            if any(keyword in line.lower() for keyword in ("截图", "附件", "日志", "request_id", "trace", "材料"))
+        ]
+        selected = material_lines or lines[:5]
+        return "\n".join(selected).strip()
+    if instruction:
+        return f"{normalized_text}\n\n按当前要求整理：{instruction}".strip()
+    return normalized_text
+
+
+class StageSummaryWorker(QThread):
+    finished = pyqtSignal(str, str, str)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        llm_service: LLMService,
+        todo_id: str,
+        request_id: str,
+        mode: str,
+        payload: dict[str, object],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._llm_service = llm_service
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._mode = str(mode or "rollup").strip() or "rollup"
+        self._payload = dict(payload or {})
+
+    def run(self) -> None:
+        try:
+            if self._mode == "rewrite":
+                text = self._rewrite_summary()
+            else:
+                text = self._build_rollup_summary()
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+            return
+        self.finished.emit(self._todo_id, self._request_id, text)
+
+    def _build_rollup_summary(self) -> str:
+        todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
+        request = build_context_summary_request_for_todo(
+            todo,
+            summary_goal="timeline_rollup",
+            description=sanitize_text(todo.current_summary).strip() or sanitize_text(todo.title).strip(),
+            max_items=12,
+            max_chars=2200,
+        )
+        result = ContextSummaryService(self._llm_service).summarize(request)
+        summary_text = sanitize_text(result.summary_text).strip()
+        return summary_text or "暂无可查看的阶段总结"
+
+    def _rewrite_summary(self) -> str:
+        current_text = sanitize_text(self._payload.get("currentText", "")).strip()
+        if not current_text:
+            raise ValueError("暂无可调整的阶段总结")
+        preset_key = sanitize_text(self._payload.get("presetKey", "")).strip()
+        custom_instruction = sanitize_text(self._payload.get("instruction", "")).strip()
+        instruction = _stage_summary_rewrite_instruction(preset_key, custom_instruction)
+        if not instruction:
+            return current_text
+        try:
+            rewritten = self._llm_service.run_task(
+                "context_summary",
+                messages=[
+                    Message(role="system", content=_STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT),
+                    Message(role="user", content=_build_stage_summary_rewrite_user_prompt(current_text, instruction)),
+                ],
+                temperature=0.2,
+            )
+            normalized = sanitize_text(rewritten).strip()
+            if normalized:
+                return normalized
+        except Exception:  # noqa: BLE001
+            pass
+        fallback = _rewrite_stage_summary_locally(current_text, preset_key, custom_instruction)
+        return fallback or current_text
+
+
 class PlanExportWorker(_BaseVisionWorker):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
@@ -592,10 +882,9 @@ class PlanExportWorker(_BaseVisionWorker):
 class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, llm_service: LLMService, model_label: str,
                  timeout: int = 30,
-                 prompt_manager: PromptManager = None,
                  scenario: str = "工单跟进",
                  analysis_intent: AnalysisIntent | None = None,
-                 context_text: str = "",
+                 context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
@@ -605,41 +894,42 @@ class AIWorker(_BaseVisionWorker):
         self._model = model_label
         self._timeout = timeout
         self._max_image_bytes = max_image_bytes
-        self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("chat_feedback")
-        self._context_text = context_text.strip()
+        self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
+        self._context_text = context_text.strip() if isinstance(context_text, str) else ""
+        self._context_summary_service = ContextSummaryService(llm_service)
 
     def run(self) -> None:
+        encoded_images: list[EncodedImage] = []
         try:
-            raw_text = self._call_api()
+            raw_text, encoded_images = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
+                self._record_prompt_trace(status="success", raw_response=raw_text, image_payloads=encoded_images)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
+                self._record_prompt_trace(status="parse_error", raw_response=raw_text, image_payloads=encoded_images)
                 self.parse_error.emit(raw_text)
         except LLMServiceError as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"未知错误: {exc}")
 
-    def _call_api(self) -> str:
+    def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
         encoded_image = self._encode_for_api(self._image, image_count=1)
+        self._context_text = self._resolve_context_text()
+        bundle = self._build_prompt_bundle(image_count=1)
         messages = [
-            Message(role="system", content=build_analysis_system_prompt()),
+            Message(role="system", content=bundle.system_prompt),
             Message(
                 role="user",
                 content=[
-                    ContentPart(
-                        type="text",
-                        text=build_analysis_text_prompt(
-                            self._analysis_intent,
-                            context_text=self._context_text,
-                            image_count=1,
-                        ),
-                    ),
+                    ContentPart(type="text", text=bundle.user_prompt),
                     ContentPart(type="image_data_url", data_url=encoded_image.data_url),
                 ],
             ),
@@ -672,16 +962,15 @@ class AIWorker(_BaseVisionWorker):
             image_count=1,
             latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
-        return run_result.text
+        return run_result.text, [encoded_image]
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
     def __init__(self, images: list[QPixmap], llm_service: LLMService, model_label: str,
                  timeout: int = 30,
-                 prompt_manager: PromptManager = None,
                  scenario: str = "连续步骤截图",
                  analysis_intent: AnalysisIntent | None = None,
-                 context_text: str = "",
+                 context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
                  parent=None):
         super().__init__(parent)
@@ -691,36 +980,37 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._model = model_label
         self._timeout = timeout
         self._max_image_bytes = max_image_bytes
-        self._prompt_manager = prompt_manager or PromptManager()
         self._scenario = scenario
         self._analysis_intent = analysis_intent or build_analysis_intent("step_sequence", capture_count=len(images))
-        self._context_text = context_text.strip()
+        self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
+        self._context_text = context_text.strip() if isinstance(context_text, str) else ""
+        self._context_summary_service = ContextSummaryService(llm_service)
 
     def run(self) -> None:
+        encoded_images: list[EncodedImage] = []
         try:
-            raw_text = self._call_api()
+            raw_text, encoded_images = self._call_api()
             try:
                 result = ResultParser.parse(raw_text)
+                self._record_prompt_trace(status="success", raw_response=raw_text, image_payloads=encoded_images)
                 self.show_result.emit(result, self._scenario, self._model)
                 self.finished.emit(result)
             except (ValueError, KeyError, TypeError):
+                self._record_prompt_trace(status="parse_error", raw_response=raw_text, image_payloads=encoded_images)
                 self.parse_error.emit(raw_text)
         except LLMServiceError as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"模型调用失败: {exc}")
         except Exception as exc:
+            self._record_prompt_trace(status="error", error_message=str(exc), image_payloads=encoded_images)
             self.error.emit(f"未知错误: {exc}")
 
-    def _call_api(self) -> str:
+    def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
+        self._context_text = self._resolve_context_text()
+        bundle = self._build_prompt_bundle(image_count=len(self._images))
         content: list[ContentPart] = [
-            ContentPart(
-                type="text",
-                text=build_analysis_text_prompt(
-                    self._analysis_intent,
-                    context_text=self._context_text,
-                    image_count=len(self._images),
-                ),
-            )
+            ContentPart(type="text", text=bundle.user_prompt)
         ]
         encoded_images: list[EncodedImage] = []
         for index, pixmap in enumerate(self._images, 1):
@@ -735,7 +1025,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             run_result = self._run_llm_task_detailed(
                 "analysis",
                 messages=[
-                    Message(role="system", content=build_analysis_system_prompt()),
+                    Message(role="system", content=bundle.system_prompt),
                     Message(role="user", content=content),
                 ],
                 temperature=0.3,
@@ -762,56 +1052,4 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             image_count=max(1, len(self._images)),
             latency_ms=round((time.perf_counter() - started_at) * 1000),
         )
-        return run_result.text
-
-
-class FeedbackOptimizeWorker(QThread):
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, llm_service: LLMService, timeout: int, feedback: FeedbackData, parent=None):
-        super().__init__(parent)
-        self._llm_service = llm_service
-        self._timeout = timeout
-        self._feedback = feedback
-
-    def run(self) -> None:
-        summary = {
-            "feedback_id": self._feedback.id,
-            "scenario": self._feedback.scenario,
-            "analysis_applied": False,
-            "immediate_prompt_updated": False,
-            "threshold_prompt_updated": False,
-        }
-
-        try:
-            collector = FeedbackCollector()
-            analyzer = FeedbackAnalyzer(collector)
-            optimizer = PromptOptimizer(
-                self._llm_service,
-                collector,
-                analyzer,
-            )
-            prompt_manager = PromptManager()
-
-            if self._feedback.user_edited and self._feedback.feedback_status != "correct":
-                summary["analysis_applied"] = optimizer.analyze_feedback(
-                    self._feedback,
-                    self._timeout,
-                )
-
-            summary["immediate_prompt_updated"] = optimizer.apply_feedback_immediately(
-                self._feedback,
-                prompts_module=prompt_manager,
-                api_timeout=self._timeout,
-            )
-
-            if optimizer.check_feedback_threshold(self._feedback.scenario, prompt_manager):
-                summary["threshold_prompt_updated"] = optimizer.apply_style_to_prompt(
-                    self._feedback.scenario,
-                    prompts_module=prompt_manager,
-                )
-
-            self.finished.emit(summary)
-        except Exception as exc:
-            self.error.emit(str(exc))
+        return run_result.text, encoded_images

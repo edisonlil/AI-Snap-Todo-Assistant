@@ -1,399 +1,296 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import (
-    _MANUAL_SCENARIO,
-    _TodoDetailBridge,
-    _attachment_kind,
-    _clamp_panel_position,
-    _coerce_dropped_file_paths,
-    _resolve_available_geometry,
-)
-from aica.todo_store import TimelineEvent, TodoItem
+from aica.todo_detail_panel import _resolve_neighbor_panel_x, _TodoDetailBridge
+from aica.todo_models import TodoConclusion, TodoItem
 
 
-def test_add_timeline_entry_expands_empty_timeline_and_persists() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[],
-        )
+def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
+    return _TodoDetailBridge(
+        attachment_root=attachment_root,
+        environment_access_service=SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+        ),
     )
 
-    assert bridge.timelineCount == 0
-    assert bridge.timelineExpanded is False
 
-    captured: dict[str, object] = {}
+def _build_todo(todo_id: str = "todo-1") -> TodoItem:
+    return TodoItem(
+        id=todo_id,
+        title="测试待办",
+        current_summary="当前摘要",
+        summary_fields=TicketSummaryFields(),
+        conclusion=TodoConclusion(),
+        timeline=[],
+    )
 
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
 
-    bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual follow-up")
+def test_add_timeline_entry_moves_draft_attachments_into_new_event(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
 
+    copied_targets: list[str] = []
+    moved_targets: list[tuple[str, str]] = []
+
+    def _fake_copy_attachment(file_path: str, event_id: str) -> dict[str, object]:
+        copied_targets.append(event_id)
+        return {
+            "id": "draft-1",
+            "name": Path(file_path).name,
+            "path": f"/draft/{Path(file_path).name}",
+            "sizeBytes": 10,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
+
+    def _fake_move_attachment(file_path: str, event_id: str) -> dict[str, object]:
+        moved_targets.append((file_path, event_id))
+        return {
+            "id": "final-1",
+            "name": Path(file_path).name,
+            "path": f"/final/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 10,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
+
+    monkeypatch.setattr(bridge, "_copy_attachment", _fake_copy_attachment)
+    monkeypatch.setattr(bridge, "_move_attachment_to_target", _fake_move_attachment)
+
+    bridge.attach_files_to_draft_timeline(["note.txt"])
+
+    assert bridge.draftTimelineAttachmentCount == 1
+    assert copied_targets == ["__draft_timeline__"]
+
+    bridge.addTimelineEntry("新增进展", "follow_up")
+
+    assert bridge.draftTimelineAttachmentCount == 0
     assert bridge.timelineCount == 1
-    assert bridge.timelineExpanded is True
-    assert bridge.timeline[0]["content"] == "manual follow-up"
-    assert bridge.timeline[0]["kind"] == "manual"
-    assert bridge.timeline[0]["scenario"] == _MANUAL_SCENARIO
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert timeline[-1].content == "manual follow-up"
-    assert timeline[-1].scenario == _MANUAL_SCENARIO
+    event = bridge.timeline[0]
+    assert event["content"] == "新增进展"
+    assert event["attachmentCount"] == 1
+    assert moved_targets == [("/draft/note.txt", event["id"])]
+    assert event["attachments"][0]["path"] == f"/final/{event['id']}/note.txt"
 
 
-def test_add_timeline_entry_sanitizes_invalid_surrogates() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[],
-        )
-    )
-
-    captured: dict[str, object] = {}
-
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
-
-    bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual \udcaa follow-up")
-
-    assert bridge.timeline[0]["content"] == "manual \ufffd follow-up"
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert timeline[-1].content == "manual \ufffd follow-up"
-
-
-def test_commit_timeline_content_persists_manual_edits() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[TimelineEvent(content="initial record", scenario="assistant")],
-        )
-    )
-
-    captured: dict[str, object] = {}
-
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
-
-    bridge.saveRequested.connect(_capture)
-    bridge.addTimelineEntry("manual follow-up")
-    manual_id = bridge.timeline[0]["id"]
-    bridge.commitTimelineContent(manual_id, "manual follow-up updated")
-
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert timeline[-1].content == "manual follow-up updated"
-    assert timeline[-1].kind == "manual"
-
-
-def test_save_todo_persists_live_timeline_edits_without_blur() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[TimelineEvent(content="initial record", scenario="assistant")],
-        )
-    )
-
-    captured: dict[str, object] = {}
-
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
-
-    bridge.saveRequested.connect(_capture)
-    event_id = bridge.timeline[0]["id"]
-    bridge.updateTimelineContent(event_id, "edited without blur")
-    bridge.saveTodo()
-
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert timeline[-1].content == "edited without blur"
-
-
-def test_add_timeline_attachment_copies_file_and_persists(tmp_path) -> None:
-    source = tmp_path / "evidence.txt"
-    source.write_text("hello attachment", encoding="utf-8")
-
-    bridge = _TodoDetailBridge(attachment_root=tmp_path / "attachments")
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[TimelineEvent(content="initial record", scenario="assistant")],
-        )
-    )
-
-    captured: dict[str, object] = {}
-
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
-
-    bridge.saveRequested.connect(_capture)
-    event_id = bridge.timeline[0]["id"]
-    bridge.attach_files_to_event(event_id, [str(source)])
-
-    assert bridge.timeline[0]["attachmentCount"] == 1
-    attachments = bridge.timeline[0]["attachments"]
-    assert isinstance(attachments, list)
-    copied_path = attachments[0]["path"]
-    assert copied_path != str(source)
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert timeline[-1].attachments[0].name == "evidence.txt"
-
-
-def test_coerce_dropped_file_paths_normalizes_file_urls_and_deduplicates() -> None:
-    paths = _coerce_dropped_file_paths(
-        [
-            "file:///C:/Temp/evidence.txt",
-            "C:\\Temp\\evidence.txt",
-            "file:///C:/Temp/second.log",
-        ]
-    )
-
-    assert paths == ["C:/Temp/evidence.txt", "C:/Temp/second.log"]
-
-
-def test_attachment_kind_classifies_previewable_types() -> None:
-    assert _attachment_kind("demo.png") == "image"
-    assert _attachment_kind("video.mp4") == "video"
-    assert _attachment_kind("archive.zip") == "file"
-
-
-def test_clamp_panel_position_keeps_panel_inside_available_area() -> None:
-    x, y = _clamp_panel_position(
-        2000,
-        -20,
-        panel_width=396,
-        panel_height=724,
-        available_left=0,
-        available_top=0,
-        available_right=1440,
-        available_bottom=900,
-        margin=20,
-    )
-
-    assert x == 1024
-    assert y == 20
-
-
-def test_begin_update_finish_panel_drag_emit_bridge_signals() -> None:
-    bridge = _TodoDetailBridge()
-    captured: list[tuple[str, tuple[object, ...]]] = []
-
-    bridge.panelDragStarted.connect(lambda x, y: captured.append(("start", (x, y))))
-    bridge.panelDragMoved.connect(lambda: captured.append(("move", ())))
-    bridge.panelDragFinished.connect(lambda: captured.append(("finish", ())))
-
-    bridge.beginPanelDrag(18, 24)
-    bridge.updatePanelDrag()
-    bridge.finishPanelDrag()
-
-    assert captured == [
-        ("start", (18.0, 24.0)),
-        ("move", ()),
-        ("finish", ()),
+def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._conclusion_attachments = [  # noqa: SLF001
+        {
+            "id": "existing-1",
+            "name": "existing.txt",
+            "path": "/final/__conclusion__/existing.txt",
+            "sizeBytes": 6,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
     ]
 
-
-def test_resolve_available_geometry_accepts_screen_like_object() -> None:
-    class _Geometry:
-        pass
-
-    class _Screen:
-        def __init__(self):
-            self.geometry = _Geometry()
-
-        def availableGeometry(self):
-            return self.geometry
-
-    screen = _Screen()
-
-    assert _resolve_available_geometry(screen) is screen.geometry
-    assert _resolve_available_geometry(screen.geometry) is screen.geometry
-
-
-def test_delete_timeline_entry_persists_removal() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[
-                TimelineEvent(content="first record", scenario="assistant"),
-                TimelineEvent(content="second record", scenario="assistant"),
-            ],
-        )
+    monkeypatch.setattr(
+        bridge,
+        "_copy_attachment",
+        lambda file_path, event_id: {
+            "id": "draft-1",
+            "name": Path(file_path).name,
+            "path": f"/draft/{Path(file_path).name}",
+            "sizeBytes": 12,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_move_attachment_to_target",
+        lambda file_path, event_id: {
+            "id": "final-1",
+            "name": Path(file_path).name,
+            "path": f"/final/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 12,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
     )
 
-    event_id = bridge.timeline[0]["id"]
-    captured: dict[str, object] = {}
+    bridge.attach_files_to_draft_timeline(["report.txt"])
+    bridge.addTimelineEntry("最终结论", "conclusion")
 
-    def _capture(todo_id: str, payload: object) -> None:
-        captured["todo_id"] = todo_id
-        captured["payload"] = payload
-
-    bridge.saveRequested.connect(_capture)
-    bridge.deleteTimelineEntry(event_id)
-
-    assert bridge.timelineCount == 1
-    payload = captured["payload"]
-    assert isinstance(payload, dict)
-    timeline = payload["timeline"]
-    assert isinstance(timeline, list)
-    assert len(timeline) == 1
+    assert bridge.draftTimelineAttachmentCount == 0
+    assert bridge.conclusionContent == "最终结论"
+    assert bridge.conclusionAttachmentCount == 2
+    assert bridge.conclusionAttachments[0]["path"] == "/final/__conclusion__/existing.txt"
+    assert bridge.conclusionAttachments[1]["path"] == "/final/__conclusion__/report.txt"
 
 
-def test_activate_attachment_routes_image_to_copy(tmp_path) -> None:
-    attachment = tmp_path / "demo.png"
-    attachment.write_bytes(b"fake-image")
-    bridge = _TodoDetailBridge()
-    captured: list[Path] = []
+def test_removing_draft_attachment_does_not_touch_existing_event_attachments(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
 
-    bridge._copy_image_attachment = lambda path: captured.append(path)  # type: ignore[method-assign]
-    bridge._copy_file_to_clipboard = lambda path: captured.append(Path("video"))  # type: ignore[method-assign]
-    bridge._download_attachment = lambda source, name: captured.append(Path("download"))  # type: ignore[method-assign]
+    def _fake_copy_attachment(file_path: str, event_id: str) -> dict[str, object]:
+        return {
+            "id": f"{event_id}-{Path(file_path).stem}",
+            "name": Path(file_path).name,
+            "path": f"/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 8,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
 
-    bridge.activateAttachment(str(attachment), True, False, attachment.name)
+    removed_paths: list[str] = []
+    monkeypatch.setattr(bridge, "_copy_attachment", _fake_copy_attachment)
+    monkeypatch.setattr(bridge, "_remove_attachment_file", lambda file_path: removed_paths.append(file_path))
 
-    assert captured == [attachment]
+    bridge.addTimelineEntry("已有记录", "follow_up")
+    event_id = str(bridge.timeline[0]["id"])
+    bridge.attach_files_to_event(event_id, ["event.txt"])
+    bridge.attach_files_to_draft_timeline(["draft.txt"])
+    draft_attachment_id = str(bridge.draftTimelineAttachments[0]["id"])
 
+    bridge.removeDraftTimelineAttachment(draft_attachment_id)
 
-def test_activate_attachment_routes_video_to_clipboard_file(tmp_path) -> None:
-    attachment = tmp_path / "demo.mp4"
-    attachment.write_bytes(b"fake-video")
-    bridge = _TodoDetailBridge()
-    captured: list[Path] = []
-
-    bridge._copy_image_attachment = lambda path: captured.append(Path("image"))  # type: ignore[method-assign]
-    bridge._copy_file_to_clipboard = lambda path: captured.append(path)  # type: ignore[method-assign]
-    bridge._download_attachment = lambda source, name: captured.append(Path("download"))  # type: ignore[method-assign]
-
-    bridge.activateAttachment(str(attachment), False, True, attachment.name)
-
-    assert captured == [attachment]
-
-
-def test_activate_attachment_routes_other_files_to_download(tmp_path) -> None:
-    attachment = tmp_path / "demo.zip"
-    attachment.write_bytes(b"fake-archive")
-    bridge = _TodoDetailBridge()
-    captured: list[tuple[Path, str]] = []
-
-    bridge._copy_image_attachment = lambda path: None  # type: ignore[method-assign]
-    bridge._copy_file_to_clipboard = lambda path: None  # type: ignore[method-assign]
-    bridge._download_attachment = lambda source, name: captured.append((source, name))  # type: ignore[method-assign]
-
-    bridge.activateAttachment(str(attachment), False, False, attachment.name)
-
-    assert captured == [(attachment, "demo.zip")]
+    assert bridge.draftTimelineAttachmentCount == 0
+    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert bridge.timeline[0]["attachments"][0]["path"] == f"/{event_id}/event.txt"
+    assert removed_paths == ["/__draft_timeline__/draft.txt"]
 
 
-def test_set_todo_exposes_sync_status_and_external_id() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[],
-        ),
-        sync_records=[
-            {
-                "integration_id": "company-platform",
-                "external_id": "EXT-001",
-                "updated_at": "2026-04-10T12:30:00",
-                "last_event_type": "manual_sync",
-                "last_sync_status": "ok:updated",
-            }
-        ],
+def test_toggle_stage_summary_requests_once_without_saving() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[tuple[str, dict[str, object]]] = []
+    saved: list[tuple[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.toggleStageSummary()
+
+    assert bridge.stageSummaryVisible is True
+    assert bridge.stageSummaryBusy is True
+    assert bridge.hasStageSummary is False
+    assert len(requested) == 1
+    assert requested[0][0] == "todo-1"
+    assert isinstance(requested[0][1]["todoPayload"], dict)
+    assert saved == []
+
+    bridge.toggleStageSummary()
+    bridge.toggleStageSummary()
+
+    assert len(requested) == 1
+
+
+def test_stage_summary_result_resets_when_switching_todo() -> None:
+    bridge = _build_bridge(Path("unused"))
+    first_todo = _build_todo("todo-1")
+    second_todo = _build_todo("todo-2")
+    bridge.set_todo(first_todo)
+
+    requested: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+
+    assert bridge.apply_stage_summary_result("todo-1", request_id, "阶段总结内容") is True
+    assert bridge.stageSummaryText == "阶段总结内容"
+    assert bridge.hasStageSummary is True
+
+    bridge.set_todo(second_todo)
+
+    assert bridge.stageSummaryVisible is False
+    assert bridge.stageSummaryBusy is False
+    assert bridge.stageSummaryText == ""
+    assert bridge.stageSummaryError == ""
+    assert bridge.hasStageSummary is False
+
+
+def test_stage_summary_rewrite_does_not_change_save_payload() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    original_payload = bridge._build_payload()  # noqa: SLF001
+    assert original_payload is not None
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", request_id, "第一版阶段总结")
+
+    bridge.rewriteStageSummaryWithPreset("shorter")
+
+    assert bridge.stageSummaryBusy is True
+    assert len(rewritten) == 1
+    assert rewritten[0]["currentText"] == "第一版阶段总结"
+    assert rewritten[0]["presetKey"] == "shorter"
+
+    current_payload = bridge._build_payload()  # noqa: SLF001
+    assert current_payload["title"] == original_payload["title"]
+    assert current_payload["current_summary"] == original_payload["current_summary"]
+    assert current_payload["summary_fields"] == original_payload["summary_fields"]
+    assert current_payload["timeline"] == original_payload["timeline"]
+    assert current_payload["conclusion"].content == original_payload["conclusion"].content
+    assert current_payload["conclusion"].attachments == original_payload["conclusion"].attachments
+
+
+def test_resolve_neighbor_panel_x_prefers_side_with_more_space() -> None:
+    x = _resolve_neighbor_panel_x(
+        900,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=1599,
+        margin=20,
+        gap=18,
     )
 
-    assert bridge.syncIntegrationId == "company-platform"
-    assert bridge.syncStatus == "已同步"
-    assert bridge.syncStatusDetail == "ok:updated"
-    assert bridge.syncEventLabel == "manual_sync"
-    assert bridge.syncUpdatedAtLabel == "04-10 12:30"
-    assert bridge.externalId == "EXT-001"
-    assert bridge.hasExternalId is True
-    assert bridge.syncRecordCount == 1
-    assert bridge.syncRecords[0]["eventType"] == "manual_sync"
+    assert x == 439
 
 
-def test_copy_external_id_writes_to_clipboard(monkeypatch) -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[],
-        ),
-        sync_records=[
-            {
-                "integration_id": "company-platform",
-                "external_id": "EXT-001",
-                "last_sync_status": "ok:created",
-            }
-        ],
+def test_resolve_neighbor_panel_x_uses_right_when_right_has_more_space() -> None:
+    x = _resolve_neighbor_panel_x(
+        120,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=1599,
+        margin=20,
+        gap=18,
     )
 
-    captured: dict[str, str] = {}
-
-    class _Clipboard:
-        def setText(self, text: str) -> None:
-            captured["text"] = text
-
-    from aica import todo_detail_panel as module
-
-    monkeypatch.setattr(module.QApplication, "clipboard", staticmethod(lambda: _Clipboard()))
-    bridge.copyExternalId()
-
-    assert captured["text"] == "EXT-001"
+    assert x == 534
 
 
-def test_request_manual_sync_emits_current_todo_id() -> None:
-    bridge = _TodoDetailBridge()
-    bridge.set_todo(
-        TodoItem(
-            id="todo-123",
-            title="title",
-            summary_fields=TicketSummaryFields(),
-            current_summary="summary",
-            timeline=[],
-        )
+def test_resolve_neighbor_panel_x_prefers_left_when_both_sides_fit_but_left_is_wider() -> None:
+    x = _resolve_neighbor_panel_x(
+        1000,
+        396,
+        panel_width=443,
+        available_left=0,
+        available_right=2199,
+        margin=20,
+        gap=18,
     )
-    captured: list[str] = []
-    bridge.manualSyncRequested.connect(captured.append)
 
-    bridge.requestManualSync()
-
-    assert captured == ["todo-123"]
+    assert x == 539

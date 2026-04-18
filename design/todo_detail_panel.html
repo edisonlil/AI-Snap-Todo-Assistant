@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>待办详情 + 轻标签信息栏 原型</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f7f7f6;
+      color: #1f2937;
+    }
+    .canvas {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 22px;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        linear-gradient(rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        #f5f5f4;
+    }
+    .detail-panel {
+      width: 610px;
+      min-height: 1160px;
+      background: #fbfbfa;
+      border-radius: 28px;
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+      padding: 22px 18px 26px;
+      position: relative;
+      overflow: visible;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+    .topbar .left-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+    }
+    .top-actions a {
+      color: #2563eb;
+      text-decoration: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .top-actions .muted {
+      color: #4b5563;
+    }
+    .task-title {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 16px 0 14px;
+      color: #111827;
+    }
+
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid #eceff3;
+      min-height: 36px;
+    }
+    .meta-pill .k {
+      font-size: 12px;
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .meta-pill .v {
+      font-size: 14px;
+      color: #111827;
+      font-weight: 600;
+    }
+
+    .env-entry-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .env-trigger {
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+      color: #374151;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: .15s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,.03);
+    }
+    .env-trigger:hover { background: #f9fafb; }
+
+    .section-label {
+      font-size: 13px;
+      color: #9ca3af;
+      margin: 4px 0 10px;
+      font-weight: 700;
+    }
+    .summary-box {
+      background: #ffffff;
+      border: 1px solid #eef2f7;
+      border-radius: 24px;
+      min-height: 188px;
+      padding: 22px;
+      font-size: 18px;
+      line-height: 1.65;
+      color: #374151;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 18px 0 12px;
+      flex-wrap: wrap;
+      font-size: 15px;
+      color: #94a3b8;
+    }
+    .status-row .status-main {
+      font-weight: 700;
+      color: #94a3b8;
+    }
+    .status-row .sync-btn {
+      margin-left: auto;
+      color: #2563eb;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .bottom-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: #9ca3af;
+      font-size: 14px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .bottom-meta .danger {
+      color: #ef4444;
+      cursor: pointer;
+    }
+    .bottom-meta .done {
+      margin-left: auto;
+      background: #e8f0ff;
+      color: #2563eb;
+      border: none;
+      border-radius: 999px;
+      font-size: 16px;
+      padding: 12px 30px;
+      cursor: pointer;
+    }
+    .divider {
+      height: 1px;
+      background: #eceff3;
+      margin: 16px 0 18px;
+    }
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .timeline-head .title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .timeline-head .count {
+      font-size: 16px;
+      color: #c0c4cc;
+    }
+    .timeline-head .toggle {
+      margin-left: auto;
+      font-size: 15px;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .input-card {
+      background: #ffffff;
+      border: 1px solid #edf1f6;
+      border-radius: 26px;
+      min-height: 136px;
+      padding: 22px 22px 18px;
+      position: relative;
+      margin-bottom: 18px;
+    }
+    .input-placeholder {
+      font-size: 18px;
+      color: #c7ced9;
+      margin-bottom: 18px;
+    }
+    .add-btn {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      background: #edf2fb;
+      border: none;
+      color: #9bb1dc;
+      border-radius: 999px;
+      font-size: 18px;
+      padding: 14px 30px;
+      cursor: pointer;
+    }
+    .timeline-card {
+      border: 2px solid #cfe0ff;
+      background: #fbfdff;
+      border-radius: 26px;
+      padding: 14px 18px 18px;
+    }
+    .timeline-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #b8c0cc;
+      font-size: 14px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .timeline-meta .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #d8dee9;
+      flex: 0 0 auto;
+    }
+    .timeline-meta .link {
+      color: #2563eb;
+      cursor: pointer;
+    }
+    .timeline-text {
+      font-size: 16px;
+      color: #374151;
+      line-height: 1.7;
+      padding: 0 2px;
+    }
+
+    .env-popover {
+      position: absolute;
+      top: 42px;
+      right: 0;
+      width: 410px;
+      background: #ffffff;
+      border: 1px solid #eceff3;
+      border-radius: 24px;
+      box-shadow: 0 20px 50px rgba(15,23,42,.14);
+      overflow: hidden;
+      display: none;
+      z-index: 20;
+    }
+    .env-popover.show { display: block; }
+    .env-header {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid #f1f4f7;
+    }
+    .env-header .t1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+    .env-header .t2 {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .env-group { border-bottom: 1px solid #f3f4f6; }
+    .env-group:last-child { border-bottom: none; }
+    .env-group-head {
+      width: 100%;
+      background: #fff;
+      border: none;
+      padding: 15px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      text-align: left;
+    }
+    .env-group-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+    .env-group-desc {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .env-arrow {
+      color: #94a3b8;
+      transition: .15s ease;
+    }
+    .env-group.open .env-arrow { transform: rotate(180deg); }
+    .env-items {
+      display: none;
+      padding: 0 18px 16px;
+      gap: 10px;
+      flex-direction: column;
+    }
+    .env-group.open .env-items { display: flex; }
+    .env-item {
+      background: #fafaf9;
+      border: 1px solid #edf1f5;
+      border-radius: 18px;
+      padding: 12px;
+    }
+    .env-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .env-item-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .env-badge {
+      font-size: 11px;
+      color: #6b7280;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .env-url {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 10px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    .action-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .action-btn {
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #374151;
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .action-btn.primary {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+    .login-flow {
+      display: none;
+      margin-top: 10px;
+      background: #fff;
+      border: 1px dashed #dce3ec;
+      border-radius: 14px;
+      padding: 10px 12px;
+    }
+    .login-flow.show { display: block; }
+    .flow-main {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+    .flow-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .flow-tip {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .otp-timer {
+      color: #2563eb;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(17,24,39,.04);
+      display: none;
+      z-index: 10;
+    }
+    .overlay.show { display: block; }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 26px;
+      transform: translateX(-50%);
+      background: rgba(17,24,39,.94);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      display: none;
+      z-index: 30;
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="overlay" id="overlay"></div>
+  <div class="canvas">
+    <div class="detail-panel">
+      <div class="topbar">
+        <div class="left-title">待办详情</div>
+        <div class="top-actions">
+          <a>导出方案</a>
+          <a class="muted">关闭</a>
+          <a class="muted">保存</a>
+        </div>
+      </div>
+
+      <div class="task-title">正在分析幅图片</div>
+
+      <div class="meta-strip">
+        <div class="meta-pill"><span class="k">群聊名称</span><span class="v">位置</span></div>
+        <div class="meta-pill"><span class="k">环境</span><span class="v">未知</span></div>
+        <div class="meta-pill"><span class="k">产品线</span><span class="v">未知</span></div>
+        <div class="meta-pill"><span class="k">工单类型</span><span class="v">咨询类</span></div>
+      </div>
+
+      <div class="env-entry-row">
+        <button class="env-trigger" id="envTrigger">环境访问 · 2 组 ▾</button>
+
+        <div class="env-popover" id="envPopover">
+          <div class="env-header">
+            <div class="t1">环境访问</div>
+            <div class="t2">点“开始登录”后：新窗口打开入口，并自动复制账号。再按需复制密码 / 验证码。</div>
+          </div>
+
+          <div class="env-group open">
+            <button class="env-group-head" type="button">
+              <div>
+                <div class="env-group-name">广汽传祺 - 测试环境</div>
+                <div class="env-group-desc">3 个可用访问方式</div>
+              </div>
+              <div class="env-arrow">▾</div>
+            </button>
+            <div class="env-items">
+              <div class="env-item">
+                <div class="env-item-top">
+                  <div class="env-item-name">应用后台</div>
+                  <div class="env-badge">需要 OTP</div>
+                </div>
+                <div class="env-url">https://test-admin.example.com</div>
+                <div class="action-line">
+                  <button class="action-btn primary start-login" data-name="应用后台" data-otp="true">开始登录</button>
+                </div>
+                <div class="login-flow">
+                  <div class="flow-main">已用新窗口打开应用后台，并自动复制账号。继续完成登录：</div>
+                  <div class="flow-actions">
+                    <button class="action-btn copy-btn" data-label="应用后台密码">复制密码</button>
+                    <button class="action-btn copy-otp" data-label="应用后台验证码">复制验证码</button>
+                  </div>
+                  <div class="flow-tip">当前验证码剩余 <span class="otp-timer">28s</span></div>
+                </div>
+              </div>
+
+              <div class="env-item">
+                <div class="env-item-top">
+                  <div class="env-item-name">堡垒机</div>
+                  <div class="env-badge">需要 OTP</div>
+                </div>
+                <div class="env-url">https://bastion.example.com</div>
+                <div class="action-line">
+                  <button class="action-btn primary start-login" data-name="堡垒机" data-otp="true">开始登录</button>
+                </div>
+                <div class="login-flow">
+                  <div class="flow-main">已用新窗口打开堡垒机，并自动复制账号。继续完成登录：</div>
+                  <div class="flow-actions">
+                    <button class="action-btn copy-btn" data-label="堡垒机密码">复制密码</button>
+                    <button class="action-btn copy-otp" data-label="堡垒机验证码">复制验证码</button>
+                  </div>
+                  <div class="flow-tip">当前验证码剩余 <span class="otp-timer">28s</span></div>
+                </div>
+              </div>
+
+              <div class="env-item">
+                <div class="env-item-top">
+                  <div class="env-item-name">数据库</div>
+                  <div class="env-badge">无 OTP</div>
+                </div>
+                <div class="env-url">10.10.2.15:3306 / readonly</div>
+                <div class="action-line">
+                  <button class="action-btn primary start-login" data-name="数据库" data-otp="false">开始登录</button>
+                </div>
+                <div class="login-flow">
+                  <div class="flow-main">已准备连接数据库，并自动复制账号。继续复制密码：</div>
+                  <div class="flow-actions">
+                    <button class="action-btn copy-btn" data-label="数据库密码">复制密码</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="env-group">
+            <button class="env-group-head" type="button">
+              <div>
+                <div class="env-group-name">客户现场环境</div>
+                <div class="env-group-desc">无可直接访问入口</div>
+              </div>
+              <div class="env-arrow">▾</div>
+            </button>
+            <div class="env-items">
+              <div class="env-item">
+                <div class="env-url">需客户远程协助登录，仅记录说明，不影响主流程。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">当前描述</div>
+      <div class="summary-box">
+        等待用户提供具体图片内容和相关参数、日志等细节，以便进一步分析和确认问题。
+      </div>
+
+      <div class="status-row">
+        <span class="status-main">同步状态</span>
+        <span>未同步</span>
+        <span>当前待办还没有外部绑定。</span>
+        <span class="sync-btn">立即同步</span>
+      </div>
+
+      <div class="bottom-meta">
+        <span>今天创建: 04-14 22:50</span>
+        <span>更新于: 04-14 22:50</span>
+        <span class="danger">删除</span>
+        <button class="done">完成</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="timeline-head">
+        <div class="title">时间线历史</div>
+        <div class="count">1 条</div>
+        <div class="toggle">收起</div>
+      </div>
+
+      <div class="input-card">
+        <div class="input-placeholder">输入 / 选择问题反馈或问题结论</div>
+        <button class="add-btn">添加</button>
+      </div>
+
+      <div class="timeline-card">
+        <div class="timeline-meta">
+          <span class="dot"></span>
+          <span>04-14 22:50</span>
+          <span>点击编辑</span>
+          <span class="link">上传附件</span>
+          <span class="link">粘贴截图</span>
+          <span class="danger">删除</span>
+        </div>
+        <div class="timeline-text">
+          工单跟进内容将在这里展示，支持后续继续追加和回看。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const trigger = document.getElementById('envTrigger');
+    const popover = document.getElementById('envPopover');
+    const overlay = document.getElementById('overlay');
+    const toast = document.getElementById('toast');
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 1400);
+    }
+
+    function togglePopover(force) {
+      const show = typeof force === 'boolean' ? force : !popover.classList.contains('show');
+      popover.classList.toggle('show', show);
+      overlay.classList.toggle('show', show);
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePopover();
+    });
+
+    overlay.addEventListener('click', () => togglePopover(false));
+
+    document.querySelectorAll('.env-group-head').forEach(head => {
+      head.addEventListener('click', () => {
+        const group = head.parentElement;
+        const isOpen = group.classList.contains('open');
+        document.querySelectorAll('.env-group').forEach(g => g.classList.remove('open'));
+        if (!isOpen) group.classList.add('open');
+      });
+    });
+
+    function startCountdown(flow) {
+      const timer = flow.querySelector('.otp-timer');
+      if (!timer) return;
+      let remain = 28;
+      clearInterval(flow.__timer);
+      timer.textContent = remain + 's';
+      flow.__timer = setInterval(() => {
+        remain -= 1;
+        if (remain <= 0) remain = 30;
+        timer.textContent = remain + 's';
+      }, 1000);
+    }
+
+    document.querySelectorAll('.start-login').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.login-flow').forEach(flow => flow.classList.remove('show'));
+        const item = btn.closest('.env-item');
+        const flow = item.querySelector('.login-flow');
+        flow.classList.add('show');
+        const hasOtp = btn.dataset.otp === 'true';
+        if (hasOtp) startCountdown(flow);
+        showToast('已用新窗口打开' + btn.dataset.name + '，并复制账号');
+      });
+    });
+
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        showToast('已复制' + btn.dataset.label);
+      });
+    });
+
+    document.querySelectorAll('.copy-otp').forEach(btn => {
+      btn.addEventListener('click', () => {
+        showToast('已复制' + btn.dataset.label + '（动态码）');
+      });
+    });
+  </script>
+</body>
+</html>

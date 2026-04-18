@@ -1,0 +1,572 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>日志分析状态 UI（交互版）</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f6f6f4;
+      color: #1f2937;
+    }
+    .page {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 24px;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        linear-gradient(rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        #f5f5f4;
+    }
+    .panel {
+      width: 610px;
+      min-height: 1080px;
+      background: #fbfbfa;
+      border-radius: 28px;
+      box-shadow: 0 18px 50px rgba(15,23,42,.08);
+      padding: 22px 18px 26px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+    .topbar .title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+    }
+    .top-actions a {
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .top-actions .muted { color: #4b5563; }
+
+    .task-title {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 14px 0 14px;
+      color: #111827;
+    }
+
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid #eceff3;
+      min-height: 36px;
+    }
+    .meta-pill .k {
+      font-size: 12px;
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .meta-pill .v {
+      font-size: 14px;
+      color: #111827;
+      font-weight: 600;
+    }
+
+    .summary-box {
+      background: #ffffff;
+      border: 1px solid #eef2f7;
+      border-radius: 24px;
+      min-height: 124px;
+      padding: 22px;
+      font-size: 18px;
+      line-height: 1.65;
+      color: #374151;
+      margin-bottom: 18px;
+    }
+
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .timeline-head .title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .timeline-head .count {
+      font-size: 16px;
+      color: #c0c4cc;
+    }
+    .timeline-head .toggle {
+      margin-left: auto;
+      color: #94a3b8;
+      font-size: 15px;
+    }
+
+    .input-card {
+      background: #ffffff;
+      border: 1px solid #edf1f6;
+      border-radius: 26px;
+      min-height: 136px;
+      padding: 22px 22px 18px;
+      position: relative;
+      margin-bottom: 18px;
+    }
+    .input-placeholder {
+      font-size: 18px;
+      color: #c7ced9;
+    }
+    .add-btn {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      background: #edf2fb;
+      border: none;
+      color: #9bb1dc;
+      border-radius: 999px;
+      font-size: 18px;
+      padding: 14px 30px;
+      cursor: pointer;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .card {
+      border-radius: 26px;
+      padding: 16px 18px 18px;
+      background: #ffffff;
+      border: 1px solid #edf1f6;
+    }
+    .command-card {
+      border: 2px solid #cfe0ff;
+      background: #fbfdff;
+    }
+    .result-card {
+      border: 1px solid #d9ead0;
+      background: #fbfef8;
+    }
+    .failed-card {
+      border: 1px solid #f2d2d2;
+      background: #fffafa;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #b8c0cc;
+      font-size: 14px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #d8dee9;
+      flex: 0 0 auto;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .card-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .status-pill {
+      margin-left: auto;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .running {
+      background: #eaf2ff;
+      color: #2563eb;
+    }
+    .completed {
+      background: #ebf7eb;
+      color: #2f855a;
+    }
+    .failed {
+      background: #fdecec;
+      color: #dc2626;
+    }
+
+    .cmd {
+      font-size: 14px;
+      line-height: 1.7;
+      color: #4b5563;
+      margin-bottom: 12px;
+    }
+
+    .live-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #2563eb;
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(37,99,235,.18);
+      border-top-color: #2563eb;
+      border-radius: 999px;
+      animation: spin 1s linear infinite;
+      flex: 0 0 auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .light-hint {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+
+    .toggle-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      color: #2563eb;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chev {
+      transition: transform .18s ease;
+      font-size: 12px;
+    }
+    .toggle-link.open .chev {
+      transform: rotate(90deg);
+    }
+
+    .process-panel, .reason-panel {
+      display: none;
+      margin-top: 12px;
+      background: #fff;
+      border: 1px dashed #dce3ec;
+      border-radius: 16px;
+      padding: 12px 14px;
+    }
+    .process-panel.show, .reason-panel.show {
+      display: block;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 2px solid #d3dae5;
+      background: #fff;
+      flex: 0 0 auto;
+    }
+    .step.done .step-dot {
+      border-color: #60a5fa;
+      background: #60a5fa;
+    }
+    .step.active {
+      color: #2563eb;
+      font-weight: 600;
+    }
+    .step.active .step-dot {
+      border-color: #2563eb;
+      background: #2563eb;
+      box-shadow: 0 0 0 4px rgba(37,99,235,.10);
+    }
+    .step.pending {
+      color: #9ca3af;
+    }
+
+    .subnote {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    .result-link {
+      color: #2563eb;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+      display: inline-block;
+    }
+    .result-block {
+      font-size: 14px;
+      line-height: 1.8;
+      color: #374151;
+    }
+    .section {
+      margin-bottom: 10px;
+    }
+    .section .h {
+      color: #6b7280;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .error-text {
+      font-size: 14px;
+      color: #dc2626;
+      line-height: 1.7;
+      margin-bottom: 8px;
+    }
+    .timeline-text {
+      font-size: 16px;
+      color: #374151;
+      line-height: 1.7;
+      padding: 0 2px;
+    }
+
+    .reason-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      color: #4b5563;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .reason-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .reason-bullet {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #f87171;
+      margin-top: 9px;
+      flex: 0 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="panel">
+      <div class="topbar">
+        <div class="title">待办详情</div>
+        <div class="top-actions">
+          <a>导出方案</a>
+          <a class="muted">关闭</a>
+          <a class="muted">保存</a>
+        </div>
+      </div>
+
+      <div class="task-title">/分析日志 request_id=abc123 权限报错</div>
+
+      <div class="meta-strip">
+        <div class="meta-pill"><span class="k">群聊名称</span><span class="v">广汽传祺项目群</span></div>
+        <div class="meta-pill"><span class="k">产品线</span><span class="v">文档中台</span></div>
+        <div class="meta-pill"><span class="k">工单类型</span><span class="v">排查类</span></div>
+      </div>
+
+      <div class="summary-box">
+        当前待办正在排查 request_id=abc123 对应的权限报错问题，客户已补充日志 zip 和报错截图。
+      </div>
+
+      <div class="timeline-head">
+        <div class="title">时间线历史</div>
+        <div class="count">4 条</div>
+        <div class="toggle">收起</div>
+      </div>
+
+      <div class="input-card">
+        <div class="input-placeholder">输入 / 选择问题反馈或问题结论</div>
+        <button class="add-btn">添加</button>
+      </div>
+
+      <div class="stack">
+        <div class="card command-card">
+          <div class="meta">
+            <span class="dot"></span>
+            <span>04-15 10:32</span>
+            <span>命令记录</span>
+          </div>
+          <div class="title-row">
+            <div class="card-title">日志分析任务</div>
+            <div class="status-pill running">分析中</div>
+          </div>
+          <div class="cmd">
+            /分析日志 request_id=abc123 权限报错
+          </div>
+          <div class="live-status">
+            <span class="spinner"></span>
+            <span id="liveText">正在检索日志...</span>
+          </div>
+          <div class="light-hint">后台分析中，你可以继续补充跟进内容。</div>
+
+          <div class="toggle-link" onclick="togglePanel(this, 'processPanel')">
+            <span class="chev">▶</span>
+            <span>查看分析过程</span>
+          </div>
+          <div id="processPanel" class="process-panel">
+            <div class="steps">
+              <div class="step done"><span class="step-dot"></span><span>收集附件</span></div>
+              <div class="step done"><span class="step-dot"></span><span>构建排查上下文</span></div>
+              <div class="step active"><span class="step-dot"></span><span>日志检索与图片线索提取</span></div>
+              <div class="step pending"><span class="step-dot"></span><span>结果生成</span></div>
+            </div>
+            <div class="subnote">当前这次分析只会使用本条命令附带的日志材料，不会扫描整个待办的全部附件。</div>
+          </div>
+        </div>
+
+        <div class="card result-card">
+          <div class="meta">
+            <span class="dot"></span>
+            <span>04-15 10:28</span>
+            <span>系统结果</span>
+          </div>
+          <div class="title-row">
+            <div class="card-title">日志分析结果</div>
+            <div class="status-pill completed">已生成</div>
+          </div>
+          <div class="result-block">
+            <div class="section">
+              <div class="h">已分析材料</div>
+              gateway.zip（提取 3 个日志文件）、error.png
+            </div>
+            <div class="section">
+              <div class="h">关键发现</div>
+              gateway.log 中命中 request_id=abc123 共 6 次，出现 403 / Permission denied。
+            </div>
+            <div class="section">
+              <div class="h">初步判断</div>
+              更像权限问题，次级怀疑为网关鉴权失败。
+            </div>
+            <div class="section">
+              <div class="h">建议下一步</div>
+              核对租户权限与网关鉴权配置，再转研发排查。
+            </div>
+          </div>
+        </div>
+
+        <div class="card failed-card">
+          <div class="meta">
+            <span class="dot"></span>
+            <span>04-15 09:56</span>
+            <span>命令记录</span>
+          </div>
+          <div class="title-row">
+            <div class="card-title">日志分析任务</div>
+            <div class="status-pill failed">失败</div>
+          </div>
+          <div class="cmd">
+            /分析日志 tradId=xyz789 登录异常
+          </div>
+          <div class="error-text">未检测到可分析日志</div>
+
+          <div class="toggle-link" onclick="togglePanel(this, 'reasonPanel')">
+            <span class="chev">▶</span>
+            <span>查看原因</span>
+          </div>
+          <div id="reasonPanel" class="reason-panel">
+            <div class="reason-list">
+              <div class="reason-item">
+                <span class="reason-bullet"></span>
+                <span>当前命令记录未附加 .log / .txt / .json / .trace / zip 等可分析材料。</span>
+              </div>
+              <div class="reason-item">
+                <span class="reason-bullet"></span>
+                <span>系统不会自动扫描其他时间线附件，因此没有找到可用输入。</span>
+              </div>
+              <div class="reason-item">
+                <span class="reason-bullet"></span>
+                <span>建议在本条命令上补充日志包后重新发起分析。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="meta">
+            <span class="dot"></span>
+            <span>04-15 09:40</span>
+            <span>问题反馈</span>
+          </div>
+          <div class="timeline-text">
+            客户补充上传日志 zip 和报错截图，表示该请求偶发返回无权限。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const liveTexts = [
+      '正在收集附件...',
+      '正在构建排查上下文...',
+      '正在检索日志...',
+      '正在生成分析结果...'
+    ];
+    let liveIndex = 2;
+    setInterval(() => {
+      const el = document.getElementById('liveText');
+      if (el) {
+        liveIndex = (liveIndex + 1) % liveTexts.length;
+        el.textContent = liveTexts[liveIndex];
+      }
+    }, 2200);
+
+    function togglePanel(trigger, id) {
+      const panel = document.getElementById(id);
+      const isOpen = panel.classList.contains('show');
+      panel.classList.toggle('show');
+      trigger.classList.toggle('open');
+      trigger.querySelector('.chev').textContent = isOpen ? '▶' : '▶';
+      trigger.querySelector('span:last-child').textContent =
+        id === 'processPanel'
+          ? (isOpen ? '查看分析过程' : '收起分析过程')
+          : (isOpen ? '查看原因' : '收起原因');
+    }
+  </script>
+</body>
+</html>

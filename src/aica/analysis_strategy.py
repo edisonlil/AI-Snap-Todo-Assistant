@@ -1,6 +1,9 @@
 """Prompt strategy builder for intent-driven screenshot analysis."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from .analysis_rules import AnalysisRuleConfig, SceneAnalysisRule, UserRuleConfig
 from .analysis_intent import (
     AnalysisIntent,
     CAPTURE_MODE_SEQUENCE,
@@ -26,7 +29,7 @@ _JSON_CONTRACT = (
 _COMMON_RULES = (
     "通用要求："
     "1. title 必须直接给出可展示、可保存的最终工单标题，优先保留最终用户可见的异常现象或核心诉求，不要写成“客户反馈问题”“排查截图”这类泛化标题。"
-    "2. product_line 固定返回“文档中台”。"
+    "2. product_line 固定返回空字符串，不要根据截图推测或编造产品线。"
     "3. ticket_type 只能从“排查类”“咨询类”“操作类”中选择一个。"
     "4. current_summary 只写当前问题现状或本批截图的核心结论，不要塞入过多参数明细。"
     "5. timeline_entry 只写本批截图新增的跟进、观察、待确认项或下一步。"
@@ -34,6 +37,8 @@ _COMMON_RULES = (
     "7. group_name/environment 缺失时填“未知”。（group_name信息通常在左上角，需重点关注，它是关键信息）"
     "8. 不要输出 JSON 以外的解释或 markdown。"
 )
+
+_USER_RULE_TEMPLATE = "【用户规则】\n{{RULE}}\n"
 
 _SCENE_RULES = {
     SCENE_CHAT_FEEDBACK: (
@@ -64,33 +69,118 @@ _SCENE_RULES = {
 }
 
 
+@dataclass(frozen=True)
+class AnalysisPromptBundle:
+    system_prompt: str
+    user_prompt: str
+    scene_type: str
+    scene_label: str
+    focus_hint: str
+    context_text: str
+    image_count: int
+    applied_rule_snapshot: dict[str, object]
+    prompt_version: str
+    trace_id: str
+
+
 def build_analysis_system_prompt() -> str:
     return _BASE_SYSTEM_PROMPT
 
 
-def build_analysis_text_prompt(intent: AnalysisIntent, *, context_text: str = "", image_count: int = 1) -> str:
-    focus_hint = intent.focus_hint.strip()
-    sequence_hint = (
+def _build_sequence_section(intent: AnalysisIntent, image_count: int) -> str:
+    return (
         "这是一组连续截图，请按顺序综合理解；相邻截图有重复时要去重，但不要丢失后续截图新增信息。"
         if intent.capture_group_mode == CAPTURE_MODE_SEQUENCE or image_count > 1
         else "这是一张单图，请直接围绕当前截图提取结构化结果。"
     )
-    focus_section = (
+
+
+def _build_focus_section(intent: AnalysisIntent) -> str:
+    focus_hint = intent.focus_hint.strip()
+    return (
         f"用户补充重点：{focus_hint}。请优先满足这个提取重点。"
         if focus_hint
         else "用户没有额外补充重点。"
     )
-    context_section = (
+
+
+def _build_context_section(context_text: str) -> str:
+    return (
         f"【已有待办上下文】\n{context_text}\n\n"
         "这些内容只用于理解背景，不要直接复述为本次分析结果；请基于当前截图内容产出本次新增跟进。\n\n"
         if context_text.strip()
         else ""
     )
-    return (
-        f"{context_section}"
-        f"{_JSON_CONTRACT}\n"
-        f"{_COMMON_RULES}\n"
-        f"{_SCENE_RULES.get(intent.scene_type, _SCENE_RULES[SCENE_CUSTOM])}\n"
-        f"{sequence_hint}\n"
-        f"{focus_section}"
+
+
+def _build_user_rule_section(rule: UserRuleConfig) -> str:
+    rendered_rules = [f"{index}. {text}" for index, text in enumerate(rule.to_lines(), start=1)]
+    replacement_text = "\n".join(rendered_rules) if rendered_rules else "无"
+    return _USER_RULE_TEMPLATE.replace("{{RULE}}", replacement_text)
+
+
+def build_analysis_prompt_bundle(
+    intent: AnalysisIntent,
+    *,
+    rule: UserRuleConfig | SceneAnalysisRule | None = None,
+    prompt_version: str = "built-in",
+    trace_id: str = "",
+    context_text: str = "",
+    image_count: int = 1,
+) -> AnalysisPromptBundle:
+    applied_rule = UserRuleConfig.from_dict(rule)
+    user_sections = [
+        _build_context_section(context_text),
+        f"{_JSON_CONTRACT}\n",
+        f"{_COMMON_RULES}\n",
+        f"{_SCENE_RULES.get(intent.scene_type, _SCENE_RULES[SCENE_CUSTOM])}\n",
+        f"{_build_sequence_section(intent, image_count)}\n",
+        _build_focus_section(intent),
+        "\n",
+        _build_user_rule_section(applied_rule),
+    ]
+    return AnalysisPromptBundle(
+        system_prompt=_BASE_SYSTEM_PROMPT,
+        user_prompt="".join(section for section in user_sections if section),
+        scene_type=intent.scene_type,
+        scene_label=intent.scene_label,
+        focus_hint=intent.focus_hint.strip(),
+        context_text=context_text.strip(),
+        image_count=max(1, int(image_count)),
+        applied_rule_snapshot={"items": applied_rule.to_lines()},
+        prompt_version=str(prompt_version or "built-in"),
+        trace_id=str(trace_id or "").strip(),
     )
+
+
+def build_analysis_prompt_bundle_from_rules(
+    intent: AnalysisIntent,
+    *,
+    rules_config: AnalysisRuleConfig | None = None,
+    trace_id: str = "",
+    context_text: str = "",
+    image_count: int = 1,
+) -> AnalysisPromptBundle:
+    config = rules_config or AnalysisRuleConfig()
+    applied_rule = config.scene_rules.get(intent.scene_type, UserRuleConfig())
+    if applied_rule.is_empty():
+        if not config.rules.is_empty():
+            applied_rule = config.rules
+        else:
+            applied_rule = UserRuleConfig.from_dict(config.scenes.get(intent.scene_type, SceneAnalysisRule()))
+    return build_analysis_prompt_bundle(
+        intent,
+        rule=applied_rule,
+        prompt_version=config.version,
+        trace_id=trace_id,
+        context_text=context_text,
+        image_count=image_count,
+    )
+
+
+def build_analysis_text_prompt(intent: AnalysisIntent, *, context_text: str = "", image_count: int = 1) -> str:
+    return build_analysis_prompt_bundle(
+        intent,
+        context_text=context_text,
+        image_count=image_count,
+    ).user_prompt

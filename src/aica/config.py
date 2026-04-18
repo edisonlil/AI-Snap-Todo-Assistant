@@ -90,8 +90,9 @@ class TaskModelBinding:
 @dataclass
 class TaskModelBindings:
     analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
+    log_analysis: TaskModelBinding = field(default_factory=TaskModelBinding)
     plan_export: TaskModelBinding = field(default_factory=TaskModelBinding)
-    prompt_optimization: TaskModelBinding = field(default_factory=TaskModelBinding)
+    context_summary: TaskModelBinding = field(default_factory=TaskModelBinding)
 
     @classmethod
     def from_dict(cls, data: object) -> "TaskModelBindings":
@@ -99,8 +100,9 @@ class TaskModelBindings:
             return default_task_model_bindings()
         return cls(
             analysis=TaskModelBinding.from_dict(data.get("analysis")),
+            log_analysis=TaskModelBinding.from_dict(data.get("log_analysis")),
             plan_export=TaskModelBinding.from_dict(data.get("plan_export")),
-            prompt_optimization=TaskModelBinding.from_dict(data.get("prompt_optimization")),
+            context_summary=TaskModelBinding.from_dict(data.get("context_summary")),
         )
 
 
@@ -117,11 +119,46 @@ class HotkeyConfig:
 
 
 @dataclass
+class FeaturePointProviderConfig:
+    enabled: bool = True
+    provider: str = "http"
+    base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
+    api_key: str = ""
+    timeout_seconds: int = 500
+
+    @classmethod
+    def from_dict(cls, data: object) -> "FeaturePointProviderConfig":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            provider=str(data.get("provider", "http")).strip() or "http",
+            base_url=str(data.get("base_url", "")).strip(),
+            api_key=str(data.get("api_key", "")).strip(),
+            timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 5),
+        )
+
+
+@dataclass
+class TicketEnrichmentConfig:
+    feature_point: FeaturePointProviderConfig = field(default_factory=FeaturePointProviderConfig)
+
+    @classmethod
+    def from_dict(cls, data: object) -> "TicketEnrichmentConfig":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            feature_point=FeaturePointProviderConfig.from_dict(data.get("feature_point")),
+        )
+
+
+@dataclass
 class AppConfig:
     default_provider_id: str = "siliconflow"
     providers: list[ProviderConfig] = field(default_factory=list)
     task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
+    ticket_enrichment: TicketEnrichmentConfig = field(default_factory=TicketEnrichmentConfig)
     max_image_bytes: int = 4 * 1024 * 1024
 
 
@@ -208,25 +245,29 @@ def default_task_model_bindings(default_provider_id: str = "siliconflow") -> Tas
     if default_provider_id == "gemini":
         return TaskModelBindings(
             analysis=_binding("gemini", "gemini-2.5-flash"),
+            log_analysis=_binding("gemini", "gemini-2.5-flash"),
             plan_export=_binding("gemini", "gemini-2.5-flash"),
-            prompt_optimization=_binding("gemini", "gemini-2.5-flash"),
+            context_summary=_binding("gemini", "gemini-2.5-flash"),
         )
     if default_provider_id == "dashscope":
         return TaskModelBindings(
             analysis=_binding("dashscope", "qwen-vl-max"),
+            log_analysis=_binding("dashscope", "qwen-vl-max"),
             plan_export=_binding("dashscope", "qwen-vl-max"),
-            prompt_optimization=_binding("dashscope", "qwen-vl-max"),
+            context_summary=_binding("dashscope", "qwen-plus"),
         )
     if default_provider_id == "minmax":
         return TaskModelBindings(
             analysis=_binding("siliconflow", "qwen25-vl-72b"),
+            log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
             plan_export=_binding("siliconflow", "qwen25-vl-72b"),
-            prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
+            context_summary=_binding("minmax", "minimax-m2-5"),
         )
     return TaskModelBindings(
         analysis=_binding("siliconflow", "qwen25-vl-72b"),
+        log_analysis=_binding("siliconflow", "qwen25-vl-72b"),
         plan_export=_binding("siliconflow", "qwen25-vl-72b"),
-        prompt_optimization=_binding("siliconflow", "qwen25-vl-72b"),
+        context_summary=_binding("siliconflow", "qwen3-8b"),
     )
 
 
@@ -236,6 +277,7 @@ def build_default_config() -> AppConfig:
         providers=default_provider_configs(),
         task_model_bindings=default_task_model_bindings("siliconflow"),
         hotkeys=HotkeyConfig(),
+        ticket_enrichment=TicketEnrichmentConfig(),
         max_image_bytes=4 * 1024 * 1024,
     )
 
@@ -309,8 +351,17 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
 
     return TaskModelBindings(
         analysis=normalize(bindings.analysis, defaults.analysis, "vision_chat"),
+        log_analysis=normalize(
+            bindings.log_analysis,
+            defaults.log_analysis if bindings.log_analysis.provider_id and bindings.log_analysis.model_id else defaults.analysis,
+            "vision_chat",
+        ),
         plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
-        prompt_optimization=normalize(bindings.prompt_optimization, defaults.prompt_optimization, "vision_chat"),
+        context_summary=normalize(
+            bindings.context_summary,
+            defaults.context_summary if bindings.context_summary.provider_id and bindings.context_summary.model_id else defaults.context_summary,
+            "text_chat",
+        ),
     )
 
 
@@ -339,6 +390,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         providers=providers,
         task_model_bindings=bindings,
         hotkeys=HotkeyConfig.from_dict(data.get("hotkeys")),
+        ticket_enrichment=TicketEnrichmentConfig.from_dict(data.get("ticket_enrichment")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
     )
 
@@ -361,10 +413,12 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     ]
     migrated.task_model_bindings = TaskModelBindings(
         analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
+        log_analysis=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
         plan_export=TaskModelBinding(provider_id="siliconflow", model_id="plan-export-model"),
-        prompt_optimization=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
+        context_summary=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
     migrated.hotkeys = HotkeyConfig()
+    migrated.ticket_enrichment = TicketEnrichmentConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     return migrated
 

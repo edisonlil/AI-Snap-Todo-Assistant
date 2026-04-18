@@ -1,14 +1,242 @@
 """QML-backed application control panel."""
 from __future__ import annotations
 
+from datetime import datetime
+import os
 from pathlib import Path
+import sys
 
-from PyQt6.QtCore import QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QDesktopServices
-from PyQt6.QtQuickWidgets import QQuickWidget
-from PyQt6.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout
+_SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+
+try:
+    if _SKIP_QT_IMPORT:
+        raise RuntimeError("Skip Qt import while running tests")
+    from PyQt6.QtCore import QDate, QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtGui import QColor, QDesktopServices
+    from PyQt6.QtQuickWidgets import QQuickWidget
+    from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
+except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
+    class QObject:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, callback):
+            self._callbacks.append(callback)
+
+        def emit(self, *args, **kwargs):
+            for callback in list(self._callbacks):
+                callback(*args, **kwargs)
+
+    class _SignalDescriptor:
+        def __init__(self):
+            self._name = ""
+
+        def __set_name__(self, owner, name):
+            self._name = f"__signal_{name}"
+
+        def __get__(self, instance, owner):
+            if instance is None:
+                return self
+            signal = getattr(instance, self._name, None)
+            if signal is None:
+                signal = _Signal()
+                setattr(instance, self._name, signal)
+            return signal
+
+    def pyqtSignal(*_args, **_kwargs):  # type: ignore[no-redef]
+        return _SignalDescriptor()
+
+    def pyqtSlot(*_args, **_kwargs):  # type: ignore[no-redef]
+        def _decorator(func):
+            return func
+        return _decorator
+
+    def pyqtProperty(*_args, **_kwargs):  # type: ignore[no-redef]
+        def _decorator(func):
+            return property(func)
+        return _decorator
+
+    class QDate:  # type: ignore[no-redef]
+        def __init__(self, text=""):
+            self._text = text
+
+        @staticmethod
+        def fromString(text, _format):
+            return QDate(str(text or ""))
+
+        @staticmethod
+        def currentDate():
+            return QDate("2000-01-01")
+
+        def isValid(self):
+            return bool(self._text)
+
+        def toString(self, _format):
+            return self._text or "2000-01-01"
+
+    class Qt:  # type: ignore[no-redef]
+        class WindowType:
+            Window = 0
+            FramelessWindowHint = 0
+            WindowSystemMenuHint = 0
+            WindowMinMaxButtonsHint = 0
+
+        class WidgetAttribute:
+            WA_TranslucentBackground = 0
+
+        class WindowState:
+            WindowMaximized = 0
+
+        class Edge:
+            LeftEdge = 0
+            RightEdge = 0
+            TopEdge = 0
+            BottomEdge = 0
+
+    class QUrl:  # type: ignore[no-redef]
+        def __init__(self, path=""):
+            self._path = path
+
+        @staticmethod
+        def fromLocalFile(path):
+            return QUrl(path)
+
+    class QColor:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class QDesktopServices:  # type: ignore[no-redef]
+        @staticmethod
+        def openUrl(*_args, **_kwargs):
+            return False
+
+    class _DummyContext:
+        def setContextProperty(self, *_args, **_kwargs):
+            return None
+
+    class QQuickWidget:  # type: ignore[no-redef]
+        class ResizeMode:
+            SizeRootObjectToView = 0
+
+        class Status:
+            Error = "error"
+
+        def __init__(self, *_args, **_kwargs):
+            self._context = _DummyContext()
+
+        def setClearColor(self, *_args, **_kwargs):
+            return None
+
+        def setResizeMode(self, *_args, **_kwargs):
+            return None
+
+        def rootContext(self):
+            return self._context
+
+        def setSource(self, *_args, **_kwargs):
+            return None
+
+        def status(self):
+            return None
+
+        def errors(self):
+            return []
+
+    class _Clipboard:
+        def setText(self, *_args, **_kwargs):
+            return None
+
+    class QApplication:  # type: ignore[no-redef]
+        @staticmethod
+        def clipboard():
+            return _Clipboard()
+
+        @staticmethod
+        def screenAt(*_args, **_kwargs):
+            return None
+
+        @staticmethod
+        def primaryScreen():
+            return None
+
+    class QCalendarWidget:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            self._selected_date = QDate.currentDate()
+
+        def setSelectedDate(self, date):
+            self._selected_date = date
+
+        def selectedDate(self):
+            return self._selected_date
+
+    class QDialog:  # type: ignore[no-redef]
+        class DialogCode:
+            Accepted = 1
+
+        def setWindowTitle(self, *_args, **_kwargs):
+            return None
+
+        def setModal(self, *_args, **_kwargs):
+            return None
+
+        def exec(self):
+            return 0
+
+        def accept(self):
+            return None
+
+        def reject(self):
+            return None
+
+    class _DummySignal:
+        def connect(self, *_args, **_kwargs):
+            return None
+
+    class QDialogButtonBox:  # type: ignore[no-redef]
+        class StandardButton:
+            Ok = 1
+            Cancel = 2
+
+        def __init__(self, *_args, **_kwargs):
+            self.accepted = _DummySignal()
+            self.rejected = _DummySignal()
+
+    class QFileDialog:  # type: ignore[no-redef]
+        @staticmethod
+        def getExistingDirectory(*_args, **_kwargs):
+            return ""
+
+        @staticmethod
+        def getOpenFileName(*_args, **_kwargs):
+            return "", ""
+
+        @staticmethod
+        def getSaveFileName(*_args, **_kwargs):
+            return "", ""
+
+    class QWidget:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class QVBoxLayout:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def setSpacing(self, *_args, **_kwargs):
+            return None
 
 from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
+from aica.analysis_rules import (
+    AnalysisRulesManager,
+    PromptDebugStore,
+    SceneAnalysisRule,
+    UserRuleConfig,
+    build_scene_options_payload,
+)
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.control_panel_state import (
     build_script_integration,
@@ -23,51 +251,138 @@ from aica.control_panel_state import (
     script_integration_display_path,
     update_script_integration_path,
 )
+from aica.project_management import (
+    build_project_template_content,
+    find_active_alias_conflicts,
+    import_projects_from_file,
+    project_record_from_payload,
+    project_to_payload,
+)
 from aica.paths import (
+    aica_database_file,
     app_data_dir,
+    analysis_rules_file,
     config_file,
     error_log_file,
     feedback_dir,
     integrations_file,
     log_dir,
-    prompt_history_dir,
-    prompts_file,
-    qml_dir,
+    prompt_debug_dir,
     storage_config_file,
-    todos_file,
+    qml_dir,
 )
+from aica.models import TicketSummaryFields, is_unknown_text
+from aica.storage.adapters import now_iso
+from aica.storage.sqlite.repositories import SQLiteProjectRepository
+from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
+from aica.todo_models import TodoItem, TodoStatus
+from aica.todo_store import TodoStore
 
 
 _TASK_LABELS = {
     "analysis": "截图分析",
     "plan_export": "方案导出",
-    "prompt_optimization": "Prompt 优化",
 }
-_SECTION_ITEMS = [
+_TASK_LABELS["context_summary"] = "上下文摘要"
+_TASK_LABELS["log_analysis"] = "日志分析"
+_SECTION_GROUPS = [
     {
-        "id": "models",
-        "title": "模型供应商",
-        "description": "维护供应商凭证、请求地址与任务模型绑定。",
+        "id": "business",
+        "title": "\u4e1a\u52a1\u7ba1\u7406",
+        "items": [
+            {
+                "id": "projects",
+                "title": "\u9879\u76ee\u7ba1\u7406",
+                "description": "\u5bfc\u5165\u9879\u76ee\u4e3b\u6570\u636e\u5e76\u7ef4\u62a4\u7fa4\u540d\u522b\u540d\uff0c\u8865\u9f50\u5f85\u529e\u9879\u76ee\u5173\u8054\u3002",
+            },
+            {
+                "id": "tickets",
+                "title": "\u5de5\u5355\u7ba1\u7406",
+                "description": "\u67e5\u770b\u5de5\u5355\u5217\u8868\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b\u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
+            },
+        ],
     },
     {
-        "id": "hotkeys",
-        "title": "快捷键",
-        "description": "调整截图热键并立即生效。",
+        "id": "models_and_rules",
+        "title": "\u6a21\u578b\u4e0e\u89c4\u5219",
+        "items": [
+            {
+                "id": "models",
+                "title": "\u6a21\u578b\u4f9b\u5e94\u5546",
+                "description": "\u7ef4\u62a4\u4f9b\u5e94\u5546\u51ed\u8bc1\u3001\u8bf7\u6c42\u5730\u5740\u4e0e\u4efb\u52a1\u6a21\u578b\u7ed1\u5b9a\u3002",
+            },
+            {
+                "id": "analysis_rules",
+                "title": "\u89c4\u5219\u4e0e\u8c03\u8bd5",
+                "description": "\u914d\u7f6e\u573a\u666f\u5206\u6790\u89c4\u5219\uff0c\u5e76\u67e5\u770b Prompt \u8c03\u8bd5\u5feb\u7167\u3002",
+            },
+        ],
     },
     {
-        "id": "storage",
-        "title": "存储与日志",
-        "description": "查看配置位置并快速跳转本地数据目录。",
-    },
-    {
-        "id": "integrations",
-        "title": "脚本集成",
-        "description": "导入外部脚本，并控制启用或停用同步脚本。",
+        "id": "runtime_and_integrations",
+        "title": "\u8fd0\u884c\u4e0e\u96c6\u6210",
+        "items": [
+            {
+                "id": "hotkeys",
+                "title": "\u5feb\u6377\u952e",
+                "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
+            },
+            {
+                "id": "storage",
+                "title": "\u5b58\u50a8\u4e0e\u65e5\u5fd7",
+                "description": "\u67e5\u770b\u914d\u7f6e\u4f4d\u7f6e\u5e76\u5feb\u901f\u8df3\u8f6c\u672c\u5730\u6570\u636e\u76ee\u5f55\u3002",
+            },
+            {
+                "id": "integrations",
+                "title": "\u811a\u672c\u96c6\u6210",
+                "description": "\u5bfc\u5165\u5916\u90e8\u811a\u672c\uff0c\u5e76\u63a7\u5236\u542f\u7528\u6216\u505c\u7528\u540c\u6b65\u811a\u672c\u3002",
+            },
+        ],
     },
 ]
+_SECTION_ITEMS = [item for group in _SECTION_GROUPS for item in group["items"]]
+_SECTION_VIEW_META = {
+    "models": {
+        "title": "\u6a21\u578b\u4f9b\u5e94\u5546\u4e0e\u4efb\u52a1\u6a21\u578b",
+        "description": "\u7ba1\u7406\u4f9b\u5e94\u5546 API Key\u3001\u8bf7\u6c42\u5730\u5740\u3001\u8d85\u65f6\u548c\u56db\u7c7b\u4efb\u52a1\u6a21\u578b\u7ed1\u5b9a\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "hotkeys": {
+        "title": "\u622a\u56fe\u70ed\u952e",
+        "description": "\u622a\u56fe\u70ed\u952e\u4fdd\u5b58\u540e\u4f1a\u7acb\u5373\u91cd\u7ed1\uff0c\u65e0\u9700\u91cd\u542f\u5e94\u7528\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "analysis_rules": {
+        "title": "\u89c4\u5219\u4e0e Prompt \u8c03\u8bd5",
+        "description": "\u6309\u573a\u666f\u7ef4\u62a4\u8bc6\u522b\u504f\u597d\uff0c\u5e76\u67e5\u770b\u6bcf\u6b21\u622a\u56fe\u5206\u6790\u7684\u5b8c\u6574 Prompt \u6784\u5efa\u7ed3\u679c\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u89c4\u5219",
+    },
+    "storage": {
+        "title": "\u5b58\u50a8\u4e0e\u65e5\u5fd7",
+        "description": "\u5feb\u901f\u6253\u5f00\u672c\u5730\u6570\u636e\u76ee\u5f55\uff0c\u5b9a\u4f4d\u914d\u7f6e\u3001\u53cd\u9988\u548c\u9519\u8bef\u65e5\u5fd7\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u76ee\u5f55",
+    },
+    "integrations": {
+        "title": "\u811a\u672c\u96c6\u6210",
+        "description": "\u5bfc\u5165\u672c\u5730\u811a\u672c\u5e76\u63a7\u5236\u542f\u7528\u72b6\u6001\uff0c\u4fdd\u5b58\u540e\u4f1a\u5199\u5165 integrations.json\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "projects": {
+        "title": "\u9879\u76ee\u7ba1\u7406",
+        "description": "\u6279\u91cf\u5bfc\u5165\u9879\u76ee\u4e3b\u6570\u636e\uff0c\u5e76\u96c6\u4e2d\u7ef4\u62a4\u7fa4\u540d\u522b\u540d\u4e0e\u8f7b\u91cf\u8865\u5173\u8054\u3002",
+        "primaryActionLabel": "\u8865\u5173\u8054\u5f85\u529e",
+    },
+    "tickets": {
+        "title": "\u5de5\u5355\u7ba1\u7406",
+        "description": "\u67e5\u770b\u6253\u5f00\u4e2d\u6216\u5df2\u5b8c\u6210\u7684\u5de5\u5355\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b timeline \u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
+        "primaryActionLabel": "\u5237\u65b0\u5217\u8868",
+    },
+}
 
 
 def _required_capability(task_name: str) -> str:
+    if task_name == "context_summary":
+        return "text_chat"
     return "vision_chat"
 
 
@@ -118,37 +433,214 @@ def _build_speed_hint(model_name: str, summary: ModelLatencySummary | None) -> s
     return "该模型近期平均耗时偏长，通常更适合重质量场景；若更看重速度，可优先比较 Instruct/Flash 类模型。"
 
 
+def _parse_project_date(value: str) -> QDate:
+    text = str(value or "").strip().replace("/", "-")
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    if " " in text:
+        text = text.split(" ", 1)[0]
+    parsed = QDate.fromString(text, "yyyy-MM-dd")
+    return parsed if parsed.isValid() else QDate.currentDate()
+
+
+def _serialize_project_date(field_name: str, selected_date: QDate) -> str:
+    normalized_date = selected_date.toString("yyyy-MM-dd")
+    if field_name == "supportEndedAt":
+        return f"{normalized_date}T23:59:59"
+    return f"{normalized_date}T00:00:00"
+
+
+def _format_display_timestamp(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text).strftime("%m-%d %H:%M")
+    except ValueError:
+        return text
+
+
+def _format_attachment_size(size_bytes: int) -> str:
+    try:
+        normalized = max(0, int(size_bytes))
+    except (TypeError, ValueError):
+        normalized = 0
+    if normalized >= 1024 * 1024:
+        return f"{normalized / (1024 * 1024):.1f} MB"
+    if normalized >= 1024:
+        return f"{normalized / 1024:.1f} KB"
+    return f"{normalized} B"
+
+
+def _todo_status_label(status: str) -> str:
+    return "\u5df2\u5b8c\u6210" if str(status or "").strip() == TodoStatus.DONE else "\u8fdb\u884c\u4e2d"
+
+
+def _todo_status_tone(status: str) -> str:
+    return "done" if str(status or "").strip() == TodoStatus.DONE else "open"
+
+
+def _ticket_field_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _format_ticket_product(product: object) -> str:
+    value = _ticket_field_text(product).strip()
+    if not value:
+        return ""
+    if value == "WPS协作":
+        return "WPS协作（泛）/协作-私网"
+    if value == "文档中台":
+        return "文档中台/V7"
+    if value == "文档中心":
+        return "文档中心/V7"
+    return value
+
+
+def _format_ticket_project_name(project_name: object) -> str:
+    if project_name is None:
+        return ""
+    if isinstance(project_name, list):
+        return ",".join(str(item) for item in project_name)
+    return str(project_name)
+
+
+def _format_ticket_copy_text(ticket: dict[str, object]) -> str:
+    return (
+        f"标题: {_ticket_field_text(ticket.get('title'))}\n"
+        "二线: 否\n"
+        f"结论: {_ticket_field_text(ticket.get('conclusionContent'))}\n"
+        f"客户名称: {_ticket_field_text(ticket.get('customerName'))}\n"
+        f"项目名称: {_format_ticket_project_name(ticket.get('projectName'))}\n"
+        f"功能点: {_ticket_field_text(ticket.get('featurePoint'))}\n"
+        f"版本: {_ticket_field_text(ticket.get('ticketVersion'))}\n"
+        f"根因分类: {_ticket_field_text(ticket.get('rootCause'))}\n"
+        f"根因描述: {_ticket_field_text(ticket.get('rootCauseDesc'))}\n"
+        f"产品: {_format_ticket_product(ticket.get('productLine'))}\n"
+        f"描述: {_ticket_field_text(ticket.get('summary'))}"
+    )
+
+
+def _ticket_project_status_label(status: str) -> str:
+    mapping = {
+        "matched": "\u5df2\u5173\u8054\u9879\u76ee",
+        "unmatched": "\u672a\u5339\u914d\u9879\u76ee",
+        "conflict": "\u5339\u914d\u51b2\u7a81",
+        "expired": "\u547d\u4e2d\u8fc7\u4fdd\u9879\u76ee",
+        "manual": "\u624b\u52a8\u6307\u5b9a\u9879\u76ee",
+    }
+    return mapping.get(str(status or "").strip(), "\u672a\u5339\u914d\u9879\u76ee")
+
+
+def _ticket_project_status_tone(status: str) -> str:
+    mapping = {
+        "matched": "matched",
+        "manual": "matched",
+        "conflict": "warning",
+        "expired": "warning",
+    }
+    return mapping.get(str(status or "").strip(), "default")
+
+
+def _ticket_project_status_detail(todo: TodoItem) -> str:
+    link = todo.project_link
+    status = str(link.match_status or "").strip()
+    project_name = str(link.project_snapshot.get("project_name") or "").strip()
+    task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+    if status == "matched":
+        if project_name and task_order_no:
+            return f"{project_name} / {task_order_no}"
+        return project_name or task_order_no or "\u5df2\u6839\u636e\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u9879\u76ee\u4e3b\u6570\u636e\u3002"
+    if status == "conflict":
+        reason = str(link.match_reason or "").strip()
+        if reason.startswith("multiple_active_projects:"):
+            return "\u547d\u4e2d\u4e86\u591a\u4e2a\u6709\u6548\u9879\u76ee\uff0c\u8bf7\u5728\u9879\u76ee\u7ba1\u7406\u9875\u6536\u655b\u522b\u540d\u3002"
+        return reason or "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u4e86\u591a\u4e2a\u6709\u6548\u9879\u76ee\u3002"
+    if status == "expired":
+        return f"{project_name} \u5df2\u8fc7\u4fdd\u3002" if project_name else "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u53ea\u547d\u4e2d\u8fc7\u4fdd\u9879\u76ee\u3002"
+    if status == "manual":
+        return "\u5f53\u524d\u5de5\u5355\u4f7f\u7528\u4e86\u624b\u52a8\u9879\u76ee\u5173\u8054\u7ed3\u679c\u3002"
+    reason = str(link.match_reason or "").strip()
+    if reason == "missing_group_name":
+        return "\u5f53\u524d\u5de5\u5355\u7f3a\u5c11\u7fa4\u804a\u540d\u79f0\uff0c\u65e0\u6cd5\u81ea\u52a8\u5339\u914d\u9879\u76ee\u3002"
+    return "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u5c1a\u672a\u547d\u4e2d\u4efb\u4f55\u9879\u76ee\u522b\u540d\u3002"
+
+
+def _ticket_timeline_scenario(kind: str, scenario: str) -> str:
+    if str(kind or "").strip() == "manual":
+        return "\u624b\u52a8\u8ddf\u8fdb"
+    return str(scenario or "").strip() or "\u7cfb\u7edf\u8bb0\u5f55"
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
+    windowStateChanged = pyqtSignal()
     closeRequested = pyqtSignal()
     minimizeRequested = pyqtSignal()
+    maximizeRequested = pyqtSignal()
     dragRequested = pyqtSignal()
+    resizeRequested = pyqtSignal(str)
     configSaved = pyqtSignal(object)
+    projectDateSelected = pyqtSignal(str, str)
 
     def __init__(self, config_manager: ConfigManager) -> None:
         super().__init__()
         self._config_manager = config_manager
         self._config = config_manager.load()
         self._analysis_metrics = AnalysisMetricsStore()
+        self._analysis_rules_manager = AnalysisRulesManager()
+        self._analysis_rules = self._analysis_rules_manager.config
+        self._prompt_debug_store = PromptDebugStore()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
         self._current_section = "models"
+        self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
+        self._selected_prompt_debug_trace_id = ""
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
+        self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._todo_store = TodoStore(str(aica_database_file()))
+        self._project_query = ""
+        self._include_expired_projects = True
+        self._projects = self._load_project_payloads()
+        self._last_project_import_summary = ""
+        self._ticket_query = ""
+        self._ticket_status_filter = TodoStatus.OPEN
+        self._tickets = self._load_ticket_payloads()
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
         self._error_message = ""
         self._status_message = ""
+        self._window_maximized = False
+        records = self._prompt_debug_store.list_records(limit=1)
+        if records:
+            self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
 
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
         return list(_SECTION_ITEMS)
 
+    @pyqtProperty("QVariantList", constant=True)
+    def sectionGroups(self):  # noqa: ANN201
+        return list(_SECTION_GROUPS)
+
     @pyqtProperty(str, notify=currentSectionChanged)
     def currentSection(self) -> str:
         return self._current_section
+
+    @pyqtProperty("QVariantMap", notify=currentSectionChanged)
+    def currentSectionMeta(self):  # noqa: ANN201
+        return dict(_SECTION_VIEW_META.get(self._current_section, _SECTION_VIEW_META["models"]))
+
+    @pyqtProperty(bool, notify=windowStateChanged)
+    def windowMaximized(self) -> bool:
+        return self._window_maximized
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def providers(self):  # noqa: ANN201
@@ -223,12 +715,8 @@ class _ControlPanelBridge(QObject):
         return str(config_file())
 
     @pyqtProperty(str, notify=dataChanged)
-    def promptsPath(self) -> str:
-        return str(prompts_file())
-
-    @pyqtProperty(str, notify=dataChanged)
     def todosPath(self) -> str:
-        return str(todos_file())
+        return str(aica_database_file())
 
     @pyqtProperty(str, notify=dataChanged)
     def integrationsPath(self) -> str:
@@ -250,6 +738,101 @@ class _ControlPanelBridge(QObject):
             )
         return payload
 
+    @pyqtProperty("QVariantList", constant=True)
+    def analysisRuleScenes(self):  # noqa: ANN201
+        return build_scene_options_payload()
+
+    @pyqtProperty("QVariantList", constant=True)
+    def rootCauseOptions(self):  # noqa: ANN201
+        return list(ROOT_CAUSE_OPTIONS)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def selectedAnalysisRuleScene(self) -> str:
+        return self._selected_rule_scene
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def analysisRuleForm(self):  # noqa: ANN201
+        user_rules = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        if not user_rules:
+            user_rules = [""]
+        return {
+            "userRules": user_rules,
+            "sceneLabel": next(
+                (
+                    option.get("text", "")
+                    for option in build_scene_options_payload()
+                    if option.get("value", "") == self._selected_rule_scene
+                ),
+                "",
+            ),
+            "promptVersion": self._analysis_rules.version,
+            "debugEnabled": self._analysis_rules.debug.enabled,
+            "debugMaxRecords": str(self._analysis_rules.debug.max_records),
+        }
+
+    @pyqtProperty(str, notify=dataChanged)
+    def analysisRulesPath(self) -> str:
+        return str(analysis_rules_file())
+
+    @pyqtProperty(str, notify=dataChanged)
+    def promptDebugDirPath(self) -> str:
+        return str(prompt_debug_dir())
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def promptDebugRecords(self):  # noqa: ANN201
+        return self._prompt_debug_store.list_records(limit=60)
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedPromptDebugRecord(self):  # noqa: ANN201
+        payload = self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id)
+        if payload is None:
+            return {
+                "trace_id": "",
+                "scene_label": "",
+                "timestamp": "",
+                "model": "",
+                "status": "",
+                "timing_summary": "",
+                "system_prompt": "",
+                "user_prompt": "",
+                "raw_response": "",
+                "error_message": "",
+                "context_text": "",
+            }
+        return payload
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def projects(self):  # noqa: ANN201
+        return list(self._projects)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectQuery(self) -> str:
+        return self._project_query
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def includeExpiredProjects(self) -> bool:
+        return self._include_expired_projects
+
+    @pyqtProperty(str, notify=dataChanged)
+    def lastProjectImportSummary(self) -> str:
+        return self._last_project_import_summary
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def tickets(self):  # noqa: ANN201
+        return list(self._tickets)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def ticketQuery(self) -> str:
+        return self._ticket_query
+
+    @pyqtProperty(str, notify=dataChanged)
+    def ticketStatusFilter(self) -> str:
+        return self._ticket_status_filter
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedTicket(self):  # noqa: ANN201
+        return dict(self._selected_ticket)
+
     @pyqtProperty("QVariantList", notify=dataChanged)
     def locations(self):  # noqa: ANN201
         return [
@@ -264,9 +847,14 @@ class _ControlPanelBridge(QObject):
                 "description": str(feedback_dir()),
             },
             {
-                "id": "prompt_history_dir",
-                "title": "Prompt 历史目录",
-                "description": str(prompt_history_dir()),
+                "id": "analysis_rules_dir",
+                "title": "分析规则文件",
+                "description": str(analysis_rules_file()),
+            },
+            {
+                "id": "prompt_debug_dir",
+                "title": "Prompt 调试目录",
+                "description": str(prompt_debug_dir()),
             },
             {
                 "id": "error_log_dir",
@@ -360,6 +948,197 @@ class _ControlPanelBridge(QObject):
     def _emit_data_changed(self) -> None:
         self.dataChanged.emit()
 
+    def _load_project_payloads(self) -> list[dict[str, object]]:
+        return [
+            project_to_payload(project)
+            for project in self._project_repository.list_projects(
+                query=self._project_query,
+                include_expired=self._include_expired_projects,
+            )
+        ]
+
+    def _refresh_project_payloads(self) -> None:
+        self._projects = self._load_project_payloads()
+
+    def _build_ticket_list_payload(self, todo: TodoItem) -> dict[str, object]:
+        snapshot = todo.project_link.project_snapshot
+        return {
+            "id": todo.id,
+            "title": str(todo.title or "").strip() or "\u672a\u5206\u7c7b\u4efb\u52a1",
+            "summary": str(todo.current_summary or "").strip(),
+            "groupName": str(todo.summary_fields.group_name or "").strip(),
+            "environment": str(todo.summary_fields.environment or "").strip(),
+            "productLine": str(todo.summary_fields.product_line or "").strip(),
+            "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
+            "achNo": str(todo.summary_fields.ach_no or "").strip(),
+            "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
+            "achFilledAtLabel": _format_display_timestamp(todo.summary_fields.ach_filled_at),
+            "status": str(todo.status or TodoStatus.OPEN),
+            "statusLabel": _todo_status_label(todo.status),
+            "statusTone": _todo_status_tone(todo.status),
+            "projectName": str(snapshot.get("project_name") or "").strip(),
+            "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
+            "projectStatus": str(todo.project_link.match_status or "").strip(),
+            "projectStatusLabel": _ticket_project_status_label(todo.project_link.match_status),
+            "projectStatusTone": _ticket_project_status_tone(todo.project_link.match_status),
+            "projectStatusDetail": _ticket_project_status_detail(todo),
+            "completedAt": str(todo.completed_at or ""),
+            "completedAtLabel": _format_display_timestamp(todo.completed_at),
+            "updatedAt": str(todo.updated_at or ""),
+            "updatedAtLabel": _format_display_timestamp(todo.updated_at),
+            "timelineCount": len(todo.timeline),
+        }
+
+    def _build_ticket_detail_payload(self, todo: TodoItem) -> dict[str, object]:
+        snapshot = todo.project_link.project_snapshot
+        ticket_version = str(todo.summary_fields.ticket_version or "").strip()
+        project_snapshot_version = str(snapshot.get("product_version") or "").strip()
+        timeline_payload = []
+        for event in reversed(todo.timeline):
+            attachments = [
+                {
+                    "id": attachment.id,
+                    "name": str(attachment.name or "").strip() or Path(str(attachment.path or "")).name,
+                    "path": str(attachment.path or "").strip(),
+                    "sizeBytes": int(attachment.size_bytes),
+                    "sizeLabel": _format_attachment_size(attachment.size_bytes),
+                }
+                for attachment in event.attachments
+            ]
+            timeline_payload.append(
+                {
+                    "id": event.id,
+                    "timestamp": event.timestamp,
+                    "timestampLabel": _format_display_timestamp(event.timestamp),
+                    "scenario": _ticket_timeline_scenario(event.kind, event.scenario),
+                    "kind": str(event.kind or "").strip(),
+                    "content": str(event.content or "").strip(),
+                    "attachments": attachments,
+                }
+            )
+
+        return {
+            **self._build_ticket_list_payload(todo),
+            "createdAt": str(todo.created_at or ""),
+            "createdAtLabel": _format_display_timestamp(todo.created_at),
+            "currentSummary": str(todo.current_summary or "").strip(),
+            "conclusionContent": str(todo.conclusion.content or "").strip(),
+            "featurePoint": str(todo.summary_fields.feature_point or "").strip(),
+            "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
+            "rootCause": str(todo.summary_fields.root_cause or "").strip(),
+            "achNo": str(todo.summary_fields.ach_no or "").strip(),
+            "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
+            "achFilledAtLabel": _format_display_timestamp(todo.summary_fields.ach_filled_at),
+            "projectLinkReason": str(todo.project_link.match_reason or "").strip(),
+            "projectAlias": str(todo.project_link.matched_alias or "").strip(),
+            "projectName": str(snapshot.get("project_name") or "").strip(),
+            "customerName": str(snapshot.get("customer_name") or "").strip(),
+            "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
+            "productLine": str(todo.summary_fields.product_line or "").strip(),
+            "ticketVersion": ticket_version,
+            "projectSnapshotVersion": project_snapshot_version,
+            "projectManager": str(snapshot.get("project_manager") or "").strip(),
+            "timeline": timeline_payload,
+        }
+
+    def _empty_ticket_detail_payload(self) -> dict[str, object]:
+        return {
+            "id": "",
+            "title": "",
+            "summary": "",
+            "currentSummary": "",
+            "conclusionContent": "",
+            "featurePoint": "",
+            "rootCauseDesc": "",
+            "rootCause": "",
+            "groupName": "",
+            "environment": "",
+            "ticketType": "",
+            "achNo": "",
+            "achFilledAt": "",
+            "achFilledAtLabel": "",
+            "status": "",
+            "statusLabel": "",
+            "statusTone": "open",
+            "projectStatus": "",
+            "projectStatusLabel": "",
+            "projectStatusTone": "default",
+            "projectStatusDetail": "",
+            "projectLinkReason": "",
+            "projectAlias": "",
+            "projectName": "",
+            "customerName": "",
+            "taskOrderNo": "",
+            "productLine": "",
+            "ticketVersion": "",
+            "projectSnapshotVersion": "",
+            "projectManager": "",
+            "createdAt": "",
+            "createdAtLabel": "",
+            "completedAt": "",
+            "completedAtLabel": "",
+            "updatedAt": "",
+            "updatedAtLabel": "",
+            "timelineCount": 0,
+            "timeline": [],
+        }
+
+    @staticmethod
+    def _build_updated_ticket_summary_fields(todo: TodoItem, **overrides: object) -> TicketSummaryFields:
+        payload = todo.summary_fields.to_dict()
+        payload.update(overrides)
+        return TicketSummaryFields.from_dict(payload)
+
+    def _resolve_selected_ticket_for_update(self) -> TodoItem | None:
+        if not self._selected_ticket_id:
+            return None
+        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
+            self._emit_data_changed()
+            return None
+        return todo
+
+    def _apply_selected_ticket_update(self, todo: TodoItem, *, status_message: str) -> None:
+        self._refresh_ticket_payloads()
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+        self._status_message = status_message
+        self._emit_data_changed()
+
+    def _load_ticket_payloads(self) -> list[dict[str, object]]:
+        return [
+            self._build_ticket_list_payload(todo)
+            for todo in self._todo_store.list_todos(
+                query=self._ticket_query,
+                status=self._ticket_status_filter,
+            )
+        ]
+
+    def _refresh_ticket_payloads(self) -> None:
+        self._tickets = self._load_ticket_payloads()
+
+    def _refresh_selected_ticket_payload(self) -> None:
+        if not self._selected_ticket_id:
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            return
+        todo = self._todo_store.get_todo(self._selected_ticket_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            return
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+
+    def _find_cached_project(self, project_id: str) -> dict[str, object] | None:
+        normalized_id = str(project_id or "").strip()
+        if not normalized_id:
+            return None
+        return next(
+            (item for item in self._projects if str(item.get("id") or "").strip() == normalized_id),
+            None,
+        )
+
     @pyqtSlot(str)
     def setCurrentSection(self, section_id: str) -> None:
         section = str(section_id or "").strip()
@@ -374,6 +1153,7 @@ class _ControlPanelBridge(QObject):
     def reloadConfig(self) -> None:
         self._config_manager = ConfigManager()
         self._config = self._config_manager.load()
+        self._analysis_rules = self._analysis_rules_manager.reload()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
@@ -381,6 +1161,20 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
+        self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._todo_store = TodoStore(str(aica_database_file()))
+        self._refresh_project_payloads()
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        if self._selected_rule_scene not in self._analysis_rules.scene_rules:
+            self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
+        if self._selected_prompt_debug_trace_id:
+            if self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id) is None:
+                self._selected_prompt_debug_trace_id = ""
+        if not self._selected_prompt_debug_trace_id:
+            records = self._prompt_debug_store.list_records(limit=1)
+            if records:
+                self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
         self._clear_messages()
         self._emit_data_changed()
 
@@ -494,7 +1288,8 @@ class _ControlPanelBridge(QObject):
         mapping = {
             "data_dir": app_data_dir(),
             "feedback_dir": feedback_dir(),
-            "prompt_history_dir": prompt_history_dir(),
+            "analysis_rules_dir": analysis_rules_file().parent,
+            "prompt_debug_dir": prompt_debug_dir(),
             "error_log_dir": error_log_file().parent,
             "integrations_dir": self._integrations_path.parent,
         }
@@ -513,16 +1308,41 @@ class _ControlPanelBridge(QObject):
         self.minimizeRequested.emit()
 
     @pyqtSlot()
+    def toggleMaximizedPanel(self) -> None:
+        self.maximizeRequested.emit()
+
+    @pyqtSlot(bool)
+    def setWindowMaximized(self, value: bool) -> None:
+        normalized = bool(value)
+        if self._window_maximized == normalized:
+            return
+        self._window_maximized = normalized
+        self.windowStateChanged.emit()
+
+    @pyqtSlot()
     def startWindowDrag(self) -> None:
         self.dragRequested.emit()
 
+    @pyqtSlot(str)
+    def startWindowResize(self, edge: str) -> None:
+        self.resizeRequested.emit(str(edge or "").strip())
+
     @pyqtSlot()
     def saveCurrentSection(self) -> None:
+        if self._current_section == "analysis_rules":
+            self.saveAnalysisRules()
+            return
         if self._current_section == "integrations":
             self.saveIntegrations()
             return
         if self._current_section == "storage":
             self.saveStoragePaths()
+            return
+        if self._current_section == "projects":
+            self.relinkOpenUnresolvedTodos()
+            return
+        if self._current_section == "tickets":
+            self.refreshTickets()
             return
         self.saveConfig()
 
@@ -547,6 +1367,127 @@ class _ControlPanelBridge(QObject):
         self._log_dir = result["log_dir"]
         self.reloadConfig()
         self._status_message = "目录设置已保存，新日志会写入新位置；数据目录切换建议重启应用后完全生效。"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def setSelectedAnalysisRuleScene(self, scene_type: str) -> None:
+        normalized = str(scene_type or "").strip()
+        if not normalized or normalized not in self._analysis_rules.scene_rules:
+            return
+        self._selected_rule_scene = normalized
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def updateAnalysisRuleField(self, field_name: str, value: str) -> None:
+        rule = self._analysis_rules.scenes.get(self._selected_rule_scene, SceneAnalysisRule())
+        normalized = str(field_name or "").strip()
+        text = str(value or "").strip()
+        if normalized == "titlePreference":
+            rule.title_preference = text
+        elif normalized == "summaryPreference":
+            rule.summary_preference = text
+        elif normalized == "timelinePreference":
+            rule.timeline_preference = text
+        elif normalized == "mustInclude":
+            rule.must_include = text
+        elif normalized == "mustAvoid":
+            rule.must_avoid = text
+        elif normalized == "extraInstructions":
+            rule.extra_instructions = text
+        else:
+            return
+        self._analysis_rules.scenes[self._selected_rule_scene] = rule
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(int, str)
+    def updateAnalysisUserRule(self, index: int, value: str) -> None:
+        normalized_index = max(0, int(index))
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        while len(items) <= normalized_index:
+            items.append("")
+        items[normalized_index] = str(value or "").strip()
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+
+    @pyqtSlot()
+    def addAnalysisUserRule(self) -> None:
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        items.append("")
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(int)
+    def removeAnalysisUserRule(self, index: int) -> None:
+        normalized_index = int(index)
+        items = list(self._analysis_rules.scene_rules.get(self._selected_rule_scene, UserRuleConfig()).items)
+        if normalized_index < 0 or normalized_index >= len(items):
+            return
+        items.pop(normalized_index)
+        self._analysis_rules.scene_rules[self._selected_rule_scene] = UserRuleConfig.from_items(items)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(bool)
+    def updateAnalysisDebugEnabled(self, enabled: bool) -> None:
+        self._analysis_rules.debug.enabled = bool(enabled)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def updateAnalysisDebugMaxRecords(self, value: str) -> None:
+        try:
+            parsed = int(str(value or "100").strip() or "100")
+        except ValueError:
+            parsed = 100
+        self._analysis_rules.debug.max_records = max(1, parsed)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def saveAnalysisRules(self) -> None:
+        self._clear_messages()
+        try:
+            self._analysis_rules.debug.max_records = max(1, int(self._analysis_rules.debug.max_records))
+        except (TypeError, ValueError):
+            self._error_message = "调试记录保留条数必须是正整数"
+            self._emit_data_changed()
+            return
+        self._analysis_rules_manager.update_debug_config(
+            enabled=self._analysis_rules.debug.enabled,
+            max_records=self._analysis_rules.debug.max_records,
+        )
+        for scene_type, rules in self._analysis_rules.scene_rules.items():
+            self._analysis_rules_manager.update_scene_user_rules(scene_type, rules)
+        for scene_type, rule in self._analysis_rules.scenes.items():
+            self._analysis_rules_manager.update_scene_rule(scene_type, rule)
+        self._analysis_rules = self._analysis_rules_manager.save()
+        self._status_message = "分析规则与调试设置已保存。"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def selectPromptDebugRecord(self, trace_id: str) -> None:
+        self._selected_prompt_debug_trace_id = str(trace_id or "").strip()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def refreshPromptDebugRecords(self) -> None:
+        records = self._prompt_debug_store.list_records(limit=60)
+        if records and not self._selected_prompt_debug_trace_id:
+            self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def copyPromptDebugField(self, field_name: str) -> None:
+        payload = self._prompt_debug_store.load_record(self._selected_prompt_debug_trace_id)
+        if payload is None:
+            return
+        field_value = str(payload.get(str(field_name or "").strip(), "")).strip()
+        QApplication.clipboard().setText(field_value)
+        self._status_message = "调试内容已复制到剪贴板。"
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -644,6 +1585,367 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         self._emit_data_changed()
 
+    @pyqtSlot()
+    def chooseProjectImportFile(self) -> None:
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "选择项目主数据文件",
+            str(app_data_dir()),
+            "项目文件 (*.csv *.xlsx);;所有文件 (*.*)",
+        )
+        if selected_path:
+            self.importProjectFile(selected_path)
+
+    @pyqtSlot(str)
+    def importProjectFile(self, path: str) -> None:
+        self._clear_messages()
+        try:
+            result = import_projects_from_file(path, self._project_repository, self._todo_store)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._emit_data_changed()
+            return
+        self._refresh_project_payloads()
+        self._last_project_import_summary = (
+            f"导入完成：新增 {result.created_count}，更新 {result.updated_count}，"
+            f"跳过 {result.skipped_count}，补关联 {result.relinked_count}。"
+        )
+        if result.alias_conflicts or result.error_rows:
+            fragments = [self._last_project_import_summary]
+            if result.alias_conflicts:
+                first_conflict = result.alias_conflicts[0]
+                fragments.append(
+                    "别名冲突示例："
+                    f"第 {first_conflict.row_number} 行别名 {first_conflict.alias} "
+                    f"已被 {first_conflict.conflicting_project_name}"
+                    f"({first_conflict.conflicting_task_order_no}) 占用。"
+                )
+            if result.error_rows:
+                first_error = result.error_rows[0]
+                fragments.append(f"错误示例：第 {first_error['rowNumber']} 行，{first_error['message']}")
+            self._status_message = " ".join(fragments)
+        else:
+            self._status_message = self._last_project_import_summary
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def downloadProjectTemplate(self) -> None:
+        selected_path, _ = QFileDialog.getSaveFileName(
+            None,
+            "保存项目导入模板",
+            str(app_data_dir() / "project_import_template.csv"),
+            "CSV 文件 (*.csv)",
+        )
+        if not selected_path:
+            return
+        target = Path(selected_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(build_project_template_content(), encoding="utf-8-sig")
+        self._clear_messages()
+        self._status_message = f"项目导入模板已保存到 {target}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str, bool)
+    def listProjects(self, query: str, include_expired: bool) -> None:
+        self._project_query = str(query or "").strip()
+        self._include_expired_projects = bool(include_expired)
+        self._refresh_project_payloads()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def listTickets(self, query: str, status_filter: str) -> None:
+        self._ticket_query = str(query or "").strip()
+        normalized_status = str(status_filter or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
+        if normalized_status not in {TodoStatus.OPEN, TodoStatus.DONE, "all", "done_missing_ach", "today_done"}:
+            normalized_status = TodoStatus.OPEN
+        self._ticket_status_filter = normalized_status
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def refreshTickets(self) -> None:
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._clear_messages()
+        self._status_message = f"\u5df2\u5237\u65b0 {len(self._tickets)} \u6761\u5de5\u5355\u3002"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def openTicketDetail(self, todo_id: str) -> None:
+        normalized_id = str(todo_id or "").strip()
+        if not normalized_id:
+            return
+        todo = self._todo_store.get_todo(normalized_id)
+        if todo is None:
+            self._selected_ticket_id = ""
+            self._selected_ticket = self._empty_ticket_detail_payload()
+            self._error_message = "\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
+            self._emit_data_changed()
+            return
+        self._clear_messages()
+        self._selected_ticket_id = normalized_id
+        self._selected_ticket = self._build_ticket_detail_payload(todo)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def backToTicketList(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def copySelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self.copyTicket(self._selected_ticket_id)
+
+    @pyqtSlot(str)
+    def copyTicket(self, todo_id: str) -> None:
+        normalized_id = str(todo_id or "").strip()
+        if not normalized_id:
+            return
+        todo = self._todo_store.get_todo(normalized_id)
+        if todo is None:
+            self._error_message = "该工单不存在或已被删除。"
+            self._emit_data_changed()
+            return
+        payload = self._build_ticket_detail_payload(todo)
+        QApplication.clipboard().setText(_format_ticket_copy_text(payload))
+        self._clear_messages()
+        self._status_message = "工单内容已复制到剪贴板。"
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def deleteSelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        self._clear_messages()
+        deleted = self._todo_store.delete_todo(todo.id)
+        if not deleted:
+            self._error_message = "\u5220\u9664\u5de5\u5355\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._selected_ticket_id = ""
+        self._selected_ticket = self._empty_ticket_detail_payload()
+        self._refresh_ticket_payloads()
+        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def saveSelectedTicketVersion(self, value: str) -> None:
+        self.saveSelectedTicketField("ticket_version", value)
+
+    @pyqtSlot()
+    def refreshSelectedTicketFeaturePoint(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        product_line = str(todo.summary_fields.product_line or "").strip()
+        if is_unknown_text(product_line):
+            self._error_message = "\u7f3a\u5c11\u4ea7\u54c1\u7ebf\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
+            self._emit_data_changed()
+            return
+        problem_desc = str(todo.current_summary or "").strip()
+        if not problem_desc:
+            self._error_message = "\u7f3a\u5c11\u95ee\u9898\u6458\u8981\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
+            self._emit_data_changed()
+            return
+
+        provider = build_feature_point_provider(self._config_manager.load().ticket_enrichment.feature_point)
+        try:
+            result = provider.resolve(
+                product_line=product_line,
+                problem_desc=problem_desc,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{exc}"
+            self._emit_data_changed()
+            return
+        if result.error_message:
+            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{result.error_message}"
+            self._emit_data_changed()
+            return
+        next_feature_point = str(result.value or "").strip()
+        if not next_feature_point:
+            self._error_message = "\u529f\u80fd\u70b9\u5339\u914d\u672a\u8fd4\u56de\u6709\u6548\u7ed3\u679c\u3002"
+            self._emit_data_changed()
+            return
+
+        updated = self._todo_store.update_todo(
+            todo.id,
+            summary_fields=self._build_updated_ticket_summary_fields(
+                todo,
+                feature_point=next_feature_point,
+                feature_point_source="auto",
+            ),
+        )
+        if updated is None:
+            self._error_message = "\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(updated, status_message="\u529f\u80fd\u70b9\u5df2\u5237\u65b0")
+
+    @pyqtSlot(str, str)
+    def saveSelectedTicketField(self, field_name: str, value: str) -> None:
+        if not self._selected_ticket_id:
+            return
+        normalized_field = str(field_name or "").strip()
+        if normalized_field not in {"ach_no", "ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        next_value = str(value or "").strip()
+        ach_filled_at = todo.summary_fields.ach_filled_at
+        if normalized_field == "ach_no":
+            if next_value and not str(todo.summary_fields.ach_no or "").strip():
+                ach_filled_at = now_iso()
+            elif not next_value:
+                ach_filled_at = ""
+        updated = self._todo_store.update_todo(
+            todo.id,
+            summary_fields=self._build_updated_ticket_summary_fields(
+                todo,
+                ach_no=next_value if normalized_field == "ach_no" else todo.summary_fields.ach_no,
+                ach_filled_at=ach_filled_at,
+                ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
+                feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
+                feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
+                root_cause_desc=next_value if normalized_field == "root_cause_desc" else todo.summary_fields.root_cause_desc,
+                root_cause_desc_source="manual" if normalized_field == "root_cause_desc" else todo.summary_fields.root_cause_desc_source,
+                root_cause=next_value if normalized_field == "root_cause" else todo.summary_fields.root_cause,
+                root_cause_source="manual" if normalized_field == "root_cause" else todo.summary_fields.root_cause_source,
+            ),
+        )
+        if updated is None:
+            self._error_message = "\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        field_labels = {
+            "ach_no": "ach单号",
+            "ticket_version": "\u7248\u672c\u53f7",
+            "feature_point": "\u529f\u80fd\u70b9",
+            "root_cause": "\u95ee\u9898\u6839\u56e0",
+            "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
+        }
+        self._apply_selected_ticket_update(
+            updated,
+            status_message=f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58",
+        )
+
+    @pyqtSlot(str, str)
+    def chooseProjectDate(self, field_name: str, current_value: str) -> None:
+        normalized_field = str(field_name or "").strip()
+        if normalized_field not in {"followUpStartedAt", "supportEndedAt"}:
+            return
+        dialog = QDialog()
+        dialog.setWindowTitle("选择日期")
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        calendar = QCalendarWidget(dialog)
+        calendar.setSelectedDate(_parse_project_date(current_value))
+        layout.addWidget(calendar)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.projectDateSelected.emit(
+            normalized_field,
+            _serialize_project_date(normalized_field, calendar.selectedDate()),
+        )
+
+    @pyqtSlot("QVariantMap")
+    def saveProject(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        self._clear_messages()
+        cached_project = self._find_cached_project(str(payload.get("id") or ""))
+        cached_existing = (
+            project_record_from_payload(cached_project)
+            if isinstance(cached_project, dict) and cached_project
+            else None
+        )
+        existing_by_task_order = self._project_repository.get_project_by_task_order_no(
+            str(payload.get("taskOrderNo") or payload.get("task_order_no") or "")
+        )
+        if cached_existing is not None and existing_by_task_order is not None and existing_by_task_order.id != cached_existing.id:
+            self._error_message = "任务单号已被其他项目占用"
+            self._emit_data_changed()
+            return
+        existing = cached_existing or existing_by_task_order
+        try:
+            project = project_record_from_payload(payload, existing=existing)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._emit_data_changed()
+            return
+        conflicts = find_active_alias_conflicts(
+            project,
+            self._project_repository.list_projects(include_expired=True),
+        )
+        if conflicts:
+            first_conflict = conflicts[0]
+            self._error_message = (
+                f"群名别名 {first_conflict.alias} 已被 "
+                f"{first_conflict.conflicting_project_name}"
+                f"({first_conflict.conflicting_task_order_no}) 使用"
+            )
+            self._emit_data_changed()
+            return
+        previous_aliases = list(existing.aliases) if existing is not None else []
+        self._project_repository.upsert_project(project)
+        relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(previous_aliases + list(project.aliases))
+        self._refresh_project_payloads()
+        self._status_message = (
+            f"项目已保存：{project.project_name}。"
+            f"本次补关联 {relinked_count} 条未解决待办。"
+        )
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def deleteProject(self, project_id: str) -> None:
+        cached_project = self._find_cached_project(project_id)
+        if not isinstance(cached_project, dict):
+            return
+        self._clear_messages()
+        project = project_record_from_payload(cached_project)
+        deleted = self._project_repository.delete_project(project.id)
+        if not deleted:
+            return
+        relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(list(project.aliases))
+        self._refresh_project_payloads()
+        self._status_message = (
+            f"项目已删除：{project.project_name}。"
+            f"本次补关联 {relinked_count} 条未解决待办。"
+        )
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def relinkOpenUnresolvedTodos(self) -> None:
+        self._clear_messages()
+        relinked_count = self._todo_store.relink_open_unresolved_todos()
+        self._refresh_project_payloads()
+        self._status_message = f"已补关联 {relinked_count} 条未完成且未解决关联的待办。"
+        self._emit_data_changed()
+
     def _coerce_provider_timeouts(self) -> None:
         for provider in self._config.providers:
             try:
@@ -677,6 +1979,7 @@ class ControlPanelWindow(QWidget):
         super().__init__(parent)
         self._positioned = False
         self._bridge = _ControlPanelBridge(config_manager)
+        self._layout: QVBoxLayout | None = None
 
         self.setObjectName("controlPanelWindow")
         self.setWindowFlags(
@@ -694,13 +1997,17 @@ class ControlPanelWindow(QWidget):
 
         self._bridge.closeRequested.connect(self.hide)
         self._bridge.minimizeRequested.connect(self.showMinimized)
+        self._bridge.maximizeRequested.connect(self._toggle_maximized)
         self._bridge.dragRequested.connect(self._start_system_move)
+        self._bridge.resizeRequested.connect(self._start_system_resize)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
+        self._sync_window_state()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(0)
+        self._layout = layout
+        self._update_layout_margins()
 
         self._view = QQuickWidget(self)
         self._view.setClearColor(QColor(0, 0, 0, 0))
@@ -720,8 +2027,12 @@ class ControlPanelWindow(QWidget):
         self._bridge.reloadConfig()
         self._bridge.setCurrentSection(section_id)
         if self.isMinimized():
-            self.showNormal()
+            if self.windowState() & Qt.WindowState.WindowMaximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
         self.show()
+        self._sync_window_state()
         self.raise_()
         self.activateWindow()
         if not self._positioned:
@@ -731,6 +2042,10 @@ class ControlPanelWindow(QWidget):
     def closeEvent(self, event) -> None:  # noqa: N802
         event.ignore()
         self.hide()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        self._sync_window_state()
 
     def _fit_within_screen(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
@@ -755,3 +2070,44 @@ class ControlPanelWindow(QWidget):
             window_handle.startSystemMove()
         except AttributeError:
             self.activateWindow()
+
+    def _start_system_resize(self, edge_name: str) -> None:
+        window_handle = self.windowHandle()
+        if window_handle is None:
+            self.activateWindow()
+            return
+
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            window_handle.startSystemResize(edge)
+        except AttributeError:
+            self.activateWindow()
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        self._sync_window_state()
+
+    def _sync_window_state(self) -> None:
+        self._bridge.setWindowMaximized(self.isMaximized())
+        self._update_layout_margins()
+
+    def _update_layout_margins(self) -> None:
+        if self._layout is None:
+            return
+        margin = 0 if self.isMaximized() else 12
+        self._layout.setContentsMargins(margin, margin, margin, margin)

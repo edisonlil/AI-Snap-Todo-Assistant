@@ -7,10 +7,13 @@ import re
 from .models import (
     TicketSnapshot,
     TicketSummaryFields,
+    merge_timeline_with_evidence,
     merge_summary_fields_for_append,
 )
+from .storage.contracts import TodoRepository
+from .ticket_enrichment import TicketEnrichmentService
 from .todo_events import TodoDomainEvent, TodoEventPublisher
-from .todo_store import TimelineEvent, TodoItem, TodoStore
+from .todo_store import TimelineEvent, TodoConclusion, TodoItem
 
 
 @dataclass(frozen=True)
@@ -22,9 +25,15 @@ class SaveAnalysisResult:
 class TodoController:
     """Coordinates Todo workflow state between UI and persistence."""
 
-    def __init__(self, store: TodoStore, event_publisher: TodoEventPublisher | None = None):
+    def __init__(
+        self,
+        store: TodoRepository,
+        event_publisher: TodoEventPublisher | None = None,
+        enrichment_service: TicketEnrichmentService | None = None,
+    ):
         self._store = store
         self._event_publisher = event_publisher
+        self._enrichment_service = enrichment_service
         self._selected_todo_id: str | None = None
         self._detail_todo_id: str | None = None
 
@@ -35,6 +44,9 @@ class TodoController:
     @property
     def detail_todo_id(self) -> str | None:
         return self._detail_todo_id
+
+    def set_enrichment_service(self, enrichment_service: TicketEnrichmentService | None) -> None:
+        self._enrichment_service = enrichment_service
 
     def get_active_todos(self) -> list[TodoItem]:
         return self._store.list_active_todos()
@@ -115,11 +127,12 @@ class TodoController:
 
     @classmethod
     def _normalize_snapshot_for_append(cls, todo: TodoItem, snapshot: TicketSnapshot) -> TicketSnapshot:
+        incremental_timeline_entry = cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry)
         return TicketSnapshot(
             title=todo.title,
             fields=merge_summary_fields_for_append(todo.summary_fields, snapshot.fields),
             current_summary=todo.current_summary,
-            timeline_entry=cls._extract_incremental_timeline_entry(todo, snapshot.timeline_entry),
+            timeline_entry=merge_timeline_with_evidence(incremental_timeline_entry, snapshot.evidence_items),
             evidence_items=[],
         )
 
@@ -195,7 +208,11 @@ class TodoController:
         current_summary: str | None = None,
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
+        conclusion: TodoConclusion | None = None,
     ) -> TodoItem | None:
+        existing = self._store.get_todo(todo_id)
+        if existing is None:
+            return None
         changed_fields: list[str] = []
         if title is not None:
             changed_fields.append("title")
@@ -205,13 +222,38 @@ class TodoController:
             changed_fields.append("summary_fields")
         if timeline is not None:
             changed_fields.append("timeline")
+        if conclusion is not None:
+            changed_fields.append("conclusion")
+
+        resolved_summary = summary_fields or existing.summary_fields
+        resolved_current_summary = current_summary if current_summary is not None else existing.current_summary
+        resolved_timeline = timeline if timeline is not None else existing.timeline
+        resolved_conclusion = conclusion if conclusion is not None else existing.conclusion
+
+        if self._enrichment_service is not None:
+            enrichment = self._enrichment_service.enrich_for_update(
+                previous_fields=existing.summary_fields,
+                current_fields=resolved_summary,
+                previous_problem_desc=existing.current_summary,
+                current_problem_desc=resolved_current_summary,
+                previous_conclusion=existing.conclusion.content,
+                current_conclusion=resolved_conclusion.content,
+            )
+            resolved_summary = enrichment.summary_fields
+
+        if self._conclusion_changed(existing.conclusion, resolved_conclusion):
+            conclusion_event = self._build_conclusion_timeline_event(resolved_conclusion)
+            resolved_timeline = self._replace_conclusion_timeline_event(resolved_timeline, conclusion_event)
+            if "timeline" not in changed_fields:
+                changed_fields.append("timeline")
 
         updated = self._store.update_todo(
             todo_id,
             title=title,
-            current_summary=current_summary,
-            summary_fields=summary_fields,
-            timeline=timeline,
+            current_summary=resolved_current_summary,
+            summary_fields=resolved_summary,
+            timeline=resolved_timeline,
+            conclusion=resolved_conclusion,
         )
         if updated is not None and changed_fields:
             self._publish_event(
@@ -222,6 +264,44 @@ class TodoController:
                 )
             )
         return updated
+
+    @staticmethod
+    def _conclusion_changed(previous: TodoConclusion, current: TodoConclusion) -> bool:
+        if str(previous.content or "").strip() != str(current.content or "").strip():
+            return True
+        previous_attachments = [
+            (attachment.name, attachment.path, int(attachment.size_bytes))
+            for attachment in previous.attachments
+        ]
+        current_attachments = [
+            (attachment.name, attachment.path, int(attachment.size_bytes))
+            for attachment in current.attachments
+        ]
+        return previous_attachments != current_attachments
+
+    @staticmethod
+    def _build_conclusion_timeline_event(conclusion: TodoConclusion) -> TimelineEvent:
+        attachment_names = [attachment.name for attachment in conclusion.attachments if attachment.name]
+        suffix = f"\n附件: {', '.join(attachment_names[:5])}" if attachment_names else ""
+        content = str(conclusion.content or "").strip() or "结论已清空"
+        return TimelineEvent(
+            kind="conclusion",
+            scenario="结论更新",
+            content=f"{content}{suffix}".strip(),
+            attachments=[],
+        )
+
+    @staticmethod
+    def _replace_conclusion_timeline_event(
+        timeline: list[TimelineEvent],
+        conclusion_event: TimelineEvent,
+    ) -> list[TimelineEvent]:
+        remaining = [
+            event
+            for event in timeline
+            if str(event.kind or "").strip() != "conclusion"
+        ]
+        return remaining + [conclusion_event]
 
     def build_manual_sync_event(self, todo_id: str) -> TodoDomainEvent | None:
         todo = self._store.get_todo(todo_id)

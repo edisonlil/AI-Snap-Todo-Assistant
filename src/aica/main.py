@@ -18,27 +18,31 @@ from aica.analysis_metrics import AnalysisMetricsStore
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
+from aica.context_summary_models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
-from aica.feedback import FeedbackData
 from aica.hotkey import HotkeyManager
 from aica.llm.service import LLMService, ModelResolutionError
+from aica.log_analysis_models import LogAnalysisTask
+from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
+from aica.log_analysis_store import LogAnalysisTaskStore
+from aica.log_analysis_worker import LogAnalysisWorker
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
-from aica.prompts import PromptManager
 from aica.result_flow import ResultFlowCoordinator
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
+from aica.ticket_enrichment import TicketEnrichmentService, build_feature_point_provider
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
 from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo_panel import TodoPanel
-from aica.todo_store import TodoStore
+from aica.todo_store import TodoConclusion, TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
-    FeedbackOptimizeWorker,
     MultiCaptureAIWorker,
     PlanExportWorker,
+    StageSummaryWorker,
     build_plan_export_filename,
 )
 
@@ -122,7 +126,6 @@ def main() -> None:
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
-    prompt_mgr = PromptManager()
     try:
         hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
     except ValueError:
@@ -132,6 +135,7 @@ def main() -> None:
     control_panel = ControlPanelWindow(config_mgr)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
+    log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
     todo_event_bus = TodoEventBus(
         handlers=[ScriptEventHandler(binding_store=binding_store)],
@@ -144,8 +148,9 @@ def main() -> None:
 
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
-    feedback_workers: list[FeedbackOptimizeWorker] = []
     plan_export_workers: list[PlanExportWorker] = []
+    log_analysis_workers: list[LogAnalysisWorker] = []
+    stage_summary_workers: list[StageSummaryWorker] = []
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -204,10 +209,12 @@ def main() -> None:
         todo = todo_controller.get_todo_detail(todo_id)
         if todo is None:
             return
+        timeline_ids = [event.id for event in todo.timeline]
         todo_detail_panel.show_todo(
             todo,
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
+            task_status_map=log_analysis_store.list_task_status_by_timeline_ids(todo_id, timeline_ids),
         )
 
     def _build_selected_todo_context() -> str:
@@ -261,6 +268,18 @@ def main() -> None:
             + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
         )
 
+    def _build_selected_todo_context() -> object:
+        todo = todo_controller.get_selected_todo()
+        if todo is None:
+            return ""
+        return build_context_summary_request_for_todo(
+            todo,
+            summary_goal="append_screenshot_context",
+            description=str(todo.current_summary or "").strip() or str(todo.title or "").strip(),
+            max_items=10,
+            max_chars=2000,
+        )
+
     def _save_analysis_to_todo(snapshot) -> tuple[str, str]:
         save_result = todo_controller.save_analysis_result(
             snapshot,
@@ -297,11 +316,6 @@ def main() -> None:
     def _queue_current_capture() -> bool:
         return capture_ui.queue_current_capture()
 
-    def _cleanup_feedback_worker(worker: FeedbackOptimizeWorker) -> None:
-        if worker in feedback_workers:
-            feedback_workers.remove(worker)
-        worker.deleteLater()
-
     def _cleanup_plan_export_worker(worker: PlanExportWorker) -> None:
         if worker in plan_export_workers:
             plan_export_workers.remove(worker)
@@ -311,57 +325,24 @@ def main() -> None:
         llm_service = LLMService(config)
         analysis_ref = llm_service.resolve_task_model("analysis").reference
         plan_export_ref = llm_service.resolve_task_model("plan_export").reference
-        prompt_ref = llm_service.resolve_task_model("prompt_optimization").reference
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
             analysis_timeout_seconds=analysis_ref.timeout_seconds,
             plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
-            prompt_optimization_timeout_seconds=prompt_ref.timeout_seconds,
         )
 
-    def _on_feedback_optimization_finished(summary: dict) -> None:
-        nonlocal prompt_mgr
-
-        sender = app.sender()
-        if isinstance(sender, FeedbackOptimizeWorker):
-            _cleanup_feedback_worker(sender)
-
-        updated_parts = []
-        if summary.get("immediate_prompt_updated"):
-            updated_parts.append("Immediate prompt tuning applied from this feedback.")
-        if summary.get("threshold_prompt_updated"):
-            updated_parts.append("Threshold-based prompt optimization applied.")
-
-        if updated_parts:
-            prompt_mgr = PromptManager()
-            QMessageBox.information(
-                None,
-                "Prompt Updated",
-                f"Scenario: {summary.get('scenario', '')}\n\n" + "\n".join(updated_parts),
-            )
-
-    def _on_feedback_optimization_error(message: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, FeedbackOptimizeWorker):
-            _cleanup_feedback_worker(sender)
-        print(f"Feedback background optimization failed: {message}")
-
-    def _start_feedback_optimization(feedback: FeedbackData) -> None:
+    def _build_ticket_enrichment_service(config):
+        runtime_config = None
         try:
-            runtime_config = _build_runtime_config(config_mgr.load())
+            runtime_config = _build_runtime_config(config)
         except ModelResolutionError:
-            return
-
-        worker = FeedbackOptimizeWorker(
-            runtime_config.llm_service,
-            runtime_config.prompt_optimization_timeout_seconds,
-            feedback,
+            runtime_config = None
+        llm_service = runtime_config.llm_service if runtime_config is not None else None
+        return TicketEnrichmentService(
+            feature_point_provider=build_feature_point_provider(config.ticket_enrichment.feature_point),
+            llm_service=llm_service,
         )
-        feedback_workers.append(worker)
-        worker.finished.connect(_on_feedback_optimization_finished)
-        worker.error.connect(_on_feedback_optimization_error)
-        worker.start()
 
     def _on_plan_export_finished(export_path: str) -> None:
         sender = app.sender()
@@ -411,7 +392,6 @@ def main() -> None:
         get_model=lambda: _build_runtime_config(config_mgr.load()).llm_service.describe_task_model("analysis"),
         save_result_to_todo=_save_analysis_to_todo,
         clear_capture_state=_clear_capture_state,
-        start_feedback_optimization=_start_feedback_optimization,
     )
 
     def _on_hotkey() -> None:
@@ -444,17 +424,24 @@ def main() -> None:
             _show_missing_settings_message()
         return None
 
-    def _handle_analysis_finished(result, feedback_image_base64: str, analysis_stats=None) -> None:
+    def _handle_analysis_finished(
+        result,
+        feedback_image_base64: str,
+        analysis_stats=None,
+        prompt_trace_id: str = "",
+        prompt_version: str = "built-in",
+    ) -> None:
         result_flow.handle_ai_finished(
             result,
             feedback_image_base64=feedback_image_base64,
             analysis_stats=analysis_stats,
+            prompt_trace_id=prompt_trace_id,
+            prompt_version=prompt_version,
         )
 
     analysis_flow = AnalysisFlowCoordinator(
         capture_session=capture_session,
         toolbar=toolbar,
-        prompt_manager=prompt_mgr,
         get_scenario=toolbar.get_current_scenario,
         get_analysis_intent=toolbar.build_analysis_intent,
         get_analysis_context=_build_selected_todo_context,
@@ -535,7 +522,14 @@ def main() -> None:
     def _on_todo_detail_saved(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):
             return
+        todo_controller.set_enrichment_service(_build_ticket_enrichment_service(config_mgr.load()))
         summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
+        conclusion_payload = payload.get("conclusion")
+        conclusion = (
+            conclusion_payload
+            if isinstance(conclusion_payload, TodoConclusion)
+            else TodoConclusion(**dict(conclusion_payload or {}))
+        )
         timeline_payload = payload.get("timeline", [])
         updated = todo_controller.update_todo(
             todo_id,
@@ -543,6 +537,7 @@ def main() -> None:
             current_summary=str(payload.get("current_summary", "")),
             summary_fields=summary_fields,
             timeline=timeline_payload,
+            conclusion=conclusion,
         )
         if updated is None:
             return
@@ -550,8 +545,72 @@ def main() -> None:
             updated,
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
+            task_status_map=log_analysis_store.list_task_status_by_timeline_ids(
+                todo_id,
+                [event.id for event in updated.timeline],
+            ),
         )
         _refresh_todo_panel()
+
+    log_analysis_orchestrator = LogAnalysisOrchestrator(
+        todo_store=todo_store,
+        task_store=log_analysis_store,
+        app_config=initial_config,
+    )
+
+    def _cleanup_log_analysis_worker(worker: LogAnalysisWorker) -> None:
+        if worker in log_analysis_workers:
+            log_analysis_workers.remove(worker)
+        worker.deleteLater()
+
+    def _cleanup_stage_summary_worker(worker: StageSummaryWorker) -> None:
+        if worker in stage_summary_workers:
+            stage_summary_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_log_analysis_finished(task_id: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is not None and todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+        _refresh_todo_panel()
+
+    def _on_log_analysis_error(task_id: str, _message: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is not None and todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+        _refresh_todo_panel()
+
+    def _on_log_analysis_progress(task_id: str) -> None:
+        task = log_analysis_store.get_task(task_id)
+        if task is None:
+            return
+        if todo_controller.detail_todo_id == task.todo_id:
+            _show_todo_detail(task.todo_id)
+
+    def _on_log_analysis_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        task = log_analysis_store.create_task(
+            LogAnalysisTask(
+                todo_id=todo_id,
+                timeline_entry_id=str(payload.get("timelineEntryId", "")),
+                status="queued",
+                current_step="正在收集附件...",
+                raw_command=str(payload.get("rawCommand", "")),
+                parsed_focus_json=dict(payload.get("parsedFocus", {}) or {}),
+                attachment_snapshot_json=list(payload.get("attachments", []) or []),
+            )
+        )
+        worker = LogAnalysisWorker(orchestrator=log_analysis_orchestrator, task_id=task.id)
+        log_analysis_workers.append(worker)
+        worker.progress.connect(_on_log_analysis_progress)
+        worker.finished.connect(_on_log_analysis_finished)
+        worker.finished.connect(lambda _task_id, current=worker: _cleanup_log_analysis_worker(current))
+        worker.error.connect(_on_log_analysis_error)
+        worker.error.connect(lambda _task_id, _message, current=worker: _cleanup_log_analysis_worker(current))
+        worker.start()
+        if todo_controller.detail_todo_id == todo_id:
+            _show_todo_detail(todo_id)
 
     def _on_todo_detail_closed() -> None:
         todo_controller.close_detail()
@@ -575,11 +634,50 @@ def main() -> None:
         _show_todo_detail(todo_id)
         _refresh_todo_panel()
 
+    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str) -> None:
+        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text)
+
+    def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
+        todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
+
+    def _start_stage_summary_worker(todo_id: str, request_id: str, mode: str, payload: dict[str, object]) -> None:
+        config = config_mgr.load()
+        worker = StageSummaryWorker(
+            llm_service=LLMService(config),
+            todo_id=todo_id,
+            request_id=request_id,
+            mode=mode,
+            payload=payload,
+        )
+        stage_summary_workers.append(worker)
+        worker.finished.connect(_on_stage_summary_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _text, current=worker: _cleanup_stage_summary_worker(current))
+        worker.error.connect(_on_stage_summary_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
+        worker.start()
+
+    def _on_stage_summary_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        _start_stage_summary_worker(todo_id, request_id, "rollup", payload)
+
+    def _on_stage_summary_rewrite_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        _start_stage_summary_worker(todo_id, request_id, "rewrite", payload)
+
     def _on_control_panel_saved(saved_config) -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
         except ValueError:
             hotkey_mgr.update_hotkey(DEFAULT_CAPTURE_HOTKEY)
+        log_analysis_orchestrator.update_app_config(saved_config)
 
     control_panel.config_saved.connect(_on_control_panel_saved)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
@@ -596,11 +694,14 @@ def main() -> None:
     todo_panel.selection_cleared.connect(_on_todo_selection_cleared)
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
+    todo_detail_panel.log_analysis_requested.connect(_on_log_analysis_requested)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
     todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
+    todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
+    todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
 
     try:
         _refresh_todo_panel()

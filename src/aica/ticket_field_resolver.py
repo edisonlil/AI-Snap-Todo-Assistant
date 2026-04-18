@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .text_sanitize import sanitize_text
+
 
 DEFAULT_PRODUCT_LINE = "文档中台"
 TICKET_TYPE_OPTIONS = ("排查类", "咨询类", "操作类")
@@ -122,9 +124,16 @@ def resolve_product_line(
     raw_value: Any = None,
     source_payload: Mapping[str, Any] | None = None,
 ) -> str:
-    """Reserve a single extension point for future upstream field APIs."""
-    _ = (raw_value, source_payload)
-    return DEFAULT_PRODUCT_LINE
+    """Return the best available product line value without forcing a fixed fallback."""
+    candidate = sanitize_text(raw_value)
+    if candidate:
+        return candidate
+    payload = source_payload if isinstance(source_payload, Mapping) else {}
+    for key in ("product_line", "productLine"):
+        payload_value = sanitize_text(payload.get(key, ""))
+        if payload_value:
+            return payload_value
+    return ""
 
 
 def normalize_ticket_type(raw_value: Any, *, summary_text: str = "") -> str:

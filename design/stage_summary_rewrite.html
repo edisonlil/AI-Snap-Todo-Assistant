@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>阶段总结 + 轻改写原型 v3</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+      background: #f6f6f5;
+      color: #1f2937;
+    }
+    .wrap {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 28px;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        linear-gradient(rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/24px 24px,
+        #f5f5f4;
+    }
+    .panel {
+      width: 610px;
+      background: #fbfbfa;
+      border-radius: 28px;
+      box-shadow: 0 18px 50px rgba(15,23,42,.08);
+      padding: 22px 18px 26px;
+      position: relative;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .task-title {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 14px 0 18px;
+      color: #111827;
+    }
+    .summary-box {
+      background: #fff;
+      border: 1px solid #eef2f7;
+      border-radius: 24px;
+      min-height: 168px;
+      padding: 22px;
+      font-size: 18px;
+      line-height: 1.65;
+      color: #374151;
+      margin-bottom: 18px;
+    }
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 6px 0 16px;
+    }
+    .timeline-head .h {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .timeline-head .count {
+      font-size: 16px;
+      color: #c0c4cc;
+    }
+    .timeline-head .view-btn {
+      margin-left: auto;
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #374151;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .timeline-head .view-btn:hover {
+      background: #f8fafc;
+    }
+
+    .summary-panel {
+      display: none;
+      margin-bottom: 18px;
+      background: #fff;
+      border: 1px solid #eceff3;
+      border-radius: 24px;
+      box-shadow: 0 8px 24px rgba(15,23,42,.06);
+      overflow: hidden;
+    }
+    .summary-panel.show { display: block; }
+
+    .panel-header {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid #f1f4f7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .panel-title-wrap { min-width: 0; }
+    .panel-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 6px;
+    }
+    .panel-sub {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .close-btn {
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 8px;
+    }
+    .close-btn:hover {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    .content {
+      padding: 14px 18px 16px;
+    }
+    .text-box {
+      min-height: 220px;
+      border: 1px solid #edf1f6;
+      background: #fcfcfb;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 14px;
+      line-height: 1.8;
+      color: #374151;
+      white-space: pre-wrap;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      margin-bottom: 12px;
+    }
+    .btn {
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #374151;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn.primary {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+
+    .rewrite-box {
+      border-top: 1px solid #f1f4f7;
+      margin-top: 10px;
+      padding-top: 14px;
+    }
+    .rewrite-label {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chip {
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #475569;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .chip:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .rewrite-wrap {
+      position: relative;
+    }
+    .rewrite-input {
+      width: 100%;
+      min-height: 92px;
+      resize: none;
+      border: 1px solid #dfe5ec;
+      background: #fff;
+      border-radius: 18px;
+      padding: 12px 14px 44px 14px;
+      font: inherit;
+      outline: none;
+      color: #374151;
+      line-height: 1.7;
+    }
+    .rewrite-input:focus {
+      border-color: #9fb8ff;
+      box-shadow: 0 0 0 3px rgba(59,130,246,.10);
+    }
+    .rewrite-submit {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      border: 1px solid #d9e0ea;
+      background: #fff;
+      color: #374151;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .rewrite-submit:hover {
+      background: #f8fafc;
+    }
+    .hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+
+    .timeline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .timeline-card {
+      border: 2px solid #cfe0ff;
+      background: #fbfdff;
+      border-radius: 26px;
+      padding: 14px 18px 18px;
+    }
+    .timeline-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #b8c0cc;
+      font-size: 14px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .timeline-meta .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #d8dee9;
+    }
+    .timeline-text {
+      font-size: 16px;
+      color: #374151;
+      line-height: 1.7;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      background: rgba(17,24,39,.94);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      display: none;
+      z-index: 30;
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <div class="title-row">
+        <div class="title">待办详情</div>
+      </div>
+
+      <div class="task-title">PDF 转换后出现额外大字内容</div>
+
+      <div class="summary-box">
+        当前已确认客户提供了原始文件和转换结果，研发需要复现 PDF 转换链路，定位额外大字内容来源。
+      </div>
+
+      <div class="timeline-head">
+        <div class="h">时间线历史</div>
+        <div class="count">4 条</div>
+        <button class="view-btn" id="toggleSummary">查看阶段总结</button>
+      </div>
+
+      <div class="summary-panel" id="summaryPanel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-title">阶段总结</div>
+            <div class="panel-sub">系统已先整理出一版结果，你可以直接复制，也可以做轻量调整，不做开放聊天。</div>
+          </div>
+          <button class="close-btn" id="closeSummary">×</button>
+        </div>
+
+        <div class="content">
+          <div class="text-box" id="summaryText"></div>
+
+          <div class="actions">
+            <button class="btn primary" id="copyBtn">复制内容</button>
+            <button class="btn" id="regenBtn">重新整理</button>
+          </div>
+
+          <div class="rewrite-box">
+            <div class="rewrite-label">快速调整</div>
+
+            <div class="chips">
+              <button class="chip" data-type="short">更简短</button>
+              <button class="chip" data-type="customer">偏客户</button>
+              <button class="chip" data-type="rd">偏研发</button>
+              <button class="chip" data-type="material">强调已收集材料</button>
+            </div>
+
+            <div class="rewrite-label">自定义调整</div>
+            <div class="rewrite-wrap">
+              <textarea class="rewrite-input" id="rewriteInput" placeholder="例如：语气更稳一点；强调我已经收集了样张和日志；更适合发客户"></textarea>
+              <button class="rewrite-submit" id="rewriteBtn">调整</button>
+            </div>
+            <div class="hint">先给一版，再做轻量改写。这里不是聊天窗口，只围绕当前总结做收敛式调整。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="timeline-list">
+        <div class="timeline-card">
+          <div class="timeline-meta">
+            <span class="dot"></span><span>04-15 09:30</span>
+          </div>
+          <div class="timeline-text">客户补充提供了原始文件、转换结果和一张问题样张截图，反馈转换后首页出现异常大字内容。</div>
+        </div>
+        <div class="timeline-card">
+          <div class="timeline-meta">
+            <span class="dot"></span><span>04-15 10:10</span>
+          </div>
+          <div class="timeline-text">已确认客户使用的是文档中台 PDF 转换能力，问题稳定复现，准备转研发协助排查。</div>
+        </div>
+        <div class="timeline-card">
+          <div class="timeline-meta">
+            <span class="dot"></span><span>04-15 10:35</span>
+          </div>
+          <div class="timeline-text">已整理客户提供的样张和结果文件，待补充环境信息后同步给研发。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const summaryPanel = document.getElementById('summaryPanel');
+    const toggleSummary = document.getElementById('toggleSummary');
+    const closeSummary = document.getElementById('closeSummary');
+    const summaryText = document.getElementById('summaryText');
+    const copyBtn = document.getElementById('copyBtn');
+    const regenBtn = document.getElementById('regenBtn');
+    const rewriteBtn = document.getElementById('rewriteBtn');
+    const rewriteInput = document.getElementById('rewriteInput');
+    const toast = document.getElementById('toast');
+
+    const originalText = "目前已收到客户提供的原始文件、转换结果和问题样张，现已确认该问题可稳定复现。\n\n我们这边已完成初步整理，并准备同步研发进一步排查 PDF 转换链路中额外大字内容的来源。后续有进展会第一时间同步。";
+    let currentText = originalText;
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
+    }
+
+    function renderText() {
+      summaryText.textContent = currentText;
+    }
+
+    function openPanel() {
+      summaryPanel.classList.add('show');
+      toggleSummary.textContent = '收起阶段总结';
+      renderText();
+    }
+
+    function closePanel() {
+      summaryPanel.classList.remove('show');
+      toggleSummary.textContent = '查看阶段总结';
+    }
+
+    toggleSummary.onclick = () => {
+      if (summaryPanel.classList.contains('show')) {
+        closePanel();
+      } else {
+        openPanel();
+      }
+    };
+    closeSummary.onclick = closePanel;
+
+    copyBtn.onclick = () => showToast('已复制阶段总结');
+    regenBtn.onclick = () => {
+      currentText = originalText;
+      renderText();
+      showToast('已重新整理');
+    };
+
+    function applyPreset(type) {
+      if (type === 'short') {
+        currentText = "已收到客户提供的原始文件、转换结果和问题样张，问题可稳定复现。下一步同步研发排查 PDF 转换链路中的异常大字内容。";
+      } else if (type === 'customer') {
+        currentText = "目前已收到您提供的原始文件、转换结果和问题样张，现已确认该问题可稳定复现。我们这边已完成初步整理，并准备同步研发进一步排查。后续有进展会第一时间同步您。";
+      } else if (type === 'rd') {
+        currentText = "问题现象：PDF 转换后首页出现异常大字内容。\n\n已完成：\n1. 已收集原始文件、转换结果、问题样张\n2. 已确认问题可稳定复现\n3. 已完成初步整理\n\n请协助排查 PDF 转换链路中的内容来源异常。";
+      } else if (type === 'material') {
+        currentText = "目前已收到客户提供的原始文件、转换结果、问题样张，并已完成初步整理。如有需要，也可继续补充相关日志后同步研发进一步排查 PDF 转换链路中的异常大字内容。";
+      }
+      renderText();
+      showToast('已调整内容');
+    }
+
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.onclick = () => applyPreset(chip.dataset.type);
+    });
+
+    function applyRewrite() {
+      const cmd = rewriteInput.value.trim();
+      if (!cmd) {
+        showToast('请先输入修改要求');
+        return;
+      }
+
+      if (cmd.includes('简短')) {
+        currentText = "已收到客户提供的原始文件、转换结果和问题样张，问题可稳定复现。下一步同步研发排查 PDF 转换链路中的异常大字内容。";
+      } else if (cmd.includes('客户')) {
+        currentText = "目前已收到您提供的原始文件、转换结果和问题样张，现已确认该问题可稳定复现。我们这边已完成初步整理，并准备同步研发进一步排查。后续有进展会第一时间同步您。";
+      } else if (cmd.includes('研发')) {
+        currentText = "问题现象：PDF 转换后首页出现异常大字内容。\n\n已完成：\n1. 已收集原始文件、转换结果、问题样张\n2. 已确认问题可稳定复现\n3. 已完成初步整理\n\n请协助排查 PDF 转换链路中的内容来源异常。";
+      } else if (cmd.includes('样张') || cmd.includes('日志') || cmd.includes('材料')) {
+        currentText = "目前已收到客户提供的原始文件、转换结果、问题样张，并已完成初步整理。如有需要，也可继续补充相关日志后同步研发进一步排查 PDF 转换链路中的异常大字内容。";
+      } else {
+        currentText = currentText + "\n\n【按要求调整】" + cmd;
+      }
+
+      renderText();
+      showToast('已按要求调整内容');
+    }
+
+    rewriteBtn.onclick = applyRewrite;
+    rewriteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        applyRewrite();
+      }
+    });
+  </script>
+</body>
+</html>

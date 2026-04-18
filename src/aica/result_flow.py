@@ -25,13 +25,11 @@ class ResultFlowCoordinator:
         get_model: Callable[[], str],
         save_result_to_todo: Callable[[TicketSnapshot], tuple[str, str]],
         clear_capture_state: Callable[[], None],
-        start_feedback_optimization: Callable[[FeedbackData], None],
     ):
         self._get_scenario = get_scenario
         self._get_model = get_model
         self._save_result_to_todo = save_result_to_todo
         self._clear_capture_state = clear_capture_state
-        self._start_feedback_optimization = start_feedback_optimization
 
     @staticmethod
     def build_saved_todo_message(saved: SavedTodoResult) -> str:
@@ -46,12 +44,16 @@ class ResultFlowCoordinator:
         edited_result: TicketSnapshot,
         feedback_data: FeedbackData,
         feedback_image_base64: str,
+        prompt_trace_id: str = "",
+        prompt_version: str = "built-in",
     ) -> FeedbackData:
         feedback_data.original_result = str(result)
         feedback_data.edited_result = str(edited_result)
         feedback_data.user_edited = result.to_dict() != edited_result.to_dict()
         feedback_data.image_base64 = feedback_image_base64
         feedback_data.correction = edited_result.to_dict()
+        feedback_data.prompt_trace_id = str(prompt_trace_id or "").strip()
+        feedback_data.prompt_version = str(prompt_version or "built-in")
         return feedback_data
 
     def handle_ai_finished(
@@ -60,9 +62,10 @@ class ResultFlowCoordinator:
         *,
         feedback_image_base64: str = "",
         analysis_stats: AnalysisRunStats | None = None,
+        prompt_trace_id: str = "",
+        prompt_version: str = "built-in",
     ) -> None:
         import pyperclip
-        from PyQt6.QtWidgets import QMessageBox
 
         from aica.feedback_panel import FeedbackPanel
         from aica.result_dialog import ResultDialog
@@ -86,18 +89,11 @@ class ResultFlowCoordinator:
                 edited_result=snapshot,
                 feedback_data=feedback_data,
                 feedback_image_base64=feedback_image_base64,
+                prompt_trace_id=prompt_trace_id,
+                prompt_version=prompt_version,
             )
 
-            def on_save_feedback(saved_feedback: FeedbackData, optimize_now: bool) -> None:
-                if optimize_now:
-                    QMessageBox.information(
-                        None,
-                        "Feedback Saved",
-                        "Feedback saved. Prompt optimization is running in the background.",
-                    )
-                    self._start_feedback_optimization(saved_feedback)
-                else:
-                    QMessageBox.information(None, "Feedback Saved", "Feedback saved.")
+            def on_save_feedback(saved_feedback: FeedbackData) -> None:
                 self._clear_capture_state()
 
             feedback_panel = FeedbackPanel(
