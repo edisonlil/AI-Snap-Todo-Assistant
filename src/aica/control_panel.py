@@ -238,6 +238,7 @@ from aica.analysis_rules import (
     build_scene_options_payload,
 )
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
+from aica.hotkey import normalize_hotkey
 from aica.control_panel_state import (
     build_script_integration,
     describe_script_integration_support,
@@ -279,6 +280,89 @@ from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
 from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
+
+_QT_KEY_ESCAPE = 0x01000000
+_QT_KEY_TAB = 0x01000001
+_QT_KEY_RETURN = 0x01000004
+_QT_KEY_ENTER = 0x01000005
+_QT_KEY_SPACE = 0x20
+_QT_KEY_SHIFT = 0x01000020
+_QT_KEY_CONTROL = 0x01000021
+_QT_KEY_META = 0x01000022
+_QT_KEY_ALT = 0x01000023
+_QT_KEY_F1 = 0x01000030
+_QT_KEY_F24 = _QT_KEY_F1 + 23
+
+_QT_SHIFT_MODIFIER = 0x02000000
+_QT_CONTROL_MODIFIER = 0x04000000
+_QT_ALT_MODIFIER = 0x08000000
+_QT_META_MODIFIER = 0x10000000
+
+
+def _hotkey_primary_from_qt_key(key: int, text: str) -> str | None:
+    if key == _QT_KEY_SPACE:
+        return "Space"
+    if key == _QT_KEY_TAB:
+        return "Tab"
+    if key in (_QT_KEY_RETURN, _QT_KEY_ENTER):
+        return "Enter"
+    if key == _QT_KEY_ESCAPE:
+        return "Esc"
+    if _QT_KEY_F1 <= key <= _QT_KEY_F24:
+        return f"F{key - _QT_KEY_F1 + 1}"
+    if ord("0") <= key <= ord("9"):
+        return chr(key)
+    if ord("A") <= key <= ord("Z"):
+        return chr(key)
+    if ord("a") <= key <= ord("z"):
+        return chr(key).upper()
+    token = str(text or "").strip()
+    if len(token) == 1 and token.isalnum():
+        return token.upper()
+    return None
+
+
+def hotkey_from_qt_key_event(
+    key: int,
+    modifiers: int,
+    text: str = "",
+    *,
+    platform_id: str | None = None,
+) -> str | None:
+    if key in {_QT_KEY_SHIFT, _QT_KEY_CONTROL, _QT_KEY_ALT, _QT_KEY_META}:
+        return None
+
+    primary_key = _hotkey_primary_from_qt_key(int(key or 0), text)
+    if not primary_key:
+        return None
+
+    normalized_platform = RUNTIME_CAPABILITIES.platform_id if platform_id is None else platform_id
+    modifier_parts: list[str] = []
+    if normalized_platform == "macos":
+        # Qt on macOS maps the physical Command key to ControlModifier,
+        # and the physical Control key to MetaModifier.
+        if modifiers & _QT_CONTROL_MODIFIER:
+            modifier_parts.append("Command")
+        if modifiers & _QT_ALT_MODIFIER:
+            modifier_parts.append("Option")
+        if modifiers & _QT_META_MODIFIER:
+            modifier_parts.append("Control")
+        if modifiers & _QT_SHIFT_MODIFIER:
+            modifier_parts.append("Shift")
+    else:
+        if modifiers & _QT_CONTROL_MODIFIER:
+            modifier_parts.append("Ctrl")
+        if modifiers & _QT_ALT_MODIFIER:
+            modifier_parts.append("Alt")
+        if modifiers & _QT_SHIFT_MODIFIER:
+            modifier_parts.append("Shift")
+        if modifiers & _QT_META_MODIFIER:
+            modifier_parts.append("Win")
+
+    if not modifier_parts:
+        raise ValueError("截图热键至少需要一个修饰键")
+
+    return normalize_hotkey("+".join([*modifier_parts, primary_key]), normalized_platform)
 
 
 _TASK_LABELS = {
@@ -647,6 +731,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, constant=True)
     def uiFont(self) -> str:
         return RUNTIME_CAPABILITIES.ui_font
+
+    @pyqtProperty(str, constant=True)
+    def logoSource(self) -> str:
+        return (Path(__file__).resolve().parents[2] / "assets" / "aica_icon.png").as_uri()
 
     @pyqtProperty(str, constant=True)
     def integrationScriptFilter(self) -> str:
@@ -1272,6 +1360,22 @@ class _ControlPanelBridge(QObject):
         self._capture_hotkey = str(value or "")
         self._clear_messages()
         self._emit_data_changed()
+
+    @pyqtSlot(int, int, str, result=bool)
+    def captureHotkeyFromKeyEvent(self, key: int, modifiers: int, text: str) -> bool:
+        try:
+            hotkey = hotkey_from_qt_key_event(key, modifiers, text)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return False
+        if not hotkey:
+            return False
+        self._capture_hotkey = hotkey
+        self._clear_messages()
+        self._emit_data_changed()
+        return True
 
     @pyqtSlot(str)
     def updateMaxImageMegabytes(self, value: str) -> None:
@@ -2024,7 +2128,7 @@ class ControlPanelWindow(QWidget):
         self.setObjectName("controlPanelWindow")
         self.setWindowFlags(RUNTIME_CAPABILITIES.control_panel_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setWindowTitle("AICA 控制面板")
+        self.setWindowTitle("Chattodo Hub")
         self.resize(1040, 760)
         self.setMinimumSize(920, 680)
 

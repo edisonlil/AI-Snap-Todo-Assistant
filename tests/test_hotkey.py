@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from aica.control_panel import hotkey_from_qt_key_event  # noqa: E402
 from aica.hotkey import (  # noqa: E402
     HotkeyManager,
     _macos_hotkey_registration,
@@ -160,3 +161,56 @@ def test_hotkey_manager_uses_native_listener_on_macos(monkeypatch: pytest.Monkey
 
     assert created == ["Command+Shift+A"]
     assert isinstance(listener, _MacOSListener)
+
+
+def test_hotkey_from_qt_key_event_builds_windows_shortcut() -> None:
+    result = hotkey_from_qt_key_event(
+        ord("A"),
+        0x04000000 | 0x02000000,
+        "a",
+        platform_id=PLATFORM_WINDOWS,
+    )
+
+    assert result == "Ctrl+Shift+A"
+
+
+def test_hotkey_from_qt_key_event_builds_macos_shortcut() -> None:
+    result = hotkey_from_qt_key_event(
+        ord("A"),
+        0x04000000 | 0x08000000,
+        "a",
+        platform_id=PLATFORM_MACOS,
+    )
+
+    assert result == "Command+Option+A"
+
+
+def test_hotkey_from_qt_key_event_builds_macos_control_shortcut() -> None:
+    result = hotkey_from_qt_key_event(
+        ord("A"),
+        0x10000000 | 0x08000000,
+        "a",
+        platform_id=PLATFORM_MACOS,
+    )
+
+    assert result == "Option+Control+A"
+
+
+def test_hotkey_from_qt_key_event_supports_special_primary_keys() -> None:
+    result = hotkey_from_qt_key_event(
+        0x01000004,
+        0x08000000,
+        "",
+        platform_id=PLATFORM_WINDOWS,
+    )
+
+    assert result == "Alt+Enter"
+
+
+def test_hotkey_from_qt_key_event_ignores_modifier_only_keys() -> None:
+    assert hotkey_from_qt_key_event(
+        0x01000021,
+        0x04000000,
+        "",
+        platform_id=PLATFORM_WINDOWS,
+    ) is None

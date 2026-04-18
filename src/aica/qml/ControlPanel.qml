@@ -737,24 +737,17 @@ Rectangle {
                     anchors.rightMargin: 10
                     spacing: 10
 
-                    Rectangle {
+                    Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
-                        radius: 9
-                        color: root.accentSoft
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "A"
-                            color: root.accent
-                            font.family: root.uiFont
-                            font.pixelSize: 10
-                            font.weight: 700
-                        }
+                        source: controlPanelBridge.logoSource
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
                     }
 
                     Text {
-                        text: "AICA 控制面板"
+                        text: "Chattodo Hub"
                         color: root.bodyInk
                         font.family: root.uiFont
                         font.pixelSize: 13
@@ -805,7 +798,7 @@ Rectangle {
                         Text {
                             visible: false
                             Layout.preferredHeight: 0
-                            text: "AICA 控制面板"
+                            text: "Chattodo Hub"
                             color: root.titleInk
                             font.family: root.uiFont
                             font.pixelSize: 20
@@ -1182,10 +1175,37 @@ Rectangle {
                                         }
 
                                         SettingsInput {
+                                            id: captureHotkeyInput
                                             Layout.fillWidth: true
                                             text: controlPanelBridge.captureHotkey
-                                            placeholderText: controlPanelBridge.hotkeyPlaceholder
-                                            onTextEdited: controlPanelBridge.updateCaptureHotkey(text)
+                                            placeholderText: activeFocus ? "点击后直接按下快捷键组合" : controlPanelBridge.hotkeyPlaceholder
+                                            readOnly: true
+                                            selectByMouse: false
+                                            Keys.onPressed: function(event) {
+                                                if (event.key === Qt.Key_Escape) {
+                                                    captureHotkeyInput.focus = false
+                                                    event.accepted = true
+                                                    return
+                                                }
+                                                if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                                                    controlPanelBridge.updateCaptureHotkey("")
+                                                    event.accepted = true
+                                                    return
+                                                }
+                                                if (controlPanelBridge.captureHotkeyFromKeyEvent(event.key, event.modifiers, event.text)) {
+                                                    captureHotkeyInput.focus = false
+                                                }
+                                                event.accepted = true
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "点击输入框后直接按下快捷键组合；按 Esc 取消本次录入。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
                                         }
                                     }
                                 }
