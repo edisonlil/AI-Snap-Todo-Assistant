@@ -98,6 +98,10 @@ class _TodoPanelBridge(QObject):
             return ""
         return "收起" if self._expanded else "展开"
 
+    @pyqtProperty(str, constant=True)
+    def logoSource(self) -> str:
+        return (Path(__file__).resolve().parents[2] / "assets" / "aica_icon.png").as_uri()
+
     def set_state(self, todos: list[TodoItem], selected_id: str | None) -> None:
         self._todos = [
             {

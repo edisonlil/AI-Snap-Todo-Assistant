@@ -20,7 +20,7 @@ Rectangle {
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: 30
+        radius: todoPanelBridge.minimized ? height / 2 : 20
         color: "#FFFFFF"
         opacity: 1
         border.width: 0
@@ -43,22 +43,28 @@ Rectangle {
                     onReleased: todoPanelBridge.endDrag()
                 }
 
-                Text {
+                Row {
                     anchors.left: parent.left
+                    anchors.leftMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "待办"
-                    font.pixelSize: 14
-                    font.weight: 600
-                    color: "#121212"
-                }
+                    spacing: 8
 
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 40
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: todoPanelBridge.todoCount + " 进行中"
-                    font.pixelSize: 11
-                    color: "#7B7B7B"
+                    Image {
+                        width: 24
+                        height: 24
+                        source: todoPanelBridge.logoSource
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
+                    }
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: 1
+                        text: todoPanelBridge.todoCount + " 进行中"
+                        font.pixelSize: 11
+                        color: "#7B7B7B"
+                    }
                 }
 
                 Text {
@@ -172,21 +178,21 @@ Rectangle {
 
                                 Rectangle {
                                     id: radioButton
-                                    x: 4
+                                    x: 10
                                     width: 18
                                     height: 18
                                     radius: 9
                                     anchors.verticalCenter: parent.verticalCenter
                                     color: "#FFFFFF"
                                     border.width: 1.5
-                                    border.color: modelData.selected ? "#5E8CFF" : "#C8C8C8"
+                                    border.color: modelData.selected ? "#2A313F" : "#C8C8C8"
 
                                     Rectangle {
                                         anchors.centerIn: parent
                                         width: modelData.selected ? 8 : 0
                                         height: modelData.selected ? 8 : 0
                                         radius: 4
-                                        color: "#5E8CFF"
+                                        color: "#2A313F"
                                         visible: modelData.selected
                                     }
 
@@ -201,7 +207,7 @@ Rectangle {
 
                                 Text {
                                     id: titleText
-                                    x: 32
+                                    x: 38
                                     width: parent.width - x - 8
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: modelData.title
