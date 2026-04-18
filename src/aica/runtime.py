@@ -238,8 +238,10 @@ class RuntimeCapabilities:
     def integration_script_filter(self) -> str:
         return script_file_dialog_filter(self.platform_id)
 
-    def floating_tool_window_flags(self, window_type):
-        names = ("FramelessWindowHint", "WindowStaysOnTopHint")
+    def floating_tool_window_flags(self, window_type, *, stays_on_top: bool = True):
+        names = ("FramelessWindowHint",)
+        if stays_on_top:
+            names += ("WindowStaysOnTopHint",)
         if self.is_windows:
             names += ("Tool",)
         else:

@@ -88,8 +88,8 @@ Rectangle {
 
                 Rectangle {
                     id: minimizeButton
-                    anchors.right: clearButton.visible ? clearButton.left : parent.right
-                    anchors.rightMargin: clearButton.visible ? 8 : 0
+                    anchors.right: clearButton.visible ? clearButton.left : pinButton.left
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     radius: 999
                     color: "#FFFDFC"
@@ -116,7 +116,8 @@ Rectangle {
 
                 Rectangle {
                     id: clearButton
-                    anchors.right: parent.right
+                    anchors.right: pinButton.left
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     visible: todoPanelBridge.hasSelected
                     radius: 999
@@ -139,6 +140,64 @@ Rectangle {
                         onClicked: function(mouse) {
                             mouse.accepted = true
                             todoPanelBridge.clearSelection()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: pinButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 999
+                    width: 24
+                    height: 24
+                    color: todoPanelBridge.pinned ? "#EEF4FF" : "#FFFDFC"
+                    border.width: 1
+                    border.color: todoPanelBridge.pinned ? "#2A313F" : "#ECE7DE"
+
+                    Item {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        rotation: todoPanelBridge.pinned ? 0 : 32
+
+                        readonly property color pinColor: todoPanelBridge.pinned ? "#2A313F" : "#6E6E6E"
+
+                        Rectangle {
+                            x: 1
+                            y: 1
+                            width: 10
+                            height: 3
+                            radius: 1.5
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 5
+                            y: 3
+                            width: 2
+                            height: 5
+                            radius: 1
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 4
+                            y: 7
+                            width: 4
+                            height: 2
+                            radius: 1
+                            color: parent.pinColor
+                            rotation: 45
+                            transformOrigin: Item.Left
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: function(mouse) {
+                            mouse.accepted = true
+                            todoPanelBridge.togglePinned()
                         }
                     }
                 }

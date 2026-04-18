@@ -41,6 +41,7 @@ class _TodoPanelBridge(QObject):
     expandedChanged = pyqtSignal()
     canExpandChanged = pyqtSignal()
     minimizedChanged = pyqtSignal()
+    pinnedChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
@@ -57,6 +58,7 @@ class _TodoPanelBridge(QObject):
         self._expanded = False
         self._visible_limit = visible_limit
         self._minimized = False
+        self._pinned = False
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -91,6 +93,10 @@ class _TodoPanelBridge(QObject):
     @pyqtProperty(bool, notify=minimizedChanged)
     def minimized(self) -> bool:
         return self._minimized
+
+    @pyqtProperty(bool, notify=pinnedChanged)
+    def pinned(self) -> bool:
+        return self._pinned
 
     @pyqtProperty(str, notify=expandedChanged)
     def expandLabel(self) -> str:
@@ -140,6 +146,11 @@ class _TodoPanelBridge(QObject):
         self.minimizedChanged.emit()
 
     @pyqtSlot()
+    def togglePinned(self) -> None:
+        self._pinned = not self._pinned
+        self.pinnedChanged.emit()
+
+    @pyqtSlot()
     def startDrag(self) -> None:
         self.dragStarted.emit()
 
@@ -173,6 +184,7 @@ class TodoPanel(QQuickView):
     todo_completed = pyqtSignal(str)
     selection_cleared = pyqtSignal()
     detail_requested = pyqtSignal(str)
+    pinned_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -188,7 +200,7 @@ class TodoPanel(QQuickView):
         self._snap_margin = 18
         self._snap_threshold = 28
 
-        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
@@ -203,6 +215,7 @@ class TodoPanel(QQuickView):
         self._bridge.dragStarted.connect(self._start_drag)
         self._bridge.dragMoved.connect(self._move_drag)
         self._bridge.dragEnded.connect(self._end_drag)
+        self._bridge.pinnedChanged.connect(self._handle_pinned_changed)
 
         self.resize(self._panel_width, 194)
         self.hide()
@@ -214,7 +227,8 @@ class TodoPanel(QQuickView):
         if todos:
             self._reposition()
             self.show()
-            self.raise_()
+            if self._bridge.pinned:
+                self.raise_()
         else:
             self.hide()
 
@@ -233,6 +247,27 @@ class TodoPanel(QQuickView):
         self.resize(self._panel_width, height)
         if self.isVisible():
             self._reposition()
+
+    @property
+    def pinned(self) -> bool:
+        return self._bridge.pinned
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._bridge.pinned,
+            )
+        )
+        if was_visible:
+            self.show()
+
+    def _handle_pinned_changed(self) -> None:
+        self._apply_window_flags()
+        if self.isVisible() and self._bridge.pinned:
+            self.raise_()
+        self.pinned_changed.emit(self._bridge.pinned)
 
     def _reposition(self) -> None:
         screen = _screen_for_point(self.position())

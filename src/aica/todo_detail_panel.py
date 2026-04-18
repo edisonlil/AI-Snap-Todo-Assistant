@@ -15,7 +15,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QObject, QPoint, Qt, QMimeData, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QMimeData, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QCursor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
@@ -69,6 +69,15 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             FramelessWindowHint = 0
             WindowStaysOnTopHint = 0
             Tool = 0
+
+    class QEvent:  # type: ignore[no-redef]
+        class Type:
+            WindowDeactivate = 0
+
+    class QTimer:  # type: ignore[no-redef]
+        @staticmethod
+        def singleShot(_msec, callback):
+            callback()
 
     class QUrl:  # type: ignore[no-redef]
         def __init__(self, path=""):
@@ -139,6 +148,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return _Clipboard()
 
         @staticmethod
+        def focusWindow():
+            return None
+
+        @staticmethod
         def screenAt(_point):
             return None
 
@@ -198,6 +211,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def setPosition(self, *_args, **_kwargs):
             return None
+
+        def isVisible(self):
+            return False
+
+        def event(self, *_args, **_kwargs):
+            return False
 
     class QApplication:  # type: ignore[no-redef]
         @staticmethod
@@ -2451,6 +2470,7 @@ class _StageSummaryWindow(QQuickView):
         screen_margin: int,
     ) -> None:
         super().__init__()
+        self._owner_panel: TodoDetailPanel | None = None
         self._bridge = bridge
         self._panel_width = panel_width
         self._panel_height = panel_height
@@ -2462,8 +2482,9 @@ class _StageSummaryWindow(QQuickView):
         self._anchor_width = 0
         self._anchor_gap = 0
         self._top_offset = 0
+        self._pinned = False
 
-        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
@@ -2476,6 +2497,24 @@ class _StageSummaryWindow(QQuickView):
         self._ensure_qml_loaded()
         self.resize(self._panel_width, self._preferred_panel_height())
         self.hide()
+
+    def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
+        self._owner_panel = owner_panel
+
+    def set_pinned(self, pinned: bool) -> None:
+        self._pinned = bool(pinned)
+        self._apply_window_flags()
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._pinned,
+            )
+        )
+        if was_visible:
+            self.show()
 
     def _ensure_qml_loaded(self) -> None:
         if self.status() != QQuickView.Status.Error:
@@ -2609,6 +2648,14 @@ class _StageSummaryWindow(QQuickView):
         )
         self.setPosition(target_x, target_y)
 
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            owner_panel = self._owner_panel
+            if owner_panel is not None:
+                QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
+        return super().event(event)
+
 
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
@@ -2636,8 +2683,10 @@ class TodoDetailPanel(QQuickView):
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._stage_summary_window_visible = False
+        self._pinned = False
+        self._auto_collapse_hold_count = 0
 
-        self.setFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
@@ -2653,6 +2702,8 @@ class TodoDetailPanel(QQuickView):
             panel_height=self._stage_summary_window_height,
             screen_margin=self._screen_margin,
         )
+        self._stage_summary_window.set_owner_panel(self)
+        self._stage_summary_window.set_pinned(self._pinned)
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
@@ -2675,6 +2726,38 @@ class TodoDetailPanel(QQuickView):
         self.resize(self._panel_width, self._panel_height)
         self.hide()
 
+    def _hold_auto_collapse(self) -> None:
+        self._auto_collapse_hold_count += 1
+
+    def _release_auto_collapse(self) -> None:
+        if self._auto_collapse_hold_count > 0:
+            self._auto_collapse_hold_count -= 1
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self._hold_auto_collapse()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._pinned,
+            )
+        )
+        if was_visible:
+            self.show()
+        QTimer.singleShot(0, self._release_auto_collapse)
+
+    def set_pinned(self, pinned: bool) -> None:
+        pinned = bool(pinned)
+        if self._pinned == pinned:
+            return
+        self._pinned = pinned
+        self._apply_window_flags()
+        self._stage_summary_window.set_pinned(pinned)
+        self._sync_stage_summary_window()
+        if pinned and self.isVisible():
+            self.raise_()
+            self.requestActivate()
+
     def _ensure_qml_loaded(self) -> None:
         if self.status() != QQuickView.Status.Error:
             return
@@ -2682,12 +2765,16 @@ class TodoDetailPanel(QQuickView):
         raise RuntimeError(f"Failed to load TodoDetailPanel.qml:\n{errors}")
 
     def _select_attachments(self, event_id: str) -> None:
-        files, _ = QFileDialog.getOpenFileNames(
-            None,
-            "\u9009\u62e9\u9644\u4ef6",
-            "",
-            "\u6240\u6709\u6587\u4ef6 (*.*)",
-        )
+        self._hold_auto_collapse()
+        try:
+            files, _ = QFileDialog.getOpenFileNames(
+                None,
+                "\u9009\u62e9\u9644\u4ef6",
+                "",
+                "\u6240\u6709\u6587\u4ef6 (*.*)",
+            )
+        finally:
+            self._release_auto_collapse()
         if not files:
             return
         self._bridge.attach_files_to_event(event_id, list(files))
@@ -2700,12 +2787,16 @@ class TodoDetailPanel(QQuickView):
         self._bridge.attach_clipboard_image_to_event(event_id, image)
 
     def _select_draft_timeline_attachments(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(
-            None,
-            "\u9009\u62e9\u9644\u4ef6",
-            "",
-            "\u6240\u6709\u6587\u4ef6 (*.*)",
-        )
+        self._hold_auto_collapse()
+        try:
+            files, _ = QFileDialog.getOpenFileNames(
+                None,
+                "\u9009\u62e9\u9644\u4ef6",
+                "",
+                "\u6240\u6709\u6587\u4ef6 (*.*)",
+            )
+        finally:
+            self._release_auto_collapse()
         if not files:
             return
         self._bridge.attach_files_to_draft_timeline(list(files))
@@ -2819,13 +2910,28 @@ class TodoDetailPanel(QQuickView):
         )
         self.setPosition(target_x, target_y)
 
+    def _close_if_unpinned_after_deactivate(self) -> None:
+        if self._pinned or self._auto_collapse_hold_count > 0 or not self.isVisible():
+            return
+        if QGuiApplication.focusWindow() is not None:
+            return
+        self._close_panel()
+
     def _close_panel(self) -> None:
+        if not self.isVisible() and not self._stage_summary_window_visible:
+            return
         self._bridge._clear_draft_timeline_attachments()
         self._bridge.reset_stage_summary_session()
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
         self.hide()
         self.closed.emit()
+
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            QTimer.singleShot(0, self._close_if_unpinned_after_deactivate)
+        return super().event(event)
 
     def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
         return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text)

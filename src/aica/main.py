@@ -716,6 +716,7 @@ def main() -> None:
     todo_panel.todo_completed.connect(_on_todo_completed)
     todo_panel.selection_cleared.connect(_on_todo_selection_cleared)
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
+    todo_panel.pinned_changed.connect(todo_detail_panel.set_pinned)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
     todo_detail_panel.log_analysis_requested.connect(_on_log_analysis_requested)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
