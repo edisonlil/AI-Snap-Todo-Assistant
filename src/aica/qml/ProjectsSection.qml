@@ -13,7 +13,7 @@ ColumnLayout {
         theme: projectSection.theme
         Layout.fillWidth: true
         implicitHeight: projectManagerContent.implicitHeight + 32
-        color: theme.panelAltBg
+        color: theme.panelBg
 
         ColumnLayout {
             id: projectManagerContent
@@ -94,7 +94,7 @@ ColumnLayout {
                     Layout.preferredWidth: 340
                     implicitHeight: 520
                     radius: 18
-                    color: theme.panelAltBg
+                    color: theme.panelBg
                     border.width: 1
                     border.color: theme.panelLine
 
@@ -201,7 +201,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     implicitHeight: projectFormColumn.implicitHeight + 24
                     radius: 18
-                    color: theme.panelAltBg
+                    color: theme.panelBg
                     border.width: 1
                     border.color: theme.panelLine
 
@@ -487,8 +487,6 @@ ColumnLayout {
                                 visible: theme.projectDraft.id.length > 0
                                 theme: projectSection.theme
                                 label: "删除项目"
-                                fillColor: "#FFF3F1"
-                                inkColor: "#8B3A2C"
                                 onClicked: theme.deleteCurrentProject()
                             }
 

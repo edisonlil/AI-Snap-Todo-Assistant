@@ -15,12 +15,12 @@ Rectangle {
     readonly property color titleInk: "#18202E"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#7C8795"
-    readonly property color accent: "#3D7CFF"
-    readonly property color accentSoft: "#EEF4FF"
+    readonly property color accent: "#2A313F"
+    readonly property color accentSoft: "#F1F3F6"
     readonly property color navIdle: "#F5F5F5"
-    readonly property color inputBg: "#F7F7F8"
-    readonly property color hoverBg: "#EEF2F6"
-    readonly property color pressedBg: "#E5EAF1"
+    readonly property color inputBg: "#FFFFFF"
+    readonly property color hoverBg: "#F3F4F6"
+    readonly property color pressedBg: "#E5E7EB"
     readonly property color errorBg: "#FDECEC"
     readonly property color errorInk: "#B42318"
     readonly property color successBg: "#E7F5ED"
@@ -227,15 +227,15 @@ Rectangle {
     component PlainButton: Rectangle {
         id: buttonRoot
         property string label: ""
-        property color fillColor: root.accent
-        property color inkColor: "#FFFFFF"
-        property int strokeWidth: 0
+        property color fillColor: "#FFFFFF"
+        property color inkColor: root.accent
+        property int strokeWidth: 1
         signal clicked
 
         radius: 16
         color: fillColor
         border.width: strokeWidth
-        border.color: fillColor
+        border.color: buttonRoot.strokeWidth > 0 ? root.accent : buttonRoot.fillColor
         implicitWidth: buttonText.implicitWidth + 28
         implicitHeight: 38
 
@@ -1718,7 +1718,7 @@ Rectangle {
                                                 Layout.preferredWidth: 340
                                                 implicitHeight: 520
                                                 radius: 18
-                                                color: root.panelAltBg
+                                                color: root.panelBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -1826,7 +1826,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 implicitHeight: projectFormColumn.implicitHeight + 24
                                                 radius: 18
-                                                color: root.panelAltBg
+                                                color: root.panelBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -2100,8 +2100,6 @@ Rectangle {
                                                         PlainButton {
                                                             visible: root.projectDraft.id.length > 0
                                                             label: "删除项目"
-                                                            fillColor: "#FFF3F1"
-                                                            inkColor: "#8B3A2C"
                                                             onClicked: root.deleteCurrentProject()
                                                         }
 
@@ -2268,8 +2266,6 @@ Rectangle {
 
                                                 PlainButton {
                                                     label: "移除"
-                                                    fillColor: "#FFF3F1"
-                                                    inkColor: "#8B3A2C"
                                                     onClicked: controlPanelBridge.removeIntegrationScript(modelData.id)
                                                 }
                                             }

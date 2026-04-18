@@ -443,7 +443,7 @@ ColumnLayout {
         theme: ticketSection.theme
         Layout.fillWidth: true
         implicitHeight: ticketContent.implicitHeight + 32
-        color: theme.panelAltBg
+        color: theme.panelBg
 
         Popup {
             id: copyToast
@@ -493,7 +493,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 implicitHeight: ticketTotalCount > 0 ? 676 : 220
                 radius: 14
-                color: theme.panelAltBg
+                color: theme.panelBg
                 border.width: 1
                 border.color: theme.panelLine
 
@@ -993,15 +993,15 @@ ColumnLayout {
                                                 width: pageItem.current ? 44 : 60
                                                 height: 36
                                                 radius: 16
-                                                color: pageItem.current ? theme.accentSoft : theme.inputBg
+                                                color: pageItem.current ? theme.accent : theme.panelBg
                                                 border.width: 1
-                                                border.color: theme.panelLine
+                                                border.color: theme.accent
                                                 opacity: pageItem.enabled ? 1.0 : 0.56
 
                                                 Text {
                                                     anchors.centerIn: parent
                                                     text: parent.pageItem.label
-                                                    color: parent.pageItem.current ? theme.titleInk : theme.bodyInk
+                                                    color: parent.pageItem.current ? "#FFFFFF" : theme.accent
                                                     font.family: theme.uiFont
                                                     font.pixelSize: 12
                                                     font.weight: parent.pageItem.current ? 600 : 500
@@ -1097,8 +1097,6 @@ ColumnLayout {
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "\u5220\u9664\u5de5\u5355"
-                        fillColor: "#FFF3F1"
-                        inkColor: "#8B3A2C"
                         onClicked: ticketSection.requestDeleteSelectedTicket()
                     }
                 }
@@ -1154,7 +1152,7 @@ ColumnLayout {
                             ControlPanelPlainButton {
                                 theme: ticketSection.theme
                                 label: "\u786e\u8ba4\u5220\u9664"
-                                fillColor: "#C84E3A"
+                                fillColor: theme.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
                                 onClicked: ticketSection.confirmDeleteSelectedTicket()
@@ -1166,7 +1164,7 @@ ColumnLayout {
                 Rectangle {
                     Layout.fillWidth: true
                     radius: 22
-                    color: theme.panelAltBg
+                    color: theme.panelBg
                     border.width: 1
                     border.color: theme.panelLine
                     implicitHeight: ticketDetailColumn.implicitHeight + 40
