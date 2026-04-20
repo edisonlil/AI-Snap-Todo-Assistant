@@ -446,13 +446,17 @@ Rectangle {
                             readOnly: true
                             selectByMouse: true
                             selectByKeyboard: true
-                            wrapMode: TextEdit.Wrap
-                            textFormat: TextEdit.PlainText
+                            wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
+                            textFormat: TextEdit.MarkdownText
                             text: panel.hasSummary ? panel.summaryText : (panel.errorText.length > 0 ? panel.errorText : "暂无可查看的阶段总结")
                             color: panel.hasSummary ? panel.bodyText : panel.mutedText
                             font.family: root.uiFont
                             font.pixelSize: 13
                             font.weight: 400
+                            leftPadding: 2
+                            rightPadding: 2
+                            topPadding: 2
+                            bottomPadding: 2
                         }
 
                         Text {

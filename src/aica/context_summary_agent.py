@@ -29,6 +29,7 @@ _ATTACHMENT_FILENAME_PATTERN = re.compile(
 )
 _WINDOWS_PATH_PATTERN = re.compile(r"(?i)^[a-z]:\\")
 _URL_PATTERN = re.compile(r"(?i)https?://\S+")
+_MARKDOWN_ESCAPE_PATTERN = re.compile(r"([\\`*_{}\[\]#+!|<>])")
 
 _SYSTEM_PROMPT = (
     "你是一位上下文压缩助手，负责把待办描述和时间线整理成可信、克制的结构化摘要。"
@@ -86,14 +87,14 @@ def _conclusion_text_from_request(request: ContextSummaryRequest) -> str:
 
 def _timeline_rollup_summary_format_hint() -> str:
     return (
-        "summary_text 的文本结构固定为：\n"
-        "阶段现状:\n"
-        "...\n"
-        "当前结论:\n"
-        "...\n"
-        "已发生进展:\n"
-        "- ...\n"
-        "待确认事项:\n"
+        "summary_text 的 Markdown 结构固定为：\n"
+        "### 阶段现状\n"
+        "...\n\n"
+        "### 当前结论\n"
+        "...\n\n"
+        "### 已发生进展\n"
+        "- ...\n\n"
+        "### 待确认事项\n"
         "- ...\n"
     )
 
@@ -135,6 +136,43 @@ def _clean_timeline_rollup_text(text: str) -> str:
     if _looks_like_attachment_reference(cleaned):
         return ""
     return cleaned
+
+
+def _collapse_summary_text(text: str) -> str:
+    return re.sub(r"\s*\n\s*", " ", sanitize_text(text)).strip()
+
+
+def _escape_markdown_text(text: str) -> str:
+    return _MARKDOWN_ESCAPE_PATTERN.sub(r"\\\1", sanitize_text(text))
+
+
+def _render_markdown_text(text: str) -> str:
+    normalized = _collapse_summary_text(text)
+    if not normalized:
+        return ""
+
+    parts: list[str] = []
+    last_index = 0
+    link_index = 0
+    for match in _URL_PATTERN.finditer(normalized):
+        start, end = match.span()
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,;!?":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        while url.endswith(")") and url.count("(") < url.count(")"):
+            trailing = ")" + trailing
+            url = url[:-1]
+        parts.append(_escape_markdown_text(normalized[last_index:start]))
+        if url:
+            link_index += 1
+            label = "链接" if link_index == 1 else f"链接{link_index}"
+            parts.append(f"[{label}]({url})")
+        parts.append(_escape_markdown_text(trailing))
+        last_index = end
+    parts.append(_escape_markdown_text(normalized[last_index:]))
+    return "".join(parts).strip()
 
 
 class DefaultContextSummaryAgent:
@@ -551,23 +589,31 @@ class DefaultContextSummaryAgent:
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
+        progress_lines: list[str] = []
+        for item in key_points[:6]:
+            rendered = _render_markdown_text(item.text)
+            if rendered:
+                progress_lines.append(f"- {rendered}")
+
+        question_lines: list[str] = []
+        for item in open_questions[:5]:
+            rendered = _render_markdown_text(item)
+            if rendered:
+                question_lines.append(f"- {rendered}")
+
         lines = [
-            f"阶段现状: {problem_brief or '暂无'}",
+            "### 阶段现状",
+            _render_markdown_text(problem_brief or "暂无"),
             "",
-            f"当前结论: {conclusion_text or '暂无明确结论'}",
+            "### 当前结论",
+            _render_markdown_text(conclusion_text or "暂无明确结论"),
             "",
-            "已发生进展:",
+            "### 已发生进展",
         ]
-        if key_points:
-            lines.extend(f"- {item.text}" for item in key_points[:6] if item.text)
-        else:
-            lines.append("- 暂无明确阶段进展")
+        lines.extend(progress_lines or ["- 暂无明确阶段进展"])
         lines.append("")
-        lines.append("待确认事项:")
-        if open_questions:
-            lines.extend(f"- {item}" for item in open_questions[:5])
-        else:
-            lines.append("- 暂无明确待确认事项")
+        lines.append("### 待确认事项")
+        lines.extend(question_lines or ["- 暂无明确待确认事项"])
         return "\n".join(lines).strip()
 
     def _normalize_timeline_rollup_summary(

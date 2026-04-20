@@ -285,20 +285,21 @@ def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
     summary_text = result.summary_text
 
     assert result.source_stats["mode"] == "fallback_local"
-    assert "阶段现状:" in summary_text
-    assert "当前结论: 暂无明确结论" in summary_text
-    assert "已发生进展:" in summary_text
-    assert "待确认事项:" in summary_text
-    assert summary_text.index("请协助排查 request_id=req-1") < summary_text.index("/分析日志 request_id=req-1 权限报错")
-    assert summary_text.index("/分析日志 request_id=req-1 权限报错") < summary_text.index("日志分析结果")
+    assert "### 阶段现状" in summary_text
+    assert "### 当前结论" in summary_text
+    assert "暂无明确结论" in summary_text
+    assert "### 已发生进展" in summary_text
+    assert "### 待确认事项" in summary_text
+    assert summary_text.index("请协助排查 request\\_id=req-1") < summary_text.index("/分析日志 request\\_id=req-1 权限报错")
+    assert summary_text.index("/分析日志 request\\_id=req-1 权限报错") < summary_text.index("日志分析结果")
     assert summary_text.index("日志分析结果") < summary_text.index("待确认是否和用户权限配置有关")
     assert "待确认是否和用户权限配置有关" in summary_text
     assert "今天" not in summary_text
     assert "昨天" not in summary_text
     assert "随后" not in summary_text
     assert "最终" not in summary_text
-    assert "\n\n当前结论:" in summary_text
-    assert "\n\n待确认事项:" in summary_text
+    assert "\n\n### 当前结论\n" in summary_text
+    assert "\n\n### 待确认事项\n" in summary_text
 
 
 def test_timeline_rollup_prompt_hides_attachment_filenames_without_links() -> None:
@@ -394,7 +395,8 @@ def test_timeline_rollup_summary_surfaces_explicit_conclusion() -> None:
 
     assert "当前结论（单独输入）" in messages[1].content
     assert "已定位为用户权限配置缺失" in messages[1].content
-    assert "当前结论: 已定位为用户权限配置缺失" in result.summary_text
+    assert "### 当前结论" in result.summary_text
+    assert "已定位为用户权限配置缺失" in result.summary_text
 
 
 def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> None:
@@ -420,3 +422,5 @@ def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> No
     assert "不允许新增事实" in messages[1].content
     assert "不要新增“今天”“昨天”“随后”“最终”等时间锚点" in messages[1].content
     assert "不确定表述必须保留" in messages[1].content
+    assert "Markdown" in messages[0].content
+    assert "Markdown 结构" in messages[1].content

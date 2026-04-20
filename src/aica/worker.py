@@ -94,7 +94,7 @@ _STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
     "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
     "不新增事实，不编造时间线，不补写缺失步骤，不新增时间点、责任归因、根因和结论。"
     "如果原文是不确定、待确认或疑似，必须保留这种不确定性。"
-    "输出必须是纯文本，不要 Markdown，不要解释。"
+    "输出必须是 Markdown 正文，保留清晰的标题、段落和列表结构，不要解释，不要输出代码块围栏。"
 )
 _STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
     "shorter": "把现有总结整理得更简短，保留关键结论、当前进展和待确认点。",
@@ -112,6 +112,7 @@ def _build_stage_summary_rewrite_user_prompt(current_text: str, instruction: str
         "2. 不要新增“今天”“昨天”“随后”“最终”等时间锚点。\n"
         "3. 不要新增责任归因、根因判断、结论或未出现的处理动作。\n"
         "4. 原文里的“待确认”“疑似”“可能”等不确定表述必须保留。\n"
+        "5. 输出保持 Markdown 结构；如原文已有标题和列表，优先沿用，不要改成纯文本大段。\n"
         f"整理要求：{instruction}\n\n"
         "现有总结：\n"
         f"{current_text}"
@@ -727,29 +728,26 @@ def _rewrite_stage_summary_locally(current_text: str, preset_key: str, custom_in
     if not normalized_text:
         return ""
     normalized_preset = sanitize_text(preset_key).strip()
-    instruction = _stage_summary_rewrite_instruction(normalized_preset, custom_instruction)
     lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
     if normalized_preset == "shorter":
-        shortened = lines[:4] if lines else [normalized_text]
-        return "\n".join(shortened)[:220].strip()
+        shortened = lines[:8] if lines else [normalized_text]
+        return "\n".join(shortened)[:320].strip()
     if normalized_preset == "customer":
         filtered = [
             line for line in lines
             if not any(keyword in line.lower() for keyword in ("trace", "request_id", "trad", "url", "日志路径"))
         ]
         selected = filtered or lines
-        return "\n".join(selected[:5]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
+        return "\n".join(selected[:8]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
     if normalized_preset == "rd":
-        return "\n".join(lines[:6]).replace("下一步关注", "建议排查").strip()
+        return "\n".join(lines[:10]).replace("下一步关注", "建议排查").strip()
     if normalized_preset == "materials":
         material_lines = [
             line for line in lines
             if any(keyword in line.lower() for keyword in ("截图", "附件", "日志", "request_id", "trace", "材料"))
         ]
-        selected = material_lines or lines[:5]
+        selected = material_lines or lines[:8]
         return "\n".join(selected).strip()
-    if instruction:
-        return f"{normalized_text}\n\n按当前要求整理：{instruction}".strip()
     return normalized_text
 
 
@@ -816,7 +814,7 @@ class StageSummaryWorker(QThread):
                 ],
                 temperature=0.2,
             )
-            normalized = sanitize_text(rewritten).strip()
+            normalized = normalize_markdown_content(sanitize_text(rewritten).strip())
             if normalized:
                 return normalized
         except Exception:  # noqa: BLE001
