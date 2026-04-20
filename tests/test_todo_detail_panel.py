@@ -293,6 +293,28 @@ def test_stage_summary_rewrite_does_not_change_save_payload() -> None:
     assert current_payload["conclusion"].attachments == original_payload["conclusion"].attachments
 
 
+def test_stage_summary_edit_updates_rewrite_source() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", request_id, "第一版阶段总结")
+
+    bridge.updateStageSummaryText("阶段现状\n客户已补充现场截图")
+    bridge.rewriteStageSummaryWithPreset("customer")
+
+    assert bridge.stageSummaryText == "阶段现状\n客户已补充现场截图"
+    assert len(rewritten) == 1
+    assert rewritten[0]["currentText"] == "阶段现状\n客户已补充现场截图"
+    assert rewritten[0]["presetKey"] == "customer"
+
+
 def test_stage_summary_window_sync_uses_default_width_and_preferred_height(monkeypatch) -> None:
     bridge = _build_bridge(Path("unused"))
     window = _StageSummaryWindow(

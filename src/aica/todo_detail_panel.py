@@ -304,7 +304,7 @@ from .ticket_field_resolver import (
     normalize_ticket_type,
     resolve_product_line,
 )
-from .text_sanitize import sanitize_text
+from .text_sanitize import sanitize_text, strip_invalid_surrogates
 from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 _EMPTY_TEXT = "未填写"
@@ -1816,6 +1816,16 @@ class _TodoDetailBridge(QObject):
         if not text:
             return
         QGuiApplication.clipboard().setText(text)
+
+    @pyqtSlot(str)
+    def updateStageSummaryText(self, text: str) -> None:
+        normalized = strip_invalid_surrogates(str(text or ""))
+        if normalized == self._stage_summary_text:
+            return
+        self._stage_summary_text = normalized
+        if normalized.strip():
+            self._stage_summary_error = ""
+        self.dataChanged.emit()
 
     @pyqtSlot(str)
     def rewriteStageSummaryWithPreset(self, preset_key: str) -> None:

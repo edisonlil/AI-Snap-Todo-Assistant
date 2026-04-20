@@ -10,6 +10,129 @@ Rectangle {
     readonly property real preferredHeight: panel.preferredHeight
     onPreferredHeightChanged: stageSummaryWindowBridge.syncPanelSize()
 
+    function sectionPalette(title) {
+        var normalized = String(title || "")
+        if (normalized.indexOf("当前结论") !== -1) {
+            return {
+                fill: "#FFF7E8",
+                border: "#F0D39E",
+                tagFill: "#F6E2B8",
+                title: "#7A4B00",
+                body: "#5C420F",
+                bullet: "#C48A22"
+            }
+        }
+        if (normalized.indexOf("已发生进展") !== -1) {
+            return {
+                fill: "#F2FAF6",
+                border: "#CFE8D6",
+                tagFill: "#DDF2E4",
+                title: "#1F6A44",
+                body: "#244B38",
+                bullet: "#3AA66B"
+            }
+        }
+        if (normalized.indexOf("待确认事项") !== -1) {
+            return {
+                fill: "#FFF6F0",
+                border: "#F0D7C3",
+                tagFill: "#F7E4D6",
+                title: "#8E4F1F",
+                body: "#65412B",
+                bullet: "#D07A3A"
+            }
+        }
+        return {
+            fill: "#F3F7FF",
+            border: "#D6E3FF",
+            tagFill: "#E5EEFF",
+            title: "#2E5AAC",
+            body: "#24334D",
+            bullet: "#4B7CFF"
+        }
+    }
+
+    function buildSummarySections(text) {
+        var normalized = String(text || "").replace(/\r\n/g, "\n").trim()
+        if (!normalized.length) {
+            return []
+        }
+
+        function pushSection(target, title, rawLines) {
+            var cleanTitle = String(title || "").trim() || "阶段总结"
+            var bodyLines = []
+            var bullets = []
+            var paragraphBuffer = []
+            var sourceText = rawLines.join("\n").trim()
+
+            function flushParagraph() {
+                if (!paragraphBuffer.length) {
+                    return
+                }
+                bodyLines.push(paragraphBuffer.join(" "))
+                paragraphBuffer = []
+            }
+
+            if (sourceText.length) {
+                var lines = sourceText.split("\n")
+                for (var index = 0; index < lines.length; index += 1) {
+                    var rawLine = lines[index]
+                    var trimmed = rawLine.trim()
+                    if (!trimmed.length) {
+                        flushParagraph()
+                        continue
+                    }
+
+                    var bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
+                    if (!bulletMatch) {
+                        bulletMatch = trimmed.match(/^\d+\.\s+(.+)$/)
+                    }
+                    if (bulletMatch) {
+                        flushParagraph()
+                        bullets.push(String(bulletMatch[1] || "").trim())
+                        continue
+                    }
+                    paragraphBuffer.push(trimmed)
+                }
+                flushParagraph()
+            }
+
+            target.push({
+                title: cleanTitle,
+                body: bodyLines.join("\n\n"),
+                bullets: bullets,
+                palette: root.sectionPalette(cleanTitle)
+            })
+        }
+
+        var sections = []
+        var currentTitle = ""
+        var currentLines = []
+        var rawLines = normalized.split("\n")
+        for (var lineIndex = 0; lineIndex < rawLines.length; lineIndex += 1) {
+            var line = rawLines[lineIndex]
+            var trimmedLine = line.trim()
+            var headingMatch = trimmedLine.match(/^#{1,6}\s*(.+)$/)
+            if (headingMatch) {
+                if (currentTitle.length || currentLines.length) {
+                    pushSection(sections, currentTitle, currentLines)
+                }
+                currentTitle = String(headingMatch[1] || "").trim()
+                currentLines = []
+                continue
+            }
+            if (!currentTitle.length && !sections.length && !currentLines.length) {
+                currentTitle = "阶段总结"
+            }
+            currentLines.push(line)
+        }
+
+        if (currentTitle.length || currentLines.length) {
+            pushSection(sections, currentTitle, currentLines)
+        }
+        return sections
+    }
+
     Rectangle {
         id: panel
         anchors.fill: parent
@@ -17,6 +140,9 @@ Rectangle {
         property string summaryText: todoDetailBridge.stageSummaryText
         property string errorText: todoDetailBridge.stageSummaryError
         property bool hasSummary: todoDetailBridge.hasStageSummary
+        property bool editMode: false
+        property bool syncingSummaryEditor: false
+        property var summarySections: root.buildSummarySections(summaryText)
 
         signal closeClicked
         signal copyClicked
@@ -31,46 +157,46 @@ Rectangle {
         readonly property real panelTopPadding: 16
         readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
-        readonly property color panelBorder: "#ECEEF2"
-        readonly property color titleText: "#111111"
-        readonly property color bodyText: "#222222"
-        readonly property color mutedText: "#999999"
+        readonly property color panelBorder: "#E7ECF3"
+        readonly property color titleText: "#152033"
+        readonly property color bodyText: "#223047"
+        readonly property color mutedText: "#7B8797"
         readonly property color chipBorder: "#D8DEE8"
         readonly property color chipText: "#5F6C80"
-        readonly property color subtleFill: "#FAFAFA"
+        readonly property color subtleFill: "#F7F9FC"
         readonly property color primaryFill: "#171F2E"
         readonly property color primaryInk: "#FFFFFF"
         readonly property color secondaryBorder: "#D7DDE6"
         readonly property color secondaryInk: "#334155"
         readonly property real rewriteBoxMinHeight: 96
-        readonly property real chipHeight: 24
-        readonly property real chipRadius: 12
+        readonly property real chipHeight: 28
+        readonly property real chipRadius: 14
         readonly property real chipFontSize: 11
         readonly property real chipHorizontalPadding: 16
         readonly property real contentBoxMinHeight: 96
-        readonly property real contentBoxDefaultHeight: 112
-        readonly property real contentBoxExpandThreshold: 240
-        readonly property real contentBoxAbsoluteMaxHeight: 352
+        readonly property real contentBoxDefaultHeight: 252
+        readonly property real contentBoxExpandThreshold: 280
+        readonly property real contentBoxAbsoluteMaxHeight: 392
         readonly property real preferredRewriteBoxHeight: Math.max(rewriteBoxMinHeight, rewriteEdit.contentHeight + 18)
         readonly property real contentBoxMeasuredHeight: Math.max(
             92,
             contentLoader.item ? (contentLoader.item.implicitHeight || contentLoader.item.height) + 20 : 92
         )
         readonly property real baseFixedSectionHeight: (
-            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + preferredRewriteBoxHeight + (sectionSpacing * 4)
+            panelTopPadding + panelBottomPadding + headerBar.height + helperStrip.height + chipsFlow.implicitHeight + actionRow.height + preferredRewriteBoxHeight + (sectionSpacing * 5)
         )
         readonly property real preferredContentBoxHeight: (
             contentBoxMeasuredHeight > contentBoxExpandThreshold
             ? Math.min(contentBoxMeasuredHeight, contentBoxAbsoluteMaxHeight)
-            : contentBoxDefaultHeight
+            : Math.max(contentBoxDefaultHeight, contentBoxMeasuredHeight)
         )
         readonly property real preferredHeight: baseFixedSectionHeight + preferredContentBoxHeight
         readonly property real extraVerticalSpace: Math.max(0, root.height - preferredHeight)
-        readonly property real contentBoxExtraHeight: extraVerticalSpace * 0.6
+        readonly property real contentBoxExtraHeight: extraVerticalSpace * 0.65
         readonly property real rewriteBoxExtraHeight: extraVerticalSpace - contentBoxExtraHeight
         readonly property real rewriteBoxHeight: preferredRewriteBoxHeight + rewriteBoxExtraHeight
         readonly property real fixedSectionHeight: (
-            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + rewriteBoxHeight + (sectionSpacing * 4)
+            panelTopPadding + panelBottomPadding + headerBar.height + helperStrip.height + chipsFlow.implicitHeight + actionRow.height + rewriteBoxHeight + (sectionSpacing * 5)
         )
         readonly property real contentBoxAvailableHeight: Math.max(
             contentBoxMinHeight,
@@ -80,6 +206,7 @@ Rectangle {
             contentBoxMinHeight,
             Math.min(preferredContentBoxHeight + contentBoxExtraHeight, contentBoxAvailableHeight)
         )
+        readonly property bool summaryActionEnabled: !panel.busy && panel.summaryText.trim().length > 0
 
         function submitCustomRewrite() {
             var value = rewriteEdit.text.trim()
@@ -101,9 +228,33 @@ Rectangle {
             panel.refreshClicked()
         }
 
-        onCloseClicked: todoDetailBridge.toggleStageSummary()
+        function syncEditorText(value) {
+            if (!contentLoader.item || !contentLoader.item.syncFromPanelText) {
+                return
+            }
+            contentLoader.item.syncFromPanelText(value)
+        }
+
+        function toggleEditMode() {
+            if (panel.busy) {
+                return
+            }
+            if (!panel.editMode && panel.summaryText.trim().length === 0) {
+                return
+            }
+            panel.editMode = !panel.editMode
+            if (panel.editMode) {
+                panel.syncEditorText(panel.summaryText)
+            }
+        }
+
+        onSummaryTextChanged: syncEditorText(summaryText)
         onCopyClicked: todoDetailBridge.copyStageSummary()
-        onRefreshClicked: todoDetailBridge.refreshStageSummary()
+        onRefreshClicked: {
+            panel.editMode = false
+            todoDetailBridge.refreshStageSummary()
+        }
+        onCloseClicked: todoDetailBridge.toggleStageSummary()
         onPresetRewriteRequested: function(key) {
             todoDetailBridge.rewriteStageSummaryWithPreset(key)
         }
@@ -171,7 +322,7 @@ Rectangle {
                     Text {
                         width: parent.width
                         wrapMode: Text.Wrap
-                        text: "系统已先整理出一版结果，你可以直接复制，也可以做轻量调整，不做开放聊天。"
+                        text: "先按四段结构看重点，需要的话可以直接在内容区修改后再复制或二次整理。"
                         color: panel.mutedText
                         font.family: root.uiFont
                         font.pixelSize: 12
@@ -186,7 +337,7 @@ Rectangle {
                     radius: 6
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    color: closeMouse.containsMouse ? "#F3F4F6" : "transparent"
+                    color: closeMouse.containsMouse ? "#F3F5F8" : "transparent"
 
                     Text {
                         anchors.centerIn: parent
@@ -208,17 +359,54 @@ Rectangle {
             }
 
             Rectangle {
+                id: helperStrip
+                width: parent.width
+                height: 36
+                radius: 12
+                color: panel.editMode ? "#FFF7E8" : "#F3F7FF"
+                border.width: 1
+                border.color: panel.editMode ? "#F0D39E" : "#DCE7FF"
+
+                Row {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    spacing: 8
+
+                    Rectangle {
+                        width: 7
+                        height: 7
+                        radius: 3.5
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: panel.editMode ? "#D4942E" : "#5A84FF"
+                    }
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: panel.editMode ? "编辑中：复制和重新整理都会使用当前文本" : "阅读态：按分段卡片展示，重点更容易扫到"
+                        color: panel.editMode ? "#7A4B00" : "#2E5AAC"
+                        font.family: root.uiFont
+                        font.pixelSize: 11
+                        font.weight: 500
+                    }
+                }
+            }
+
+            Rectangle {
                 id: contentBox
                 width: parent.width
                 height: panel.contentBoxHeight
-                color: panel.subtleFill
-                radius: 12
-                border.width: 0
+                color: panel.editMode ? "#FFFDFC" : panel.subtleFill
+                radius: 16
+                border.width: panel.editMode ? 1 : 0
+                border.color: panel.editMode ? "#F0D39E" : "transparent"
 
                 Loader {
                     id: contentLoader
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: 12
                     sourceComponent: panel.busy && !panel.hasSummary ? loadingComponent : contentComponent
                 }
             }
@@ -226,13 +414,13 @@ Rectangle {
             Flow {
                 id: chipsFlow
                 width: parent.width
-                spacing: 5
+                spacing: 6
 
                 Repeater {
                     model: [
                         { key: "shorter", label: "更简短" },
-                        { key: "customer", label: "偏客户" },
-                        { key: "rd", label: "偏研发" },
+                        { key: "customer", label: "偏客户表述" },
+                        { key: "rd", label: "偏研发表述" },
                         { key: "materials", label: "强调已收集材料" }
                     ]
 
@@ -243,7 +431,7 @@ Rectangle {
                         color: "#FFFFFF"
                         border.width: 1
                         border.color: panel.chipBorder
-                        opacity: (!panel.busy && panel.hasSummary) ? 1 : 0.58
+                        opacity: panel.summaryActionEnabled ? 1 : 0.58
 
                         Text {
                             id: chipTextItem
@@ -257,7 +445,7 @@ Rectangle {
 
                         MouseArea {
                             anchors.fill: parent
-                            enabled: !panel.busy && panel.hasSummary
+                            enabled: panel.summaryActionEnabled
                             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                             onClicked: panel.presetRewriteRequested(modelData.key)
                         }
@@ -272,8 +460,8 @@ Rectangle {
                 layoutDirection: Qt.RightToLeft
 
                 Rectangle {
-                    width: refreshContent.implicitWidth + 22
-                    height: 32
+                    width: refreshContent.implicitWidth + 24
+                    height: 34
                     radius: 10
                     color: panel.primaryFill
                     border.width: 0
@@ -309,13 +497,40 @@ Rectangle {
                 }
 
                 Rectangle {
-                    width: copyText.implicitWidth + 22
-                    height: 32
+                    width: editText.implicitWidth + 24
+                    height: 34
+                    radius: 10
+                    color: panel.editMode ? "#FFF7E8" : "transparent"
+                    border.width: 1
+                    border.color: panel.editMode ? "#F0D39E" : panel.secondaryBorder
+                    opacity: (!panel.busy && (panel.summaryText.trim().length > 0 || panel.editMode)) ? 1 : 0.58
+
+                    Text {
+                        id: editText
+                        anchors.centerIn: parent
+                        text: panel.editMode ? "完成编辑" : "编辑内容"
+                        color: panel.editMode ? "#7A4B00" : panel.secondaryInk
+                        font.family: root.uiFont
+                        font.pixelSize: 12
+                        font.weight: 500
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: !panel.busy && (panel.summaryText.trim().length > 0 || panel.editMode)
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: panel.toggleEditMode()
+                    }
+                }
+
+                Rectangle {
+                    width: copyText.implicitWidth + 24
+                    height: 34
                     radius: 10
                     color: "transparent"
                     border.width: 1
                     border.color: panel.secondaryBorder
-                    opacity: (!panel.busy && panel.hasSummary) ? 1 : 0.58
+                    opacity: panel.summaryActionEnabled ? 1 : 0.58
 
                     Text {
                         id: copyText
@@ -329,7 +544,7 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        enabled: !panel.busy && panel.hasSummary
+                        enabled: panel.summaryActionEnabled
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: panel.copyClicked()
                     }
@@ -383,7 +598,7 @@ Rectangle {
                     y: 11
                     width: parent.width - 24
                     wrapMode: Text.Wrap
-                    text: "补充你的修改要求（如：偏客户表达）"
+                    text: "补充你的调整要求，例如：更适合发客户、保留技术细节、把待确认项再压缩一点。"
                     color: panel.mutedText
                     font.family: root.uiFont
                     font.pixelSize: 12
@@ -396,11 +611,11 @@ Rectangle {
             id: loadingComponent
 
             Item {
-                implicitHeight: 72
+                implicitHeight: 112
 
                 Column {
                     anchors.centerIn: parent
-                    spacing: 8
+                    spacing: 10
 
                     BusyIndicator {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -425,51 +640,257 @@ Rectangle {
             id: contentComponent
 
             Item {
-                implicitHeight: summaryContent.height
+                implicitHeight: Math.max(
+                    108,
+                    contentModeLoader.item ? (contentModeLoader.item.implicitHeight || contentModeLoader.item.height) : 108
+                )
+
+                function syncFromPanelText(value) {
+                    if (!contentModeLoader.item || !contentModeLoader.item.syncFromPanelText) {
+                        return
+                    }
+                    contentModeLoader.item.syncFromPanelText(value)
+                }
+
+                Loader {
+                    id: contentModeLoader
+                    anchors.fill: parent
+                    sourceComponent: panel.editMode ? editorComponent : summaryViewComponent
+                }
+            }
+        }
+
+        Component {
+            id: editorComponent
+
+            Item {
+                id: editorView
+                implicitHeight: Math.max(108, summaryEditor.contentHeight + 18)
+
+                function syncFromPanelText(value) {
+                    if (summaryEditor.text === value) {
+                        return
+                    }
+                    panel.syncingSummaryEditor = true
+                    var nextCursor = Math.min(summaryEditor.cursorPosition, String(value || "").length)
+                    summaryEditor.text = value
+                    summaryEditor.cursorPosition = nextCursor
+                    panel.syncingSummaryEditor = false
+                }
+
+                Component.onCompleted: syncFromPanelText(panel.summaryText)
+
+                ScrollView {
+                    id: editorScroll
+                    anchors.fill: parent
+                    clip: true
+
+                    TextArea {
+                        id: summaryEditor
+                        width: editorScroll.availableWidth
+                        height: Math.max(editorScroll.availableHeight, contentHeight + topPadding + bottomPadding)
+                        wrapMode: TextEdit.Wrap
+                        selectByMouse: true
+                        textFormat: TextEdit.PlainText
+                        color: panel.bodyText
+                        font.family: root.uiFont
+                        font.pixelSize: 13
+                        font.weight: 400
+                        placeholderText: "整理结果会显示在这里，也支持直接编辑。"
+                        padding: 2
+                        leftPadding: 2
+                        rightPadding: 2
+                        topPadding: 2
+                        bottomPadding: 2
+                        background: null
+
+                        onTextChanged: {
+                            if (panel.syncingSummaryEditor || text === panel.summaryText) {
+                                return
+                            }
+                            todoDetailBridge.updateStageSummaryText(text)
+                        }
+                    }
+                }
+            }
+        }
+
+        Component {
+            id: summaryViewComponent
+
+            Item {
+                id: summaryView
+                implicitHeight: Math.max(108, summaryColumn.implicitHeight)
 
                 Flickable {
                     id: summaryFlick
                     anchors.fill: parent
                     clip: true
                     contentWidth: width
-                    contentHeight: Math.max(height, summaryContent.height)
+                    contentHeight: Math.max(height, summaryColumn.implicitHeight)
                     boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                    }
 
-                    Item {
-                        id: summaryContent
+                    Column {
+                        id: summaryColumn
                         width: summaryFlick.width
-                        height: Math.max(markdownView.contentHeight, errorTextItem.visible ? errorTextItem.y + errorTextItem.implicitHeight : 0)
+                        spacing: 10
 
-                        TextEdit {
-                            id: markdownView
-                            width: parent.width
-                            readOnly: true
-                            selectByMouse: true
-                            selectByKeyboard: true
-                            wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
-                            textFormat: TextEdit.MarkdownText
-                            text: panel.hasSummary ? panel.summaryText : (panel.errorText.length > 0 ? panel.errorText : "暂无可查看的阶段总结")
-                            color: panel.hasSummary ? panel.bodyText : panel.mutedText
-                            font.family: root.uiFont
-                            font.pixelSize: 13
-                            font.weight: 400
-                            leftPadding: 2
-                            rightPadding: 2
-                            topPadding: 2
-                            bottomPadding: 2
+                        Repeater {
+                            model: panel.summarySections
+
+                            delegate: Rectangle {
+                                id: sectionCard
+                                property var sectionData: modelData
+                                readonly property real contentPadding: 14
+                                width: summaryColumn.width
+                                height: sectionContent.implicitHeight + contentPadding * 2
+                                radius: 14
+                                color: sectionData.palette.fill
+                                border.width: 1
+                                border.color: sectionData.palette.border
+                                visible: panel.summarySections.length > 0
+
+                                Column {
+                                    id: sectionContent
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.leftMargin: sectionCard.contentPadding
+                                    anchors.rightMargin: sectionCard.contentPadding
+                                    anchors.topMargin: sectionCard.contentPadding
+                                    spacing: 10
+
+                                    Rectangle {
+                                        width: titleTextItem.implicitWidth + 16
+                                        height: 24
+                                        radius: 12
+                                        color: sectionCard.sectionData.palette.tagFill
+
+                                        Text {
+                                            id: titleTextItem
+                                            anchors.centerIn: parent
+                                            text: sectionCard.sectionData.title
+                                            color: sectionCard.sectionData.palette.title
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: sectionCard.sectionData.body.length > 0
+                                        width: parent.width
+                                        wrapMode: Text.Wrap
+                                        lineHeightMode: Text.ProportionalHeight
+                                        lineHeight: 1.25
+                                        text: sectionCard.sectionData.body
+                                        color: sectionCard.sectionData.palette.body
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: 500
+                                    }
+
+                                    Column {
+                                        width: parent.width
+                                        spacing: 8
+                                        visible: sectionCard.sectionData.bullets.length > 0
+
+                                        Repeater {
+                                            model: sectionCard.sectionData.bullets
+
+                                            delegate: Row {
+                                                width: parent.width
+                                                spacing: 8
+
+                                                Rectangle {
+                                                    width: 6
+                                                    height: 6
+                                                    radius: 3
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    color: sectionCard.sectionData.palette.bullet
+                                                }
+
+                                                Text {
+                                                    width: Math.max(0, parent.width - 14)
+                                                    wrapMode: Text.Wrap
+                                                    lineHeightMode: Text.ProportionalHeight
+                                                    lineHeight: 1.25
+                                                    text: modelData
+                                                    color: "#2A3445"
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 13
+                                                    font.weight: 400
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
-                        Text {
-                            id: errorTextItem
-                            y: markdownView.contentHeight + 8
-                            width: parent.width
+                        Rectangle {
+                            id: errorCardWithSummary
+                            width: summaryColumn.width
+                            height: errorTextWithSummary.implicitHeight + 28
+                            radius: 14
+                            color: "#FFF6F0"
+                            border.width: 1
+                            border.color: "#F0D7C3"
                             visible: panel.errorText.length > 0 && panel.hasSummary
-                            wrapMode: Text.Wrap
-                            text: panel.errorText
-                            color: "#C66A16"
-                            font.family: root.uiFont
-                            font.pixelSize: 11
-                            font.weight: 400
+
+                            Text {
+                                id: errorTextWithSummary
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                wrapMode: Text.Wrap
+                                text: panel.errorText
+                                color: "#8E4F1F"
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: 400
+                            }
+                        }
+
+                        Item {
+                            width: summaryColumn.width
+                            height: emptyText.implicitHeight
+                            visible: !panel.hasSummary && panel.errorText.length === 0
+
+                            Text {
+                                id: emptyText
+                                anchors.centerIn: parent
+                                text: "暂无可查看的阶段总结"
+                                color: panel.mutedText
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: 400
+                            }
+                        }
+
+                        Rectangle {
+                            id: errorCardOnly
+                            width: summaryColumn.width
+                            height: errorTextOnly.implicitHeight + 28
+                            radius: 14
+                            color: "#FFF6F0"
+                            border.width: 1
+                            border.color: "#F0D7C3"
+                            visible: !panel.hasSummary && panel.errorText.length > 0
+
+                            Text {
+                                id: errorTextOnly
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                wrapMode: Text.Wrap
+                                text: panel.errorText
+                                color: "#8E4F1F"
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: 400
+                            }
                         }
                     }
                 }
