@@ -15,7 +15,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QMimeData, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QMimeData, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QCursor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
@@ -70,6 +70,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             WindowStaysOnTopHint = 0
             Tool = 0
 
+        class Edge:
+            LeftEdge = 0x01
+            RightEdge = 0x02
+            TopEdge = 0x04
+            BottomEdge = 0x08
+
     class QEvent:  # type: ignore[no-redef]
         class Type:
             WindowDeactivate = 0
@@ -107,6 +113,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def y(self):
             return self._y
+
+    class QSize:  # type: ignore[no-redef]
+        def __init__(self, width=0, height=0):
+            self._width = width
+            self._height = height
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
 
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
@@ -172,6 +189,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def __init__(self, *args, **kwargs):
             self._context = _Context()
+            self._width = 0
+            self._height = 0
+            self._minimum_size = QSize()
+            self._visible = False
+            self._x = 0
+            self._y = 0
 
         def setFlags(self, *_args, **_kwargs):
             return None
@@ -195,12 +218,29 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return []
 
         def resize(self, *_args, **_kwargs):
+            if len(_args) >= 2:
+                min_width = self._minimum_size.width() if self._minimum_size is not None else 0
+                min_height = self._minimum_size.height() if self._minimum_size is not None else 0
+                self._width = max(min_width, int(_args[0]))
+                self._height = max(min_height, int(_args[1]))
             return None
 
+        def setMinimumSize(self, size):
+            self._minimum_size = size
+            return None
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
+
         def hide(self):
+            self._visible = False
             return None
 
         def show(self):
+            self._visible = True
             return None
 
         def raise_(self):
@@ -209,11 +249,23 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def requestActivate(self):
             return None
 
+        def startSystemResize(self, *_args, **_kwargs):
+            return True
+
         def setPosition(self, *_args, **_kwargs):
+            if len(_args) >= 2:
+                self._x = int(_args[0])
+                self._y = int(_args[1])
             return None
 
         def isVisible(self):
-            return False
+            return self._visible
+
+        def x(self):
+            return self._x
+
+        def y(self):
+            return self._y
 
         def event(self, *_args, **_kwargs):
             return False
@@ -2461,6 +2513,9 @@ class _TodoDetailBridge(QObject):
 
 
 class _StageSummaryWindow(QQuickView):
+    _MIN_PANEL_WIDTH = 380
+    _MIN_PANEL_HEIGHT = 420
+
     def __init__(
         self,
         bridge: _TodoDetailBridge,
@@ -2483,10 +2538,12 @@ class _StageSummaryWindow(QQuickView):
         self._anchor_gap = 0
         self._top_offset = 0
         self._pinned = False
+        self._manual_size_override = False
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
         self.setSource(
@@ -2554,6 +2611,31 @@ class _StageSummaryWindow(QQuickView):
     def syncPanelSize(self) -> None:
         self._sync_geometry(activate=False)
 
+    @pyqtSlot(str)
+    def startPanelResize(self, edge_name: str) -> None:
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            started = self.startSystemResize(edge)
+        except AttributeError:
+            self.requestActivate()
+            return
+        if started is False:
+            self.requestActivate()
+            return
+        self._manual_size_override = True
+
     @pyqtSlot(float, float)
     def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
         self._drag_active = True
@@ -2593,6 +2675,20 @@ class _StageSummaryWindow(QQuickView):
             )
         return max(120, preferred_height)
 
+    def _manual_panel_size(self, available) -> tuple[int, int]:
+        max_width = max(
+            self._MIN_PANEL_WIDTH,
+            int(available.width()) - self._screen_margin * 2,
+        )
+        max_height = max(
+            self._MIN_PANEL_HEIGHT,
+            int(available.height()) - self._screen_margin * 2,
+        )
+        return (
+            max(self._MIN_PANEL_WIDTH, min(int(self.width()), max_width)),
+            max(self._MIN_PANEL_HEIGHT, min(int(self.height()), max_height)),
+        )
+
     def _sync_geometry(self, *, activate: bool) -> None:
         anchor_window = self._anchor_window
         if anchor_window is None:
@@ -2619,7 +2715,12 @@ class _StageSummaryWindow(QQuickView):
             gap=self._anchor_gap,
         )
         y = anchor_window.y() + self._top_offset
-        self.resize(self._panel_width, self._preferred_panel_height(available.height()))
+        if self._manual_size_override:
+            width, height = self._manual_panel_size(available)
+        else:
+            width = self._panel_width
+            height = self._preferred_panel_height(available.height())
+        self.resize(width, height)
         self._move_within_screen(x, y, screen)
 
         is_visible_method = getattr(self, "isVisible", None)
@@ -2630,6 +2731,10 @@ class _StageSummaryWindow(QQuickView):
         if activate and is_visible:
             self.raise_()
             self.requestActivate()
+
+    def hide(self) -> None:
+        self._manual_size_override = False
+        super().hide()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)

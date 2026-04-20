@@ -7,7 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _resolve_neighbor_panel_x, _TodoDetailBridge
+from aica.todo_detail_panel import _resolve_neighbor_panel_x, _StageSummaryWindow, _TodoDetailBridge
 from aica.todo_models import TodoConclusion, TodoItem
 
 
@@ -29,6 +29,45 @@ def _build_todo(todo_id: str = "todo-1") -> TodoItem:
         conclusion=TodoConclusion(),
         timeline=[],
     )
+
+
+class _FakeAvailableGeometry:
+    def __init__(self, width: int = 1600, height: int = 900) -> None:
+        self._width = width
+        self._height = height
+
+    def left(self) -> int:
+        return 0
+
+    def right(self) -> int:
+        return self._width - 1
+
+    def top(self) -> int:
+        return 0
+
+    def bottom(self) -> int:
+        return self._height - 1
+
+    def width(self) -> int:
+        return self._width
+
+    def height(self) -> int:
+        return self._height
+
+
+class _FakeAnchorWindow:
+    def __init__(self, x: int = 100, y: int = 120) -> None:
+        self._x = x
+        self._y = y
+
+    def x(self) -> int:
+        return self._x
+
+    def y(self) -> int:
+        return self._y
+
+    def frameGeometry(self):
+        return SimpleNamespace(center=lambda: object())
 
 
 def test_add_timeline_entry_moves_draft_attachments_into_new_event(monkeypatch) -> None:
@@ -252,6 +291,95 @@ def test_stage_summary_rewrite_does_not_change_save_payload() -> None:
     assert current_payload["timeline"] == original_payload["timeline"]
     assert current_payload["conclusion"].content == original_payload["conclusion"].content
     assert current_payload["conclusion"].attachments == original_payload["conclusion"].attachments
+
+
+def test_stage_summary_window_sync_uses_default_width_and_preferred_height(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _StageSummaryWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+    moved: list[tuple[int, int, object]] = []
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 510 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 700,
+    )
+    monkeypatch.setattr(
+        window,
+        "_move_within_screen",
+        lambda x, y, screen: moved.append((x, y, screen)),
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 510
+    assert moved == [(700, 204, "screen-token")]
+
+
+def test_stage_summary_window_manual_resize_persists_until_hidden(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _StageSummaryWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 500 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 650,
+    )
+    monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.resize(520, 560)
+    window._manual_size_override = True  # noqa: SLF001
+    window.update_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 520
+    assert window.height() == 560
+
+    window.hide()
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 500
 
 
 def test_resolve_neighbor_panel_x_prefers_side_with_more_space() -> None:

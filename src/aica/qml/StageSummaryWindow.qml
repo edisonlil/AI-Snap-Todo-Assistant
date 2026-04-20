@@ -51,27 +51,34 @@ Rectangle {
         readonly property real contentBoxDefaultHeight: 112
         readonly property real contentBoxExpandThreshold: 240
         readonly property real contentBoxAbsoluteMaxHeight: 352
-        readonly property real rewriteBoxHeight: Math.max(rewriteBoxMinHeight, rewriteEdit.contentHeight + 18)
+        readonly property real preferredRewriteBoxHeight: Math.max(rewriteBoxMinHeight, rewriteEdit.contentHeight + 18)
         readonly property real contentBoxMeasuredHeight: Math.max(
             92,
             contentLoader.item ? (contentLoader.item.implicitHeight || contentLoader.item.height) + 20 : 92
         )
-        readonly property real fixedSectionHeight: (
-            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + rewriteBoxHeight + (sectionSpacing * 4)
+        readonly property real baseFixedSectionHeight: (
+            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + preferredRewriteBoxHeight + (sectionSpacing * 4)
         )
         readonly property real preferredContentBoxHeight: (
             contentBoxMeasuredHeight > contentBoxExpandThreshold
             ? Math.min(contentBoxMeasuredHeight, contentBoxAbsoluteMaxHeight)
             : contentBoxDefaultHeight
         )
-        readonly property real preferredHeight: fixedSectionHeight + preferredContentBoxHeight
+        readonly property real preferredHeight: baseFixedSectionHeight + preferredContentBoxHeight
+        readonly property real extraVerticalSpace: Math.max(0, root.height - preferredHeight)
+        readonly property real contentBoxExtraHeight: extraVerticalSpace * 0.6
+        readonly property real rewriteBoxExtraHeight: extraVerticalSpace - contentBoxExtraHeight
+        readonly property real rewriteBoxHeight: preferredRewriteBoxHeight + rewriteBoxExtraHeight
+        readonly property real fixedSectionHeight: (
+            panelTopPadding + panelBottomPadding + headerBar.height + chipsFlow.implicitHeight + actionRow.height + rewriteBoxHeight + (sectionSpacing * 4)
+        )
         readonly property real contentBoxAvailableHeight: Math.max(
             contentBoxMinHeight,
             root.height - fixedSectionHeight
         )
         readonly property real contentBoxHeight: Math.max(
             contentBoxMinHeight,
-            Math.min(preferredContentBoxHeight, contentBoxAvailableHeight)
+            Math.min(preferredContentBoxHeight + contentBoxExtraHeight, contentBoxAvailableHeight)
         )
 
         function submitCustomRewrite() {
@@ -462,6 +469,32 @@ Rectangle {
                         }
                     }
                 }
+            }
+        }
+
+        Item {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 10
+            width: 24
+            height: 24
+            z: 20
+
+            Rectangle {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                width: 12
+                height: 12
+                radius: 4
+                color: panel.chipBorder
+                opacity: 0.95
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.SizeFDiagCursor
+                onPressed: stageSummaryWindowBridge.startPanelResize("bottom_right")
             }
         }
     }
