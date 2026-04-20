@@ -12,10 +12,10 @@ Rectangle {
     readonly property color subtleInk: "#667085"
     readonly property color chipInk: "#344054"
     readonly property color panelLine: "#E5E7EB"
-    readonly property color fieldLine: "#D7DCE2"
-    readonly property color accent: "#1677FF"
-    readonly property color cardBg: "#FFFFFF"
-    readonly property color chipBg: "#F8FAFC"
+    readonly property color fieldLine: "#E5E7EB"
+    readonly property color accent: "#2A313F"
+    readonly property color cardBg: "#F5F5F5"
+    readonly property color chipBg: "#F5F5F5"
     readonly property color editorBg: "#FFFFFF"
     readonly property int outerPadding: 16
     readonly property int cardRadius: 10
@@ -294,7 +294,7 @@ Rectangle {
                 width: parent.width
                 height: 44
                 radius: root.cardRadius
-                color: "#FFFFFF"
+                color: "#F5F5F5"
                 border.width: 1
                 border.color: root.panelLine
 
@@ -316,18 +316,20 @@ Rectangle {
                     anchors.rightMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
                     width: saveText.implicitWidth + 28
-                    height: 28
-                    radius: 9
-                    color: feedbackPanelBridge.saveEnabled ? root.accent : "#D0D5DD"
+                    height: 30
+                    radius: 15
+                    color: feedbackPanelBridge.saveEnabled ? root.accent : "#E5E7EB"
+                    border.width: 0
+                    border.color: "transparent"
 
                     Text {
                         id: saveText
                         anchors.centerIn: parent
                         text: "\u4fdd\u5b58\u53cd\u9988"
-                        color: "#FFFFFF"
+                        color: feedbackPanelBridge.saveEnabled ? "#FFFFFF" : "#98A2B3"
                         font.family: root.uiFont
-                        font.pixelSize: 11
-                        font.weight: root.labelWeight
+                        font.pixelSize: 12
+                        font.weight: 700
                     }
 
                     MouseArea {

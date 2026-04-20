@@ -92,9 +92,9 @@ Rectangle {
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     radius: 999
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: "#ECE7DE"
+                    border.color: "#E5E7EB"
                     width: 24
                     height: 24
 
@@ -121,9 +121,9 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: todoPanelBridge.hasSelected
                     radius: 999
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: "#ECE7DE"
+                    border.color: "#E5E7EB"
                     width: clearLabel.width + 14
                     height: 24
 
@@ -151,9 +151,9 @@ Rectangle {
                     radius: 999
                     width: 24
                     height: 24
-                    color: todoPanelBridge.pinned ? "#EEF4FF" : "#FFFDFC"
+                    color: todoPanelBridge.pinned ? "#ECEFF3" : "#FFFFFF"
                     border.width: 1
-                    border.color: todoPanelBridge.pinned ? "#2A313F" : "#ECE7DE"
+                    border.color: todoPanelBridge.pinned ? "#2A313F" : "#E5E7EB"
 
                     Item {
                         anchors.centerIn: parent
@@ -230,7 +230,7 @@ Rectangle {
                                 width: listColumn.width
                                 height: root.rowHeight
                                 radius: 15
-                                color: modelData.selected ? "#FFFEFC" : "transparent"
+                                color: modelData.selected ? "#F5F5F5" : "transparent"
                                 border.width: 0
                                 border.color: "transparent"
                                 antialiasing: true
@@ -300,7 +300,7 @@ Rectangle {
                     width: 3
                     height: Math.max(24, (listFlick.height / Math.max(listFlick.contentHeight, 1)) * (parent.height - 8))
                     radius: 1.5
-                    color: "#D4D0C8"
+                    color: "#D1D5DB"
                     visible: listFlick.contentHeight > listFlick.height + 2
                 }
             }

@@ -4,11 +4,11 @@ Rectangle {
     id: timelineCard
     width: parent ? parent.width : 0
     radius: 18
-    color: rootContext ? rootContext.timelineBg : "#F7F7F4"
+    color: rootContext ? rootContext.timelineBg : "#F5F5F5"
     border.width: editing || dropActive || attachmentTarget ? 1 : 0
     border.color: dropActive
-                  ? (rootContext ? rootContext.accent : "#3D7CFF")
-                  : ((editing || attachmentTarget) ? "#D7E5FF" : (rootContext ? rootContext.fieldLine : "#E7EDF5"))
+                  ? (rootContext ? rootContext.accent : "#2A313F")
+                  : ((editing || attachmentTarget) ? (rootContext ? rootContext.accent : "#2A313F") : (rootContext ? rootContext.fieldLine : "#E5E7EB"))
     implicitHeight: Math.max(124, entryColumn.implicitHeight + 28)
 
     property var rootContext
@@ -39,7 +39,7 @@ Rectangle {
                 height: 8
                 radius: 4
                 color: eventData && eventData.kind === "manual"
-                       ? (rootContext ? rootContext.accent : "#3D7CFF")
+                       ? (rootContext ? rootContext.accent : "#2A313F")
                        : "#D7DDE8"
             }
 
@@ -71,17 +71,17 @@ Rectangle {
                     radius: 11
                     color: eventData && eventData.taskStatus === "failed"
                            ? "#FDECEC"
-                           : ((eventData && eventData.taskStatus === "completed") ? "#EAF7EE" : "#EEF4FF")
+                           : ((eventData && eventData.taskStatus === "completed") ? "#E7F5ED" : "#ECEFF3")
 
                     Text {
                         id: statusLabel
                         anchors.centerIn: parent
                         text: eventData ? eventData.taskStatusLabel : ""
                         color: eventData && eventData.taskStatus === "failed"
-                               ? "#C9414B"
+                               ? "#B42318"
                                : ((eventData && eventData.taskStatus === "completed")
-                                  ? "#287D4E"
-                                  : (rootContext ? rootContext.accent : "#3D7CFF"))
+                                  ? "#17663A"
+                                  : (rootContext ? rootContext.accent : "#2A313F"))
                         font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                         font.pixelSize: 10
                         font.weight: rootContext ? rootContext.labelWeight : 500
@@ -110,7 +110,7 @@ Rectangle {
                 Text {
                     text: editing ? "编辑中" : "点击编辑"
                     color: editing
-                           ? (rootContext ? rootContext.accent : "#3D7CFF")
+                           ? (rootContext ? rootContext.accent : "#2A313F")
                            : (rootContext ? rootContext.mutedInk : "#B3BBC8")
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 11
@@ -120,7 +120,7 @@ Rectangle {
                 Text {
                     visible: editing
                     text: "保存"
-                    color: rootContext ? rootContext.accent : "#3D7CFF"
+                    color: rootContext ? rootContext.accent : "#2A313F"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 11
                     font.weight: rootContext ? rootContext.labelWeight : 500
@@ -157,7 +157,7 @@ Rectangle {
 
                 Text {
                     text: "上传附件"
-                    color: rootContext ? rootContext.accent : "#3D7CFF"
+                    color: rootContext ? rootContext.accent : "#2A313F"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 11
                     font.weight: rootContext ? rootContext.labelWeight : 500
@@ -176,7 +176,7 @@ Rectangle {
 
                 Text {
                     text: "粘贴截图"
-                    color: rootContext ? rootContext.accent : "#3D7CFF"
+                    color: rootContext ? rootContext.accent : "#2A313F"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 11
                     font.weight: rootContext ? rootContext.labelWeight : 500
@@ -270,8 +270,9 @@ Rectangle {
                 width: parent.width
                 height: 34
                 radius: 12
-                color: "#FFFFFF"
-                border.width: 0
+                color: rootContext ? rootContext.fieldBg : "#F5F5F5"
+                border.width: 1
+                border.color: rootContext ? rootContext.fieldLine : "#E5E7EB"
 
                 Text {
                     x: 12
@@ -288,7 +289,7 @@ Rectangle {
                     anchors.rightMargin: 12
                     anchors.verticalCenter: parent.verticalCenter
                     text: timelineCard.attachmentsExpanded ? "收起" : "展开"
-                    color: rootContext ? rootContext.accent : "#3D7CFF"
+                    color: rootContext ? rootContext.accent : "#2A313F"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 11
                     font.weight: rootContext ? rootContext.labelWeight : 500
@@ -318,8 +319,9 @@ Rectangle {
                         width: entryColumn.width
                         height: modelData.isImage ? 74 : 42
                         radius: 12
-                        color: "#FFFFFF"
-                        border.width: 0
+                        color: rootContext ? rootContext.fieldBg : "#F5F5F5"
+                        border.width: 1
+                        border.color: rootContext ? rootContext.fieldLine : "#E5E7EB"
 
                         Rectangle {
                             id: previewThumb
@@ -330,8 +332,8 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             radius: modelData.isImage ? 10 : 8
                             color: modelData.isPreviewable
-                                   ? (rootContext ? rootContext.accentTint : "#EEF4FF")
-                                   : (rootContext ? rootContext.fieldBg : "#F7F7F4")
+                                   ? (rootContext ? rootContext.accentTint : "#ECEFF3")
+                                   : (rootContext ? rootContext.fieldBg : "#F5F5F5")
                             visible: modelData.isPreviewable
                             border.width: 0
 
@@ -351,7 +353,7 @@ Rectangle {
                                 anchors.centerIn: parent
                                 visible: modelData.isVideo
                                 text: "视频"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 11
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -423,7 +425,7 @@ Rectangle {
                             Text {
                                 visible: modelData.isPreviewable
                                 text: "预览"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -443,7 +445,7 @@ Rectangle {
                             Text {
                                 visible: modelData.isPreviewable
                                 text: "复制"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -467,7 +469,7 @@ Rectangle {
                             Text {
                                 visible: !modelData.isPreviewable
                                 text: "复制名"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -487,7 +489,7 @@ Rectangle {
                             Text {
                                 visible: !modelData.isPreviewable
                                 text: "复制路径"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -507,7 +509,7 @@ Rectangle {
                             Text {
                                 visible: !modelData.isPreviewable
                                 text: "打开"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -527,7 +529,7 @@ Rectangle {
                             Text {
                                 visible: !modelData.isPreviewable
                                 text: "下载"
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                 font.pixelSize: 10
                                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -595,16 +597,16 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         radius: parent.radius
-        color: rootContext ? rootContext.accentTint : "#EEF4FF"
+        color: rootContext ? rootContext.accentTint : "#ECEFF3"
         opacity: dropActive ? 0.88 : 0
         visible: dropActive
         border.width: 1
-        border.color: rootContext ? rootContext.accent : "#3D7CFF"
+        border.color: rootContext ? rootContext.accent : "#2A313F"
 
         Text {
             anchors.centerIn: parent
             text: "释放即可上传附件"
-            color: rootContext ? rootContext.accent : "#3D7CFF"
+            color: rootContext ? rootContext.accent : "#2A313F"
             font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
             font.pixelSize: 13
             font.weight: rootContext ? rootContext.sectionWeight : 600

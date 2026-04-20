@@ -69,6 +69,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             FramelessWindowHint = 0
             WindowStaysOnTopHint = 0
             Tool = 0
+            Window = 0
 
         class Edge:
             LeftEdge = 0x01

@@ -10,14 +10,14 @@ Rectangle {
 
     readonly property color shellBg: "#FFFFFF"
     readonly property color panelBg: "#FFFFFF"
-    readonly property color panelAltBg: "#F5F5F5"
+    readonly property color panelAltBg: "#F8F9FA"
     readonly property color panelLine: "#E5E7EB"
-    readonly property color titleInk: "#18202E"
+    readonly property color titleInk: "#2A313F"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#7C8795"
     readonly property color accent: "#2A313F"
     readonly property color accentSoft: "#F1F3F6"
-    readonly property color navIdle: "#F5F5F5"
+    readonly property color navIdle: "#F8F9FA"
     readonly property color inputBg: "#FFFFFF"
     readonly property color hoverBg: "#F3F4F6"
     readonly property color pressedBg: "#E5E7EB"
@@ -563,7 +563,7 @@ Rectangle {
             radius: 8
             color: "#FFFFFF"
             border.width: 1
-            border.color: input.activeFocus || popup.visible ? "#2563EB" : "#D1D5DB"
+            border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
         }
 
         TextField {
@@ -644,14 +644,14 @@ Rectangle {
                     width: parent.width
                     height: addLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: addMouseArea.pressed ? "#E5EEFF" : addMouseArea.containsMouse ? "#F0F7FF" : "#FFFFFF"
+                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.accentSoft : "#FFFFFF"
 
                     Text {
                         id: addLabel
                         anchors.fill: parent
                         anchors.margins: 10
                         text: "添加并使用: " + (input.text || "").trim()
-                        color: "#2563EB"
+                        color: root.accent
                         font.family: root.uiFont
                         font.pixelSize: 13
                         font.weight: 600
@@ -748,7 +748,7 @@ Rectangle {
             radius: 8
             color: "#FFFFFF"
             border.width: 1
-            border.color: input.activeFocus ? "#2563EB" : "#D1D5DB"
+            border.color: input.activeFocus ? root.accent : root.panelLine
         }
     }
 
@@ -793,7 +793,7 @@ Rectangle {
             radius: 8
             color: "#FFFFFF"
             border.width: 1
-            border.color: combo.activeFocus ? "#2563EB" : "#D1D5DB"
+            border.color: combo.activeFocus ? root.accent : root.panelLine
         }
 
         popup: Popup {
@@ -1024,8 +1024,8 @@ Rectangle {
                                             text: modelData.title
                                             color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 800 : 700
+                                            font.pixelSize: controlPanelBridge.currentSection === modelData.id ? 14 : 13
+                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 700 : 400
                                         }
 
                                         MouseArea {

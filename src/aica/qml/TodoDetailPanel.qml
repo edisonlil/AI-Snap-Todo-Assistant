@@ -16,17 +16,17 @@ Rectangle {
 
     readonly property color shellBg: "#FFFFFF"
     readonly property color panelBg: "#FFFFFF"
-    readonly property color panelLine: "#E9EDF4"
-    readonly property color sectionLine: "#EEF2F6"
+    readonly property color panelLine: "#E5E7EB"
+    readonly property color sectionLine: "#E5E7EB"
     readonly property color titleInk: "#18202E"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#9AA4B3"
-    readonly property color mutedInk: "#B3BBC8"
-    readonly property color fieldBg: "#F7F7F4"
-    readonly property color fieldLine: "#E7EDF5"
-    readonly property color timelineBg: "#F7F7F4"
-    readonly property color accent: "#3D7CFF"
-    readonly property color accentTint: "#EEF4FF"
+    readonly property color mutedInk: "#A9B1BD"
+    readonly property color fieldBg: "#F8F9FA"
+    readonly property color fieldLine: "#E5E7EB"
+    readonly property color timelineBg: "#F8F9FA"
+    readonly property color accent: "#2A313F"
+    readonly property color accentTint: "#ECEFF3"
     readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
@@ -403,24 +403,24 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 20
+                    spacing: 10
 
                     Rectangle {
-                        width: exportText.implicitWidth
-                        height: exportText.implicitHeight
-                        radius: 0
-                        color: "transparent"
-                        border.width: 0
+                        width: exportText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: "#FFFFFF"
+                        border.width: 1
                         border.color: root.fieldLine
 
                         Text {
                             id: exportText
                             anchors.centerIn: parent
                             text: "导出方案"
-                            color: root.accent
+                            color: root.bodyInk
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -431,21 +431,21 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: closeText.implicitWidth
-                        height: closeText.implicitHeight
-                        radius: 0
-                        color: "transparent"
-                        border.width: 0
+                        width: closeText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: "#FFFFFF"
+                        border.width: 1
                         border.color: root.fieldLine
 
                         Text {
                             id: closeText
                             anchors.centerIn: parent
                             text: "关闭"
-                            color: "#707A89"
+                            color: root.bodyInk
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -456,21 +456,21 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: saveText.implicitWidth
-                        height: saveText.implicitHeight
-                        radius: 0
-                        color: "transparent"
+                        width: saveText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: root.accent
                         border.width: 0
-                        border.color: root.fieldLine
+                        border.color: "transparent"
 
                         Text {
                             id: saveText
                             anchors.centerIn: parent
                             text: "保存"
-                            color: "#586375"
+                            color: "#FFFFFF"
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -731,7 +731,7 @@ Rectangle {
                             width: parent.width
                             height: 120
                             radius: 18
-                            color: "#FFFFFF"
+                            color: "#F8F9FA"
                             border.width: 0
                             border.color: root.fieldLine
 
@@ -1103,15 +1103,15 @@ Rectangle {
                                     width: summaryToggleText.implicitWidth + 24
                                     height: 30
                                     radius: 15
-                                    color: todoDetailBridge.stageSummaryVisible ? root.accentTint : "#FFFFFF"
+                                    color: todoDetailBridge.stageSummaryVisible ? root.accent : "#FFFFFF"
                                     border.width: 1
-                                    border.color: todoDetailBridge.stageSummaryVisible ? "#D7E5FF" : root.fieldLine
+                                    border.color: todoDetailBridge.stageSummaryVisible ? root.accent : root.fieldLine
 
                                     Text {
                                         id: summaryToggleText
                                         anchors.centerIn: parent
                                         text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "阶段总结"
-                                        color: todoDetailBridge.stageSummaryVisible ? root.accent : root.bodyInk
+                                        color: todoDetailBridge.stageSummaryVisible ? "#FFFFFF" : root.bodyInk
                                         font.family: root.uiFont
                                         font.pixelSize: 11
                                         font.weight: root.labelWeight
@@ -1124,13 +1124,23 @@ Rectangle {
                                     }
                                 }
 
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
-                                    color: "#98A2B2"
-                                    font.family: root.uiFont
-                                    font.pixelSize: 12
-                                    font.weight: 500
+                                Rectangle {
+                                    width: timelineToggleText.implicitWidth + 20
+                                    height: 30
+                                    radius: 15
+                                    color: "#FFFFFF"
+                                    border.width: 1
+                                    border.color: root.fieldLine
+
+                                    Text {
+                                        id: timelineToggleText
+                                        anchors.centerIn: parent
+                                        text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 12
+                                        font.weight: 700
+                                    }
 
                                     MouseArea {
                                         anchors.fill: parent
@@ -1151,9 +1161,9 @@ Rectangle {
                                 width: parent.width
                                 height: Math.max(122, addTimelineEdit.contentHeight + 68)
                                 radius: 18
-                                color: "#FFFFFF"
-                                border.width: addTimelineEdit.activeFocus || composerDropZone.containsDrag ? 1 : 0
-                                border.color: composerDropZone.containsDrag ? root.accent : (addTimelineEdit.activeFocus ? "#D7E5FF" : "transparent")
+                                color: root.fieldBg
+                                border.width: 1
+                                border.color: composerDropZone.containsDrag ? root.accent : (addTimelineEdit.activeFocus ? root.accent : root.fieldLine)
 
                                 TextEdit {
                                     id: addTimelineEdit
@@ -1257,14 +1267,14 @@ Rectangle {
                                     anchors.rightMargin: 14
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: 14
-                                    color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accentTint : root.fieldBg
+                                    color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accent : "#E5E7EB"
                                     border.width: 0
                                     border.color: "transparent"
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: root.timelineEntryType === "log_analysis" ? "提交分析" : "添加"
-                                        color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accent : root.mutedInk
+                                        color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? "#FFFFFF" : root.mutedInk
                                         font.family: root.uiFont
                                         font.pixelSize: 12
                                         font.weight: root.labelWeight
@@ -1361,8 +1371,8 @@ Rectangle {
                                     width: parent.width
                                     height: 34
                                     radius: 12
-                                    color: "#FFFFFF"
-                                    border.width: 0
+                                    color: root.fieldBg
+                                    border.width: 1
                                     border.color: root.fieldLine
 
                                     Text {
@@ -1383,8 +1393,8 @@ Rectangle {
                                         width: parent.width
                                         height: modelData.isImage ? 74 : 42
                                         radius: 12
-                                        color: "#FFFFFF"
-                                        border.width: 0
+                                        color: root.fieldBg
+                                        border.width: 1
                                         border.color: root.fieldLine
 
                                         Item {
@@ -1690,7 +1700,7 @@ Rectangle {
                         radius: 14
                         color: "#FFFFFF"
                         border.width: 1
-                        border.color: "#D7E5FF"
+                        border.color: root.fieldLine
 
                         Column {
                             anchors.fill: parent

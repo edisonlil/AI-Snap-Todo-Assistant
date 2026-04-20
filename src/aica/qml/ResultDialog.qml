@@ -6,14 +6,15 @@ Rectangle {
     height: 560
     color: "transparent"
 
-    readonly property color shellBg: "#F1F0EC"
-    readonly property color panelBg: "#F1F0EC"
+    readonly property color shellBg: "#FFFFFF"
+    readonly property color panelBg: "#FFFFFF"
     readonly property color titleInk: "#18202E"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#9AA4B3"
     readonly property color mutedInk: "#A9B1BD"
-    readonly property color fieldBg: "#F7F7F4"
-    readonly property color fieldLine: "#E7E4DD"
+    readonly property color accent: "#2A313F"
+    readonly property color fieldBg: "#F8F9FA"
+    readonly property color fieldLine: "#E5E7EB"
     readonly property string uiFont: resultDialogBridge ? resultDialogBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 22
     readonly property int cardRadius: 28
@@ -88,14 +89,25 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 20
+                    spacing: 10
 
-                    Text {
-                        text: "\u5173\u95ed"
-                        color: "#707A89"
-                        font.family: root.uiFont
-                        font.pixelSize: 12
-                        font.weight: root.labelWeight
+                    Rectangle {
+                        width: closeText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: "#FFFFFF"
+                        border.width: 1
+                        border.color: root.fieldLine
+
+                        Text {
+                            id: closeText
+                            anchors.centerIn: parent
+                            text: "\u5173\u95ed"
+                            color: root.bodyInk
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            font.weight: 700
+                        }
 
                         MouseArea {
                             anchors.fill: parent
@@ -104,12 +116,23 @@ Rectangle {
                         }
                     }
 
-                    Text {
-                        text: "\u4fdd\u5b58"
-                        color: "#586375"
-                        font.family: root.uiFont
-                        font.pixelSize: 12
-                        font.weight: root.labelWeight
+                    Rectangle {
+                        width: saveText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: root.accent
+                        border.width: 0
+                        border.color: "transparent"
+
+                        Text {
+                            id: saveText
+                            anchors.centerIn: parent
+                            text: "\u4fdd\u5b58"
+                            color: "#FFFFFF"
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            font.weight: 700
+                        }
 
                         MouseArea {
                             anchors.fill: parent
@@ -159,7 +182,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: resultDialogBridge.showFeedbackAction
                     text: "\u53cd\u9988\u4fee\u6b63"
-                    color: "#B7793F"
+                    color: root.titleInk
                     font.family: root.uiFont
                     font.pixelSize: 12
                     font.weight: root.labelWeight
@@ -198,7 +221,7 @@ Rectangle {
                             height: 24
                             width: scenarioText.implicitWidth + 16
                             radius: 13
-                            color: "#FCFBF8"
+                            color: root.fieldBg
 
                             Text {
                                 id: scenarioText
@@ -215,7 +238,7 @@ Rectangle {
                             height: 24
                             width: Math.min(contentColumn.width - 110, modelText.implicitWidth + 16)
                             radius: 13
-                            color: "#FCFBF8"
+                            color: root.fieldBg
 
                             Text {
                                 id: modelText
@@ -235,14 +258,14 @@ Rectangle {
                             height: 24
                             width: timingText.implicitWidth + 16
                             radius: 13
-                            color: "#F7F4EC"
+                            color: root.fieldBg
                             visible: resultDialogBridge.timingSummary.length > 0
 
                             Text {
                                 id: timingText
                                 anchors.centerIn: parent
                                 text: resultDialogBridge.timingSummary
-                                color: "#7B694E"
+                                color: "#5B6574"
                                 font.family: root.uiFont
                                 font.pixelSize: 11
                                 font.weight: root.labelWeight
@@ -432,7 +455,7 @@ Rectangle {
                             width: parent.width
                             height: 176
                             radius: 20
-                            color: "#FCFBF8"
+                            color: root.fieldBg
 
                             Flickable {
                                 id: summaryFlick
@@ -490,7 +513,7 @@ Rectangle {
                                 width: contentColumn.width
                                 height: Math.max(64, evidenceValue.contentHeight + 36)
                                 radius: 16
-                                color: "#FCFBF8"
+                                color: root.fieldBg
 
                                 Text {
                                     x: 14
@@ -520,7 +543,7 @@ Rectangle {
                                     anchors.rightMargin: 14
                                     y: 12
                                     text: "移除"
-                                    color: "#C77B48"
+                                    color: "#6B7280"
                                     font.family: root.uiFont
                                     font.pixelSize: 11
                                     font.weight: root.labelWeight

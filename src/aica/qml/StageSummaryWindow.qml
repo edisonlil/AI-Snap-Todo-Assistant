@@ -33,19 +33,19 @@ Rectangle {
         readonly property real panelTopPadding: 16
         readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
-        readonly property color panelBorder: "#E8ECF3"
-        readonly property color titleText: "#142033"
-        readonly property color bodyText: "#243147"
-        readonly property color mutedText: "#7A8699"
-        readonly property color subtleFill: "#F7F9FC"
-        readonly property color contentFill: "#FAFBFD"
-        readonly property color contentBorder: "#E8EDF5"
-        readonly property color primaryFill: "#171F2E"
+        readonly property color panelBorder: "#E5E7EB"
+        readonly property color titleText: "#18202E"
+        readonly property color bodyText: "#4A5565"
+        readonly property color mutedText: "#7A8795"
+        readonly property color subtleFill: "#F5F5F5"
+        readonly property color contentFill: "#FFFFFF"
+        readonly property color contentBorder: "#E5E7EB"
+        readonly property color primaryFill: "#2A313F"
         readonly property color primaryInk: "#FFFFFF"
-        readonly property color secondaryBorder: "#D7DDE6"
-        readonly property color secondaryInk: "#334155"
-        readonly property color chipBorder: "#D8DEE8"
-        readonly property color chipText: "#5F6C80"
+        readonly property color secondaryBorder: "#E5E7EB"
+        readonly property color secondaryInk: "#4A5565"
+        readonly property color chipBorder: "#E5E7EB"
+        readonly property color chipText: "#5B6574"
         readonly property real rewriteBoxMinHeight: 96
         readonly property real chipHeight: 28
         readonly property real chipRadius: 14
@@ -241,9 +241,9 @@ Rectangle {
                 width: parent.width
                 height: panel.helperHeight
                 radius: 12
-                color: panel.editMode ? "#FFF7E8" : "#F3F7FF"
+                color: panel.editMode ? "#ECEFF3" : "#F5F5F5"
                 border.width: 1
-                border.color: panel.editMode ? "#F0D39E" : "#DCE7FF"
+                border.color: panel.editMode ? panel.primaryFill : panel.secondaryBorder
 
                 Row {
                     anchors.left: parent.left
@@ -258,13 +258,13 @@ Rectangle {
                         height: 7
                         radius: 3.5
                         anchors.verticalCenter: parent.verticalCenter
-                        color: panel.editMode ? "#D4942E" : "#5A84FF"
+                        color: panel.editMode ? panel.primaryFill : panel.secondaryInk
                     }
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: panel.editMode ? "编辑中：当前改动会作为复制和重写整理的基础文本" : "阅读态：直接按 Markdown 结构浏览，保留标题和列表层级"
-                        color: panel.editMode ? "#7A4B00" : "#2E5AAC"
+                        color: panel.editMode ? panel.primaryFill : panel.bodyText
                         font.family: root.uiFont
                         font.pixelSize: 11
                         font.weight: 500
@@ -279,7 +279,7 @@ Rectangle {
                 color: panel.contentFill
                 radius: 16
                 border.width: 1
-                border.color: panel.editMode ? "#F0D39E" : panel.contentBorder
+                border.color: panel.editMode ? panel.primaryFill : panel.contentBorder
 
                 Loader {
                     id: contentLoader
@@ -378,16 +378,16 @@ Rectangle {
                     width: editText.implicitWidth + 24
                     height: 34
                     radius: 10
-                    color: panel.editMode ? "#FFF7E8" : "transparent"
+                    color: panel.editMode ? "#ECEFF3" : "transparent"
                     border.width: 1
-                    border.color: panel.editMode ? "#F0D39E" : panel.secondaryBorder
+                    border.color: panel.editMode ? panel.primaryFill : panel.secondaryBorder
                     opacity: (!panel.busy && (panel.summaryText.trim().length > 0 || panel.editMode)) ? 1 : 0.58
 
                     Text {
                         id: editText
                         anchors.centerIn: parent
                         text: panel.editMode ? "完成编辑" : "编辑内容"
-                        color: panel.editMode ? "#7A4B00" : panel.secondaryInk
+                        color: panel.editMode ? panel.primaryFill : panel.secondaryInk
                         font.family: root.uiFont
                         font.pixelSize: 12
                         font.weight: 500

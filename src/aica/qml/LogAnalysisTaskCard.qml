@@ -87,7 +87,7 @@ BaseTimelineCard {
                                 radius: 3
                                 x: index * 10
                                 y: 4
-                                color: rootContext ? rootContext.accent : "#3D7CFF"
+                                color: rootContext ? rootContext.accent : "#2A313F"
                                 opacity: 0.28
 
                                 SequentialAnimation on opacity {
@@ -103,7 +103,7 @@ BaseTimelineCard {
 
                     Text {
                         text: taskCard.currentStep()
-                        color: rootContext ? rootContext.accent : "#3D7CFF"
+                        color: rootContext ? rootContext.accent : "#2A313F"
                         font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                         font.pixelSize: 12
                         font.weight: rootContext ? rootContext.labelWeight : 500
@@ -126,7 +126,7 @@ BaseTimelineCard {
                     width: parent.width
                     wrapMode: Text.Wrap
                     text: "已生成分析结果"
-                    color: "#287D4E"
+                    color: "#17663A"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 12
                     font.weight: rootContext ? rootContext.labelWeight : 500
@@ -137,7 +137,7 @@ BaseTimelineCard {
                     width: parent.width
                     wrapMode: Text.Wrap
                     text: taskCard.failureReason()
-                    color: "#C9414B"
+                    color: "#B42318"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                     font.pixelSize: 12
                     font.weight: rootContext ? rootContext.bodyWeight : 400
@@ -155,7 +155,7 @@ BaseTimelineCard {
 
             Text {
                 text: "查看结果"
-                color: rootContext ? rootContext.accent : "#3D7CFF"
+                color: rootContext ? rootContext.accent : "#2A313F"
                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                 font.pixelSize: 11
                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -199,17 +199,17 @@ BaseTimelineCard {
                             anchors.verticalCenter: parent.verticalCenter
                             border.width: 2
                             border.color: modelData.state === "done"
-                                          ? (rootContext ? rootContext.accent : "#3D7CFF")
-                                          : (modelData.state === "active" ? (rootContext ? rootContext.accent : "#3D7CFF") : "#D3DAE5")
+                                          ? (rootContext ? rootContext.accent : "#2A313F")
+                                          : (modelData.state === "active" ? (rootContext ? rootContext.accent : "#2A313F") : "#D3DAE5")
                             color: modelData.state === "done" || modelData.state === "active"
-                                   ? (rootContext ? rootContext.accent : "#3D7CFF")
+                                   ? (rootContext ? rootContext.accent : "#2A313F")
                                    : "#FFFFFF"
                         }
 
                         Text {
                             text: modelData.label
                             color: modelData.state === "active"
-                                   ? (rootContext ? rootContext.accent : "#3D7CFF")
+                                   ? (rootContext ? rootContext.accent : "#2A313F")
                                    : (rootContext ? rootContext.bodyInk : "#4A5565")
                             font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                             font.pixelSize: 12

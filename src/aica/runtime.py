@@ -20,7 +20,7 @@ MACOS_UI_FONT = "PingFang SC"
 OTHER_UI_FONT = "Sans Serif"
 
 WINDOWS_WIDGET_FONT_CSS = "'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif"
-MACOS_WIDGET_FONT_CSS = "'PingFang SC', 'Hiragino Sans GB', sans-serif"
+MACOS_WIDGET_FONT_CSS = "'PingFang SC', sans-serif"
 OTHER_WIDGET_FONT_CSS = "'Noto Sans CJK SC', sans-serif"
 
 WINDOWS_MONO_FONT_CSS = "'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace"

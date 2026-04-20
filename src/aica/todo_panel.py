@@ -58,7 +58,7 @@ class _TodoPanelBridge(QObject):
         self._expanded = False
         self._visible_limit = visible_limit
         self._minimized = False
-        self._pinned = False
+        self._pinned = True
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -185,6 +185,7 @@ class TodoPanel(QQuickView):
     selection_cleared = pyqtSignal()
     detail_requested = pyqtSignal(str)
     pinned_changed = pyqtSignal(bool)
+    geometry_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -199,6 +200,7 @@ class TodoPanel(QQuickView):
         self._custom_position = None
         self._snap_margin = 18
         self._snap_threshold = 28
+        self._top_reserved_space = 0
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -252,6 +254,14 @@ class TodoPanel(QQuickView):
     def pinned(self) -> bool:
         return self._bridge.pinned
 
+    def set_top_reserved_space(self, height: int) -> None:
+        reserved = max(0, int(height))
+        if self._top_reserved_space == reserved:
+            return
+        self._top_reserved_space = reserved
+        if self.isVisible():
+            self._reposition()
+
     def _apply_window_flags(self) -> None:
         was_visible = self.isVisible()
         self.setFlags(
@@ -262,6 +272,7 @@ class TodoPanel(QQuickView):
         )
         if was_visible:
             self.show()
+            self.geometry_changed.emit()
 
     def _handle_pinned_changed(self) -> None:
         self._apply_window_flags()
@@ -274,14 +285,17 @@ class TodoPanel(QQuickView):
         if screen is None:
             return
         available = screen.availableGeometry()
+        min_y = available.top() + self._snap_margin + self._top_reserved_space
+        max_y = available.bottom() - self.height() - self._snap_margin
         if self._custom_position is not None:
             x = min(max(self._custom_position.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
-            y = min(max(self._custom_position.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+            y = min(max(self._custom_position.y(), min_y), max_y)
         else:
             x = available.right() - self.width() - self._snap_margin
-            y = available.top() + self._snap_margin
+            y = min_y
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()
 
     def frameGeometry(self):  # noqa: N802, ANN201
         return self.geometry()
@@ -299,9 +313,13 @@ class TodoPanel(QQuickView):
             return
         candidate = cursor_pos - self._drag_offset
         x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
-        y = min(max(candidate.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+        y = min(
+            max(candidate.y(), available.top() + self._snap_margin + self._top_reserved_space),
+            available.bottom() - self.height() - self._snap_margin,
+        )
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()
 
     def _end_drag(self) -> None:
         if self._drag_offset is None:
@@ -319,10 +337,12 @@ class TodoPanel(QQuickView):
         right_snap = available.right() - self.width() - self._snap_margin
         x = left_snap if abs(x - left_snap) <= abs(x - right_snap) else right_snap
 
-        if abs(y - (available.top() + self._snap_margin)) <= self._snap_threshold:
-            y = available.top() + self._snap_margin
+        top_snap = available.top() + self._snap_margin + self._top_reserved_space
+        if abs(y - top_snap) <= self._snap_threshold:
+            y = top_snap
         if abs((available.bottom() - self.height() - self._snap_margin) - y) <= self._snap_threshold:
             y = available.bottom() - self.height() - self._snap_margin
 
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()

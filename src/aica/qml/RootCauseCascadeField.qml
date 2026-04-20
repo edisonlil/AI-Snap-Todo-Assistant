@@ -130,7 +130,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.rightMargin: 10
                         text: rootField.value.length > 0 ? rootField.displayPath(rootField.value) : rootField.placeholderText
-                        color: rootField.value.length > 0 ? theme.titleInk : "#A2907A"
+                        color: rootField.value.length > 0 ? theme.titleInk : theme.labelInk
                         font.family: theme.uiFont
                         font.pixelSize: rootField.compact ? 12 : 13
                         font.weight: rootField.value.length > 0 ? 500 : 400

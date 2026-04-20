@@ -9,8 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from PyQt6.QtCore import QRect, QTimer
-from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtCore import QRect, QTimer, Qt
+from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis_flow import AnalysisFlowCoordinator
@@ -26,6 +26,7 @@ from aica.log_analysis_models import LogAnalysisTask
 from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
 from aica.log_analysis_store import LogAnalysisTaskStore
 from aica.log_analysis_worker import LogAnalysisWorker
+from aica.loading_dialog import LoadingDialog
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
@@ -150,6 +151,7 @@ def main() -> None:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setFont(QFont(RUNTIME_CAPABILITIES.ui_font))
     _append_startup_log(startup_log_file, "startup: QApplication ready")
 
     config_mgr = ConfigManager()
@@ -167,6 +169,8 @@ def main() -> None:
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
     todo_panel = TodoPanel()
     todo_detail_panel = TodoDetailPanel()
+    todo_detail_panel.set_pinned(todo_panel.pinned)
+    loading_dialog = LoadingDialog()
     toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
@@ -180,13 +184,31 @@ def main() -> None:
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
-    tray_icon_path = icon_file()
+    def _resolve_tray_icon_path() -> Path:
+        if not RUNTIME_CAPABILITIES.is_macos:
+            return icon_file()
+        style_hints = app.styleHints()
+        is_dark_mode = False
+        color_scheme = getattr(style_hints, "colorScheme", None)
+        if callable(color_scheme):
+            is_dark_mode = color_scheme() == Qt.ColorScheme.Dark
+        return icon_file(dark_mode=is_dark_mode)
+
+    tray_icon_path = _resolve_tray_icon_path()
     tray_icon = QSystemTrayIcon(QIcon(str(tray_icon_path)), app)
     tray_icon.setToolTip("AICA")
     _append_startup_log(
         startup_log_file,
         f"startup: tray icon path={tray_icon_path} exists={tray_icon_path.exists()}",
     )
+
+    def _update_tray_icon() -> None:
+        current_path = _resolve_tray_icon_path()
+        tray_icon.setIcon(QIcon(str(current_path)))
+        _append_startup_log(
+            startup_log_file,
+            f"startup: tray icon updated path={current_path} exists={current_path.exists()}",
+        )
 
     def _show_control_panel(section_id: str = "models") -> None:
         control_panel.show_panel(section_id)
@@ -221,6 +243,13 @@ def main() -> None:
             _show_control_panel("models")
 
     tray_icon.activated.connect(_on_tray_activated)
+    style_hints = app.styleHints()
+    color_scheme_changed = getattr(style_hints, "colorSchemeChanged", None)
+    if RUNTIME_CAPABILITIES.is_macos and color_scheme_changed is not None:
+        color_scheme_changed.connect(lambda *_args: _update_tray_icon())
+    todo_panel.geometry_changed.connect(
+        lambda: loading_dialog.show_loading(todo_panel) if loading_dialog.isVisible() else None
+    )
 
     def _refresh_todo_panel() -> None:
         todo_panel.set_todos(
@@ -476,6 +505,8 @@ def main() -> None:
         multi_worker_factory=MultiCaptureAIWorker,
         show_warning=lambda title, message: QMessageBox.warning(None, title, message),
         record_analysis_metrics=lambda stats, success: analysis_metrics_store.record(stats, success=success),
+        show_loading=lambda: (_refresh_todo_panel(), loading_dialog.show_loading(todo_panel)),
+        hide_loading=loading_dialog.hide_loading,
     )
 
     def _on_summarize() -> None:

@@ -156,10 +156,14 @@ def qml_dir() -> Path:
     return Path(__file__).resolve().with_name("qml")
 
 
-def icon_file(platform_id: str | None = None) -> Path:
+def icon_file(platform_id: str | None = None, *, dark_mode: bool = False) -> Path:
     platform_id = platform_id or current_platform()
     assets_dir = runtime_root() / "assets"
     if platform_id == PLATFORM_MACOS:
+        if dark_mode:
+            candidate = assets_dir / "aica_icon_dark.icns"
+            if candidate.exists():
+                return candidate
         candidate = assets_dir / "aica_icon.icns"
         if candidate.exists():
             return candidate
