@@ -306,6 +306,169 @@ def test_default_log_analysis_agent_filters_non_identifier_context_terms() -> No
     assert all("验证附件完整性" not in item for item in identifiers)
     assert all("检查日志文件结构" not in item for item in identifiers)
 
+
+def test_default_log_analysis_agent_reports_timeout_chain_even_when_ticket_mentions_403() -> None:
+    preview = "\n".join(
+        [
+            '2026-04-20T09:44:08.137+08:00 WARN weboffice-apiserver-3[1] @weboffice/webserver/middleware/metric/api.go:37 "request [/prod/api/wps/v1/3rd/file/info] failed: desensitize error" operation="POST_/api/v3/office/session/:id/:type" param.id="20873" param.type="pdf" traceid="14160111d8a9c2c4d58d" code="DriverNetError" message="" cost="4.620018ms" group=""',
+            '2026-04-20T09:44:08.137+08:00 ERROR weboffice-apiserver-3[1] @apiserver/v1/office_session_v2.go:129 "get or create session failed, error: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed: desensitize error details:[result:\\"DriverNetError\\" errno:ProviderRequestTimeout ]" traceid="14160111d8a9c2c4d58d" operation="POST_/api/v3/office/session/:id/:type" param.id="20873" group="" param.type="pdf"',
+            '2026-04-20T09:44:08.137+08:00 ERROR weboffice-cloudprovider-3[1] @cloudprovider/v1/base/v1_base.go:64 "get file info failed: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed: desensitize error details:[result:\\"DriverNetError\\" errno:ProviderRequestTimeout ]" app_id="NIVBZREGESEPZAAE" file_id="20873" group="" traceid="14160111d8a9c2c4d58d" operation="/cloudpb.FileSys/GetMetadata"',
+        ]
+    )
+    request = LogAnalysisRequest(
+        todo_snapshot={
+            "title": "文档中台对接请求返回403错误",
+            "current_summary": "用户反馈返回403，request_id=14160111d8a9c2c4d58d，错误码20023。",
+            "conclusion": "",
+        },
+        parsed_command=parse_log_analysis_command("/分析日志 request_id=14160111d8a9c2c4d58d 403错误"),
+        investigation_context=InvestigationContextSummary(
+            problem_summary="用户反馈返回403，提供了 request_id=14160111d8a9c2c4d58d 和错误码20023。",
+            current_focus=["request_id=14160111d8a9c2c4d58d", "403错误"],
+        ),
+        evidence_bundle=EvidenceBundle(
+            parts=[
+                CollectedEvidencePart(
+                    source_name="appweboffice-apiserver_weboffice-cloudprovider.log",
+                    source_type="text_log",
+                    summary="读取 appweboffice-apiserver_weboffice-cloudprovider.log",
+                    details={"text_excerpt": preview, "line_samples": preview.splitlines(), "line_count": 3},
+                )
+            ]
+        ),
+    )
+
+    produced = DefaultLogAnalysisAgent().analyze(request)
+
+    assert produced.result_payload.question_answered is True
+    assert produced.result_payload.preliminary_judgment["category"] == "下游服务异常"
+    assert "ProviderRequestTimeout" in produced.result_payload.primary_issue
+    assert produced.result_payload.root_cause_signature == "DriverNetError / ProviderRequestTimeout"
+    assert produced.result_payload.affected_entities["file_id"] == "20873"
+    assert produced.result_payload.affected_entities["app_id"] == "NIVBZREGESEPZAAE"
+    assert all("TraceId/request_id" not in item for item in produced.result_payload.missing_information)
+
+
+def test_log_analysis_attachment_collects_tail_error_from_large_file() -> None:
+    log_path = Path("logs") / "test_large_log_analysis.log"
+    lines = [f"INFO line {index}" for index in range(360)]
+    lines.extend(
+        [
+            '2026-04-20T09:44:08.137+08:00 ERROR tail-service "result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed"',
+            '2026-04-20T09:44:08.137+08:00 ERROR tail-service app_id="NIVBZREGESEPZAAE" file_id="20873" traceid="14160111d8a9c2c4d58d"',
+        ]
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        log_path.write_text("\n".join(lines), encoding="utf-8")
+
+        registry = build_default_attachment_handler_registry()
+        handler = registry.resolve(SimpleNamespace(name=log_path.name, path=str(log_path)))
+        assert handler is not None
+        parts = handler.collect(SimpleNamespace(name=log_path.name, path=str(log_path)), SimpleNamespace(task_id="task-1"))
+        assert parts
+
+        part = parts[0]
+        request = LogAnalysisRequest(
+            todo_snapshot={"title": "打开文档失败", "current_summary": "request_id=14160111d8a9c2c4d58d", "conclusion": ""},
+            parsed_command=parse_log_analysis_command("/分析日志 request_id=14160111d8a9c2c4d58d"),
+            investigation_context=InvestigationContextSummary(
+                problem_summary="request_id=14160111d8a9c2c4d58d 打开文档失败",
+                current_focus=["request_id=14160111d8a9c2c4d58d"],
+            ),
+            evidence_bundle=EvidenceBundle(parts=[part]),
+        )
+
+        produced = DefaultLogAnalysisAgent().analyze(request)
+
+        assert part.details["truncated"] is True
+        assert any("ProviderRequestTimeout" in item["summary"] or "DriverNetError" in item["evidence"] for item in produced.result_payload.key_findings)
+        assert produced.result_payload.question_answered is True
+    finally:
+        if log_path.exists():
+            log_path.unlink()
+
+
+def test_log_analysis_agent_falls_back_when_llm_summary_fails() -> None:
+    preview = "\n".join(
+        [
+            '2026-04-20T09:44:08.137+08:00 ERROR svc "result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-1"',
+            '2026-04-20T09:44:08.137+08:00 ERROR svc app_id="app-1" file_id="file-1" traceid="req-1"',
+        ]
+    )
+    request = LogAnalysisRequest(
+        todo_snapshot={"title": "打开失败", "current_summary": "request_id=req-1", "conclusion": ""},
+        parsed_command=parse_log_analysis_command("/分析日志 request_id=req-1"),
+        investigation_context=InvestigationContextSummary(problem_summary="request_id=req-1 打开失败", current_focus=["request_id=req-1"]),
+        evidence_bundle=EvidenceBundle(
+            parts=[
+                CollectedEvidencePart(
+                    source_name="app.log",
+                    source_type="text_log",
+                    summary="读取 app.log",
+                    details={"text_excerpt": preview, "line_samples": preview.splitlines(), "line_count": 2},
+                )
+            ]
+        ),
+    )
+    llm_service = SimpleNamespace(run_task=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("llm failed")))
+
+    produced = DefaultLogAnalysisAgent(llm_service=llm_service).analyze(request)
+
+    assert produced.result_payload.question_answered is True
+    assert produced.result_payload.root_cause_signature == "DriverNetError / ProviderRequestTimeout"
+    assert "ProviderRequestTimeout" in produced.result_payload.primary_issue
+
+
+def test_timeline_log_analysis_presenter_prefers_request_chain_summary_lines() -> None:
+    request = LogAnalysisRequest(
+        todo_snapshot={"title": "打开失败", "current_summary": "request_id=req-2", "conclusion": ""},
+        parsed_command=parse_log_analysis_command("/分析日志 request_id=req-2"),
+        investigation_context=InvestigationContextSummary(problem_summary="request_id=req-2 打开失败", current_focus=["request_id=req-2"]),
+        evidence_bundle=EvidenceBundle(
+            parts=[
+                CollectedEvidencePart(
+                    source_name="app.log",
+                    source_type="text_log",
+                    summary="读取 app.log",
+                    details={
+                        "text_excerpt": "\n".join(
+                            [
+                                '2026-04-20T09:44:08.137+08:00 ERROR weboffice-apiserver-3[1] @apiserver/v1/office_session_v2.go:129 "get or create session failed, error: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="POST_/api/v3/office/session/:id/:type"',
+                                '2026-04-20T09:44:08.137+08:00 ERROR weboffice-cloudprovider-3[1] @cloudprovider/v1/base/v1_base.go:64 "get file info failed: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="/cloudpb.FileSys/GetMetadata"',
+                                '2026-04-20T09:44:08.137+08:00 ERROR weboffice-cloudprovider-3[1] @cloudprovider/v1/base/v1_base.go:64 "get file info failed: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="/cloudpb.FileSys/GetMetadata"',
+                            ]
+                        ),
+                        "line_samples": [
+                            '2026-04-20T09:44:08.137+08:00 ERROR weboffice-apiserver-3[1] @apiserver/v1/office_session_v2.go:129 "get or create session failed, error: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="POST_/api/v3/office/session/:id/:type"',
+                            '2026-04-20T09:44:08.137+08:00 ERROR weboffice-cloudprovider-3[1] @cloudprovider/v1/base/v1_base.go:64 "get file info failed: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="/cloudpb.FileSys/GetMetadata"',
+                            '2026-04-20T09:44:08.137+08:00 ERROR weboffice-cloudprovider-3[1] @cloudprovider/v1/base/v1_base.go:64 "get file info failed: result:DriverNetError errno:ProviderRequestTimeout message:request [/prod/api/wps/v1/3rd/file/info] failed" traceid="req-2" operation="/cloudpb.FileSys/GetMetadata"',
+                        ],
+                        "line_count": 3,
+                    },
+                )
+            ]
+        ),
+    )
+    produced = DefaultLogAnalysisAgent().analyze(request)
+
+    event = TimelineLogAnalysisPresenter().consume(
+        produced,
+        SimpleNamespace(
+            timeline_entry_id="cmd-2",
+            task_id="task-2",
+            todo_id="todo-2",
+            investigation_context=request.investigation_context,
+            evidence_bundle=request.evidence_bundle,
+        ),
+    )
+
+    assert event.payload["request_chain"]
+    assert event.payload["finding_lines"]
+    assert len(event.payload["finding_lines"]) <= 3
+    assert any("DriverNetError" in line or "ProviderRequestTimeout" in line for line in event.payload["finding_lines"])
+    assert len(set(event.payload["finding_lines"])) == len(event.payload["finding_lines"])
+
 def test_todo_detail_bridge_exposes_structured_timeline_card_fields() -> None:
     bridge = _TodoDetailBridge(
         attachment_root=Path('.'),
