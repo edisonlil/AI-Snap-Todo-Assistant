@@ -1860,7 +1860,6 @@ class _ControlPanelBridge(QObject):
         payload = self._build_ticket_detail_payload(todo)
         QApplication.clipboard().setText(_format_ticket_copy_text(payload))
         self._clear_messages()
-        self._status_message = "工单内容已复制到剪贴板。"
         self._emit_data_changed()
 
     @pyqtSlot()

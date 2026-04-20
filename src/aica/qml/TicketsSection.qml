@@ -67,9 +67,6 @@ ColumnLayout {
         }
         try {
             controlPanelBridge.copyTicket(targetId)
-            if (shouldShowToast) {
-                showCopyToast("\u5df2\u590d\u5236")
-            }
         } catch (error) {
             if (shouldShowToast) {
                 showCopyToast("\u590d\u5236\u5931\u8d25")
