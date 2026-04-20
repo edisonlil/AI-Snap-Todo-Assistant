@@ -447,7 +447,7 @@ Rectangle {
                             selectByMouse: true
                             selectByKeyboard: true
                             wrapMode: TextEdit.Wrap
-                            textFormat: TextEdit.MarkdownText
+                            textFormat: TextEdit.PlainText
                             text: panel.hasSummary ? panel.summaryText : (panel.errorText.length > 0 ? panel.errorText : "暂无可查看的阶段总结")
                             color: panel.hasSummary ? panel.bodyText : panel.mutedText
                             font.family: root.uiFont

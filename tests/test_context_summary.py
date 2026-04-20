@@ -14,7 +14,7 @@ from aica.llm.service import LLMService
 from aica.log_analysis_commands import parse_log_analysis_command
 from aica.log_analysis_context import summarize_investigation_context
 from aica.models import TicketSummaryFields
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 from aica.worker import StageSummaryWorker
 
 
@@ -297,6 +297,85 @@ def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
     assert "昨天" not in summary_text
     assert "随后" not in summary_text
     assert "最终" not in summary_text
+    assert "\n\n当前结论:" in summary_text
+    assert "\n\n待确认事项:" in summary_text
+
+
+def test_timeline_rollup_prompt_hides_attachment_filenames_without_links() -> None:
+    todo = _build_todo()
+    todo.timeline[0] = TimelineEvent(
+        id="event-with-attachments",
+        timestamp="2026-04-16T10:00:00",
+        kind="follow_up",
+        scenario="客户反馈",
+        content="客户反馈只要带 wpsPreview 参数就会出现问题",
+        attachments=[
+            TimelineAttachment(name="f847e28bc0c8d842ecd5459dc0a9c267.png", path="C:\\tmp\\f847e28bc0c8d842ecd5459dc0a9c267.png"),
+            TimelineAttachment(name="17a45e4abd8da4e0ee7ecafedff66f68.png", path="C:\\tmp\\17a45e4abd8da4e0ee7ecafedff66f68.png"),
+        ],
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    messages = agent._build_messages(request, agent._select_entries(request))  # noqa: SLF001
+
+    assert "f847e28bc0c8d842ecd5459dc0a9c267.png" not in messages[1].content
+    assert "17a45e4abd8da4e0ee7ecafedff66f68.png" not in messages[1].content
+    assert "附件:" not in messages[1].content
+
+
+def test_timeline_rollup_summary_filters_attachment_suffix_noise() -> None:
+    todo = _build_todo()
+    todo.timeline.append(
+        TimelineEvent(
+            id="event-conclusion",
+            timestamp="2026-04-16T10:40:00",
+            kind="conclusion",
+            scenario="结论更新",
+            content="建议客户先不携带该参数保证业务正常\n附件: f847e28bc0c8d842ecd5459dc0a9c267.png, 关于进一步加强维修工属具使用安全的通知.docx",
+        )
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+
+    result = ContextSummaryService().summarize(request)
+
+    assert "附件:" not in result.summary_text
+    assert "f847e28bc0c8d842ecd5459dc0a9c267.png" not in result.summary_text
+    assert "关于进一步加强维修工属具使用安全的通知.docx" not in result.summary_text
+    assert "建议客户先不携带该参数保证业务正常" in result.summary_text
+
+
+def test_timeline_rollup_summary_keeps_real_urls_in_body() -> None:
+    todo = _build_todo()
+    todo.timeline.append(
+        TimelineEvent(
+            id="event-link",
+            timestamp="2026-04-16T10:35:00",
+            kind="follow_up",
+            scenario="客户补充",
+            content="客户提供预览链接: https://wpszt.bbwport.com/micsweb/viewweb/reader/439e8b9faf195951c968bced2424908a?wpsPreview=0010000",
+        )
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+
+    result = ContextSummaryService().summarize(request)
+
+    assert "https://wpszt.bbwport.com/micsweb/viewweb/reader/439e8b9faf195951c968bced2424908a?wpsPreview=0010000" in result.summary_text
 
 
 def test_timeline_rollup_summary_surfaces_explicit_conclusion() -> None:
