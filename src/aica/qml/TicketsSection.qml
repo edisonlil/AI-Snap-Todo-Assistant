@@ -413,6 +413,18 @@ ColumnLayout {
         deleteTicketConfirmVisible = true
     }
 
+    function requestReopenSelectedTicket() {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0 || deleteTicketConfirmVisible) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        controlPanelBridge.reopenSelectedTicket()
+    }
+
     function cancelDeleteSelectedTicket() {
         deleteTicketConfirmVisible = false
     }
@@ -1089,6 +1101,13 @@ ColumnLayout {
                         theme: ticketSection.theme
                         label: "\u590d\u5236\u5de5\u5355"
                         onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id, true)
+                    }
+
+                    ControlPanelPlainButton {
+                        visible: controlPanelBridge.selectedTicket.status === "done"
+                        theme: ticketSection.theme
+                        label: "\u91cd\u65b0\u6253\u5f00"
+                        onClicked: ticketSection.requestReopenSelectedTicket()
                     }
 
                     ControlPanelPlainButton {

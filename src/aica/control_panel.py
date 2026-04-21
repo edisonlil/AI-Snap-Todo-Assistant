@@ -664,6 +664,7 @@ class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
     windowStateChanged = pyqtSignal()
+    todoListRefreshRequested = pyqtSignal()
     closeRequested = pyqtSignal()
     minimizeRequested = pyqtSignal()
     maximizeRequested = pyqtSignal()
@@ -1223,6 +1224,7 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket = self._build_ticket_detail_payload(todo)
         self._status_message = status_message
         self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
 
     def _load_ticket_payloads(self) -> list[dict[str, object]]:
         return [
@@ -1863,6 +1865,26 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
 
     @pyqtSlot()
+    def reopenSelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        reopened = self._todo_store.reopen_todo(todo.id)
+        if not reopened:
+            self._error_message = "\u91cd\u65b0\u6253\u5f00\u5de5\u5355\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        updated = self._todo_store.get_todo(todo.id)
+        if updated is None:
+            self._error_message = "\u5de5\u5355\u72b6\u6001\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(updated, status_message="\u5de5\u5355\u5df2\u91cd\u65b0\u6253\u5f00")
+
+    @pyqtSlot()
     def deleteSelectedTicket(self) -> None:
         if not self._selected_ticket_id:
             return
@@ -1880,6 +1902,7 @@ class _ControlPanelBridge(QObject):
         self._refresh_ticket_payloads()
         self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
         self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
 
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:
@@ -2117,6 +2140,7 @@ class _ControlPanelBridge(QObject):
 
 class ControlPanelWindow(QWidget):
     config_saved = pyqtSignal(object)
+    todo_list_refresh_requested = pyqtSignal()
 
     def __init__(self, config_manager: ConfigManager, parent=None) -> None:
         super().__init__(parent)
@@ -2139,6 +2163,7 @@ class ControlPanelWindow(QWidget):
         self._bridge.dragRequested.connect(self._start_system_move)
         self._bridge.resizeRequested.connect(self._start_system_resize)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
+        self._bridge.todoListRefreshRequested.connect(lambda: self.todo_list_refresh_requested.emit())
         self._sync_window_state()
 
     def _setup_ui(self) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import sys
 import tempfile
 from pathlib import Path
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import aica.control_panel as control_panel  # noqa: E402
 from aica.config import ConfigManager  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
-from aica.todo_models import TodoConclusion, TodoItem, TodoProjectLink  # noqa: E402
+from aica.todo_models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
 class _Clipboard:
@@ -28,12 +29,34 @@ class _FakeTodoStore:
         self._todo = todo
 
     def list_todos(self, *, query: str = "", status: str = "open") -> list[TodoItem]:
-        return [self._todo]
+        normalized_status = str(status or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
+        if normalized_status == "all":
+            return [self._todo]
+        if normalized_status == "done_missing_ach":
+            if self._todo.status == TodoStatus.DONE and not str(self._todo.summary_fields.ach_no or "").strip():
+                return [self._todo]
+            return []
+        if normalized_status == "today_done":
+            today = datetime.now().strftime("%Y-%m-%d")
+            if self._todo.status == TodoStatus.DONE and str(self._todo.completed_at or "").startswith(today):
+                return [self._todo]
+            return []
+        if str(self._todo.status or "").strip() == normalized_status:
+            return [self._todo]
+        return []
 
     def get_todo(self, todo_id: str) -> TodoItem | None:
         if todo_id == self._todo.id:
             return self._todo
         return None
+
+    def reopen_todo(self, todo_id: str) -> bool:
+        if todo_id != self._todo.id:
+            return False
+        self._todo.status = TodoStatus.OPEN
+        self._todo.completed_at = ""
+        self._todo.updated_at = "2026-04-21T10:00:00"
+        return True
 
     def relink_open_unresolved_todos(self) -> int:
         return 0
@@ -65,12 +88,9 @@ def _build_todo() -> TodoItem:
     )
 
 
-def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatch) -> None:
-    todo = _build_todo()
-    clipboard = _Clipboard()
+def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_panel._ControlPanelBridge:
     temp_dir = Path(tempfile.mkdtemp(prefix="control-panel-", dir=Path.cwd()))
 
-    monkeypatch.setattr(control_panel.QApplication, "clipboard", lambda: clipboard)
     monkeypatch.setattr(control_panel, "AnalysisMetricsStore", lambda: SimpleNamespace())
     monkeypatch.setattr(
         control_panel,
@@ -87,7 +107,15 @@ def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(control_panel, "aica_database_file", lambda: temp_dir / "aica.db")
     monkeypatch.setattr(control_panel, "integrations_file", lambda: temp_dir / "integrations.json")
 
-    bridge = control_panel._ControlPanelBridge(ConfigManager(str(temp_dir / "config.json")))
+    return control_panel._ControlPanelBridge(ConfigManager(str(temp_dir / "config.json")))
+
+
+def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    clipboard = _Clipboard()
+
+    monkeypatch.setattr(control_panel.QApplication, "clipboard", lambda: clipboard)
+    bridge = _build_bridge(monkeypatch, todo)
     bridge._status_message = "should be cleared"
 
     bridge.copyTicket(todo.id)
@@ -95,3 +123,36 @@ def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatc
     assert "copy ticket test" in clipboard.text
     assert bridge.statusMessage == ""
     assert bridge.errorMessage == ""
+
+
+def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    todo.status = TodoStatus.DONE
+    todo.completed_at = "2026-04-21T09:30:00"
+    todo.updated_at = todo.completed_at
+
+    bridge = _build_bridge(monkeypatch, todo)
+    refresh_events: list[str] = []
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    bridge.listTickets("", "done")
+    bridge.openTicketDetail(todo.id)
+    bridge.reopenSelectedTicket()
+
+    assert bridge.ticketStatusFilter == "done"
+    assert bridge.selectedTicket["id"] == todo.id
+    assert bridge.selectedTicket["status"] == TodoStatus.OPEN
+    assert bridge.selectedTicket["statusLabel"] == "进行中"
+    assert bridge.selectedTicket["completedAt"] == ""
+    assert bridge.selectedTicket["completedAtLabel"] == ""
+    assert bridge.statusMessage == "工单已重新打开"
+    assert bridge.errorMessage == ""
+    assert bridge.tickets == []
+    assert refresh_events == ["refresh"]
+
+    bridge.backToTicketList()
+
+    assert bridge.selectedTicket["id"] == ""
+    assert bridge.tickets == []

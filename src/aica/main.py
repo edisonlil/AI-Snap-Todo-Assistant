@@ -810,6 +810,7 @@ def main() -> None:
         log_analysis_orchestrator.update_app_config(saved_config)
 
     control_panel.config_saved.connect(_on_control_panel_saved)
+    control_panel.todo_list_refresh_requested.connect(_refresh_todo_panel)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
     toolbar.summarize_clicked.connect(_on_summarize)
     toolbar.continue_capture_clicked.connect(_on_continue_capture)
