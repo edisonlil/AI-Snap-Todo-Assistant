@@ -1490,7 +1490,7 @@ ColumnLayout {
                                             compact: ticketSection.detailGridColumns === 1
                                             actionVisible: true
                                             actionBusy: ticketSection.activeActionField === "featurePoint"
-                                            actionIconSource: Qt.resolvedUrl("../../../assets/feature-point-refresh.svg")
+                                            actionIconSource: controlPanelBridge.refreshFeaturePointIconSource
                                             draftValue: ticketSection.getFieldDraft("featurePoint")
                                             
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")

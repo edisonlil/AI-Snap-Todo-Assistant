@@ -1,12 +1,11 @@
 """Frameless loading dialog shown during screenshot analysis."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QMovie
 from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout
 
+from aica.paths import asset_file
 from aica.runtime import RUNTIME_CAPABILITIES
 
 
@@ -122,7 +121,7 @@ class LoadingDialog(QDialog):
             % RUNTIME_CAPABILITIES.widget_font_css
         )
 
-        movie_path = Path(__file__).resolve().parents[2] / "assets" / "aica_loading.gif"
+        movie_path = asset_file("aica_loading.gif")
         if movie_path.exists():
             self._movie = QMovie(str(movie_path))
             self._movie.setScaledSize(self._gif_label.size())

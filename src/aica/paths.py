@@ -150,6 +150,14 @@ def runtime_root() -> Path:
     return Path(getattr(sys, "_MEIPASS", project_root()))
 
 
+def assets_dir() -> Path:
+    return runtime_root() / "assets"
+
+
+def asset_file(name: str) -> Path:
+    return assets_dir() / name
+
+
 def qml_dir() -> Path:
     if hasattr(sys, "_MEIPASS"):
         return runtime_root() / "aica" / "qml"
@@ -158,17 +166,17 @@ def qml_dir() -> Path:
 
 def icon_file(platform_id: str | None = None, *, dark_mode: bool = False) -> Path:
     platform_id = platform_id or current_platform()
-    assets_dir = runtime_root() / "assets"
+    bundled_assets_dir = assets_dir()
     if platform_id == PLATFORM_MACOS:
         if dark_mode:
-            candidate = assets_dir / "aica_icon_dark.icns"
+            candidate = bundled_assets_dir / "aica_icon_dark.icns"
             if candidate.exists():
                 return candidate
-        candidate = assets_dir / "aica_icon.icns"
+        candidate = bundled_assets_dir / "aica_icon.icns"
         if candidate.exists():
             return candidate
     if platform_id == PLATFORM_WINDOWS:
-        candidate = assets_dir / "aica_icon.ico"
+        candidate = bundled_assets_dir / "aica_icon.ico"
         if candidate.exists():
             return candidate
-    return assets_dir / "aica_icon.png"
+    return bundled_assets_dir / "aica_icon.png"

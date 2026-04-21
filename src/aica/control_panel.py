@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
-from pathlib import Path
 import sys
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -263,6 +262,7 @@ from aica.project_management import (
 )
 from aica.paths import (
     aica_database_file,
+    asset_file,
     app_data_dir,
     analysis_rules_file,
     config_file,
@@ -748,7 +748,11 @@ class _ControlPanelBridge(QObject):
 
     @pyqtProperty(str, constant=True)
     def logoSource(self) -> str:
-        return (Path(__file__).resolve().parents[2] / "assets" / "aica_icon.png").as_uri()
+        return asset_file("aica_icon.png").as_uri()
+
+    @pyqtProperty(str, constant=True)
+    def refreshFeaturePointIconSource(self) -> str:
+        return asset_file("feature-point-refresh.svg").as_uri()
 
     @pyqtProperty(str, constant=True)
     def integrationScriptFilter(self) -> str:

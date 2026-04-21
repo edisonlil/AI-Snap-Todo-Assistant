@@ -206,6 +206,17 @@ def test_refresh_selected_ticket_feature_point_pushes_error_notification(
     assert _notification_messages(bridge)[-1] == "缺少产品线，无法刷新功能点。"
 
 
+def test_logo_source_uses_runtime_asset_uri(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    asset_path = Path.cwd() / "assets" / "aica_icon.png"
+    bridge = _build_bridge(monkeypatch, todo)
+
+    monkeypatch.setattr(control_panel, "asset_file", lambda _name: asset_path)
+
+    assert bridge.logoSource == asset_path.as_uri()
+    assert bridge.refreshFeaturePointIconSource == asset_path.as_uri()
+
+
 def test_delete_selected_ticket_pushes_success_notification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

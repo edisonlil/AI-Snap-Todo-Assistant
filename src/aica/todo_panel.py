@@ -1,13 +1,12 @@
 """QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import QObject, QRect, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
+from .paths import asset_file
 from .runtime import RUNTIME_CAPABILITIES
 from .todo_store import TodoItem
 
@@ -106,7 +105,7 @@ class _TodoPanelBridge(QObject):
 
     @pyqtProperty(str, constant=True)
     def logoSource(self) -> str:
-        return (Path(__file__).resolve().parents[2] / "assets" / "aica_icon.png").as_uri()
+        return asset_file("aica_icon.png").as_uri()
 
     def set_state(self, todos: list[TodoItem], selected_id: str | None) -> None:
         self._todos = [
