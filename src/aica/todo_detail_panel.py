@@ -320,6 +320,8 @@ _DRAFT_TIMELINE_ATTACHMENT_TARGET = "__draft_timeline__"
 _ENTRY_TYPE_FOLLOW_UP = "follow_up"
 _ENTRY_TYPE_CONCLUSION = "conclusion"
 _ENTRY_TYPE_LOG_ANALYSIS = "log_analysis"
+_SAVE_MODE_AUTOSAVE = "autosave"
+_SAVE_MODE_MANUAL = "manual"
 _TIMELINE_EVENT_TYPE_DEFAULT = "default"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND = "log_analysis_command"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT = "log_analysis_result"
@@ -1845,7 +1847,7 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot()
     def saveTodo(self) -> None:
         self.timelineChanged.emit()
-        self._emit_save_request()
+        self._emit_save_request(save_mode=_SAVE_MODE_MANUAL)
 
     @pyqtSlot()
     def copyExternalId(self) -> None:
@@ -1987,10 +1989,11 @@ class _TodoDetailBridge(QObject):
         self._draft_timeline_attachments = attachments
         self.dataChanged.emit()
 
-    def _emit_save_request(self) -> None:
+    def _emit_save_request(self, *, save_mode: str = _SAVE_MODE_AUTOSAVE) -> None:
         payload = self._build_payload()
         if self._todo_id is None or payload is None:
             return
+        payload["saveMode"] = _SAVE_MODE_MANUAL if save_mode == _SAVE_MODE_MANUAL else _SAVE_MODE_AUTOSAVE
         self.saveRequested.emit(self._todo_id, payload)
 
     def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str) -> None:

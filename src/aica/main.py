@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+import uuid
 
 from PyQt6.QtCore import QRect, QTimer, Qt
 from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
@@ -33,7 +34,14 @@ from aica.paths import error_log_file, icon_file
 from aica.result_flow import ResultFlowCoordinator
 from aica.runtime import RUNTIME_CAPABILITIES, hotkey_failure_message
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
-from aica.ticket_enrichment import TicketEnrichmentService, build_feature_point_provider
+from aica.ticket_enrichment import (
+    TicketEnrichmentService,
+    build_feature_point_provider,
+    build_ticket_enrichment_job,
+    is_ticket_enrichment_job_still_current,
+    merge_async_enrichment_fields,
+)
+from aica.ticket_enrichment_worker import TicketEnrichmentWorker
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
 from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
@@ -120,6 +128,10 @@ def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyMa
         return HotkeyManager(default_hotkey, platform_id=RUNTIME_CAPABILITIES.platform_id)
 
 
+def _should_run_ticket_enrichment_for_todo_detail_save(save_mode: object) -> bool:
+    return str(save_mode or "").strip().lower() == "manual"
+
+
 def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) -> Exception | None:
     try:
         hotkey_mgr.start()
@@ -178,6 +190,8 @@ def main() -> None:
     plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
+    ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
+    pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -396,6 +410,63 @@ def main() -> None:
             llm_service=llm_service,
         )
 
+    def _cleanup_ticket_enrichment_worker(worker: TicketEnrichmentWorker) -> None:
+        if worker in ticket_enrichment_workers:
+            ticket_enrichment_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_ticket_enrichment_finished(todo_id: str, request_id: str, outcome: object) -> None:
+        pending = pending_ticket_enrichment_jobs.get(todo_id)
+        if pending is None or pending[0] != request_id:
+            return
+        _, job = pending
+        pending_ticket_enrichment_jobs.pop(todo_id, None)
+        current_todo = todo_store.get_todo(todo_id)
+        if current_todo is None or not is_ticket_enrichment_job_still_current(current_todo, job):
+            return
+        enriched_fields = TicketSummaryFields.from_dict(
+            getattr(outcome, "summary_fields", current_todo.summary_fields).to_dict()
+        )
+        merged_fields = merge_async_enrichment_fields(
+            current_fields=current_todo.summary_fields,
+            enriched_fields=enriched_fields,
+        )
+        if merged_fields.to_dict() == current_todo.summary_fields.to_dict():
+            return
+        updated = todo_controller.update_todo(
+            todo_id,
+            summary_fields=merged_fields,
+            run_enrichment=False,
+        )
+        if updated is None:
+            return
+        if todo_controller.detail_todo_id == todo_id:
+            _show_todo_detail(todo_id)
+        _refresh_todo_panel()
+
+    def _on_ticket_enrichment_error(todo_id: str, request_id: str, _message: str) -> None:
+        pending = pending_ticket_enrichment_jobs.get(todo_id)
+        if pending is not None and pending[0] == request_id:
+            pending_ticket_enrichment_jobs.pop(todo_id, None)
+
+    def _start_ticket_enrichment(previous_todo, current_todo) -> None:
+        if previous_todo is None or current_todo is None:
+            return
+        request_id = str(uuid.uuid4())
+        job = build_ticket_enrichment_job(previous_todo=previous_todo, current_todo=current_todo)
+        pending_ticket_enrichment_jobs[current_todo.id] = (request_id, job)
+        worker = TicketEnrichmentWorker(
+            enrichment_service=_build_ticket_enrichment_service(config_mgr.load()),
+            request_id=request_id,
+            job=job,
+        )
+        ticket_enrichment_workers.append(worker)
+        worker.finished.connect(_on_ticket_enrichment_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _outcome, current=worker: _cleanup_ticket_enrichment_worker(current))
+        worker.error.connect(_on_ticket_enrichment_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_ticket_enrichment_worker(current))
+        worker.start()
+
     def _on_plan_export_finished(export_path: str) -> None:
         sender = app.sender()
         if isinstance(sender, PlanExportWorker):
@@ -576,7 +647,8 @@ def main() -> None:
     def _on_todo_detail_saved(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):
             return
-        todo_controller.set_enrichment_service(_build_ticket_enrichment_service(config_mgr.load()))
+        previous_todo = todo_store.get_todo(todo_id)
+        save_mode = payload.get("saveMode")
         summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
         conclusion_payload = payload.get("conclusion")
         conclusion = (
@@ -592,9 +664,12 @@ def main() -> None:
             summary_fields=summary_fields,
             timeline=timeline_payload,
             conclusion=conclusion,
+            run_enrichment=False,
         )
         if updated is None:
             return
+        if _should_run_ticket_enrichment_for_todo_detail_save(save_mode):
+            _start_ticket_enrichment(previous_todo, updated)
         todo_detail_panel.show_todo(
             updated,
             todo_panel.frameGeometry(),

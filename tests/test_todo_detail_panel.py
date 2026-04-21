@@ -177,6 +177,34 @@ def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> 
     assert bridge.conclusionAttachments[1]["path"] == "/final/__conclusion__/report.txt"
 
 
+def test_timeline_entry_save_requests_use_autosave_mode() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.addTimelineEntry("follow up", "follow_up")
+
+    assert len(saved) == 1
+    assert saved[0][0] == "todo-1"
+    assert saved[0][1]["saveMode"] == "autosave"
+
+
+def test_manual_save_requests_use_manual_mode() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.saveTodo()
+
+    assert len(saved) == 1
+    assert saved[0][0] == "todo-1"
+    assert saved[0][1]["saveMode"] == "manual"
+
+
 def test_removing_draft_attachment_does_not_touch_existing_event_attachments(monkeypatch) -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())

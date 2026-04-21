@@ -172,6 +172,17 @@ class EnrichmentOutcome:
     errors: list[str]
 
 
+@dataclass(frozen=True)
+class TicketEnrichmentJob:
+    todo_id: str
+    previous_fields: TicketSummaryFields
+    current_fields: TicketSummaryFields
+    previous_problem_desc: str
+    current_problem_desc: str
+    previous_conclusion: str
+    current_conclusion: str
+
+
 class TicketEnrichmentService:
     def __init__(
         self,
@@ -380,6 +391,48 @@ class TicketEnrichmentService:
             return ""
         normalized = _normalize_llm_text(result, limit=120)
         return _match_root_cause_option(normalized)
+
+
+def build_ticket_enrichment_job(*, previous_todo, current_todo) -> TicketEnrichmentJob:
+    return TicketEnrichmentJob(
+        todo_id=sanitize_text(getattr(current_todo, "id", "")),
+        previous_fields=TicketSummaryFields.from_dict(getattr(previous_todo, "summary_fields").to_dict()),
+        current_fields=TicketSummaryFields.from_dict(getattr(current_todo, "summary_fields").to_dict()),
+        previous_problem_desc=sanitize_text(getattr(previous_todo, "current_summary", "")),
+        current_problem_desc=sanitize_text(getattr(current_todo, "current_summary", "")),
+        previous_conclusion=sanitize_text(getattr(getattr(previous_todo, "conclusion", None), "content", "")),
+        current_conclusion=sanitize_text(getattr(getattr(current_todo, "conclusion", None), "content", "")),
+    )
+
+
+def is_ticket_enrichment_job_still_current(todo, job: TicketEnrichmentJob) -> bool:
+    if sanitize_text(getattr(todo, "id", "")) != sanitize_text(job.todo_id):
+        return False
+    current_fields = getattr(todo, "summary_fields", TicketSummaryFields())
+    current_product_line = sanitize_text(getattr(current_fields, "product_line", ""))
+    return (
+        sanitize_text(getattr(todo, "current_summary", "")) == sanitize_text(job.current_problem_desc)
+        and sanitize_text(getattr(getattr(todo, "conclusion", None), "content", "")) == sanitize_text(job.current_conclusion)
+        and current_product_line == sanitize_text(job.current_fields.product_line)
+    )
+
+
+def merge_async_enrichment_fields(
+    *,
+    current_fields: TicketSummaryFields,
+    enriched_fields: TicketSummaryFields,
+) -> TicketSummaryFields:
+    merged = TicketSummaryFields.from_dict(current_fields.to_dict())
+    if merged.feature_point_source != "manual":
+        merged.feature_point = enriched_fields.feature_point
+        merged.feature_point_source = enriched_fields.feature_point_source
+    if merged.root_cause_desc_source != "manual":
+        merged.root_cause_desc = enriched_fields.root_cause_desc
+        merged.root_cause_desc_source = enriched_fields.root_cause_desc_source
+    if merged.root_cause_source != "manual" and merged.root_cause_desc_source != "manual":
+        merged.root_cause = enriched_fields.root_cause
+        merged.root_cause_source = enriched_fields.root_cause_source
+    return merged
 
 
 def _extract_feature_point_value(payload: object) -> str:

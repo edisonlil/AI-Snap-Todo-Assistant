@@ -209,6 +209,7 @@ class TodoController:
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
         conclusion: TodoConclusion | None = None,
+        run_enrichment: bool = True,
     ) -> TodoItem | None:
         existing = self._store.get_todo(todo_id)
         if existing is None:
@@ -230,7 +231,7 @@ class TodoController:
         resolved_timeline = timeline if timeline is not None else existing.timeline
         resolved_conclusion = conclusion if conclusion is not None else existing.conclusion
 
-        if self._enrichment_service is not None:
+        if run_enrichment and self._enrichment_service is not None:
             enrichment = self._enrichment_service.enrich_for_update(
                 previous_fields=existing.summary_fields,
                 current_fields=resolved_summary,
