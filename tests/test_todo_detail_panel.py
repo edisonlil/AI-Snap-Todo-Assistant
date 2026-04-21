@@ -7,7 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _resolve_neighbor_panel_x, _StageSummaryWindow, _TodoDetailBridge
+from aica.todo_detail_panel import TodoDetailPanel, _resolve_neighbor_panel_x, _StageSummaryWindow, _TodoDetailBridge
 from aica.todo_models import TodoConclusion, TodoItem
 
 
@@ -18,6 +18,17 @@ def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
             list_project_environments=lambda _project_id: [],
         ),
     )
+
+
+def _build_panel(monkeypatch) -> TodoDetailPanel:
+    monkeypatch.setattr(
+        "aica.todo_detail_panel.SQLiteProjectEnvironmentRepository",
+        lambda: SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+            get_access_entry=lambda _entry_id: None,
+        ),
+    )
+    return TodoDetailPanel()
 
 
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:
@@ -430,6 +441,114 @@ def test_stage_summary_window_manual_resize_persists_until_hidden(monkeypatch) -
 
     assert window.width() == 443
     assert window.height() == 500
+
+
+def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _StageSummaryWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 500 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 650,
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.setPosition(720, 260)
+    window._manual_position_override = True  # noqa: SLF001
+    window.update_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.x() == 720
+    assert window.y() == 260
+
+    window.hide()
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.x() == 650
+    assert window.y() == 204
+
+
+def test_show_todo_preserve_position_keeps_current_location(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel.setPosition(222, 333)
+
+    reposition_calls: list[object] = []
+    move_calls: list[tuple[int, int, object]] = []
+
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(panel, "_reposition", lambda anchor_rect=None: reposition_calls.append(anchor_rect))
+    monkeypatch.setattr(panel, "_move_within_screen", lambda x, y, screen: move_calls.append((x, y, screen)))
+
+    panel.show_todo(_build_todo(), preserve_position=True)
+
+    assert reposition_calls == []
+    assert move_calls == [(222, 333, "screen-token")]
+
+
+def test_show_todo_preserve_position_clamps_current_location_within_screen(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel.setPosition(1400, 900)
+    available = _FakeAvailableGeometry(width=800, height=900)
+
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        panel,
+        "_reposition",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not reposition")),
+    )
+
+    panel.show_todo(_build_todo(), preserve_position=True)
+
+    assert panel.x() == 383
+    assert panel.y() == 155
+
+
+def test_show_todo_repositions_when_position_is_not_preserved(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    anchor_rect = SimpleNamespace(center=lambda: object())
+
+    reposition_calls: list[object] = []
+    move_calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(panel, "_reposition", lambda rect=None: reposition_calls.append(rect))
+    monkeypatch.setattr(panel, "_move_within_screen", lambda *args: move_calls.append(args))
+
+    panel.show_todo(_build_todo(), anchor_rect=anchor_rect, preserve_position=True)
+
+    assert reposition_calls == [anchor_rect]
+    assert move_calls == []
 
 
 def test_resolve_neighbor_panel_x_prefers_side_with_more_space() -> None:

@@ -678,6 +678,7 @@ def main() -> None:
                 todo_id,
                 [event.id for event in updated.timeline],
             ),
+            preserve_position=True,
         )
         _refresh_todo_panel()
 

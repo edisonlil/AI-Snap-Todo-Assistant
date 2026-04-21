@@ -2553,6 +2553,7 @@ class _StageSummaryWindow(QQuickView):
         self._top_offset = 0
         self._pinned = False
         self._manual_size_override = False
+        self._manual_position_override = False
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -2655,6 +2656,7 @@ class _StageSummaryWindow(QQuickView):
         self._drag_active = True
         self._drag_offset_x = max(0, int(offset_x))
         self._drag_offset_y = max(0, int(offset_y))
+        self._manual_position_override = True
 
     @pyqtSlot()
     def updatePanelDrag(self) -> None:
@@ -2735,7 +2737,11 @@ class _StageSummaryWindow(QQuickView):
             width = self._panel_width
             height = self._preferred_panel_height(available.height())
         self.resize(width, height)
-        self._move_within_screen(x, y, screen)
+        if self._manual_position_override and self.isVisible():
+            current_screen = _screen_for_point(QPoint(self.x(), self.y()))
+            self._move_within_screen(self.x(), self.y(), current_screen or screen)
+        else:
+            self._move_within_screen(x, y, screen)
 
         is_visible_method = getattr(self, "isVisible", None)
         is_visible = bool(is_visible_method()) if callable(is_visible_method) else False
@@ -2748,6 +2754,7 @@ class _StageSummaryWindow(QQuickView):
 
     def hide(self) -> None:
         self._manual_size_override = False
+        self._manual_position_override = False
         super().hide()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
@@ -2933,12 +2940,19 @@ class TodoDetailPanel(QQuickView):
         anchor_rect=None,
         sync_records: list[dict[str, object]] | None = None,
         task_status_map: dict[str, dict[str, object]] | None = None,
+        preserve_position: bool = False,
     ) -> None:
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
         self.resize(self._panel_width, self._panel_height)
-        self._reposition(anchor_rect)
+        if preserve_position and self.isVisible():
+            screen = _screen_for_point(QPoint(self.x(), self.y()))
+            if screen is None:
+                screen = _virtual_available_geometry()
+            self._move_within_screen(self.x(), self.y(), screen)
+        else:
+            self._reposition(anchor_rect)
         self.show()
         self.raise_()
         self.requestActivate()
