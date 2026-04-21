@@ -2,8 +2,8 @@ import QtQuick
 
 Item {
     id: root
-    width: notificationCenter.implicitWidth + 24
-    height: notificationCenter.implicitHeight + 24
+    width: 360
+    height: 420
     implicitWidth: width
     implicitHeight: height
 

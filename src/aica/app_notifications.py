@@ -246,8 +246,8 @@ if _QT_RUNTIME_AVAILABLE:
                 self.hide()
                 return
 
-            width = int(root.property("implicitWidth") or root.property("width") or 360)
-            height = int(root.property("implicitHeight") or root.property("height") or 120)
+            width = int(root.property("width") or root.property("implicitWidth") or 360)
+            height = int(root.property("height") or root.property("implicitHeight") or 420)
             self.resize(width, height)
 
             screen = self._target_screen()

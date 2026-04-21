@@ -12,36 +12,89 @@ Item {
     width: implicitWidth
     height: implicitHeight
 
+    function _indexOfNotification(notificationId) {
+        for (var index = 0; index < displayModel.count; index += 1) {
+            if (displayModel.get(index).id === notificationId) {
+                return index
+            }
+        }
+        return -1
+    }
+
+    function syncNotifications() {
+        var source = bridge ? (bridge.notifications || []) : []
+
+        for (var removeIndex = displayModel.count - 1; removeIndex >= 0; removeIndex -= 1) {
+            var existingId = displayModel.get(removeIndex).id
+            var stillExists = false
+            for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+                if (source[sourceIndex].id === existingId) {
+                    stillExists = true
+                    break
+                }
+            }
+            if (!stillExists) {
+                displayModel.remove(removeIndex)
+            }
+        }
+
+        for (var updateIndex = 0; updateIndex < displayModel.count && updateIndex < source.length; updateIndex += 1) {
+            displayModel.set(updateIndex, source[updateIndex])
+        }
+
+        for (var appendIndex = displayModel.count; appendIndex < source.length; appendIndex += 1) {
+            displayModel.append(source[appendIndex])
+        }
+    }
+
+    ListModel {
+        id: displayModel
+    }
+
+    Connections {
+        target: bridge
+
+        function onNotificationsChanged() {
+            root.syncNotifications()
+        }
+    }
+
+    Component.onCompleted: syncNotifications()
+
     ListView {
         id: stackView
         anchors.fill: parent
-        anchors.rightMargin: 0
-        anchors.bottomMargin: 0
         width: root.maxCardWidth
         height: contentHeight
-        model: root.bridge ? root.bridge.notifications : []
+        model: displayModel
         interactive: false
         clip: false
         spacing: root.cardSpacing
-        verticalLayoutDirection: ListView.BottomToTop
+        verticalLayoutDirection: ListView.TopToBottom
         boundsBehavior: Flickable.StopAtBounds
 
         add: Transition {
-            ParallelAnimation {
-                NumberAnimation {
-                    properties: "opacity,y"
-                    from: 0
-                    to: 1
-                    duration: 180
-                    easing.type: Easing.OutCubic
-                }
+            NumberAnimation {
+                properties: "opacity"
+                from: 0
+                to: 1
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        addDisplaced: Transition {
+            NumberAnimation {
+                properties: "y"
+                duration: 220
+                easing.type: Easing.OutCubic
             }
         }
 
         displaced: Transition {
             NumberAnimation {
                 properties: "y"
-                duration: 180
+                duration: 220
                 easing.type: Easing.OutCubic
             }
         }
@@ -49,31 +102,29 @@ Item {
         move: Transition {
             NumberAnimation {
                 properties: "y"
-                duration: 180
+                duration: 0
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        removeDisplaced: Transition {
+            NumberAnimation {
+                properties: "y"
+                duration: 220
                 easing.type: Easing.OutCubic
             }
         }
 
         remove: Transition {
-            ParallelAnimation {
-                NumberAnimation {
-                    properties: "opacity"
-                    to: 0
-                    duration: 220
-                    easing.type: Easing.OutCubic
-                }
-                NumberAnimation {
-                    properties: "y"
-                    to: -8
-                    duration: 220
-                    easing.type: Easing.OutCubic
-                }
+            NumberAnimation {
+                properties: "opacity"
+                to: 0
+                duration: 260
+                easing.type: Easing.OutCubic
             }
         }
 
         delegate: Item {
-            id: notificationItem
-            required property var modelData
             width: stackView.width
             implicitHeight: cardShell.implicitHeight
             height: implicitHeight
@@ -81,20 +132,11 @@ Item {
             Rectangle {
                 id: cardShell
                 width: parent.width
-                implicitHeight: Math.max(70, contentColumn.implicitHeight + 22)
+                implicitHeight: Math.max(70, contentColumn.implicitHeight + 24)
                 radius: 18
                 color: "#FFFFFF"
                 border.width: 1
                 border.color: "#E5E7EB"
-
-                Rectangle {
-                    width: 1
-                    color: "#F3F4F6"
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    visible: false
-                }
 
                 Column {
                     id: contentColumn
@@ -113,13 +155,13 @@ Item {
                             radius: 4
                             anchors.verticalCenter: parent.verticalCenter
                             color: {
-                                if (modelData.level === "error") {
+                                if (level === "error") {
                                     return "#B42318"
                                 }
-                                if (modelData.level === "warning") {
+                                if (level === "warning") {
                                     return "#B7791F"
                                 }
-                                if (modelData.level === "success") {
+                                if (level === "success") {
                                     return "#17663A"
                                 }
                                 return "#4A5565"
@@ -128,13 +170,13 @@ Item {
 
                         Text {
                             text: {
-                                if (modelData.level === "error") {
+                                if (level === "error") {
                                     return "错误"
                                 }
-                                if (modelData.level === "warning") {
+                                if (level === "warning") {
                                     return "提醒"
                                 }
-                                if (modelData.level === "success") {
+                                if (level === "success") {
                                     return "完成"
                                 }
                                 return "通知"
@@ -148,7 +190,7 @@ Item {
 
                     Text {
                         width: parent.width
-                        text: String(modelData.message || "")
+                        text: String(message || "")
                         color: "#4A5565"
                         font.family: root.uiFont
                         font.pixelSize: 13
