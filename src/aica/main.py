@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSyst
 from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.analysis_metrics import AnalysisMetricsStore
 from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
+from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
@@ -109,13 +110,6 @@ def _setup_exception_handler() -> Path:
     return log_file
 
 
-def _format_ts(value: str) -> str:
-    try:
-        return datetime.fromisoformat(value).strftime("%m-%d %H:%M")
-    except ValueError:
-        return value
-
-
 def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyManager:
     default_hotkey = RUNTIME_CAPABILITIES.default_capture_hotkey
     try:
@@ -146,6 +140,20 @@ def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) ->
         return exc
 
 
+def _show_build_expired_message(now: datetime | None = None) -> None:
+    QMessageBox.critical(
+        None,
+        "版本支持到期,请重新下载使用",
+        build_expiration_message(now=now),
+    )
+
+
+def _build_is_expired(now: datetime | None = None) -> bool:
+    if not should_enforce_build_expiration():
+        return False
+    return get_build_expiration_status(now=now).expired
+
+
 def main() -> None:
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
@@ -166,6 +174,11 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(False)
     app.setFont(QFont(RUNTIME_CAPABILITIES.ui_font))
     _append_startup_log(startup_log_file, "startup: QApplication ready")
+
+    if _build_is_expired():
+        _append_startup_log(startup_log_file, "startup: packaged build expired")
+        _show_build_expired_message()
+        return
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
@@ -285,57 +298,6 @@ def main() -> None:
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
             task_status_map=log_analysis_store.list_task_status_by_timeline_ids(todo_id, timeline_ids),
-        )
-
-    def _build_selected_todo_context() -> str:
-        todo = todo_controller.get_selected_todo()
-        if todo is None:
-            return ""
-        timeline_lines = [
-            f"- {_format_ts(event.timestamp)} {event.content}"
-            for event in todo.timeline[-5:]
-            if event.content.strip()
-        ]
-        evidence_lines = []
-        return (
-            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
-            "请重点根据当前这张新截图提炼新增信息。\n"
-            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
-            "请把本次新增进展写入 timeline_entry，把参数、日志、TraceId、URL 等排查依据写入 evidence_items。\n\n"
-            f"待办标题: {todo.title}\n"
-            f"群聊名称: {todo.summary_fields.group_name}\n"
-            f"环境: {todo.summary_fields.environment}\n"
-            f"产品线: {todo.summary_fields.product_line}\n"
-            f"工单类型: {todo.summary_fields.ticket_type}\n"
-            f"当前摘要: {todo.current_summary}\n"
-            "最近时间线:\n"
-            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
-            + "\n关键证据:\n"
-            + ("\n".join(evidence_lines) if evidence_lines else "- 暂无")
-        )
-
-    def _build_selected_todo_context() -> str:
-        todo = todo_controller.get_selected_todo()
-        if todo is None:
-            return ""
-        timeline_lines = [
-            f"- {_format_ts(event.timestamp)} {event.content}"
-            for event in todo.timeline[-5:]
-            if event.content.strip()
-        ]
-        return (
-            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
-            "请重点根据当前这张新截图提炼新增信息。\n"
-            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
-            "请把本次新增进展写入 timeline_entry，如果有参数、日志、TraceId、URL 等细节，也直接写在 timeline_entry 里。\n\n"
-            f"待办标题: {todo.title}\n"
-            f"群聊名称: {todo.summary_fields.group_name}\n"
-            f"环境: {todo.summary_fields.environment}\n"
-            f"产品线: {todo.summary_fields.product_line}\n"
-            f"工单类型: {todo.summary_fields.ticket_type}\n"
-            f"当前摘要: {todo.current_summary}\n"
-            "最近时间线:\n"
-            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
         )
 
     def _build_selected_todo_context() -> object:
@@ -624,9 +586,6 @@ def main() -> None:
         capture_session.active_overlay.clear_annotations()
         _sync_capture_from_active_overlay()
 
-    def _on_scenario_changed(scenario_name: str) -> None:
-        _ = scenario_name
-
     def _on_todo_selected(todo_id: str) -> None:
         todo_controller.toggle_selected_todo(todo_id)
         _refresh_todo_panel()
@@ -820,7 +779,6 @@ def main() -> None:
     toolbar.continue_capture_clicked.connect(_on_continue_capture)
     toolbar.copy_clicked.connect(_on_copy_capture)
     toolbar.cancel_clicked.connect(_on_cancel)
-    toolbar.scenario_changed.connect(_on_scenario_changed)
     toolbar.edit_mode_changed.connect(_on_edit_mode_changed)
     toolbar.undo_clicked.connect(_on_undo_annotation)
     toolbar.clear_annotations_clicked.connect(_on_clear_annotations)

@@ -6,7 +6,7 @@ from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
-from .paths import asset_file
+from .paths import asset_file, qml_dir
 from .runtime import RUNTIME_CAPABILITIES
 from .todo_store import TodoItem
 
@@ -205,7 +205,7 @@ class TodoPanel(QQuickView):
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
-        self.setSource(QUrl.fromLocalFile(str(Path(__file__).with_name("qml").joinpath("TodoPanel.qml"))))
+        self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TodoPanel.qml")))
 
         self._bridge.todoSelected.connect(self.todo_selected)
         self._bridge.todoCompleted.connect(self.todo_completed)
