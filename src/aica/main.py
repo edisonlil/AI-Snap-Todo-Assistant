@@ -764,8 +764,8 @@ def main() -> None:
         _show_todo_detail(todo_id)
         _refresh_todo_panel()
 
-    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str) -> None:
-        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text)
+    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str, notice: str) -> None:
+        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text, notice)
 
     def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
@@ -781,7 +781,7 @@ def main() -> None:
         )
         stage_summary_workers.append(worker)
         worker.finished.connect(_on_stage_summary_finished)
-        worker.finished.connect(lambda _todo_id, _request_id, _text, current=worker: _cleanup_stage_summary_worker(current))
+        worker.finished.connect(lambda _todo_id, _request_id, _text, _notice, current=worker: _cleanup_stage_summary_worker(current))
         worker.error.connect(_on_stage_summary_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
         worker.start()

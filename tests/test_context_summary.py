@@ -15,7 +15,7 @@ from aica.log_analysis_commands import parse_log_analysis_command
 from aica.log_analysis_context import summarize_investigation_context
 from aica.models import TicketSummaryFields
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
-from aica.worker import StageSummaryWorker
+from aica.worker import StageSummaryWorker, _rewrite_stage_summary_locally, _stage_summary_rewrite_instruction
 
 
 class _FailingAgent:
@@ -206,7 +206,7 @@ def test_summarize_investigation_context_uses_shared_summary_mapping() -> None:
     assert any(item == "request_id=req-1" for item in result.current_focus)
 
 
-def test_timeline_rollup_prompt_forbids_expansion_and_requires_fixed_sections() -> None:
+def test_timeline_rollup_prompt_forbids_expansion_and_does_not_fix_template() -> None:
     todo = _build_todo()
     request = build_context_summary_request_for_todo(
         todo,
@@ -424,3 +424,52 @@ def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> No
     assert "不确定表述必须保留" in messages[1].content
     assert "Markdown" in messages[0].content
     assert "Markdown 结构" in messages[1].content
+
+def test_stage_summary_default_polish_preset_is_available() -> None:
+    instruction = _stage_summary_rewrite_instruction("polish", "")
+
+    assert "重新梳理" in instruction
+
+
+def test_stage_summary_local_polish_fallback_preserves_markdown_text() -> None:
+    current_text = (
+        "### 阶段现状\n"
+        "客户反馈接口偶发 500\n\n"
+        "### 当前结论\n"
+        "暂无明确结论\n\n"
+        "### 已发生进展\n"
+        "- 已收集 request_id=req-1\n"
+        "- 已完成日志分析\n\n"
+        "### 待确认事项\n"
+        "- 待确认是否与权限有关"
+    )
+
+    rewritten = _rewrite_stage_summary_locally(current_text, "polish", "")
+
+    assert "### 阶段现状" in rewritten
+    assert "### 当前结论" in rewritten
+    assert "### 已发生进展" in rewritten
+    assert "### 待确认事项" in rewritten
+    assert "客户反馈接口偶发 500" in rewritten
+
+
+def test_stage_summary_default_rewrite_calls_llm() -> None:
+    llm_service = _RecordingLLMService("重新整理后的阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rewrite",
+        payload={
+            "currentText": "原始阶段总结",
+            "defaultRewrite": True,
+        },
+    )
+
+    result = worker._rewrite_summary()  # noqa: SLF001
+
+    assert result == "重新整理后的阶段总结"
+    assert len(llm_service.calls) == 1
+    messages = llm_service.calls[0]["messages"]
+    assert "不要套固定四段模板" in messages[0].content
+    assert "不要套固定模板" in messages[1].content

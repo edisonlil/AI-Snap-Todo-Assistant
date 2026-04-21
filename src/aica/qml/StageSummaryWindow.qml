@@ -16,6 +16,7 @@ Rectangle {
         property bool busy: todoDetailBridge.stageSummaryBusy
         property string summaryText: todoDetailBridge.stageSummaryText
         property string errorText: todoDetailBridge.stageSummaryError
+        property string noticeText: todoDetailBridge.stageSummaryNotice
         property bool hasSummary: todoDetailBridge.hasStageSummary
         property bool editMode: false
         property bool syncingSummaryEditor: false
@@ -105,6 +106,10 @@ Rectangle {
                 return
             }
             panel.editMode = false
+            if (panel.hasSummary) {
+                todoDetailBridge.rewriteStageSummaryDefault()
+                return
+            }
             panel.refreshClicked()
         }
 
@@ -429,6 +434,17 @@ Rectangle {
                 }
             }
 
+            Text {
+                width: parent.width
+                visible: panel.noticeText.length > 0
+                wrapMode: Text.Wrap
+                text: panel.noticeText
+                color: panel.mutedText
+                font.family: root.uiFont
+                font.pixelSize: 12
+                font.weight: 400
+            }
+
             Rectangle {
                 id: rewriteBox
                 width: parent.width
@@ -607,7 +623,7 @@ Rectangle {
                         width: markdownScroll.availableWidth
                         height: Math.max(
                             markdownScroll.availableHeight,
-                            summaryMarkdown.contentHeight + (errorTextItem.visible ? errorTextItem.implicitHeight + 20 : 0)
+                            summaryMarkdown.contentHeight + (errorBox.visible ? errorTextItem.implicitHeight + 20 : 0)
                         )
 
                         TextEdit {
@@ -665,6 +681,7 @@ Rectangle {
                                 font.weight: 400
                             }
                         }
+
                     }
                 }
             }

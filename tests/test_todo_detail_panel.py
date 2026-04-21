@@ -591,3 +591,78 @@ def test_resolve_neighbor_panel_x_prefers_left_when_both_sides_fit_but_left_is_w
     )
 
     assert x == 539
+
+
+def test_stage_summary_same_result_sets_notice() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    bridge.toggleStageSummary()
+    initial_request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", initial_request_id, "第一版阶段总结")
+
+    bridge.rewriteStageSummaryWithPreset("shorter")
+    rewrite_request_id = str(rewritten[0]["requestId"])
+
+    assert bridge.apply_stage_summary_result(
+        "todo-1",
+        rewrite_request_id,
+        "第一版阶段总结",
+        "已调用模型重写，但返回内容未变化",
+    ) is True
+    assert bridge.stageSummaryText == "第一版阶段总结"
+    assert bridge.stageSummaryNotice == "已调用模型重写，但返回内容未变化"
+
+
+def test_stage_summary_manual_edit_clears_notice() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    bridge.toggleStageSummary()
+    initial_request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", initial_request_id, "第一版阶段总结")
+
+    bridge.rewriteStageSummaryWithPreset("shorter")
+    rewrite_request_id = str(rewritten[0]["requestId"])
+    bridge.apply_stage_summary_result(
+        "todo-1",
+        rewrite_request_id,
+        "第一版阶段总结",
+        "已调用模型重写，但返回内容未变化",
+    )
+
+    bridge.updateStageSummaryText("第二版阶段总结")
+
+    assert bridge.stageSummaryNotice == ""
+
+
+def test_stage_summary_default_rewrite_sets_default_flag() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    requested: list[dict[str, object]] = []
+    rewritten: list[dict[str, object]] = []
+    bridge.stageSummaryRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.stageSummaryRewriteRequested.connect(lambda _todo_id, payload: rewritten.append(payload))
+
+    bridge.toggleStageSummary()
+    request_id = str(requested[0]["requestId"])
+    bridge.apply_stage_summary_result("todo-1", request_id, "第一版阶段总结")
+
+    bridge.rewriteStageSummaryDefault()
+
+    assert len(rewritten) == 1
+    assert rewritten[0]["currentText"] == "第一版阶段总结"
+    assert rewritten[0]["presetKey"] == ""
+    assert rewritten[0]["instruction"] == ""
+    assert rewritten[0]["defaultRewrite"] is True

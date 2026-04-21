@@ -686,6 +686,7 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_text = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
 
@@ -836,6 +837,10 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def hasStageSummary(self) -> bool:
         return bool(self._stage_summary_text.strip())
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryNotice(self) -> str:
+        return self._stage_summary_notice
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -1802,6 +1807,7 @@ class _TodoDetailBridge(QObject):
         request_id = str(uuid.uuid4())
         self._stage_summary_busy = True
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = True
         self._stage_summary_pending_request_id = request_id
         self.dataChanged.emit()
@@ -1828,6 +1834,7 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_text = normalized
         if normalized.strip():
             self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self.dataChanged.emit()
 
     @pyqtSlot(str)
@@ -1835,6 +1842,15 @@ class _TodoDetailBridge(QObject):
         self._request_stage_summary_rewrite(
             preset_key=str(preset_key or "").strip(),
             instruction="",
+            default_rewrite=False,
+        )
+
+    @pyqtSlot()
+    def rewriteStageSummaryDefault(self) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key="",
+            instruction="",
+            default_rewrite=True,
         )
 
     @pyqtSlot(str)
@@ -1842,6 +1858,7 @@ class _TodoDetailBridge(QObject):
         self._request_stage_summary_rewrite(
             preset_key="",
             instruction=str(instruction or "").strip(),
+            default_rewrite=False,
         )
 
     @pyqtSlot()
@@ -1996,17 +2013,18 @@ class _TodoDetailBridge(QObject):
         payload["saveMode"] = _SAVE_MODE_MANUAL if save_mode == _SAVE_MODE_MANUAL else _SAVE_MODE_AUTOSAVE
         self.saveRequested.emit(self._todo_id, payload)
 
-    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str) -> None:
+    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str, default_rewrite: bool) -> None:
         if self._todo_id is None:
             return
         current_text = self._stage_summary_text.strip()
         if not current_text:
             return
-        if not preset_key and not instruction:
+        if not default_rewrite and not preset_key and not instruction:
             return
         request_id = str(uuid.uuid4())
         self._stage_summary_busy = True
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_pending_request_id = request_id
         self.dataChanged.emit()
         self.stageSummaryRewriteRequested.emit(
@@ -2016,6 +2034,7 @@ class _TodoDetailBridge(QObject):
                 "currentText": current_text,
                 "presetKey": preset_key,
                 "instruction": instruction,
+                "defaultRewrite": default_rewrite,
             },
         )
 
@@ -2024,6 +2043,7 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_text = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
 
@@ -2031,7 +2051,7 @@ class _TodoDetailBridge(QObject):
         self._reset_stage_summary_state()
         self.dataChanged.emit()
 
-    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
         if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
             return False
         if str(request_id or "").strip() != self._stage_summary_pending_request_id:
@@ -2040,10 +2060,13 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_pending_request_id = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = sanitize_text(notice).strip()
         if normalized:
             self._stage_summary_text = normalized
         elif not self._stage_summary_text.strip():
             self._stage_summary_error = "暂无可查看的阶段总结"
+        else:
+            self._stage_summary_notice = self._stage_summary_notice or "本次整理没有生成新的内容"
         self.dataChanged.emit()
         return True
 
@@ -2054,6 +2077,7 @@ class _TodoDetailBridge(QObject):
             return False
         self._stage_summary_busy = False
         self._stage_summary_pending_request_id = ""
+        self._stage_summary_notice = ""
         normalized = sanitize_text(message).strip()
         if normalized:
             self._stage_summary_error = normalized
@@ -3066,8 +3090,8 @@ class TodoDetailPanel(QQuickView):
             QTimer.singleShot(0, self._close_if_unpinned_after_deactivate)
         return super().event(event)
 
-    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
-        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text)
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
+        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text, notice)
 
     def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_stage_summary_error(todo_id, request_id, message)

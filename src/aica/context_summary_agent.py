@@ -52,7 +52,7 @@ _GOAL_INSTRUCTIONS = {
     ),
     "timeline_rollup": (
         "摘要目标：时间线阶段总结。"
-        "只能基于输入时间线原文梳理阶段现状、当前结论、已发生进展和待确认事项。"
+        "只能基于输入时间线原文梳理阶段性总结，明确现状、已有进展、当前判断和待确认点。"
         "必须保持事件先后顺序，不要重排成更完整的故事线；"
         "不要补充未出现的时间点、责任方、根因和结论。"
     ),
@@ -70,11 +70,10 @@ def _build_output_rules(summary_goal: str) -> list[str]:
     if summary_goal == "timeline_rollup":
         rules.extend(
             [
-                "summary_text 必须使用固定四段：阶段现状、当前结论、已发生进展、待确认事项。",
-                "已发生进展中的每一条都必须能在输入时间线中找到对应事件，尽量复用原始动作或观察。",
-                "如果已有明确结论，当前结论段落必须单独写出，不要混入“已发生进展”。",
-                "如果没有明确结论，就写“暂无明确结论”。",
-                "待确认事项只写输入里明确未确认的问题；如果没有，就写“暂无明确待确认事项”。",
+                "summary_text 输出自然的 Markdown 阶段总结，不固定标题数量和名称。",
+                "已发生进展中的内容都必须能在输入时间线中找到对应事件，尽量复用原始动作或观察。",
+                "如果已有明确结论，需要明确写出；如果没有，要明确说明“暂无明确结论”。",
+                "待确认事项只写输入里明确未确认的问题；如果没有，可以省略或写“暂无明确待确认事项”。",
                 "如果输入没有具体时间点，不要新增“今天”“昨天”“随后”“最终”等时间锚点。",
             ]
         )
@@ -87,15 +86,9 @@ def _conclusion_text_from_request(request: ContextSummaryRequest) -> str:
 
 def _timeline_rollup_summary_format_hint() -> str:
     return (
-        "summary_text 的 Markdown 结构固定为：\n"
-        "### 阶段现状\n"
-        "...\n\n"
-        "### 当前结论\n"
-        "...\n\n"
-        "### 已发生进展\n"
-        "- ...\n\n"
-        "### 待确认事项\n"
-        "- ...\n"
+        "summary_text 使用 Markdown 输出，可根据内容自由组织为短段落、小标题和列表；"
+        "不要套固定四段模板。"
+        "如果需要标题，可以使用“阶段现状”“当前结论”“已发生进展”“待确认事项”等表达，但不是必须。"
     )
 
 
@@ -625,6 +618,9 @@ class DefaultContextSummaryAgent:
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
+        normalized_summary = _clean_timeline_rollup_text(summary_text)
+        if normalized_summary:
+            return normalized_summary
         return self._render_timeline_rollup_summary(
             problem_brief=problem_brief,
             conclusion_text=conclusion_text,
