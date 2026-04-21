@@ -54,7 +54,9 @@ Rectangle {
     property real timelineCommandMenuWidth: 0
     property string toastMessage: ""
     property bool toastVisible: false
+    property string activeTimelineEditingEventId: ""
     property var timelineCardRegistry: ({})
+    property var timelineEditorRegistry: ({})
     property var timelineCommandOptions: [
         { "value": "follow_up", "label": "问题反馈", "detail": "写入时间线" },
         { "value": "conclusion", "label": "问题结论", "detail": "写入问题结论并保留结论记录" },
@@ -276,6 +278,79 @@ Rectangle {
             nextRegistry[key] = timelineCardRegistry[key]
         }
         timelineCardRegistry = nextRegistry
+    }
+
+    function registerTimelineEditorCard(eventId, item) {
+        if (!eventId || !item) {
+            return
+        }
+        var nextRegistry = {}
+        for (var key in timelineEditorRegistry) {
+            nextRegistry[key] = timelineEditorRegistry[key]
+        }
+        nextRegistry[eventId] = item
+        timelineEditorRegistry = nextRegistry
+    }
+
+    function unregisterTimelineEditorCard(eventId, item) {
+        if (!eventId) {
+            return
+        }
+        var nextRegistry = {}
+        for (var key in timelineEditorRegistry) {
+            if (key === eventId && timelineEditorRegistry[key] === item) {
+                continue
+            }
+            nextRegistry[key] = timelineEditorRegistry[key]
+        }
+        timelineEditorRegistry = nextRegistry
+        if (activeTimelineEditingEventId === eventId && !timelineEditorRegistry[eventId]) {
+            activeTimelineEditingEventId = ""
+        }
+    }
+
+    function requestTimelineEdit(eventId) {
+        var nextEventId = String(eventId || "").trim()
+        if (nextEventId.length === 0) {
+            return false
+        }
+        if (activeTimelineEditingEventId === nextEventId) {
+            return true
+        }
+        var currentEventId = activeTimelineEditingEventId
+        if (currentEventId.length > 0) {
+            var currentCard = timelineEditorRegistry[currentEventId]
+            if (currentCard && currentCard.cancelEditingForSwitch) {
+                currentCard.cancelEditingForSwitch()
+            } else {
+                activeTimelineEditingEventId = ""
+            }
+        }
+        activeTimelineEditingEventId = nextEventId
+        return true
+    }
+
+    function cancelActiveTimelineEdit() {
+        var currentEventId = String(activeTimelineEditingEventId || "").trim()
+        if (currentEventId.length === 0) {
+            return
+        }
+        var currentCard = timelineEditorRegistry[currentEventId]
+        if (currentCard && currentCard.cancelEditingForSwitch) {
+            currentCard.cancelEditingForSwitch()
+        } else {
+            activeTimelineEditingEventId = ""
+        }
+    }
+
+    function exitTimelineEdit(eventId) {
+        var targetEventId = String(eventId || "").trim()
+        if (targetEventId.length === 0) {
+            return
+        }
+        if (activeTimelineEditingEventId === targetEventId) {
+            activeTimelineEditingEventId = ""
+        }
     }
 
     function scrollToTimelineEvent(eventId) {
@@ -1177,7 +1252,14 @@ Rectangle {
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
+                                    activeFocusOnPress: true
                                     onTextChanged: root.syncTimelineCommandState()
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            root.markAttachmentTarget("")
+                                            root.cancelActiveTimelineEdit()
+                                        }
+                                    }
                                     onXChanged: root.updateTimelineCommandMenuGeometry()
                                     onYChanged: root.updateTimelineCommandMenuGeometry()
                                     onWidthChanged: root.updateTimelineCommandMenuGeometry()

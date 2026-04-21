@@ -14,12 +14,50 @@ Rectangle {
     property var rootContext
     property var todoDetailBridge
     property var eventData
-    property bool editing: false
     property string eventId: eventData && eventData.id ? eventData.id : ""
     property string originalContent: eventData && eventData.content ? eventData.content : ""
+    property string registeredEditorEventId: ""
+    readonly property bool editing: rootContext ? rootContext.activeTimelineEditingEventId === eventId : false
     property bool dropActive: dropZone.containsDrag
     property bool attachmentTarget: rootContext && rootContext.activeAttachmentEventId === eventId
     property bool attachmentsExpanded: false
+
+    function syncEditorRegistration() {
+        var nextEventId = rootContext && eventId.length > 0 ? eventId : ""
+        if (registeredEditorEventId === nextEventId) {
+            return
+        }
+        if (registeredEditorEventId.length > 0 && rootContext) {
+            rootContext.unregisterTimelineEditorCard(registeredEditorEventId, timelineCard)
+        }
+        registeredEditorEventId = ""
+        if (nextEventId.length > 0 && rootContext) {
+            rootContext.registerTimelineEditorCard(nextEventId, timelineCard)
+            registeredEditorEventId = nextEventId
+        }
+    }
+
+    function exitEditing() {
+        if (rootContext) {
+            rootContext.exitTimelineEdit(eventId)
+        }
+    }
+
+    function cancelEditingForSwitch() {
+        timelineEditor.text = timelineCard.originalContent
+        if (todoDetailBridge) {
+            todoDetailBridge.updateTimelineContent(timelineCard.eventId, timelineCard.originalContent)
+        }
+        exitEditing()
+    }
+
+    onRootContextChanged: syncEditorRegistration()
+    onEventIdChanged: syncEditorRegistration()
+    Component.onDestruction: {
+        if (registeredEditorEventId.length > 0 && rootContext) {
+            rootContext.unregisterTimelineEditorCard(registeredEditorEventId, timelineCard)
+        }
+    }
 
     Column {
         id: entryColumn
@@ -131,7 +169,7 @@ Rectangle {
                         onClicked: {
                             todoDetailBridge.commitTimelineContent(timelineCard.eventId, timelineEditor.text)
                             timelineCard.originalContent = timelineEditor.text
-                            timelineCard.editing = false
+                            timelineCard.exitEditing()
                         }
                     }
                 }
@@ -147,11 +185,7 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            timelineEditor.text = timelineCard.originalContent
-                            todoDetailBridge.updateTimelineContent(timelineCard.eventId, timelineCard.originalContent)
-                            timelineCard.editing = false
-                        }
+                        onClicked: timelineCard.cancelEditingForSwitch()
                     }
                 }
 
@@ -226,9 +260,9 @@ Rectangle {
                 onClicked: {
                     if (rootContext) {
                         rootContext.markAttachmentTarget(timelineCard.eventId)
+                        rootContext.requestTimelineEdit(timelineCard.eventId)
                     }
                     timelineCard.originalContent = eventData ? eventData.content : ""
-                    timelineCard.editing = true
                 }
             }
         }
