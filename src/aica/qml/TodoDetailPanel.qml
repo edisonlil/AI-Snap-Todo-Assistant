@@ -52,8 +52,6 @@ Rectangle {
     property real timelineCommandMenuX: 0
     property real timelineCommandMenuY: 0
     property real timelineCommandMenuWidth: 0
-    property string toastMessage: ""
-    property bool toastVisible: false
     property string activeTimelineEditingEventId: ""
     property var timelineCardRegistry: ({})
     property var timelineEditorRegistry: ({})
@@ -174,11 +172,7 @@ Rectangle {
         if (addTimelineEdit.text.trim().length === 0 && timelineEntryType !== "log_analysis") {
             return
         }
-        var submittingType = timelineEntryType
         todoDetailBridge.addTimelineEntry(addTimelineEdit.text, timelineEntryType)
-        if (submittingType === "log_analysis") {
-            root.showToast("已提交日志分析任务，后台排查中")
-        }
         addTimelineEdit.text = ""
         clearTimelineEntryType()
     }
@@ -244,14 +238,6 @@ Rectangle {
             return (value / 1024).toFixed(1) + " KB"
         }
         return (value / (1024 * 1024)).toFixed(1) + " MB"
-    }
-
-    function showToast(message) {
-        toastMessage = message || ""
-        toastVisible = toastMessage.length > 0
-        if (toastVisible) {
-            toastHideTimer.restart()
-        }
     }
 
     function registerTimelineCard(eventId, item) {
@@ -373,9 +359,6 @@ Rectangle {
                 root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
             }
         }
-        function onEnvironmentAccessMessageChanged() {
-            root.showToast(todoDetailBridge.environmentAccessMessage)
-        }
     }
 
     Connections {
@@ -401,13 +384,6 @@ Rectangle {
             }
             todoDetailBridge.requestClipboardImagePaste(root.activeAttachmentEventId)
         }
-    }
-
-    Timer {
-        id: toastHideTimer
-        interval: 1400
-        repeat: false
-        onTriggered: root.toastVisible = false
     }
 
     Timer {
@@ -1831,29 +1807,6 @@ Rectangle {
                             }
                         }
                     }
-                }
-            }
-
-            Rectangle {
-                visible: root.toastVisible
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 18
-                radius: 16
-                color: "#18202E"
-                opacity: 0.96
-                width: toastText.implicitWidth + 24
-                height: toastText.implicitHeight + 14
-                z: 80
-
-                Text {
-                    id: toastText
-                    anchors.centerIn: parent
-                    text: root.toastMessage
-                    color: "#FFFFFF"
-                    font.family: root.uiFont
-                    font.pixelSize: 11
-                    font.weight: root.labelWeight
                 }
             }
         }

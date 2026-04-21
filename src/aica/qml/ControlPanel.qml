@@ -1108,42 +1108,6 @@ Rectangle {
                             }
                         }
 
-                        SectionCard {
-                            visible: controlPanelBridge.hasError
-                            Layout.fillWidth: true
-                            color: root.errorBg
-                            implicitHeight: errorText.implicitHeight + 24
-
-                            Text {
-                                id: errorText
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                text: controlPanelBridge.errorMessage
-                                color: root.errorInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                wrapMode: Text.Wrap
-                            }
-                        }
-
-                        SectionCard {
-                            visible: controlPanelBridge.hasStatus
-                            Layout.fillWidth: true
-                            color: root.successBg
-                            implicitHeight: statusText.implicitHeight + 24
-
-                            Text {
-                                id: statusText
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                text: controlPanelBridge.statusMessage
-                                color: root.successInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                wrapMode: Text.Wrap
-                            }
-                        }
-
                         ScrollView {
                             id: scrollArea
                             Layout.fillWidth: true
@@ -2548,7 +2512,6 @@ Rectangle {
             }
         }
     }
-
     Item {
         anchors.right: shell.right
         anchors.bottom: shell.bottom

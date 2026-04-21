@@ -294,6 +294,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return "", ""
 
 from .models import TicketSummaryFields
+from .app_notifications import AppNotificationBridge
 from .environment_access import EnvironmentAccessService
 from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
 from .paths import todo_attachments_dir
@@ -637,8 +638,10 @@ class _TodoDetailBridge(QObject):
         attachment_root: Path | None = None,
         *,
         environment_access_service: EnvironmentAccessService | None = None,
+        notification_bridge: AppNotificationBridge | None = None,
     ) -> None:
         super().__init__()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._todo_id: str | None = None
         self._title = ""
         self._group_name = _EMPTY_TEXT
@@ -689,6 +692,18 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+
+    @property
+    def notificationBridge(self) -> AppNotificationBridge:
+        return self._notification_bridge
+
+    def _notify(self, level: str, message: str, duration_ms: int | None = None) -> None:
+        self._notification_bridge.notify(
+            level,
+            message,
+            duration_ms if duration_ms is not None else 0,
+            "todo_detail",
+        )
 
     @pyqtProperty(str, constant=True)
     def uiFont(self) -> str:
@@ -993,7 +1008,7 @@ class _TodoDetailBridge(QObject):
     def startEnvironmentLogin(self, entry_id: str) -> None:
         result = self._environment_access_service.prepare_login(str(entry_id or "").strip())
         if result is None:
-            self._set_environment_access_message("未找到环境访问项")
+            self._set_environment_access_message("未找到环境访问项", level="warning")
             return
         opened = self._open_environment_target(result.entry.url_or_host)
         copied_username = False
@@ -1022,13 +1037,13 @@ class _TodoDetailBridge(QObject):
             message = f"已复制 {access_name} 账号"
         else:
             message = f"已准备 {access_name} 登录动作"
-        self._set_environment_access_message(message)
+        self._set_environment_access_message(message, level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentUsername(self, entry_id: str) -> None:
         entry_id = str(entry_id or "").strip()
         if not entry_id:
-            self._set_environment_access_message("当前访问方式未配置账号")
+            self._set_environment_access_message("当前访问方式未配置账号", level="warning")
             return
         username = ""
         for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
@@ -1039,29 +1054,29 @@ class _TodoDetailBridge(QObject):
             if username:
                 break
         if not username:
-            self._set_environment_access_message("当前访问方式未配置账号")
+            self._set_environment_access_message("当前访问方式未配置账号", level="warning")
             return
         QApplication.clipboard().setText(username)
-        self._set_environment_access_message("已复制账号")
+        self._set_environment_access_message("已复制账号", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentPassword(self, entry_id: str) -> None:
         password = self._environment_access_service.get_password(str(entry_id or "").strip())
         if not password:
-            self._set_environment_access_message("当前访问方式未配置密码")
+            self._set_environment_access_message("当前访问方式未配置密码", level="warning")
             return
         QApplication.clipboard().setText(password)
-        self._set_environment_access_message("已复制密码")
+        self._set_environment_access_message("已复制密码", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentOtp(self, entry_id: str) -> None:
         code, remaining = self._environment_access_service.get_otp_code(str(entry_id or "").strip())
         if not code:
-            self._set_environment_access_message("当前访问方式暂无可用验证码")
+            self._set_environment_access_message("当前访问方式暂无可用验证码", level="warning")
             return
         QApplication.clipboard().setText(code)
         self._update_entry_otp_state(str(entry_id or "").strip(), code, remaining)
-        self._set_environment_access_message("已复制验证码")
+        self._set_environment_access_message("已复制验证码", level="success")
 
     @pyqtSlot()
     def refreshEnvironmentOtpState(self) -> None:
@@ -1608,6 +1623,7 @@ class _TodoDetailBridge(QObject):
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
+        self._notify("info", "已提交日志分析任务，后台排查中")
         if self._todo_id is not None:
             self.logAnalysisRequested.emit(
                 self._todo_id,
@@ -1865,6 +1881,8 @@ class _TodoDetailBridge(QObject):
     def saveTodo(self) -> None:
         self.timelineChanged.emit()
         self._emit_save_request(save_mode=_SAVE_MODE_MANUAL)
+        if self._todo_id is not None:
+            QTimer.singleShot(0, lambda: self._notify("success", "保存成功"))
 
     @pyqtSlot()
     def copyExternalId(self) -> None:
@@ -2238,8 +2256,10 @@ class _TodoDetailBridge(QObject):
 
         self._update_environment_entries(_updater)
 
-    def _set_environment_access_message(self, message: str) -> None:
+    def _set_environment_access_message(self, message: str, *, level: str = "info") -> None:
         self._environment_access_message = str(message or "").strip()
+        if self._environment_access_message:
+            self._notify(level, self._environment_access_message)
         self.environmentAccessMessageChanged.emit()
 
     @staticmethod
@@ -2818,9 +2838,10 @@ class TodoDetailPanel(QQuickView):
     stage_summary_requested = pyqtSignal(str, object)
     stage_summary_rewrite_requested = pyqtSignal(str, object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, notification_bridge: AppNotificationBridge | None = None):
         super().__init__(parent)
-        self._bridge = _TodoDetailBridge()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._bridge = _TodoDetailBridge(notification_bridge=self._notification_bridge)
         self._panel_width = 396
         self._stage_summary_window_width = 443
         self._stage_summary_window_gap = 18

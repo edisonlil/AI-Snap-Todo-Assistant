@@ -31,6 +31,10 @@ def _build_panel(monkeypatch) -> TodoDetailPanel:
     return TodoDetailPanel()
 
 
+def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
+    return [str(item["message"]) for item in bridge.notificationBridge.notifications]
+
+
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:
     return TodoItem(
         id=todo_id,
@@ -214,6 +218,18 @@ def test_manual_save_requests_use_manual_mode() -> None:
     assert len(saved) == 1
     assert saved[0][0] == "todo-1"
     assert saved[0][1]["saveMode"] == "manual"
+    assert _notification_messages(bridge)[-1] == "保存成功"
+
+
+def test_log_analysis_submission_pushes_notification() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    bridge.addTimelineEntry("request_id=req-9", "log_analysis")
+
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]["type"] == "log_analysis_command"
+    assert _notification_messages(bridge)[-1] == "已提交日志分析任务，后台排查中"
 
 
 def test_removing_draft_attachment_does_not_touch_existing_event_attachments(monkeypatch) -> None:

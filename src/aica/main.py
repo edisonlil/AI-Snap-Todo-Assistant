@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSyst
 
 from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.analysis_metrics import AnalysisMetricsStore
+from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
@@ -169,7 +170,9 @@ def main() -> None:
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
     hotkey_mgr = _build_hotkey_manager(config_mgr, initial_config)
-    control_panel = ControlPanelWindow(config_mgr)
+    notification_bridge = AppNotificationBridge()
+    notification_window = AppNotificationWindow(notification_bridge)
+    control_panel = ControlPanelWindow(config_mgr, notification_bridge=notification_bridge)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
     log_analysis_store = LogAnalysisTaskStore()
@@ -180,7 +183,7 @@ def main() -> None:
     )
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
     todo_panel = TodoPanel()
-    todo_detail_panel = TodoDetailPanel()
+    todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge)
     todo_detail_panel.set_pinned(todo_panel.pinned)
     loading_dialog = LoadingDialog()
     toolbar.set_scenario_selector_visible(True)
@@ -236,6 +239,7 @@ def main() -> None:
 
     def _quit_application() -> None:
         tray_icon.hide()
+        notification_window.hide()
         control_panel.hide()
         app.quit()
 
@@ -858,6 +862,7 @@ def main() -> None:
         sys.exit(app.exec())
     finally:
         tray_icon.hide()
+        notification_window.hide()
         control_panel.hide()
         hotkey_mgr.stop()
         instance_guard.release()

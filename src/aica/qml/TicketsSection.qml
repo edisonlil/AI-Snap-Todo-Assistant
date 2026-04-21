@@ -11,7 +11,6 @@ ColumnLayout {
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
     property bool deleteTicketConfirmVisible: false
-    property string copyToastMessage: ""
     
     // Per-field editing state map: fieldName -> { editing, saving, draft, original }
     property var fieldStates: ({})
@@ -50,28 +49,12 @@ ColumnLayout {
         { value: 50, text: "50 \u6761/\u9875" }
     ]
 
-    function showCopyToast(message) {
-        copyToastMessage = message
-        copyToast.open()
-        copyToastTimer.restart()
-    }
-
-    function copyTicketForTool(todoId, showToast) {
+    function copyTicketForTool(todoId) {
         var targetId = String(todoId || controlPanelBridge.selectedTicket.id || "").trim()
-        var shouldShowToast = showToast === undefined ? true : !!showToast
         if (!targetId) {
-            if (shouldShowToast) {
-                showCopyToast("\u590d\u5236\u5931\u8d25")
-            }
             return
         }
-        try {
-            controlPanelBridge.copyTicket(targetId)
-        } catch (error) {
-            if (shouldShowToast) {
-                showCopyToast("\u590d\u5236\u5931\u8d25")
-            }
-        }
+        controlPanelBridge.copyTicket(targetId)
     }
 
     function currentStatusValue() {
@@ -453,41 +436,6 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: ticketContent.implicitHeight + 32
         color: theme.panelBg
-
-        Popup {
-            id: copyToast
-            parent: ticketSectionCard
-            x: Math.round(ticketSectionCard.width - width - 24)
-            y: 24
-            padding: 0
-            margins: 0
-            modal: false
-            dim: false
-            focus: false
-            closePolicy: Popup.NoAutoClose
-            background: Rectangle {
-                radius: 12
-                color: "#2F241A"
-                opacity: 0.94
-            }
-            contentItem: Text {
-                leftPadding: 14
-                rightPadding: 14
-                topPadding: 10
-                bottomPadding: 10
-                text: ticketSection.copyToastMessage
-                color: "#FFF9F1"
-                font.family: ticketSection.theme.uiFont
-                font.pixelSize: 12
-            }
-        }
-
-        Timer {
-            id: copyToastTimer
-            interval: 1400
-            repeat: false
-            onTriggered: copyToast.close()
-        }
 
         ColumnLayout {
             id: ticketContent
@@ -881,7 +829,7 @@ ColumnLayout {
                                                                 cursorShape: Qt.PointingHandCursor
                                                                 onClicked: function(mouse) {
                                                                     mouse.accepted = true
-                                                                    ticketSection.copyTicketForTool(modelData.id, false)
+                                                                    ticketSection.copyTicketForTool(modelData.id)
                                                                 }
                                                             }
                                                         }
@@ -1100,7 +1048,7 @@ ColumnLayout {
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "\u590d\u5236\u5de5\u5355"
-                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id, true)
+                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id)
                     }
 
                     ControlPanelPlainButton {

@@ -27,8 +27,11 @@ class _Clipboard:
 class _FakeTodoStore:
     def __init__(self, todo: TodoItem) -> None:
         self._todo = todo
+        self._deleted = False
 
     def list_todos(self, *, query: str = "", status: str = "open") -> list[TodoItem]:
+        if self._deleted:
+            return []
         normalized_status = str(status or TodoStatus.OPEN).strip().lower() or TodoStatus.OPEN
         if normalized_status == "all":
             return [self._todo]
@@ -46,6 +49,8 @@ class _FakeTodoStore:
         return []
 
     def get_todo(self, todo_id: str) -> TodoItem | None:
+        if self._deleted:
+            return None
         if todo_id == self._todo.id:
             return self._todo
         return None
@@ -57,6 +62,19 @@ class _FakeTodoStore:
         self._todo.completed_at = ""
         self._todo.updated_at = "2026-04-21T10:00:00"
         return True
+
+    def delete_todo(self, todo_id: str) -> bool:
+        if self._deleted or todo_id != self._todo.id:
+            return False
+        self._deleted = True
+        return True
+
+    def update_todo(self, todo_id: str, *, summary_fields: TicketSummaryFields) -> TodoItem | None:
+        if self._deleted or todo_id != self._todo.id:
+            return None
+        self._todo.summary_fields = summary_fields
+        self._todo.updated_at = "2026-04-21T10:05:00"
+        return self._todo
 
     def relink_open_unresolved_todos(self) -> int:
         return 0
@@ -110,6 +128,10 @@ def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_pa
     return control_panel._ControlPanelBridge(ConfigManager(str(temp_dir / "config.json")))
 
 
+def _notification_messages(bridge: control_panel._ControlPanelBridge) -> list[str]:
+    return [str(item["message"]) for item in bridge.notificationBridge.notifications]
+
+
 def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     clipboard = _Clipboard()
@@ -123,6 +145,7 @@ def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatc
     assert "copy ticket test" in clipboard.text
     assert bridge.statusMessage == ""
     assert bridge.errorMessage == ""
+    assert _notification_messages(bridge) == ["工单内容已复制"]
 
 
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
@@ -147,12 +170,51 @@ def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
     assert bridge.selectedTicket["statusLabel"] == "进行中"
     assert bridge.selectedTicket["completedAt"] == ""
     assert bridge.selectedTicket["completedAtLabel"] == ""
-    assert bridge.statusMessage == "工单已重新打开"
-    assert bridge.errorMessage == ""
     assert bridge.tickets == []
     assert refresh_events == ["refresh"]
+    assert _notification_messages(bridge)[-1] == "工单已重新打开"
 
     bridge.backToTicketList()
 
     assert bridge.selectedTicket["id"] == ""
     assert bridge.tickets == []
+
+
+def test_save_selected_ticket_field_pushes_success_notification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("ach_no", "ACH-2026")
+
+    assert bridge.selectedTicket["achNo"] == "ACH-2026"
+    assert _notification_messages(bridge)[-1] == "ach单号已保存"
+
+
+def test_refresh_selected_ticket_feature_point_pushes_error_notification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    todo.summary_fields.product_line = ""
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.refreshSelectedTicketFeaturePoint()
+
+    assert _notification_messages(bridge)[-1] == "缺少产品线，无法刷新功能点。"
+
+
+def test_delete_selected_ticket_pushes_success_notification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.deleteSelectedTicket()
+
+    assert bridge.selectedTicket["id"] == ""
+    assert bridge.tickets == []
+    assert _notification_messages(bridge)[-1] == "工单已删除：copy ticket test"

@@ -237,6 +237,7 @@ from aica.analysis_rules import (
     UserRuleConfig,
     build_scene_options_payload,
 )
+from aica.app_notifications import AppNotificationBridge
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.hotkey import normalize_hotkey
 from aica.control_panel_state import (
@@ -673,8 +674,14 @@ class _ControlPanelBridge(QObject):
     configSaved = pyqtSignal(object)
     projectDateSelected = pyqtSignal(str, str)
 
-    def __init__(self, config_manager: ConfigManager) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        *,
+        notification_bridge: AppNotificationBridge | None = None,
+    ) -> None:
         super().__init__()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._config_manager = config_manager
         self._config = config_manager.load()
         self._analysis_metrics = AnalysisMetricsStore()
@@ -704,10 +711,16 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._error_message = ""
         self._status_message = ""
+        self._last_notified_error_message = ""
+        self._last_notified_status_message = ""
         self._window_maximized = False
         records = self._prompt_debug_store.list_records(limit=1)
         if records:
             self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+
+    @property
+    def notificationBridge(self) -> AppNotificationBridge:
+        return self._notification_bridge
 
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
@@ -1062,8 +1075,16 @@ class _ControlPanelBridge(QObject):
     def _clear_messages(self) -> None:
         self._error_message = ""
         self._status_message = ""
+        self._last_notified_error_message = ""
+        self._last_notified_status_message = ""
 
     def _emit_data_changed(self) -> None:
+        if self._error_message and self._error_message != self._last_notified_error_message:
+            self._notification_bridge.notify("error", self._error_message, source="control_panel")
+            self._last_notified_error_message = self._error_message
+        if self._status_message and self._status_message != self._last_notified_status_message:
+            self._notification_bridge.notify("success", self._status_message, source="control_panel")
+            self._last_notified_status_message = self._status_message
         self.dataChanged.emit()
 
     def _load_project_payloads(self) -> list[dict[str, object]]:
@@ -1862,6 +1883,7 @@ class _ControlPanelBridge(QObject):
         payload = self._build_ticket_detail_payload(todo)
         QApplication.clipboard().setText(_format_ticket_copy_text(payload))
         self._clear_messages()
+        self._notification_bridge.notify("success", "工单内容已复制", source="control_panel")
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -2142,10 +2164,20 @@ class ControlPanelWindow(QWidget):
     config_saved = pyqtSignal(object)
     todo_list_refresh_requested = pyqtSignal()
 
-    def __init__(self, config_manager: ConfigManager, parent=None) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        parent=None,
+        *,
+        notification_bridge: AppNotificationBridge | None = None,
+    ) -> None:
         super().__init__(parent)
         self._positioned = False
-        self._bridge = _ControlPanelBridge(config_manager)
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._bridge = _ControlPanelBridge(
+            config_manager,
+            notification_bridge=self._notification_bridge,
+        )
         self._layout: QVBoxLayout | None = None
 
         self.setObjectName("controlPanelWindow")
