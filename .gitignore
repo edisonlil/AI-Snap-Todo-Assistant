@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+website/node_modules/
+website/dist/
 *.spec.bak
 .codex_tmp/
 .manual_debug/
