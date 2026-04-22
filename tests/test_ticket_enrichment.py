@@ -7,11 +7,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
 from aica.ticket_enrichment import (
+    ROOT_CAUSE_OPTIONS,
+    TicketEnrichmentService,
     build_ticket_enrichment_job,
     is_ticket_enrichment_job_still_current,
     merge_async_enrichment_fields,
 )
 from aica.todo_models import TodoConclusion, TodoItem
+
+
+class _SequentialLLMService:
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict[str, object]] = []
+
+    def run_task(self, task_name: str, *, messages, temperature: float = 0.2, **_kwargs) -> str:  # noqa: ANN001
+        self.calls.append(
+            {
+                "task_name": task_name,
+                "messages": list(messages),
+                "temperature": temperature,
+            }
+        )
+        if not self._responses:
+            raise AssertionError("unexpected llm call")
+        return self._responses.pop(0)
 
 
 def _build_todo(

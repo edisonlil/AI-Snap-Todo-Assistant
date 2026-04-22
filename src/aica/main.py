@@ -47,6 +47,7 @@ from aica.ticket_enrichment import (
 from aica.ticket_enrichment_worker import TicketEnrichmentWorker
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
+from aica.todo_detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
 from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo_panel import TodoPanel
 from aica.todo_store import TodoConclusion, TodoStore
@@ -122,10 +123,6 @@ def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyMa
         initial_config.hotkeys.capture = default_hotkey
         config_mgr.save(initial_config)
         return HotkeyManager(default_hotkey, platform_id=RUNTIME_CAPABILITIES.platform_id)
-
-
-def _should_run_ticket_enrichment_for_todo_detail_save(save_mode: object) -> bool:
-    return str(save_mode or "").strip().lower() == "manual"
 
 
 def _resolve_todo_detail_draft(payload: dict[str, object]) -> tuple[str, str, TicketSummaryFields, TodoConclusion]:
@@ -429,6 +426,7 @@ def main() -> None:
         merged_fields = merge_async_enrichment_fields(
             current_fields=current_todo.summary_fields,
             enriched_fields=enriched_fields,
+            conclusion_changed=str(job.previous_conclusion or "").strip() != str(job.current_conclusion or "").strip(),
         )
         if merged_fields.to_dict() == current_todo.summary_fields.to_dict():
             return
@@ -678,7 +676,7 @@ def main() -> None:
         )
         if updated is None:
             return
-        if _should_run_ticket_enrichment_for_todo_detail_save(save_mode):
+        if should_run_ticket_enrichment_for_todo_detail_save(action, save_mode):
             _start_ticket_enrichment(previous_todo, updated)
         todo_detail_panel.show_todo(
             updated,

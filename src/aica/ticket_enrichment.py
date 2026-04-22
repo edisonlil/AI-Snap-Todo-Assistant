@@ -298,6 +298,8 @@ class TicketEnrichmentService:
     ) -> bool:
         if not current_problem_desc.strip() or not current_conclusion.strip():
             return False
+        if sanitize_text(previous_conclusion) != sanitize_text(current_conclusion):
+            return True
         if not current_fields.root_cause_desc.strip():
             return True
         if current_fields.root_cause_desc_source != "auto":
@@ -320,6 +322,8 @@ class TicketEnrichmentService:
     ) -> bool:
         if not current_problem_desc.strip() or not current_conclusion.strip():
             return False
+        if sanitize_text(previous_conclusion) != sanitize_text(current_conclusion):
+            return True
         if not current_fields.root_cause.strip():
             return True
         if current_fields.root_cause_source != "auto":
@@ -433,15 +437,16 @@ def merge_async_enrichment_fields(
     *,
     current_fields: TicketSummaryFields,
     enriched_fields: TicketSummaryFields,
+    conclusion_changed: bool = False,
 ) -> TicketSummaryFields:
     merged = TicketSummaryFields.from_dict(current_fields.to_dict())
     if merged.feature_point_source != "manual":
         merged.feature_point = enriched_fields.feature_point
         merged.feature_point_source = enriched_fields.feature_point_source
-    if merged.root_cause_desc_source != "manual":
+    if conclusion_changed or merged.root_cause_desc_source != "manual":
         merged.root_cause_desc = enriched_fields.root_cause_desc
         merged.root_cause_desc_source = enriched_fields.root_cause_desc_source
-    if merged.root_cause_source != "manual" and merged.root_cause_desc_source != "manual":
+    if conclusion_changed or (merged.root_cause_source != "manual" and merged.root_cause_desc_source != "manual"):
         merged.root_cause = enriched_fields.root_cause
         merged.root_cause_source = enriched_fields.root_cause_source
     return merged
