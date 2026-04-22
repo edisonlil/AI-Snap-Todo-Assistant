@@ -128,6 +128,24 @@ def _should_run_ticket_enrichment_for_todo_detail_save(save_mode: object) -> boo
     return str(save_mode or "").strip().lower() == "manual"
 
 
+def _resolve_todo_detail_draft(payload: dict[str, object]) -> tuple[str, str, TicketSummaryFields, TodoConclusion]:
+    draft_payload = payload.get("draft")
+    source = dict(draft_payload or {}) if isinstance(draft_payload, dict) else dict(payload)
+    summary_fields = TicketSummaryFields.from_dict(source.get("summary_fields"))
+    conclusion_payload = source.get("conclusion")
+    conclusion = (
+        conclusion_payload
+        if isinstance(conclusion_payload, TodoConclusion)
+        else TodoConclusion(**dict(conclusion_payload or {}))
+    )
+    return (
+        str(source.get("title", "")),
+        str(source.get("current_summary", "")),
+        summary_fields,
+        conclusion,
+    )
+
+
 def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) -> Exception | None:
     try:
         hotkey_mgr.start()
@@ -630,19 +648,29 @@ def main() -> None:
         if not isinstance(payload, dict):
             return
         previous_todo = todo_store.get_todo(todo_id)
+        action = str(payload.get("action", "")).strip()
         save_mode = payload.get("saveMode")
-        summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
-        conclusion_payload = payload.get("conclusion")
-        conclusion = (
-            conclusion_payload
-            if isinstance(conclusion_payload, TodoConclusion)
-            else TodoConclusion(**dict(conclusion_payload or {}))
-        )
+        title, current_summary, summary_fields, conclusion = _resolve_todo_detail_draft(payload)
         timeline_payload = payload.get("timeline", [])
+        if action == "append_timeline_entry":
+            current_todo = todo_store.get_todo(todo_id)
+            if current_todo is None:
+                return
+            event_payload = payload.get("event")
+            event = (
+                event_payload
+                if hasattr(event_payload, "id")
+                else None
+            )
+            if event is None:
+                return
+            timeline_payload = [*current_todo.timeline, event]
+        elif action == "save_conclusion":
+            timeline_payload = None
         updated = todo_controller.update_todo(
             todo_id,
-            title=str(payload.get("title", "")),
-            current_summary=str(payload.get("current_summary", "")),
+            title=title,
+            current_summary=current_summary,
             summary_fields=summary_fields,
             timeline=timeline_payload,
             conclusion=conclusion,

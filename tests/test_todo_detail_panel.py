@@ -206,6 +206,8 @@ def test_timeline_entry_save_requests_use_autosave_mode() -> None:
     assert len(saved) == 1
     assert saved[0][0] == "todo-1"
     assert saved[0][1]["saveMode"] == "autosave"
+    assert saved[0][1]["action"] == "append_timeline_entry"
+    assert saved[0][1]["event"].kind == "manual"
 
 
 def test_manual_save_requests_use_manual_mode() -> None:
@@ -220,6 +222,7 @@ def test_manual_save_requests_use_manual_mode() -> None:
     assert len(saved) == 1
     assert saved[0][0] == "todo-1"
     assert saved[0][1]["saveMode"] == "manual"
+    assert saved[0][1]["action"] == "save_detail_form"
     assert _notification_messages(bridge)[-1] == "保存成功"
 
 
@@ -701,3 +704,18 @@ def test_manual_save_upserts_conclusion_timeline_item() -> None:
     assert len(saved) == 1
     assert len(saved[0][1]["timeline"]) == 1
     assert saved[0][1]["timeline"][0].kind == "conclusion"
+
+
+def test_add_conclusion_emits_conclusion_command() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.addTimelineEntry("最终结论", "conclusion")
+
+    assert len(saved) == 1
+    assert saved[0][1]["action"] == "save_conclusion"
+    assert saved[0][1]["saveMode"] == "autosave"
+    assert saved[0][1]["conclusion"].content == "最终结论"

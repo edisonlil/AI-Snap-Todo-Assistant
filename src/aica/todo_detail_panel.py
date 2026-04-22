@@ -327,6 +327,9 @@ _SAVE_MODE_MANUAL = "manual"
 _TIMELINE_EVENT_TYPE_DEFAULT = "default"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND = "log_analysis_command"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT = "log_analysis_result"
+_DETAIL_ACTION_SAVE_FORM = "save_detail_form"
+_DETAIL_ACTION_SAVE_CONCLUSION = "save_conclusion"
+_DETAIL_ACTION_APPEND_TIMELINE_ENTRY = "append_timeline_entry"
 _RUNNING_STATUS = "running"
 _SUCCESS_STATUS = "success"
 _FAILED_STATUS = "failed"
@@ -1703,7 +1706,25 @@ class _TodoDetailBridge(QObject):
             self._conclusion_updated_at = datetime.now().isoformat()
             self.dataChanged.emit()
             self._sync_local_conclusion_timeline_item()
-            self._emit_save_request()
+            self._emit_command_request(
+                action=_DETAIL_ACTION_SAVE_CONCLUSION,
+                payload={
+                    "conclusion": TodoConclusion(
+                        content=self._conclusion_content.strip(),
+                        updated_at=self._conclusion_updated_at or datetime.now().isoformat(),
+                        attachments=[
+                            TimelineAttachment(
+                                id=str(attachment.get("id", str(uuid.uuid4()))),
+                                name=str(attachment.get("name", "")).strip(),
+                                path=str(attachment.get("path", "")).strip(),
+                                size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                            )
+                            for attachment in self._conclusion_attachments
+                            if isinstance(attachment, dict)
+                        ],
+                    ),
+                },
+            )
             return
 
         timestamp = datetime.now().isoformat()
@@ -1738,7 +1759,32 @@ class _TodoDetailBridge(QObject):
             self._timeline_expanded = True
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
-        self._emit_save_request()
+        self._emit_command_request(
+            action=_DETAIL_ACTION_APPEND_TIMELINE_ENTRY,
+            payload={
+                "event": TimelineEvent(
+                    id=event_id,
+                    timestamp=timestamp,
+                    kind="manual",
+                    scenario=_MANUAL_SCENARIO,
+                    event_type=_TIMELINE_EVENT_TYPE_DEFAULT,
+                    payload={},
+                    status="",
+                    content=content,
+                    attachments=[
+                        TimelineAttachment(
+                            id=str(attachment.get("id", str(uuid.uuid4()))),
+                            name=str(attachment.get("name", "")).strip(),
+                            path=str(attachment.get("path", "")).strip(),
+                            size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        )
+                        for attachment in attachments
+                        if isinstance(attachment, dict)
+                    ],
+                    created_at=timestamp,
+                ),
+            },
+        )
 
     @pyqtSlot(str)
     def deleteTimelineCard(self, event_id: str) -> None:
@@ -1974,7 +2020,7 @@ class _TodoDetailBridge(QObject):
     def finishPanelDrag(self) -> None:
         self.panelDragFinished.emit()
 
-    def _build_payload(self) -> dict[str, object] | None:
+    def _build_detail_draft_payload(self) -> dict[str, object] | None:
         if self._todo_id is None:
             return None
         normalized_summary = self._current_summary.strip()
@@ -2019,31 +2065,58 @@ class _TodoDetailBridge(QObject):
                     if isinstance(attachment, dict)
                 ],
             ),
-            "timeline": [
-                TimelineEvent(
-                    id=item["id"],
-                    timestamp=item["timestamp"],
-                    kind=item.get("kind", "analysis"),
-                    scenario=item.get("scenario", ""),
-                    event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
-                    payload=_clone_dict(item.get("payload", {})),
-                    status=str(item.get("status", "") or ""),
-                    content=item.get("content", "").strip(),
-                    attachments=[
-                        TimelineAttachment(
-                            id=str(attachment.get("id", str(uuid.uuid4()))),
-                            name=str(attachment.get("name", "")).strip(),
-                            path=str(attachment.get("path", "")).strip(),
-                            size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
-                        )
-                        for attachment in item.get("attachments", [])
-                        if isinstance(attachment, dict)
-                    ],
-                    created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
-                )
-                for item in reversed(self._timeline)
-            ],
         }
+
+    def _build_payload(self) -> dict[str, object] | None:
+        payload = self._build_detail_draft_payload()
+        if self._todo_id is None or payload is None:
+            return None
+        payload["action"] = _DETAIL_ACTION_SAVE_FORM
+        payload["timeline"] = [
+            TimelineEvent(
+                id=item["id"],
+                timestamp=item["timestamp"],
+                kind=item.get("kind", "analysis"),
+                scenario=item.get("scenario", ""),
+                event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                payload=_clone_dict(item.get("payload", {})),
+                status=str(item.get("status", "") or ""),
+                content=item.get("content", "").strip(),
+                attachments=[
+                    TimelineAttachment(
+                        id=str(attachment.get("id", str(uuid.uuid4()))),
+                        name=str(attachment.get("name", "")).strip(),
+                        path=str(attachment.get("path", "")).strip(),
+                        size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                    )
+                    for attachment in item.get("attachments", [])
+                    if isinstance(attachment, dict)
+                ],
+                created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
+            )
+            for item in reversed(self._timeline)
+        ]
+        return payload
+
+    def _emit_command_request(
+        self,
+        *,
+        action: str,
+        payload: dict[str, object],
+        save_mode: str = _SAVE_MODE_AUTOSAVE,
+    ) -> None:
+        if self._todo_id is None:
+            return
+        draft_payload = self._build_detail_draft_payload()
+        if draft_payload is None:
+            return
+        command_payload = {
+            "action": str(action or "").strip(),
+            "draft": draft_payload,
+            **dict(payload),
+        }
+        command_payload["saveMode"] = _SAVE_MODE_MANUAL if save_mode == _SAVE_MODE_MANUAL else _SAVE_MODE_AUTOSAVE
+        self.saveRequested.emit(self._todo_id, command_payload)
 
     def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
         if self._todo_id is None:
