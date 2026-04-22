@@ -15,7 +15,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QObject, QPoint, Qt, QMimeData, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QMimeData, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QCursor, QDesktopServices, QGuiApplication, QImage
     from PyQt6.QtQuick import QQuickView
     from PyQt6.QtWidgets import QApplication, QFileDialog
@@ -69,6 +69,22 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             FramelessWindowHint = 0
             WindowStaysOnTopHint = 0
             Tool = 0
+            Window = 0
+
+        class Edge:
+            LeftEdge = 0x01
+            RightEdge = 0x02
+            TopEdge = 0x04
+            BottomEdge = 0x08
+
+    class QEvent:  # type: ignore[no-redef]
+        class Type:
+            WindowDeactivate = 0
+
+    class QTimer:  # type: ignore[no-redef]
+        @staticmethod
+        def singleShot(_msec, callback):
+            callback()
 
     class QUrl:  # type: ignore[no-redef]
         def __init__(self, path=""):
@@ -98,6 +114,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def y(self):
             return self._y
+
+    class QSize:  # type: ignore[no-redef]
+        def __init__(self, width=0, height=0):
+            self._width = width
+            self._height = height
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
 
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
@@ -139,6 +166,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return _Clipboard()
 
         @staticmethod
+        def focusWindow():
+            return None
+
+        @staticmethod
         def screenAt(_point):
             return None
 
@@ -159,6 +190,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def __init__(self, *args, **kwargs):
             self._context = _Context()
+            self._width = 0
+            self._height = 0
+            self._minimum_size = QSize()
+            self._visible = False
+            self._x = 0
+            self._y = 0
 
         def setFlags(self, *_args, **_kwargs):
             return None
@@ -182,12 +219,29 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return []
 
         def resize(self, *_args, **_kwargs):
+            if len(_args) >= 2:
+                min_width = self._minimum_size.width() if self._minimum_size is not None else 0
+                min_height = self._minimum_size.height() if self._minimum_size is not None else 0
+                self._width = max(min_width, int(_args[0]))
+                self._height = max(min_height, int(_args[1]))
             return None
 
+        def setMinimumSize(self, size):
+            self._minimum_size = size
+            return None
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
+
         def hide(self):
+            self._visible = False
             return None
 
         def show(self):
+            self._visible = True
             return None
 
         def raise_(self):
@@ -196,8 +250,26 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def requestActivate(self):
             return None
 
+        def startSystemResize(self, *_args, **_kwargs):
+            return True
+
         def setPosition(self, *_args, **_kwargs):
+            if len(_args) >= 2:
+                self._x = int(_args[0])
+                self._y = int(_args[1])
             return None
+
+        def isVisible(self):
+            return self._visible
+
+        def x(self):
+            return self._x
+
+        def y(self):
+            return self._y
+
+        def event(self, *_args, **_kwargs):
+            return False
 
     class QApplication:  # type: ignore[no-redef]
         @staticmethod
@@ -221,10 +293,13 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def getSaveFileName(*_args, **_kwargs):
             return "", ""
 
-from .models import TicketSummaryFields
+from .app_notifications import AppNotificationBridge
+from .conclusion_timeline import build_conclusion_timeline_content
 from .environment_access import EnvironmentAccessService
 from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
+from .models import TicketSummaryFields
 from .paths import todo_attachments_dir
+from .runtime import RUNTIME_CAPABILITIES
 from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from .ticket_enrichment import ROOT_CAUSE_OPTIONS
 from .ticket_field_resolver import (
@@ -232,7 +307,7 @@ from .ticket_field_resolver import (
     normalize_ticket_type,
     resolve_product_line,
 )
-from .text_sanitize import sanitize_text
+from .text_sanitize import sanitize_text, strip_invalid_surrogates
 from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 _EMPTY_TEXT = "未填写"
@@ -247,9 +322,14 @@ _DRAFT_TIMELINE_ATTACHMENT_TARGET = "__draft_timeline__"
 _ENTRY_TYPE_FOLLOW_UP = "follow_up"
 _ENTRY_TYPE_CONCLUSION = "conclusion"
 _ENTRY_TYPE_LOG_ANALYSIS = "log_analysis"
+_SAVE_MODE_AUTOSAVE = "autosave"
+_SAVE_MODE_MANUAL = "manual"
 _TIMELINE_EVENT_TYPE_DEFAULT = "default"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND = "log_analysis_command"
 _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_RESULT = "log_analysis_result"
+_DETAIL_ACTION_SAVE_FORM = "save_detail_form"
+_DETAIL_ACTION_SAVE_CONCLUSION = "save_conclusion"
+_DETAIL_ACTION_APPEND_TIMELINE_ENTRY = "append_timeline_entry"
 _RUNNING_STATUS = "running"
 _SUCCESS_STATUS = "success"
 _FAILED_STATUS = "failed"
@@ -309,6 +389,13 @@ def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
     return content, normalized_type
 
 
+def _normalize_timeline_draft_entry_type(value: object) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {_ENTRY_TYPE_CONCLUSION, _ENTRY_TYPE_LOG_ANALYSIS}:
+        return normalized
+    return _ENTRY_TYPE_FOLLOW_UP
+
+
 def _normalize_display_timeline(events: list[TimelineEvent]) -> list[TimelineEvent]:
     latest_conclusion: TimelineEvent | None = None
     remaining: list[TimelineEvent] = []
@@ -361,6 +448,12 @@ def _clone_dict(value: object) -> dict[str, object]:
 
 def _clone_list(value: object) -> list[object]:
     return list(value) if isinstance(value, list) else []
+
+
+def _clone_attachment_payloads(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
 def _project_status_label(status: str) -> str:
@@ -538,6 +631,7 @@ class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
+    timelineDraftChanged = pyqtSignal()
     environmentAccessMessageChanged = pyqtSignal()
     panelDragStarted = pyqtSignal(float, float)
     panelDragMoved = pyqtSignal()
@@ -562,8 +656,10 @@ class _TodoDetailBridge(QObject):
         attachment_root: Path | None = None,
         *,
         environment_access_service: EnvironmentAccessService | None = None,
+        notification_bridge: AppNotificationBridge | None = None,
     ) -> None:
         super().__init__()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._todo_id: str | None = None
         self._title = ""
         self._group_name = _EMPTY_TEXT
@@ -581,12 +677,17 @@ class _TodoDetailBridge(QObject):
         self._conclusion_updated_at = ""
         self._conclusion_attachments: list[dict[str, object]] = []
         self._draft_timeline_attachments: list[dict[str, object]] = []
+        self._timeline_draft_text = ""
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        self._timeline_draft_cache: dict[str, dict[str, object]] = {}
         self._overview = ""
         self._created_at = ""
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
         self._display_timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
+        self._todo_session_revision = 0
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
         self._project_match_status = "未匹配项目"
         self._project_match_detail = "当前群聊名称尚未命中任何项目别名。"
@@ -611,8 +712,33 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_text = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+
+    @property
+    def notificationBridge(self) -> AppNotificationBridge:
+        return self._notification_bridge
+
+    def _notify(self, level: str, message: str, duration_ms: int | None = None) -> None:
+        self._notification_bridge.notify(
+            level,
+            message,
+            duration_ms if duration_ms is not None else 0,
+            "todo_detail",
+        )
+
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
+
+    @pyqtProperty(str, notify=dataChanged)
+    def todoId(self) -> str:
+        return str(self._todo_id or "")
+
+    @pyqtProperty(int, notify=dataChanged)
+    def todoSessionRevision(self) -> int:
+        return self._todo_session_revision
 
     @pyqtProperty(str, notify=dataChanged)
     def environmentAccessSummaryText(self) -> str:
@@ -710,11 +836,23 @@ class _TodoDetailBridge(QObject):
     def conclusionAttachments(self):  # noqa: ANN201
         return self._conclusion_attachments
 
-    @pyqtProperty(int, notify=dataChanged)
+    @pyqtProperty(str, notify=timelineDraftChanged)
+    def timelineDraftText(self) -> str:
+        return self._timeline_draft_text
+
+    @pyqtProperty(str, notify=timelineDraftChanged)
+    def timelineDraftEntryType(self) -> str:
+        return self._timeline_draft_entry_type
+
+    @pyqtProperty(bool, notify=timelineDraftChanged)
+    def timelineDraftEntryTypeSelected(self) -> bool:
+        return self._timeline_draft_entry_type_selected
+
+    @pyqtProperty(int, notify=timelineDraftChanged)
     def draftTimelineAttachmentCount(self) -> int:
         return len(self._draft_timeline_attachments)
 
-    @pyqtProperty("QVariantList", notify=dataChanged)
+    @pyqtProperty("QVariantList", notify=timelineDraftChanged)
     def draftTimelineAttachments(self):  # noqa: ANN201
         return self._draft_timeline_attachments
 
@@ -757,6 +895,10 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def hasStageSummary(self) -> bool:
         return bool(self._stage_summary_text.strip())
+
+    @pyqtProperty(str, notify=dataChanged)
+    def stageSummaryNotice(self) -> str:
+        return self._stage_summary_notice
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -909,7 +1051,7 @@ class _TodoDetailBridge(QObject):
     def startEnvironmentLogin(self, entry_id: str) -> None:
         result = self._environment_access_service.prepare_login(str(entry_id or "").strip())
         if result is None:
-            self._set_environment_access_message("未找到环境访问项")
+            self._set_environment_access_message("未找到环境访问项", level="warning")
             return
         opened = self._open_environment_target(result.entry.url_or_host)
         copied_username = False
@@ -938,13 +1080,13 @@ class _TodoDetailBridge(QObject):
             message = f"已复制 {access_name} 账号"
         else:
             message = f"已准备 {access_name} 登录动作"
-        self._set_environment_access_message(message)
+        self._set_environment_access_message(message, level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentUsername(self, entry_id: str) -> None:
         entry_id = str(entry_id or "").strip()
         if not entry_id:
-            self._set_environment_access_message("当前访问方式未配置账号")
+            self._set_environment_access_message("当前访问方式未配置账号", level="warning")
             return
         username = ""
         for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
@@ -955,29 +1097,29 @@ class _TodoDetailBridge(QObject):
             if username:
                 break
         if not username:
-            self._set_environment_access_message("当前访问方式未配置账号")
+            self._set_environment_access_message("当前访问方式未配置账号", level="warning")
             return
         QApplication.clipboard().setText(username)
-        self._set_environment_access_message("已复制账号")
+        self._set_environment_access_message("已复制账号", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentPassword(self, entry_id: str) -> None:
         password = self._environment_access_service.get_password(str(entry_id or "").strip())
         if not password:
-            self._set_environment_access_message("当前访问方式未配置密码")
+            self._set_environment_access_message("当前访问方式未配置密码", level="warning")
             return
         QApplication.clipboard().setText(password)
-        self._set_environment_access_message("已复制密码")
+        self._set_environment_access_message("已复制密码", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentOtp(self, entry_id: str) -> None:
         code, remaining = self._environment_access_service.get_otp_code(str(entry_id or "").strip())
         if not code:
-            self._set_environment_access_message("当前访问方式暂无可用验证码")
+            self._set_environment_access_message("当前访问方式暂无可用验证码", level="warning")
             return
         QApplication.clipboard().setText(code)
         self._update_entry_otp_state(str(entry_id or "").strip(), code, remaining)
-        self._set_environment_access_message("已复制验证码")
+        self._set_environment_access_message("已复制验证码", level="success")
 
     @pyqtSlot()
     def refreshEnvironmentOtpState(self) -> None:
@@ -1000,13 +1142,62 @@ class _TodoDetailBridge(QObject):
 
         self._update_environment_entries(_updater)
 
+    def _current_timeline_draft_state(self) -> dict[str, object]:
+        return {
+            "text": self._timeline_draft_text,
+            "entry_type": self._timeline_draft_entry_type,
+            "entry_type_selected": self._timeline_draft_entry_type_selected,
+            "draft_attachments": _clone_attachment_payloads(self._draft_timeline_attachments),
+        }
+
+    def _apply_timeline_draft_state(self, draft_state: dict[str, object] | None) -> None:
+        state = draft_state if isinstance(draft_state, dict) else {}
+        self._timeline_draft_text = str(state.get("text", "") or "")
+        self._timeline_draft_entry_type = _normalize_timeline_draft_entry_type(state.get("entry_type"))
+        self._timeline_draft_entry_type_selected = bool(state.get("entry_type_selected", False))
+        self._draft_timeline_attachments = _clone_attachment_payloads(state.get("draft_attachments"))
+
+    def _store_current_timeline_draft(self) -> None:
+        todo_id = str(self._todo_id or "").strip()
+        if not todo_id:
+            return
+        state = self._current_timeline_draft_state()
+        has_draft_content = bool(
+            str(state.get("text", "") or "").strip()
+            or bool(state.get("entry_type_selected", False))
+            or bool(state.get("draft_attachments"))
+        )
+        if has_draft_content:
+            self._timeline_draft_cache[todo_id] = state
+            return
+        self._timeline_draft_cache.pop(todo_id, None)
+
+    def _emit_timeline_draft_changed(self) -> None:
+        self.timelineDraftChanged.emit()
+
+    def _reset_current_timeline_draft(self, *, remove_files: bool) -> None:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        if remove_files:
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                self._remove_attachment_file(str(attachment.get("path", "")))
+        self._timeline_draft_text = ""
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        todo_id = str(self._todo_id or "").strip()
+        if todo_id:
+            self._timeline_draft_cache.pop(todo_id, None)
+        self._emit_timeline_draft_changed()
+
     def set_todo(
         self,
         todo: TodoItem,
         sync_records: list[dict[str, object]] | None = None,
         task_status_map: dict[str, dict[str, object]] | None = None,
     ) -> None:
-        self._clear_draft_timeline_attachments()
+        self._store_current_timeline_draft()
         self._reset_stage_summary_state()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
@@ -1053,11 +1244,13 @@ class _TodoDetailBridge(QObject):
                 item["payload"] = payload
         self._timeline = timeline_items
         self._refresh_display_timeline()
+        self._apply_timeline_draft_state(self._timeline_draft_cache.get(todo.id))
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
+        self._todo_session_revision += 1
         self._project_match_status = _project_status_label(todo.project_link.match_status)
         self._project_match_detail = _project_status_detail(todo)
         self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
@@ -1068,6 +1261,7 @@ class _TodoDetailBridge(QObject):
         self.dataChanged.emit()
         self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
+        self.timelineDraftChanged.emit()
 
     def _build_timeline_item(self, event: TimelineEvent, status_payload: dict[str, object]) -> dict[str, object]:
         event_type = _timeline_event_type(event)
@@ -1207,6 +1401,58 @@ class _TodoDetailBridge(QObject):
             for item in self._timeline
             if not self._should_hide_timeline_item(item)
         ]
+
+    def _sync_local_conclusion_timeline_item(self) -> None:
+        existing_index: int | None = None
+        existing_item: dict[str, object] | None = None
+        for index, item in enumerate(self._timeline):
+            if str(item.get("kind") or "").strip() != "conclusion":
+                continue
+            existing_index = index
+            existing_item = item
+            break
+        should_render = bool(
+            self._conclusion_content.strip()
+            or self._conclusion_attachments
+            or existing_item is not None
+            or str(self._conclusion_updated_at or "").strip()
+        )
+        if not should_render:
+            return
+        timestamp = self._conclusion_updated_at or datetime.now().isoformat()
+        content = build_conclusion_timeline_content(
+            self._conclusion_content,
+            [
+                str(item.get("name", "")).strip()
+                for item in self._conclusion_attachments
+                if isinstance(item, dict)
+            ],
+        )
+        next_item = {
+            "id": str(existing_item.get("id", "")) if isinstance(existing_item, dict) else str(uuid.uuid4()),
+            "timestamp": timestamp,
+            "created_at": timestamp,
+            "timeLabel": _format_ts(timestamp),
+            "scenario": _CONCLUSION_SCENARIO,
+            "cardLabel": _CONCLUSION_SCENARIO,
+            "content": content,
+            "kind": "conclusion",
+            "type": _TIMELINE_EVENT_TYPE_DEFAULT,
+            "payload": _clone_dict(existing_item.get("payload", {})) if isinstance(existing_item, dict) else {},
+            "status": "",
+            "statusLabel": "",
+            "attachments": [],
+            "attachmentCount": 0,
+        }
+        if existing_index is None:
+            self._timeline.insert(0, next_item)
+        else:
+            self._timeline[existing_index] = next_item
+        self._refresh_display_timeline()
+        if self._timeline and not self._timeline_expanded:
+            self._timeline_expanded = True
+            self.timelineExpandedChanged.emit()
+        self.timelineChanged.emit()
 
     def _build_log_analysis_result_payload(self, event: TimelineEvent, payload: dict[str, object]) -> dict[str, object]:
         resolved = _clone_dict(payload)
@@ -1397,6 +1643,38 @@ class _TodoDetailBridge(QObject):
     def requestDraftTimelineClipboardImagePaste(self) -> None:
         self.draftClipboardImagePasteRequested.emit()
 
+    @pyqtSlot(str)
+    def updateTimelineDraftText(self, value: str) -> None:
+        text = sanitize_text(value)
+        if text == self._timeline_draft_text:
+            return
+        self._timeline_draft_text = text
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot(str)
+    def setTimelineDraftEntryType(self, entry_type: str) -> None:
+        normalized = _normalize_timeline_draft_entry_type(entry_type)
+        if self._timeline_draft_entry_type == normalized and self._timeline_draft_entry_type_selected:
+            return
+        self._timeline_draft_entry_type = normalized
+        self._timeline_draft_entry_type_selected = True
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot()
+    def clearTimelineDraftEntryType(self) -> None:
+        if self._timeline_draft_entry_type == _ENTRY_TYPE_FOLLOW_UP and not self._timeline_draft_entry_type_selected:
+            return
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot()
+    def resetTimelineDraft(self) -> None:
+        self._reset_current_timeline_draft(remove_files=True)
+
     @pyqtSlot(str, "QVariantList")
     def addTimelineAttachmentsFromUrls(self, event_id: str, urls: object) -> None:
         file_paths = _coerce_dropped_file_paths(urls)
@@ -1524,6 +1802,7 @@ class _TodoDetailBridge(QObject):
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
+        self._notify("info", "已提交日志分析任务，后台排查中")
         if self._todo_id is not None:
             self.logAnalysisRequested.emit(
                 self._todo_id,
@@ -1549,7 +1828,27 @@ class _TodoDetailBridge(QObject):
                 self._conclusion_attachments = [*self._conclusion_attachments, *draft_attachments]
             self._conclusion_updated_at = datetime.now().isoformat()
             self.dataChanged.emit()
-            self._emit_save_request()
+            self._sync_local_conclusion_timeline_item()
+            self._emit_command_request(
+                action=_DETAIL_ACTION_SAVE_CONCLUSION,
+                payload={
+                    "conclusion": TodoConclusion(
+                        content=self._conclusion_content.strip(),
+                        updated_at=self._conclusion_updated_at or datetime.now().isoformat(),
+                        attachments=[
+                            TimelineAttachment(
+                                id=str(attachment.get("id", str(uuid.uuid4()))),
+                                name=str(attachment.get("name", "")).strip(),
+                                path=str(attachment.get("path", "")).strip(),
+                                size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                            )
+                            for attachment in self._conclusion_attachments
+                            if isinstance(attachment, dict)
+                        ],
+                    ),
+                },
+            )
+            self._reset_current_timeline_draft(remove_files=False)
             return
 
         timestamp = datetime.now().isoformat()
@@ -1558,6 +1857,7 @@ class _TodoDetailBridge(QObject):
         insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
         if resolved_type == _ENTRY_TYPE_LOG_ANALYSIS:
             self._append_log_analysis_timeline_entry(content, event_id, timestamp, attachments, insert_index)
+            self._reset_current_timeline_draft(remove_files=False)
             return
 
         self._timeline.insert(
@@ -1584,7 +1884,33 @@ class _TodoDetailBridge(QObject):
             self._timeline_expanded = True
             self.timelineExpandedChanged.emit()
         self.timelineChanged.emit()
-        self._emit_save_request()
+        self._emit_command_request(
+            action=_DETAIL_ACTION_APPEND_TIMELINE_ENTRY,
+            payload={
+                "event": TimelineEvent(
+                    id=event_id,
+                    timestamp=timestamp,
+                    kind="manual",
+                    scenario=_MANUAL_SCENARIO,
+                    event_type=_TIMELINE_EVENT_TYPE_DEFAULT,
+                    payload={},
+                    status="",
+                    content=content,
+                    attachments=[
+                        TimelineAttachment(
+                            id=str(attachment.get("id", str(uuid.uuid4()))),
+                            name=str(attachment.get("name", "")).strip(),
+                            path=str(attachment.get("path", "")).strip(),
+                            size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        )
+                        for attachment in attachments
+                        if isinstance(attachment, dict)
+                    ],
+                    created_at=timestamp,
+                ),
+            },
+        )
+        self._reset_current_timeline_draft(remove_files=False)
 
     @pyqtSlot(str)
     def deleteTimelineCard(self, event_id: str) -> None:
@@ -1699,7 +2025,8 @@ class _TodoDetailBridge(QObject):
         self._draft_timeline_attachments = remaining
         if removed_path:
             self._remove_attachment_file(removed_path)
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
 
     @pyqtSlot()
     def toggleTimeline(self) -> None:
@@ -1723,6 +2050,7 @@ class _TodoDetailBridge(QObject):
         request_id = str(uuid.uuid4())
         self._stage_summary_busy = True
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = True
         self._stage_summary_pending_request_id = request_id
         self.dataChanged.emit()
@@ -1742,10 +2070,30 @@ class _TodoDetailBridge(QObject):
         QGuiApplication.clipboard().setText(text)
 
     @pyqtSlot(str)
+    def updateStageSummaryText(self, text: str) -> None:
+        normalized = strip_invalid_surrogates(str(text or ""))
+        if normalized == self._stage_summary_text:
+            return
+        self._stage_summary_text = normalized
+        if normalized.strip():
+            self._stage_summary_error = ""
+        self._stage_summary_notice = ""
+        self.dataChanged.emit()
+
+    @pyqtSlot(str)
     def rewriteStageSummaryWithPreset(self, preset_key: str) -> None:
         self._request_stage_summary_rewrite(
             preset_key=str(preset_key or "").strip(),
             instruction="",
+            default_rewrite=False,
+        )
+
+    @pyqtSlot()
+    def rewriteStageSummaryDefault(self) -> None:
+        self._request_stage_summary_rewrite(
+            preset_key="",
+            instruction="",
+            default_rewrite=True,
         )
 
     @pyqtSlot(str)
@@ -1753,12 +2101,27 @@ class _TodoDetailBridge(QObject):
         self._request_stage_summary_rewrite(
             preset_key="",
             instruction=str(instruction or "").strip(),
+            default_rewrite=False,
         )
 
     @pyqtSlot()
     def saveTodo(self) -> None:
-        self.timelineChanged.emit()
-        self._emit_save_request()
+        has_existing_conclusion_item = any(
+            str(item.get("kind") or "").strip() == "conclusion"
+            for item in self._timeline
+        )
+        if (
+            self._conclusion_content.strip()
+            or self._conclusion_attachments
+            or has_existing_conclusion_item
+            or str(self._conclusion_updated_at or "").strip()
+        ):
+            self._sync_local_conclusion_timeline_item()
+        else:
+            self.timelineChanged.emit()
+        self._emit_save_request(save_mode=_SAVE_MODE_MANUAL)
+        if self._todo_id is not None:
+            QTimer.singleShot(0, lambda: self._notify("success", "保存成功"))
 
     @pyqtSlot()
     def copyExternalId(self) -> None:
@@ -1784,7 +2147,7 @@ class _TodoDetailBridge(QObject):
     def finishPanelDrag(self) -> None:
         self.panelDragFinished.emit()
 
-    def _build_payload(self) -> dict[str, object] | None:
+    def _build_detail_draft_payload(self) -> dict[str, object] | None:
         if self._todo_id is None:
             return None
         normalized_summary = self._current_summary.strip()
@@ -1829,31 +2192,58 @@ class _TodoDetailBridge(QObject):
                     if isinstance(attachment, dict)
                 ],
             ),
-            "timeline": [
-                TimelineEvent(
-                    id=item["id"],
-                    timestamp=item["timestamp"],
-                    kind=item.get("kind", "analysis"),
-                    scenario=item.get("scenario", ""),
-                    event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
-                    payload=_clone_dict(item.get("payload", {})),
-                    status=str(item.get("status", "") or ""),
-                    content=item.get("content", "").strip(),
-                    attachments=[
-                        TimelineAttachment(
-                            id=str(attachment.get("id", str(uuid.uuid4()))),
-                            name=str(attachment.get("name", "")).strip(),
-                            path=str(attachment.get("path", "")).strip(),
-                            size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
-                        )
-                        for attachment in item.get("attachments", [])
-                        if isinstance(attachment, dict)
-                    ],
-                    created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
-                )
-                for item in reversed(self._timeline)
-            ],
         }
+
+    def _build_payload(self) -> dict[str, object] | None:
+        payload = self._build_detail_draft_payload()
+        if self._todo_id is None or payload is None:
+            return None
+        payload["action"] = _DETAIL_ACTION_SAVE_FORM
+        payload["timeline"] = [
+            TimelineEvent(
+                id=item["id"],
+                timestamp=item["timestamp"],
+                kind=item.get("kind", "analysis"),
+                scenario=item.get("scenario", ""),
+                event_type=item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
+                payload=_clone_dict(item.get("payload", {})),
+                status=str(item.get("status", "") or ""),
+                content=item.get("content", "").strip(),
+                attachments=[
+                    TimelineAttachment(
+                        id=str(attachment.get("id", str(uuid.uuid4()))),
+                        name=str(attachment.get("name", "")).strip(),
+                        path=str(attachment.get("path", "")).strip(),
+                        size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                    )
+                    for attachment in item.get("attachments", [])
+                    if isinstance(attachment, dict)
+                ],
+                created_at=str(item.get("created_at", item.get("timestamp", "")) or ""),
+            )
+            for item in reversed(self._timeline)
+        ]
+        return payload
+
+    def _emit_command_request(
+        self,
+        *,
+        action: str,
+        payload: dict[str, object],
+        save_mode: str = _SAVE_MODE_AUTOSAVE,
+    ) -> None:
+        if self._todo_id is None:
+            return
+        draft_payload = self._build_detail_draft_payload()
+        if draft_payload is None:
+            return
+        command_payload = {
+            "action": str(action or "").strip(),
+            "draft": draft_payload,
+            **dict(payload),
+        }
+        command_payload["saveMode"] = _SAVE_MODE_MANUAL if save_mode == _SAVE_MODE_MANUAL else _SAVE_MODE_AUTOSAVE
+        self.saveRequested.emit(self._todo_id, command_payload)
 
     def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
         if self._todo_id is None:
@@ -1898,25 +2288,28 @@ class _TodoDetailBridge(QObject):
         if not added:
             return
         self._draft_timeline_attachments = attachments
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
 
-    def _emit_save_request(self) -> None:
+    def _emit_save_request(self, *, save_mode: str = _SAVE_MODE_AUTOSAVE) -> None:
         payload = self._build_payload()
         if self._todo_id is None or payload is None:
             return
+        payload["saveMode"] = _SAVE_MODE_MANUAL if save_mode == _SAVE_MODE_MANUAL else _SAVE_MODE_AUTOSAVE
         self.saveRequested.emit(self._todo_id, payload)
 
-    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str) -> None:
+    def _request_stage_summary_rewrite(self, *, preset_key: str, instruction: str, default_rewrite: bool) -> None:
         if self._todo_id is None:
             return
         current_text = self._stage_summary_text.strip()
         if not current_text:
             return
-        if not preset_key and not instruction:
+        if not default_rewrite and not preset_key and not instruction:
             return
         request_id = str(uuid.uuid4())
         self._stage_summary_busy = True
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_pending_request_id = request_id
         self.dataChanged.emit()
         self.stageSummaryRewriteRequested.emit(
@@ -1926,6 +2319,7 @@ class _TodoDetailBridge(QObject):
                 "currentText": current_text,
                 "presetKey": preset_key,
                 "instruction": instruction,
+                "defaultRewrite": default_rewrite,
             },
         )
 
@@ -1934,6 +2328,7 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_text = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
 
@@ -1941,7 +2336,7 @@ class _TodoDetailBridge(QObject):
         self._reset_stage_summary_state()
         self.dataChanged.emit()
 
-    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
         if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
             return False
         if str(request_id or "").strip() != self._stage_summary_pending_request_id:
@@ -1950,10 +2345,13 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_busy = False
         self._stage_summary_pending_request_id = ""
         self._stage_summary_error = ""
+        self._stage_summary_notice = sanitize_text(notice).strip()
         if normalized:
             self._stage_summary_text = normalized
         elif not self._stage_summary_text.strip():
             self._stage_summary_error = "暂无可查看的阶段总结"
+        else:
+            self._stage_summary_notice = self._stage_summary_notice or "本次整理没有生成新的内容"
         self.dataChanged.emit()
         return True
 
@@ -1964,6 +2362,7 @@ class _TodoDetailBridge(QObject):
             return False
         self._stage_summary_busy = False
         self._stage_summary_pending_request_id = ""
+        self._stage_summary_notice = ""
         normalized = sanitize_text(message).strip()
         if normalized:
             self._stage_summary_error = normalized
@@ -2124,8 +2523,10 @@ class _TodoDetailBridge(QObject):
 
         self._update_environment_entries(_updater)
 
-    def _set_environment_access_message(self, message: str) -> None:
+    def _set_environment_access_message(self, message: str, *, level: str = "info") -> None:
         self._environment_access_message = str(message or "").strip()
+        if self._environment_access_message:
+            self._notify(level, self._environment_access_message)
         self.environmentAccessMessageChanged.emit()
 
     @staticmethod
@@ -2207,7 +2608,8 @@ class _TodoDetailBridge(QObject):
         if attachment is None:
             return False
         self._draft_timeline_attachments = [*self._draft_timeline_attachments, attachment]
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
         return True
 
     def _save_clipboard_image(self, image: QImage, event_id: str) -> dict[str, object] | None:
@@ -2251,7 +2653,8 @@ class _TodoDetailBridge(QObject):
             moved_attachment = self._move_attachment_to_target(str(attachment.get("path", "")), event_id)
             if moved_attachment is not None:
                 moved.append(moved_attachment)
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
         return moved
 
     def _move_attachment_to_target(self, file_path: str, event_id: str) -> dict[str, object] | None:
@@ -2331,12 +2734,7 @@ class _TodoDetailBridge(QObject):
             return
 
     def _clear_draft_timeline_attachments(self) -> None:
-        attachments = list(self._draft_timeline_attachments)
-        self._draft_timeline_attachments = []
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            self._remove_attachment_file(str(attachment.get("path", "")))
+        self._reset_current_timeline_draft(remove_files=True)
 
     @pyqtSlot()
     def closePanel(self) -> None:
@@ -2437,6 +2835,9 @@ class _TodoDetailBridge(QObject):
 
 
 class _StageSummaryWindow(QQuickView):
+    _MIN_PANEL_WIDTH = 380
+    _MIN_PANEL_HEIGHT = 420
+
     def __init__(
         self,
         bridge: _TodoDetailBridge,
@@ -2446,6 +2847,7 @@ class _StageSummaryWindow(QQuickView):
         screen_margin: int,
     ) -> None:
         super().__init__()
+        self._owner_panel: TodoDetailPanel | None = None
         self._bridge = bridge
         self._panel_width = panel_width
         self._panel_height = panel_height
@@ -2457,14 +2859,14 @@ class _StageSummaryWindow(QQuickView):
         self._anchor_width = 0
         self._anchor_gap = 0
         self._top_offset = 0
+        self._pinned = False
+        self._manual_size_override = False
+        self._manual_position_override = False
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
         self.setSource(
@@ -2475,6 +2877,24 @@ class _StageSummaryWindow(QQuickView):
         self._ensure_qml_loaded()
         self.resize(self._panel_width, self._preferred_panel_height())
         self.hide()
+
+    def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
+        self._owner_panel = owner_panel
+
+    def set_pinned(self, pinned: bool) -> None:
+        self._pinned = bool(pinned)
+        self._apply_window_flags()
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._pinned,
+            )
+        )
+        if was_visible:
+            self.show()
 
     def _ensure_qml_loaded(self) -> None:
         if self.status() != QQuickView.Status.Error:
@@ -2514,11 +2934,37 @@ class _StageSummaryWindow(QQuickView):
     def syncPanelSize(self) -> None:
         self._sync_geometry(activate=False)
 
+    @pyqtSlot(str)
+    def startPanelResize(self, edge_name: str) -> None:
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            started = self.startSystemResize(edge)
+        except AttributeError:
+            self.requestActivate()
+            return
+        if started is False:
+            self.requestActivate()
+            return
+        self._manual_size_override = True
+
     @pyqtSlot(float, float)
     def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
         self._drag_active = True
         self._drag_offset_x = max(0, int(offset_x))
         self._drag_offset_y = max(0, int(offset_y))
+        self._manual_position_override = True
 
     @pyqtSlot()
     def updatePanelDrag(self) -> None:
@@ -2553,6 +2999,20 @@ class _StageSummaryWindow(QQuickView):
             )
         return max(120, preferred_height)
 
+    def _manual_panel_size(self, available) -> tuple[int, int]:
+        max_width = max(
+            self._MIN_PANEL_WIDTH,
+            int(available.width()) - self._screen_margin * 2,
+        )
+        max_height = max(
+            self._MIN_PANEL_HEIGHT,
+            int(available.height()) - self._screen_margin * 2,
+        )
+        return (
+            max(self._MIN_PANEL_WIDTH, min(int(self.width()), max_width)),
+            max(self._MIN_PANEL_HEIGHT, min(int(self.height()), max_height)),
+        )
+
     def _sync_geometry(self, *, activate: bool) -> None:
         anchor_window = self._anchor_window
         if anchor_window is None:
@@ -2579,8 +3039,17 @@ class _StageSummaryWindow(QQuickView):
             gap=self._anchor_gap,
         )
         y = anchor_window.y() + self._top_offset
-        self.resize(self._panel_width, self._preferred_panel_height(available.height()))
-        self._move_within_screen(x, y, screen)
+        if self._manual_size_override:
+            width, height = self._manual_panel_size(available)
+        else:
+            width = self._panel_width
+            height = self._preferred_panel_height(available.height())
+        self.resize(width, height)
+        if self._manual_position_override and self.isVisible():
+            current_screen = _screen_for_point(QPoint(self.x(), self.y()))
+            self._move_within_screen(self.x(), self.y(), current_screen or screen)
+        else:
+            self._move_within_screen(x, y, screen)
 
         is_visible_method = getattr(self, "isVisible", None)
         is_visible = bool(is_visible_method()) if callable(is_visible_method) else False
@@ -2590,6 +3059,11 @@ class _StageSummaryWindow(QQuickView):
         if activate and is_visible:
             self.raise_()
             self.requestActivate()
+
+    def hide(self) -> None:
+        self._manual_size_override = False
+        self._manual_position_override = False
+        super().hide()
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
@@ -2608,6 +3082,14 @@ class _StageSummaryWindow(QQuickView):
         )
         self.setPosition(target_x, target_y)
 
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            owner_panel = self._owner_panel
+            if owner_panel is not None:
+                QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
+        return super().event(event)
+
 
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
@@ -2620,9 +3102,10 @@ class TodoDetailPanel(QQuickView):
     stage_summary_requested = pyqtSignal(str, object)
     stage_summary_rewrite_requested = pyqtSignal(str, object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, notification_bridge: AppNotificationBridge | None = None):
         super().__init__(parent)
-        self._bridge = _TodoDetailBridge()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._bridge = _TodoDetailBridge(notification_bridge=self._notification_bridge)
         self._panel_width = 396
         self._stage_summary_window_width = 443
         self._stage_summary_window_gap = 18
@@ -2635,12 +3118,10 @@ class TodoDetailPanel(QQuickView):
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._stage_summary_window_visible = False
+        self._pinned = False
+        self._auto_collapse_hold_count = 0
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
@@ -2656,6 +3137,8 @@ class TodoDetailPanel(QQuickView):
             panel_height=self._stage_summary_window_height,
             screen_margin=self._screen_margin,
         )
+        self._stage_summary_window.set_owner_panel(self)
+        self._stage_summary_window.set_pinned(self._pinned)
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
@@ -2678,6 +3161,38 @@ class TodoDetailPanel(QQuickView):
         self.resize(self._panel_width, self._panel_height)
         self.hide()
 
+    def _hold_auto_collapse(self) -> None:
+        self._auto_collapse_hold_count += 1
+
+    def _release_auto_collapse(self) -> None:
+        if self._auto_collapse_hold_count > 0:
+            self._auto_collapse_hold_count -= 1
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self._hold_auto_collapse()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._pinned,
+            )
+        )
+        if was_visible:
+            self.show()
+        QTimer.singleShot(0, self._release_auto_collapse)
+
+    def set_pinned(self, pinned: bool) -> None:
+        pinned = bool(pinned)
+        if self._pinned == pinned:
+            return
+        self._pinned = pinned
+        self._apply_window_flags()
+        self._stage_summary_window.set_pinned(pinned)
+        self._sync_stage_summary_window()
+        if pinned and self.isVisible():
+            self.raise_()
+            self.requestActivate()
+
     def _ensure_qml_loaded(self) -> None:
         if self.status() != QQuickView.Status.Error:
             return
@@ -2685,12 +3200,16 @@ class TodoDetailPanel(QQuickView):
         raise RuntimeError(f"Failed to load TodoDetailPanel.qml:\n{errors}")
 
     def _select_attachments(self, event_id: str) -> None:
-        files, _ = QFileDialog.getOpenFileNames(
-            None,
-            "\u9009\u62e9\u9644\u4ef6",
-            "",
-            "\u6240\u6709\u6587\u4ef6 (*.*)",
-        )
+        self._hold_auto_collapse()
+        try:
+            files, _ = QFileDialog.getOpenFileNames(
+                None,
+                "\u9009\u62e9\u9644\u4ef6",
+                "",
+                "\u6240\u6709\u6587\u4ef6 (*.*)",
+            )
+        finally:
+            self._release_auto_collapse()
         if not files:
             return
         self._bridge.attach_files_to_event(event_id, list(files))
@@ -2703,12 +3222,16 @@ class TodoDetailPanel(QQuickView):
         self._bridge.attach_clipboard_image_to_event(event_id, image)
 
     def _select_draft_timeline_attachments(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(
-            None,
-            "\u9009\u62e9\u9644\u4ef6",
-            "",
-            "\u6240\u6709\u6587\u4ef6 (*.*)",
-        )
+        self._hold_auto_collapse()
+        try:
+            files, _ = QFileDialog.getOpenFileNames(
+                None,
+                "\u9009\u62e9\u9644\u4ef6",
+                "",
+                "\u6240\u6709\u6587\u4ef6 (*.*)",
+            )
+        finally:
+            self._release_auto_collapse()
         if not files:
             return
         self._bridge.attach_files_to_draft_timeline(list(files))
@@ -2726,12 +3249,19 @@ class TodoDetailPanel(QQuickView):
         anchor_rect=None,
         sync_records: list[dict[str, object]] | None = None,
         task_status_map: dict[str, dict[str, object]] | None = None,
+        preserve_position: bool = False,
     ) -> None:
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
         self.resize(self._panel_width, self._panel_height)
-        self._reposition(anchor_rect)
+        if preserve_position and self.isVisible():
+            screen = _screen_for_point(QPoint(self.x(), self.y()))
+            if screen is None:
+                screen = _virtual_available_geometry()
+            self._move_within_screen(self.x(), self.y(), screen)
+        else:
+            self._reposition(anchor_rect)
         self.show()
         self.raise_()
         self.requestActivate()
@@ -2822,17 +3352,30 @@ class TodoDetailPanel(QQuickView):
         )
         self.setPosition(target_x, target_y)
 
+    def _close_if_unpinned_after_deactivate(self) -> None:
+        if self._pinned or self._auto_collapse_hold_count > 0 or not self.isVisible():
+            return
+        if QGuiApplication.focusWindow() is not None:
+            return
+        self._close_panel()
+
     def _close_panel(self) -> None:
-        self._bridge._clear_draft_timeline_attachments()
+        if not self.isVisible() and not self._stage_summary_window_visible:
+            return
         self._bridge.reset_stage_summary_session()
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
         self.hide()
         self.closed.emit()
 
-    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str) -> bool:
-        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text)
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            QTimer.singleShot(0, self._close_if_unpinned_after_deactivate)
+        return super().event(event)
+
+    def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
+        return self._bridge.apply_stage_summary_result(todo_id, request_id, summary_text, notice)
 
     def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
-

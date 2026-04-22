@@ -20,7 +20,7 @@ Rectangle {
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: 30
+        radius: todoPanelBridge.minimized ? height / 2 : 20
         color: "#FFFFFF"
         opacity: 1
         border.width: 0
@@ -43,22 +43,28 @@ Rectangle {
                     onReleased: todoPanelBridge.endDrag()
                 }
 
-                Text {
+                Row {
                     anchors.left: parent.left
+                    anchors.leftMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "待办"
-                    font.pixelSize: 14
-                    font.weight: 600
-                    color: "#121212"
-                }
+                    spacing: 8
 
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 40
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: todoPanelBridge.todoCount + " 进行中"
-                    font.pixelSize: 11
-                    color: "#7B7B7B"
+                    Image {
+                        width: 24
+                        height: 24
+                        source: todoPanelBridge.logoSource
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
+                    }
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: 1
+                        text: todoPanelBridge.todoCount + " 进行中"
+                        font.pixelSize: 11
+                        color: "#7B7B7B"
+                    }
                 }
 
                 Text {
@@ -82,13 +88,13 @@ Rectangle {
 
                 Rectangle {
                     id: minimizeButton
-                    anchors.right: clearButton.visible ? clearButton.left : parent.right
-                    anchors.rightMargin: clearButton.visible ? 8 : 0
+                    anchors.right: clearButton.visible ? clearButton.left : pinButton.left
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     radius: 999
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: "#ECE7DE"
+                    border.color: "#E5E7EB"
                     width: 24
                     height: 24
 
@@ -110,13 +116,14 @@ Rectangle {
 
                 Rectangle {
                     id: clearButton
-                    anchors.right: parent.right
+                    anchors.right: pinButton.left
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     visible: todoPanelBridge.hasSelected
                     radius: 999
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: "#ECE7DE"
+                    border.color: "#E5E7EB"
                     width: clearLabel.width + 14
                     height: 24
 
@@ -133,6 +140,64 @@ Rectangle {
                         onClicked: function(mouse) {
                             mouse.accepted = true
                             todoPanelBridge.clearSelection()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: pinButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 999
+                    width: 24
+                    height: 24
+                    color: todoPanelBridge.pinned ? "#ECEFF3" : "#FFFFFF"
+                    border.width: 1
+                    border.color: todoPanelBridge.pinned ? "#2A313F" : "#E5E7EB"
+
+                    Item {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        rotation: todoPanelBridge.pinned ? 0 : 32
+
+                        readonly property color pinColor: todoPanelBridge.pinned ? "#2A313F" : "#6E6E6E"
+
+                        Rectangle {
+                            x: 1
+                            y: 1
+                            width: 10
+                            height: 3
+                            radius: 1.5
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 5
+                            y: 3
+                            width: 2
+                            height: 5
+                            radius: 1
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 4
+                            y: 7
+                            width: 4
+                            height: 2
+                            radius: 1
+                            color: parent.pinColor
+                            rotation: 45
+                            transformOrigin: Item.Left
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: function(mouse) {
+                            mouse.accepted = true
+                            todoPanelBridge.togglePinned()
                         }
                     }
                 }
@@ -165,28 +230,28 @@ Rectangle {
                                 width: listColumn.width
                                 height: root.rowHeight
                                 radius: 15
-                                color: modelData.selected ? "#FFFEFC" : "transparent"
+                                color: modelData.selected ? "#F5F5F5" : "transparent"
                                 border.width: 0
                                 border.color: "transparent"
                                 antialiasing: true
 
                                 Rectangle {
                                     id: radioButton
-                                    x: 4
+                                    x: 10
                                     width: 18
                                     height: 18
                                     radius: 9
                                     anchors.verticalCenter: parent.verticalCenter
                                     color: "#FFFFFF"
                                     border.width: 1.5
-                                    border.color: modelData.selected ? "#5E8CFF" : "#C8C8C8"
+                                    border.color: modelData.selected ? "#2A313F" : "#C8C8C8"
 
                                     Rectangle {
                                         anchors.centerIn: parent
                                         width: modelData.selected ? 8 : 0
                                         height: modelData.selected ? 8 : 0
                                         radius: 4
-                                        color: "#5E8CFF"
+                                        color: "#2A313F"
                                         visible: modelData.selected
                                     }
 
@@ -201,7 +266,7 @@ Rectangle {
 
                                 Text {
                                     id: titleText
-                                    x: 32
+                                    x: 38
                                     width: parent.width - x - 8
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: modelData.title
@@ -235,7 +300,7 @@ Rectangle {
                     width: 3
                     height: Math.max(24, (listFlick.height / Math.max(listFlick.contentHeight, 1)) * (parent.height - 8))
                     radius: 1.5
-                    color: "#D4D0C8"
+                    color: "#D1D5DB"
                     visible: listFlick.contentHeight > listFlick.height + 2
                 }
             }

@@ -16,18 +16,18 @@ Rectangle {
 
     readonly property color shellBg: "#FFFFFF"
     readonly property color panelBg: "#FFFFFF"
-    readonly property color panelLine: "#E9EDF4"
-    readonly property color sectionLine: "#EEF2F6"
+    readonly property color panelLine: "#E5E7EB"
+    readonly property color sectionLine: "#E5E7EB"
     readonly property color titleInk: "#18202E"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#9AA4B3"
-    readonly property color mutedInk: "#B3BBC8"
-    readonly property color fieldBg: "#F7F7F4"
-    readonly property color fieldLine: "#E7EDF5"
-    readonly property color timelineBg: "#F7F7F4"
-    readonly property color accent: "#3D7CFF"
-    readonly property color accentTint: "#EEF4FF"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property color mutedInk: "#A9B1BD"
+    readonly property color fieldBg: "#F8F9FA"
+    readonly property color fieldLine: "#E5E7EB"
+    readonly property color timelineBg: "#F8F9FA"
+    readonly property color accent: "#2A313F"
+    readonly property color accentTint: "#ECEFF3"
+    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16
@@ -44,7 +44,9 @@ Rectangle {
     readonly property int bodyWeight: 400
     readonly property int actionButtonWidth: 62
     property bool syncingFields: false
+    property bool syncingTimelineDraft: false
     property string activeAttachmentEventId: ""
+    property int syncedTodoSessionRevision: -1
     property string timelineEntryType: "follow_up"
     property bool timelineEntryTypeSelected: false
     property bool timelineCommandMenuVisible: false
@@ -52,9 +54,9 @@ Rectangle {
     property real timelineCommandMenuX: 0
     property real timelineCommandMenuY: 0
     property real timelineCommandMenuWidth: 0
-    property string toastMessage: ""
-    property bool toastVisible: false
+    property string activeTimelineEditingEventId: ""
     property var timelineCardRegistry: ({})
+    property var timelineEditorRegistry: ({})
     property var timelineCommandOptions: [
         { "value": "follow_up", "label": "问题反馈", "detail": "写入时间线" },
         { "value": "conclusion", "label": "问题结论", "detail": "写入问题结论并保留结论记录" },
@@ -88,19 +90,22 @@ Rectangle {
     }
 
     function clearTimelineEntryType() {
-        timelineEntryType = "follow_up"
-        timelineEntryTypeSelected = false
         timelineCommandSelectedIndex = 0
         timelineCommandMenuVisible = false
+        todoDetailBridge.clearTimelineDraftEntryType()
         addTimelineEdit.forceActiveFocus()
     }
 
     function selectTimelineEntryType(entryType) {
-        timelineEntryType = entryType === "conclusion" ? "conclusion" : (entryType === "log_analysis" ? "log_analysis" : "follow_up")
-        timelineEntryTypeSelected = true
         timelineCommandMenuVisible = false
-        syncTimelineCommandSelection()
-        addTimelineEdit.text = stripTimelineCommandPrefix(addTimelineEdit.text)
+        todoDetailBridge.setTimelineDraftEntryType(entryType)
+        var nextText = stripTimelineCommandPrefix(addTimelineEdit.text)
+        if (nextText !== addTimelineEdit.text) {
+            syncingTimelineDraft = true
+            addTimelineEdit.text = nextText
+            syncingTimelineDraft = false
+            todoDetailBridge.updateTimelineDraftText(nextText)
+        }
         addTimelineEdit.forceActiveFocus()
     }
 
@@ -140,6 +145,9 @@ Rectangle {
     }
 
     function syncTimelineCommandState() {
+        if (syncingTimelineDraft) {
+            return
+        }
         var trimmed = addTimelineEdit.text.trim()
         if (timelineEntryTypeSelected) {
             timelineCommandMenuVisible = false
@@ -172,13 +180,24 @@ Rectangle {
         if (addTimelineEdit.text.trim().length === 0 && timelineEntryType !== "log_analysis") {
             return
         }
-        var submittingType = timelineEntryType
         todoDetailBridge.addTimelineEntry(addTimelineEdit.text, timelineEntryType)
-        if (submittingType === "log_analysis") {
-            root.showToast("已提交日志分析任务，后台排查中")
+    }
+
+    function syncTimelineDraft() {
+        syncingTimelineDraft = true
+        timelineEntryType = todoDetailBridge.timelineDraftEntryType
+        timelineEntryTypeSelected = todoDetailBridge.timelineDraftEntryTypeSelected
+        syncTimelineCommandSelection()
+        if (addTimelineEdit.text !== todoDetailBridge.timelineDraftText) {
+            addTimelineEdit.text = todoDetailBridge.timelineDraftText
         }
-        addTimelineEdit.text = ""
-        clearTimelineEntryType()
+        syncingTimelineDraft = false
+    }
+
+    function resetTransientComposerUi() {
+        timelineCommandMenuVisible = false
+        activeAttachmentEventId = ""
+        cancelActiveTimelineEdit()
     }
 
     function updateTimelineCommandMenuGeometry() {
@@ -210,7 +229,6 @@ Rectangle {
 
     function syncFields() {
         syncingFields = true
-        activeAttachmentEventId = todoDetailBridge.timelineCount > 0 ? todoDetailBridge.timeline[0].id : ""
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
         environmentEdit.text = todoDetailBridge.environment
@@ -218,6 +236,12 @@ Rectangle {
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
+
+        var nextRevision = todoDetailBridge.todoSessionRevision
+        if (syncedTodoSessionRevision !== nextRevision) {
+            syncedTodoSessionRevision = nextRevision
+            resetTransientComposerUi()
+        }
     }
 
     function pushField(name, value) {
@@ -242,14 +266,6 @@ Rectangle {
             return (value / 1024).toFixed(1) + " KB"
         }
         return (value / (1024 * 1024)).toFixed(1) + " MB"
-    }
-
-    function showToast(message) {
-        toastMessage = message || ""
-        toastVisible = toastMessage.length > 0
-        if (toastVisible) {
-            toastHideTimer.restart()
-        }
     }
 
     function registerTimelineCard(eventId, item) {
@@ -278,6 +294,79 @@ Rectangle {
         timelineCardRegistry = nextRegistry
     }
 
+    function registerTimelineEditorCard(eventId, item) {
+        if (!eventId || !item) {
+            return
+        }
+        var nextRegistry = {}
+        for (var key in timelineEditorRegistry) {
+            nextRegistry[key] = timelineEditorRegistry[key]
+        }
+        nextRegistry[eventId] = item
+        timelineEditorRegistry = nextRegistry
+    }
+
+    function unregisterTimelineEditorCard(eventId, item) {
+        if (!eventId) {
+            return
+        }
+        var nextRegistry = {}
+        for (var key in timelineEditorRegistry) {
+            if (key === eventId && timelineEditorRegistry[key] === item) {
+                continue
+            }
+            nextRegistry[key] = timelineEditorRegistry[key]
+        }
+        timelineEditorRegistry = nextRegistry
+        if (activeTimelineEditingEventId === eventId && !timelineEditorRegistry[eventId]) {
+            activeTimelineEditingEventId = ""
+        }
+    }
+
+    function requestTimelineEdit(eventId) {
+        var nextEventId = String(eventId || "").trim()
+        if (nextEventId.length === 0) {
+            return false
+        }
+        if (activeTimelineEditingEventId === nextEventId) {
+            return true
+        }
+        var currentEventId = activeTimelineEditingEventId
+        if (currentEventId.length > 0) {
+            var currentCard = timelineEditorRegistry[currentEventId]
+            if (currentCard && currentCard.cancelEditingForSwitch) {
+                currentCard.cancelEditingForSwitch()
+            } else {
+                activeTimelineEditingEventId = ""
+            }
+        }
+        activeTimelineEditingEventId = nextEventId
+        return true
+    }
+
+    function cancelActiveTimelineEdit() {
+        var currentEventId = String(activeTimelineEditingEventId || "").trim()
+        if (currentEventId.length === 0) {
+            return
+        }
+        var currentCard = timelineEditorRegistry[currentEventId]
+        if (currentCard && currentCard.cancelEditingForSwitch) {
+            currentCard.cancelEditingForSwitch()
+        } else {
+            activeTimelineEditingEventId = ""
+        }
+    }
+
+    function exitTimelineEdit(eventId) {
+        var targetEventId = String(eventId || "").trim()
+        if (targetEventId.length === 0) {
+            return
+        }
+        if (activeTimelineEditingEventId === targetEventId) {
+            activeTimelineEditingEventId = ""
+        }
+    }
+
     function scrollToTimelineEvent(eventId) {
         if (!eventId || !timelineCardRegistry[eventId]) {
             return
@@ -294,12 +383,18 @@ Rectangle {
             root.syncFields()
         }
         function onTimelineChanged() {
-            if (root.activeAttachmentEventId.length === 0 && todoDetailBridge.timelineCount > 0) {
-                root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
+            if (root.activeAttachmentEventId.length === 0) {
+                return
             }
+            for (var index = 0; index < todoDetailBridge.timeline.length; index += 1) {
+                if (String(todoDetailBridge.timeline[index].id || "") === root.activeAttachmentEventId) {
+                    return
+                }
+            }
+            root.activeAttachmentEventId = ""
         }
-        function onEnvironmentAccessMessageChanged() {
-            root.showToast(todoDetailBridge.environmentAccessMessage)
+        function onTimelineDraftChanged() {
+            root.syncTimelineDraft()
         }
     }
 
@@ -326,13 +421,6 @@ Rectangle {
             }
             todoDetailBridge.requestClipboardImagePaste(root.activeAttachmentEventId)
         }
-    }
-
-    Timer {
-        id: toastHideTimer
-        interval: 1400
-        repeat: false
-        onTriggered: root.toastVisible = false
     }
 
     Timer {
@@ -403,24 +491,24 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 20
+                    spacing: 10
 
                     Rectangle {
-                        width: exportText.implicitWidth
-                        height: exportText.implicitHeight
-                        radius: 0
-                        color: "transparent"
-                        border.width: 0
+                        width: exportText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: "#FFFFFF"
+                        border.width: 1
                         border.color: root.fieldLine
 
                         Text {
                             id: exportText
                             anchors.centerIn: parent
                             text: "导出方案"
-                            color: root.accent
+                            color: root.bodyInk
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -431,21 +519,21 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: closeText.implicitWidth
-                        height: closeText.implicitHeight
-                        radius: 0
-                        color: "transparent"
-                        border.width: 0
+                        width: closeText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: "#FFFFFF"
+                        border.width: 1
                         border.color: root.fieldLine
 
                         Text {
                             id: closeText
                             anchors.centerIn: parent
                             text: "关闭"
-                            color: "#707A89"
+                            color: root.bodyInk
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -456,21 +544,21 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: saveText.implicitWidth
-                        height: saveText.implicitHeight
-                        radius: 0
-                        color: "transparent"
+                        width: saveText.implicitWidth + 24
+                        height: 32
+                        radius: 16
+                        color: root.accent
                         border.width: 0
-                        border.color: root.fieldLine
+                        border.color: "transparent"
 
                         Text {
                             id: saveText
                             anchors.centerIn: parent
                             text: "保存"
-                            color: "#586375"
+                            color: "#FFFFFF"
                             font.family: root.uiFont
                             font.pixelSize: 12
-                            font.weight: root.labelWeight
+                            font.weight: 700
                         }
 
                         MouseArea {
@@ -731,7 +819,7 @@ Rectangle {
                             width: parent.width
                             height: 120
                             radius: 18
-                            color: "#FFFFFF"
+                            color: "#F8F9FA"
                             border.width: 0
                             border.color: root.fieldLine
 
@@ -1103,15 +1191,15 @@ Rectangle {
                                     width: summaryToggleText.implicitWidth + 24
                                     height: 30
                                     radius: 15
-                                    color: todoDetailBridge.stageSummaryVisible ? root.accentTint : "#FFFFFF"
+                                    color: todoDetailBridge.stageSummaryVisible ? root.accent : "#FFFFFF"
                                     border.width: 1
-                                    border.color: todoDetailBridge.stageSummaryVisible ? "#D7E5FF" : root.fieldLine
+                                    border.color: todoDetailBridge.stageSummaryVisible ? root.accent : root.fieldLine
 
                                     Text {
                                         id: summaryToggleText
                                         anchors.centerIn: parent
                                         text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "阶段总结"
-                                        color: todoDetailBridge.stageSummaryVisible ? root.accent : root.bodyInk
+                                        color: todoDetailBridge.stageSummaryVisible ? "#FFFFFF" : root.bodyInk
                                         font.family: root.uiFont
                                         font.pixelSize: 11
                                         font.weight: root.labelWeight
@@ -1124,13 +1212,23 @@ Rectangle {
                                     }
                                 }
 
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
-                                    color: "#98A2B2"
-                                    font.family: root.uiFont
-                                    font.pixelSize: 12
-                                    font.weight: 500
+                                Rectangle {
+                                    width: timelineToggleText.implicitWidth + 20
+                                    height: 30
+                                    radius: 15
+                                    color: "#FFFFFF"
+                                    border.width: 1
+                                    border.color: root.fieldLine
+
+                                    Text {
+                                        id: timelineToggleText
+                                        anchors.centerIn: parent
+                                        text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 12
+                                        font.weight: 700
+                                    }
 
                                     MouseArea {
                                         anchors.fill: parent
@@ -1151,9 +1249,9 @@ Rectangle {
                                 width: parent.width
                                 height: Math.max(122, addTimelineEdit.contentHeight + 68)
                                 radius: 18
-                                color: "#FFFFFF"
-                                border.width: addTimelineEdit.activeFocus || composerDropZone.containsDrag ? 1 : 0
-                                border.color: composerDropZone.containsDrag ? root.accent : (addTimelineEdit.activeFocus ? "#D7E5FF" : "transparent")
+                                color: root.fieldBg
+                                border.width: 1
+                                border.color: composerDropZone.containsDrag ? root.accent : (addTimelineEdit.activeFocus ? root.accent : root.fieldLine)
 
                                 TextEdit {
                                     id: addTimelineEdit
@@ -1167,7 +1265,20 @@ Rectangle {
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
-                                    onTextChanged: root.syncTimelineCommandState()
+                                    activeFocusOnPress: true
+                                    onTextChanged: {
+                                        if (root.syncingTimelineDraft) {
+                                            return
+                                        }
+                                        todoDetailBridge.updateTimelineDraftText(text)
+                                        root.syncTimelineCommandState()
+                                    }
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            root.markAttachmentTarget("")
+                                            root.cancelActiveTimelineEdit()
+                                        }
+                                    }
                                     onXChanged: root.updateTimelineCommandMenuGeometry()
                                     onYChanged: root.updateTimelineCommandMenuGeometry()
                                     onWidthChanged: root.updateTimelineCommandMenuGeometry()
@@ -1257,14 +1368,14 @@ Rectangle {
                                     anchors.rightMargin: 14
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: 14
-                                    color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accentTint : root.fieldBg
+                                    color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accent : "#E5E7EB"
                                     border.width: 0
                                     border.color: "transparent"
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: root.timelineEntryType === "log_analysis" ? "提交分析" : "添加"
-                                        color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? root.accent : root.mutedInk
+                                        color: (addTimelineEdit.text.trim().length > 0 || root.timelineEntryType === "log_analysis") ? "#FFFFFF" : root.mutedInk
                                         font.family: root.uiFont
                                         font.pixelSize: 12
                                         font.weight: root.labelWeight
@@ -1361,8 +1472,8 @@ Rectangle {
                                     width: parent.width
                                     height: 34
                                     radius: 12
-                                    color: "#FFFFFF"
-                                    border.width: 0
+                                    color: root.fieldBg
+                                    border.width: 1
                                     border.color: root.fieldLine
 
                                     Text {
@@ -1383,8 +1494,8 @@ Rectangle {
                                         width: parent.width
                                         height: modelData.isImage ? 74 : 42
                                         radius: 12
-                                        color: "#FFFFFF"
-                                        border.width: 0
+                                        color: root.fieldBg
+                                        border.width: 1
                                         border.color: root.fieldLine
 
                                         Item {
@@ -1690,7 +1801,7 @@ Rectangle {
                         radius: 14
                         color: "#FFFFFF"
                         border.width: 1
-                        border.color: "#D7E5FF"
+                        border.color: root.fieldLine
 
                         Column {
                             anchors.fill: parent
@@ -1741,32 +1852,11 @@ Rectangle {
                     }
                 }
             }
-
-            Rectangle {
-                visible: root.toastVisible
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 18
-                radius: 16
-                color: "#18202E"
-                opacity: 0.96
-                width: toastText.implicitWidth + 24
-                height: toastText.implicitHeight + 14
-                z: 80
-
-                Text {
-                    id: toastText
-                    anchors.centerIn: parent
-                    text: root.toastMessage
-                    color: "#FFFFFF"
-                    font.family: root.uiFont
-                    font.pixelSize: 11
-                    font.weight: root.labelWeight
-                }
-            }
         }
     }
 
-    Component.onCompleted: syncFields()
+    Component.onCompleted: {
+        syncFields()
+        syncTimelineDraft()
+    }
 }
-

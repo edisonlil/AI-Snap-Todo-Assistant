@@ -23,6 +23,13 @@ _IDENTIFIER_PATTERNS = [
     re.compile(r"\b\d{6}\b"),
     re.compile(r"/[a-zA-Z0-9_./{}-]{3,}"),
 ]
+_ATTACHMENT_LINE_PATTERN = re.compile(r"^(?:[-*]\s*)?附件[:：].*$", re.IGNORECASE)
+_ATTACHMENT_FILENAME_PATTERN = re.compile(
+    r"(?i)^[^\\/:*?\"<>|\r\n]+?\.(?:png|jpe?g|gif|bmp|webp|docx?|xlsx?|pptx?|pdf|zip|rar|7z|txt|log|csv)$"
+)
+_WINDOWS_PATH_PATTERN = re.compile(r"(?i)^[a-z]:\\")
+_URL_PATTERN = re.compile(r"(?i)https?://\S+")
+_MARKDOWN_ESCAPE_PATTERN = re.compile(r"([\\`*_{}\[\]#+!|<>])")
 
 _SYSTEM_PROMPT = (
     "你是一位上下文压缩助手，负责把待办描述和时间线整理成可信、克制的结构化摘要。"
@@ -45,7 +52,7 @@ _GOAL_INSTRUCTIONS = {
     ),
     "timeline_rollup": (
         "摘要目标：时间线阶段总结。"
-        "只能基于输入时间线原文梳理阶段现状、当前结论、已发生进展和待确认事项。"
+        "只能基于输入时间线原文梳理阶段性总结，明确现状、已有进展、当前判断和待确认点。"
         "必须保持事件先后顺序，不要重排成更完整的故事线；"
         "不要补充未出现的时间点、责任方、根因和结论。"
     ),
@@ -63,11 +70,10 @@ def _build_output_rules(summary_goal: str) -> list[str]:
     if summary_goal == "timeline_rollup":
         rules.extend(
             [
-                "summary_text 必须使用固定四段：阶段现状、当前结论、已发生进展、待确认事项。",
-                "已发生进展中的每一条都必须能在输入时间线中找到对应事件，尽量复用原始动作或观察。",
-                "如果已有明确结论，当前结论段落必须单独写出，不要混入“已发生进展”。",
-                "如果没有明确结论，就写“暂无明确结论”。",
-                "待确认事项只写输入里明确未确认的问题；如果没有，就写“暂无明确待确认事项”。",
+                "summary_text 输出自然的 Markdown 阶段总结，不固定标题数量和名称。",
+                "已发生进展中的内容都必须能在输入时间线中找到对应事件，尽量复用原始动作或观察。",
+                "如果已有明确结论，需要明确写出；如果没有，要明确说明“暂无明确结论”。",
+                "待确认事项只写输入里明确未确认的问题；如果没有，可以省略或写“暂无明确待确认事项”。",
                 "如果输入没有具体时间点，不要新增“今天”“昨天”“随后”“最终”等时间锚点。",
             ]
         )
@@ -80,21 +86,86 @@ def _conclusion_text_from_request(request: ContextSummaryRequest) -> str:
 
 def _timeline_rollup_summary_format_hint() -> str:
     return (
-        "summary_text 的文本结构固定为：\n"
-        "阶段现状:\n"
-        "...\n"
-        "当前结论:\n"
-        "...\n"
-        "已发生进展:\n"
-        "- ...\n"
-        "待确认事项:\n"
-        "- ...\n"
+        "summary_text 使用 Markdown 输出，可根据内容自由组织为短段落、小标题和列表；"
+        "不要套固定四段模板。"
+        "如果需要标题，可以使用“阶段现状”“当前结论”“已发生进展”“待确认事项”等表达，但不是必须。"
     )
 
 
 def _has_timeline_rollup_sections(text: str) -> bool:
     normalized = sanitize_text(text)
     return all(section in normalized for section in ("阶段现状", "当前结论", "已发生进展", "待确认事项"))
+
+
+def _strip_attachment_lines(text: str) -> str:
+    compact_lines: list[str] = []
+    pending_blank = False
+    for raw_line in sanitize_text(text).splitlines():
+        line = raw_line.strip()
+        if not line:
+            pending_blank = bool(compact_lines)
+            continue
+        if _ATTACHMENT_LINE_PATTERN.match(line):
+            continue
+        if pending_blank and compact_lines:
+            compact_lines.append("")
+        compact_lines.append(line)
+        pending_blank = False
+    return "\n".join(compact_lines).strip()
+
+
+def _looks_like_attachment_reference(text: str) -> bool:
+    normalized = sanitize_text(text).strip().strip(",，;；")
+    if not normalized or _URL_PATTERN.search(normalized):
+        return False
+    parts = [part.strip() for part in re.split(r"[，,]\s*", normalized) if part.strip()]
+    if not parts:
+        return False
+    return all(_WINDOWS_PATH_PATTERN.match(part) or _ATTACHMENT_FILENAME_PATTERN.match(part) for part in parts)
+
+
+def _clean_timeline_rollup_text(text: str) -> str:
+    cleaned = _strip_attachment_lines(text)
+    if _looks_like_attachment_reference(cleaned):
+        return ""
+    return cleaned
+
+
+def _collapse_summary_text(text: str) -> str:
+    return re.sub(r"\s*\n\s*", " ", sanitize_text(text)).strip()
+
+
+def _escape_markdown_text(text: str) -> str:
+    return _MARKDOWN_ESCAPE_PATTERN.sub(r"\\\1", sanitize_text(text))
+
+
+def _render_markdown_text(text: str) -> str:
+    normalized = _collapse_summary_text(text)
+    if not normalized:
+        return ""
+
+    parts: list[str] = []
+    last_index = 0
+    link_index = 0
+    for match in _URL_PATTERN.finditer(normalized):
+        start, end = match.span()
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,;!?":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        while url.endswith(")") and url.count("(") < url.count(")"):
+            trailing = ")" + trailing
+            url = url[:-1]
+        parts.append(_escape_markdown_text(normalized[last_index:start]))
+        if url:
+            link_index += 1
+            label = "链接" if link_index == 1 else f"链接{link_index}"
+            parts.append(f"[{label}]({url})")
+        parts.append(_escape_markdown_text(trailing))
+        last_index = end
+    parts.append(_escape_markdown_text(normalized[last_index:]))
+    return "".join(parts).strip()
 
 
 class DefaultContextSummaryAgent:
@@ -135,9 +206,9 @@ class DefaultContextSummaryAgent:
         entry_lines = []
         for index, entry in enumerate(selected_entries, 1):
             prefix_parts = [part for part in [entry.timestamp or "未知时间", entry.scenario or entry.kind or entry.event_type] if part]
-            body = self._entry_text(entry)
+            body = self._entry_text_for_goal(entry, request.summary_goal)
             line = f"{index}. [{' / '.join(prefix_parts)}] {body}"
-            if entry.attachment_summaries:
+            if request.summary_goal != "timeline_rollup" and entry.attachment_summaries:
                 line = f"{line}\n   附件: {', '.join(entry.attachment_summaries[:4])}"
             entry_lines.append(line)
 
@@ -204,12 +275,23 @@ class DefaultContextSummaryAgent:
         }
         summary_text = sanitize_text(result.summary_text).strip()
         if request.summary_goal == "timeline_rollup":
+            problem_brief = _clean_timeline_rollup_text(result.problem_brief) or self._fallback_problem_brief(request, selected_entries)
+            key_points = self._normalize_timeline_rollup_points(result.key_points, selected_entries)
+            open_questions = self._normalize_timeline_rollup_open_questions(result.open_questions, request, selected_entries)
             summary_text = self._normalize_timeline_rollup_summary(
                 summary_text=summary_text,
-                problem_brief=result.problem_brief,
+                problem_brief=problem_brief,
                 conclusion_text=_conclusion_text_from_request(request),
-                key_points=result.key_points,
-                open_questions=result.open_questions,
+                key_points=key_points,
+                open_questions=open_questions,
+            )
+            return ContextSummaryResult(
+                summary_text=summary_text,
+                problem_brief=problem_brief,
+                key_points=key_points,
+                open_questions=open_questions,
+                next_focus=result.next_focus,
+                source_stats=stats,
             )
         elif not summary_text:
             summary_text = self._render_summary_text(
@@ -231,7 +313,8 @@ class DefaultContextSummaryAgent:
         return [
             entry
             for entry in request.timeline_entries
-            if entry.content or entry.attachment_summaries
+            if self._entry_text_for_goal(entry, request.summary_goal)
+            or (request.summary_goal != "timeline_rollup" and entry.attachment_summaries)
         ]
 
     def _summarize_append_screenshot_context(
@@ -248,7 +331,7 @@ class DefaultContextSummaryAgent:
             category = "finding" if entry.kind == "conclusion" or entry.event_type == "log_analysis_result" else "progress"
             key_points.append(ContextSummaryPoint(category=category, text=text))
 
-        open_questions = self._collect_open_questions(selected_entries, limit=5)
+        open_questions = self._collect_open_questions(request, selected_entries, limit=5)
         next_focus = self._collect_focus_terms(request, selected_entries, limit=5)
         summary_text = self._render_summary_text(
             problem_brief=problem_brief,
@@ -292,7 +375,7 @@ class DefaultContextSummaryAgent:
                 carryover.append(ContextSummaryPoint(category="finding", text=text))
 
         key_points = self._dedupe_points([*actions[:3], *facts[:4], *suspects[:3], *carryover[:2]], limit=8)
-        open_questions = self._collect_open_questions(selected_entries, limit=5)
+        open_questions = self._collect_open_questions(request, selected_entries, limit=5)
         next_focus = self._collect_focus_terms(request, selected_entries, limit=6)
         summary_text = self._render_log_analysis_summary(
             problem_brief=problem_brief,
@@ -318,11 +401,11 @@ class DefaultContextSummaryAgent:
         problem_brief = request.description or self._fallback_problem_brief(request, selected_entries)
         conclusion_text = _conclusion_text_from_request(request)
         key_points = [
-            ContextSummaryPoint(category="progress", text=self._entry_text(entry))
+            ContextSummaryPoint(category="progress", text=self._timeline_rollup_entry_text(entry))
             for entry in selected_entries[-6:]
-            if self._entry_text(entry) and entry.kind != "conclusion"
+            if self._timeline_rollup_entry_text(entry)
         ]
-        open_questions = self._collect_open_questions(selected_entries, limit=5)
+        open_questions = self._collect_open_questions(request, selected_entries, limit=5)
         next_focus = self._collect_focus_terms(request, selected_entries, limit=5)
         return ContextSummaryResult(
             summary_text=self._render_timeline_rollup_summary(
@@ -343,20 +426,26 @@ class DefaultContextSummaryAgent:
         selected_entries: list[ContextSummaryEntry],
     ) -> str:
         if request.description:
-            return request.description
+            return _clean_timeline_rollup_text(request.description) if request.summary_goal == "timeline_rollup" else request.description
         title = sanitize_text(request.extra_context.get("title", "")).strip()
         if title:
             return title
         for entry in selected_entries:
-            text = self._entry_text(entry)
+            text = self._entry_text_for_goal(entry, request.summary_goal)
             if text:
                 return text
         return ""
 
-    def _collect_open_questions(self, entries: list[ContextSummaryEntry], *, limit: int) -> list[str]:
+    def _collect_open_questions(
+        self,
+        request: ContextSummaryRequest,
+        entries: list[ContextSummaryEntry],
+        *,
+        limit: int,
+    ) -> list[str]:
         questions: list[str] = []
         for entry in entries:
-            text = self._entry_text(entry)
+            text = self._entry_text_for_goal(entry, request.summary_goal)
             if not text:
                 continue
             clauses = re.split(r"[。；;？?\n]+", text)
@@ -390,7 +479,7 @@ class DefaultContextSummaryAgent:
             if isinstance(item, str) and sanitize_text(item).strip()
         )
         for entry in entries:
-            text = self._entry_text(entry)
+            text = self._entry_text_for_goal(entry, request.summary_goal)
             for pattern in _IDENTIFIER_PATTERNS:
                 for matched in pattern.findall(text):
                     if isinstance(matched, tuple):
@@ -407,6 +496,15 @@ class DefaultContextSummaryAgent:
             attachment_text = ", ".join(entry.attachment_summaries[:4])
             base = f"{base} 附件: {attachment_text}".strip()
         return base
+
+    @staticmethod
+    def _timeline_rollup_entry_text(entry: ContextSummaryEntry) -> str:
+        return _clean_timeline_rollup_text(entry.content)
+
+    def _entry_text_for_goal(self, entry: ContextSummaryEntry, summary_goal: str) -> str:
+        if summary_goal == "timeline_rollup":
+            return self._timeline_rollup_entry_text(entry)
+        return self._entry_text(entry)
 
     @staticmethod
     def _dedupe_strings(items: list[str], *, limit: int) -> list[str]:
@@ -484,20 +582,31 @@ class DefaultContextSummaryAgent:
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
+        progress_lines: list[str] = []
+        for item in key_points[:6]:
+            rendered = _render_markdown_text(item.text)
+            if rendered:
+                progress_lines.append(f"- {rendered}")
+
+        question_lines: list[str] = []
+        for item in open_questions[:5]:
+            rendered = _render_markdown_text(item)
+            if rendered:
+                question_lines.append(f"- {rendered}")
+
         lines = [
-            f"阶段现状: {problem_brief or '暂无'}",
-            f"当前结论: {conclusion_text or '暂无明确结论'}",
-            "已发生进展:",
+            "### 阶段现状",
+            _render_markdown_text(problem_brief or "暂无"),
+            "",
+            "### 当前结论",
+            _render_markdown_text(conclusion_text or "暂无明确结论"),
+            "",
+            "### 已发生进展",
         ]
-        if key_points:
-            lines.extend(f"- {item.text}" for item in key_points[:6] if item.text)
-        else:
-            lines.append("- 暂无明确阶段进展")
-        lines.append("待确认事项:")
-        if open_questions:
-            lines.extend(f"- {item}" for item in open_questions[:5])
-        else:
-            lines.append("- 暂无明确待确认事项")
+        lines.extend(progress_lines or ["- 暂无明确阶段进展"])
+        lines.append("")
+        lines.append("### 待确认事项")
+        lines.extend(question_lines or ["- 暂无明确待确认事项"])
         return "\n".join(lines).strip()
 
     def _normalize_timeline_rollup_summary(
@@ -509,11 +618,46 @@ class DefaultContextSummaryAgent:
         key_points: list[ContextSummaryPoint],
         open_questions: list[str],
     ) -> str:
-        if summary_text and _has_timeline_rollup_sections(summary_text):
-            return summary_text
+        normalized_summary = _clean_timeline_rollup_text(summary_text)
+        if normalized_summary:
+            return normalized_summary
         return self._render_timeline_rollup_summary(
             problem_brief=problem_brief,
             conclusion_text=conclusion_text,
             key_points=key_points,
             open_questions=open_questions,
         )
+
+    def _normalize_timeline_rollup_points(
+        self,
+        key_points: list[ContextSummaryPoint],
+        selected_entries: list[ContextSummaryEntry],
+    ) -> list[ContextSummaryPoint]:
+        normalized = [
+            ContextSummaryPoint(category=item.category or "progress", text=_clean_timeline_rollup_text(item.text))
+            for item in key_points
+            if _clean_timeline_rollup_text(item.text)
+        ]
+        deduped = self._dedupe_points(normalized, limit=6)
+        if deduped:
+            return deduped
+        fallback = [
+            ContextSummaryPoint(category="progress", text=self._timeline_rollup_entry_text(entry))
+            for entry in selected_entries[-6:]
+            if self._timeline_rollup_entry_text(entry)
+        ]
+        return self._dedupe_points(fallback, limit=6)
+
+    def _normalize_timeline_rollup_open_questions(
+        self,
+        open_questions: list[str],
+        request: ContextSummaryRequest,
+        selected_entries: list[ContextSummaryEntry],
+    ) -> list[str]:
+        normalized = self._dedupe_strings(
+            [_clean_timeline_rollup_text(item) for item in open_questions if _clean_timeline_rollup_text(item)],
+            limit=5,
+        )
+        if normalized:
+            return normalized
+        return self._collect_open_questions(request, selected_entries, limit=5)

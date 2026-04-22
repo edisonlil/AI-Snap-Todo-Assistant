@@ -6,9 +6,13 @@ import os
 from dataclasses import asdict, dataclass, field
 
 from aica.paths import config_file as default_config_file
+from aica.runtime import (
+    DEFAULT_WINDOWS_CAPTURE_HOTKEY,
+    default_capture_hotkey,
+)
 
 
-DEFAULT_CAPTURE_HOTKEY = "Alt+A"
+DEFAULT_CAPTURE_HOTKEY = DEFAULT_WINDOWS_CAPTURE_HOTKEY
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 _DASHSCOPE_MODEL_ALIASES = {
     "qwen-vl-max-latest": "qwen-vl-max",
@@ -108,13 +112,13 @@ class TaskModelBindings:
 
 @dataclass
 class HotkeyConfig:
-    capture: str = DEFAULT_CAPTURE_HOTKEY
+    capture: str = field(default_factory=default_capture_hotkey)
 
     @classmethod
     def from_dict(cls, data: object) -> "HotkeyConfig":
         if not isinstance(data, dict):
             return cls()
-        capture = str(data.get("capture", DEFAULT_CAPTURE_HOTKEY)).strip() or DEFAULT_CAPTURE_HOTKEY
+        capture = str(data.get("capture", default_capture_hotkey())).strip() or default_capture_hotkey()
         return cls(capture=capture)
 
 

@@ -84,6 +84,9 @@ class TodoRepository(Protocol):
     def complete_todo(self, todo_id: str) -> bool:
         """Mark a Todo as done."""
 
+    def reopen_todo(self, todo_id: str) -> bool:
+        """Reopen a completed Todo back to open."""
+
     def delete_todo(self, todo_id: str) -> bool:
         """Delete a Todo."""
 

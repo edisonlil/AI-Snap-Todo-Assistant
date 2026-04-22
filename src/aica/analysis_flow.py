@@ -44,6 +44,8 @@ class AnalysisFlowCoordinator:
         show_warning: Callable[[str, str], None] | None = None,
         copy_to_clipboard: Callable[[str], None] | None = None,
         record_analysis_metrics: Callable[[Any, bool], None] | None = None,
+        show_loading: Callable[[], None] | None = None,
+        hide_loading: Callable[[], None] | None = None,
     ):
         self._capture_session = capture_session
         self._toolbar = toolbar
@@ -60,6 +62,8 @@ class AnalysisFlowCoordinator:
         self._show_warning = show_warning
         self._copy_to_clipboard = copy_to_clipboard
         self._record_analysis_metrics = record_analysis_metrics
+        self._show_loading = show_loading
+        self._hide_loading = hide_loading
         self._current_worker: Any | None = None
         self._capture_locked = False
 
@@ -111,7 +115,6 @@ class AnalysisFlowCoordinator:
 
         self._capture_locked = True
         self._hide_overlays(reset=False, preserve_active=True)
-        self._toolbar.hide()
 
         config = self._ensure_api_key_configured()
         if config is None:
@@ -120,6 +123,8 @@ class AnalysisFlowCoordinator:
             return False
 
         self._toolbar.set_loading(True)
+        if self._show_loading is not None:
+            self._show_loading()
         self._current_worker = self.build_worker(images_to_analyze, config)
         self._current_worker.finished.connect(self._handle_finished)
         self._current_worker.error.connect(self._handle_error)
@@ -129,6 +134,8 @@ class AnalysisFlowCoordinator:
 
     def _handle_finished(self, result) -> None:
         self._toolbar.set_loading(False)
+        if self._hide_loading is not None:
+            self._hide_loading()
         feedback_image_base64 = getattr(self._current_worker, "_feedback_image_base64", "")
         analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         prompt_trace_id = getattr(self._current_worker, "_prompt_trace_id", "")
@@ -140,6 +147,8 @@ class AnalysisFlowCoordinator:
 
     def _handle_error(self, message: str) -> None:
         self._toolbar.set_loading(False)
+        if self._hide_loading is not None:
+            self._hide_loading()
         analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         self._capture_locked = False
         if analysis_stats is not None and self._record_analysis_metrics is not None:
@@ -161,6 +170,8 @@ class AnalysisFlowCoordinator:
             self._copy_to_clipboard(raw_text)
 
         self._toolbar.set_loading(False)
+        if self._hide_loading is not None:
+            self._hide_loading()
         analysis_stats = getattr(self._current_worker, "_analysis_stats", None)
         self._capture_locked = False
         if analysis_stats is not None and self._record_analysis_metrics is not None:

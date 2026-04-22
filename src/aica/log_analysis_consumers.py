@@ -57,45 +57,51 @@ def _judgment_text(judgment: dict) -> str:
     return "：".join(part for part in [category, reason] if part).strip()
 
 
-def _format_conclusion(payload: LogAnalysisProducedResult) -> str:
-    issue = sanitize_text(payload.result_payload.primary_issue)
+def _format_conclusion(produced: LogAnalysisProducedResult) -> str:
+    issue = sanitize_text(produced.result_payload.primary_issue)
     if issue:
         return issue
-    return _judgment_text(payload.result_payload.preliminary_judgment or {})
+    return _judgment_text(produced.result_payload.preliminary_judgment or {})
 
 
 def _format_finding_line(item: dict) -> str:
     kind = sanitize_text(item.get("kind", ""))
-    summary = _normalize_text(item.get("summary", ""))
+    summary = _strip_urls(_normalize_text(item.get("summary", "")))
     evidence = _clean_evidence(sanitize_text(item.get("evidence", "")))
     source = sanitize_text(item.get("source", ""))
     line_no = int(item.get("line_no", 0) or 0)
 
-    summary = _strip_urls(summary)
+    if kind == "request_chain":
+        prefix = summary
+    else:
+        prefix = f"{source}:{line_no}" if source and line_no else "线索"
+        prefix = f"{prefix} {summary}".strip()
+    if evidence:
+        return _truncate(f"{prefix} [{evidence}]".strip(), 128)
+    return _truncate(prefix, 128)
 
-    if kind == "exception":
-        prefix = f"{source}:{line_no}" if source and line_no else "异常"
-        if "：" in summary:
-            _, detail = summary.split("：", 1)
-            detail = detail.strip()
-        else:
-            detail = summary
-        detail = detail.replace("TypeError: ", "").replace("ReferenceError: ", "")
-        detail = _truncate(detail, 88)
+
+def _request_chain_lines(chain: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for item in chain:
+        stage = _normalize_text(item.get("stage", ""))
+        component = _normalize_text(item.get("component", ""))
+        summary = _normalize_text(item.get("summary", ""))
+        evidence = _clean_evidence(sanitize_text(item.get("evidence", "")))
+        prefix = " -> ".join(part for part in [stage, component] if part)
+        text = f"{prefix}: {summary}" if prefix and summary else (summary or prefix)
         if evidence:
-            return f"{prefix} 命中异常，{detail} [{evidence}]"
-        return f"{prefix} 命中异常，{detail}"
-
-    if kind == "error_response":
-        prefix = f"{source}:{line_no}" if source and line_no else "接口异常"
-        return _truncate(f"{prefix} {summary} [{evidence}]".strip(), 120)
-
-    prefix = f"{source}:{line_no}" if source and line_no else "线索"
-    return _truncate(f"{prefix} {summary} [{evidence}]".strip(), 120)
+            text = f"{text} [{evidence}]"
+        if text:
+            lines.append(_truncate(text, 132))
+    return _dedupe_lines(lines, limit=3)
 
 
-def _finding_lines(evidence_items: list[dict], key_findings: list[dict]) -> list[str]:
-    source_items = evidence_items or key_findings
+def _finding_lines(payload: LogAnalysisProducedResult) -> list[str]:
+    chain_lines = _request_chain_lines(payload.result_payload.request_chain or [])
+    if chain_lines:
+        return chain_lines
+    source_items = payload.result_payload.evidence_items or payload.result_payload.key_findings or []
     return _dedupe_lines([_format_finding_line(item) for item in source_items], limit=3)
 
 
@@ -144,13 +150,11 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
     def consume(self, produced: LogAnalysisProducedResult, context: LogAnalysisConsumeContext) -> TimelineEvent:
         payload = produced.result_payload
         analyzed_materials = payload.analyzed_materials or []
-        evidence_items = payload.evidence_items or []
-        key_findings = payload.key_findings or []
         next_steps = payload.suggested_next_steps or []
         judgment = payload.preliminary_judgment or {}
 
         conclusion_text = _format_conclusion(produced)
-        finding_lines = _finding_lines(evidence_items, key_findings)
+        finding_lines = _finding_lines(produced)
         next_step_lines = _next_step_lines(next_steps)
         missing_lines = _missing_info_lines(produced)
         material_lines = _material_lines(analyzed_materials)
@@ -185,10 +189,10 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
                 "next_step_lines": next_step_lines,
                 "missing_information_lines": missing_lines,
                 "material_lines": material_lines,
-                "evidence_items": evidence_items,
+                "evidence_items": payload.evidence_items,
                 "primary_issue": payload.primary_issue,
                 "noise_items": payload.noise_items,
-                "key_findings": key_findings,
+                "key_findings": payload.key_findings,
                 "preliminary_judgment": judgment,
                 "suggested_next_steps": next_steps,
                 "analysis_focus": payload.analysis_focus,
@@ -201,6 +205,10 @@ class TimelineLogAnalysisPresenter(LogAnalysisResultConsumer):
                 "evidence_refs": payload.evidence_refs,
                 "image_clues": payload.image_clues,
                 "search_hits": payload.search_hits,
+                "request_chain": payload.request_chain,
+                "root_cause_signature": payload.root_cause_signature,
+                "affected_entities": payload.affected_entities,
+                "log_vs_ticket_note": payload.log_vs_ticket_note,
                 "raw_result_payload": payload.to_dict(),
             },
         )

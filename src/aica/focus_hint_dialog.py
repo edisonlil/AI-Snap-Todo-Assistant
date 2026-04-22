@@ -8,6 +8,8 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
+from aica.runtime import RUNTIME_CAPABILITIES
+
 
 class _FocusHintBridge(QObject):
     dataChanged = pyqtSignal()
@@ -18,6 +20,10 @@ class _FocusHintBridge(QObject):
     def __init__(self, initial_text: str) -> None:
         super().__init__()
         self._hint_text = str(initial_text or "").strip()
+
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
 
     @pyqtProperty(str, notify=dataChanged)
     def hintText(self) -> str:

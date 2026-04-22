@@ -1,13 +1,13 @@
 """QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import QObject, QRect, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
+from .paths import asset_file, qml_dir
+from .runtime import RUNTIME_CAPABILITIES
 from .todo_store import TodoItem
 
 
@@ -40,6 +40,7 @@ class _TodoPanelBridge(QObject):
     expandedChanged = pyqtSignal()
     canExpandChanged = pyqtSignal()
     minimizedChanged = pyqtSignal()
+    pinnedChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
@@ -56,6 +57,7 @@ class _TodoPanelBridge(QObject):
         self._expanded = False
         self._visible_limit = visible_limit
         self._minimized = False
+        self._pinned = True
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -91,11 +93,19 @@ class _TodoPanelBridge(QObject):
     def minimized(self) -> bool:
         return self._minimized
 
+    @pyqtProperty(bool, notify=pinnedChanged)
+    def pinned(self) -> bool:
+        return self._pinned
+
     @pyqtProperty(str, notify=expandedChanged)
     def expandLabel(self) -> str:
         if not self.canExpand:
             return ""
         return "收起" if self._expanded else "展开"
+
+    @pyqtProperty(str, constant=True)
+    def logoSource(self) -> str:
+        return asset_file("aica_icon.png").as_uri()
 
     def set_state(self, todos: list[TodoItem], selected_id: str | None) -> None:
         self._todos = [
@@ -135,6 +145,11 @@ class _TodoPanelBridge(QObject):
         self.minimizedChanged.emit()
 
     @pyqtSlot()
+    def togglePinned(self) -> None:
+        self._pinned = not self._pinned
+        self.pinnedChanged.emit()
+
+    @pyqtSlot()
     def startDrag(self) -> None:
         self.dragStarted.emit()
 
@@ -168,6 +183,8 @@ class TodoPanel(QQuickView):
     todo_completed = pyqtSignal(str)
     selection_cleared = pyqtSignal()
     detail_requested = pyqtSignal(str)
+    pinned_changed = pyqtSignal(bool)
+    geometry_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -182,16 +199,13 @@ class TodoPanel(QQuickView):
         self._custom_position = None
         self._snap_margin = 18
         self._snap_threshold = 28
+        self._top_reserved_space = 0
 
-        self.setFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
-        self.setSource(QUrl.fromLocalFile(str(Path(__file__).with_name("qml").joinpath("TodoPanel.qml"))))
+        self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TodoPanel.qml")))
 
         self._bridge.todoSelected.connect(self.todo_selected)
         self._bridge.todoCompleted.connect(self.todo_completed)
@@ -202,6 +216,7 @@ class TodoPanel(QQuickView):
         self._bridge.dragStarted.connect(self._start_drag)
         self._bridge.dragMoved.connect(self._move_drag)
         self._bridge.dragEnded.connect(self._end_drag)
+        self._bridge.pinnedChanged.connect(self._handle_pinned_changed)
 
         self.resize(self._panel_width, 194)
         self.hide()
@@ -213,7 +228,8 @@ class TodoPanel(QQuickView):
         if todos:
             self._reposition()
             self.show()
-            self.raise_()
+            if self._bridge.pinned:
+                self.raise_()
         else:
             self.hide()
 
@@ -233,19 +249,52 @@ class TodoPanel(QQuickView):
         if self.isVisible():
             self._reposition()
 
+    @property
+    def pinned(self) -> bool:
+        return self._bridge.pinned
+
+    def set_top_reserved_space(self, height: int) -> None:
+        reserved = max(0, int(height))
+        if self._top_reserved_space == reserved:
+            return
+        self._top_reserved_space = reserved
+        if self.isVisible():
+            self._reposition()
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._bridge.pinned,
+            )
+        )
+        if was_visible:
+            self.show()
+            self.geometry_changed.emit()
+
+    def _handle_pinned_changed(self) -> None:
+        self._apply_window_flags()
+        if self.isVisible() and self._bridge.pinned:
+            self.raise_()
+        self.pinned_changed.emit(self._bridge.pinned)
+
     def _reposition(self) -> None:
         screen = _screen_for_point(self.position())
         if screen is None:
             return
         available = screen.availableGeometry()
+        min_y = available.top() + self._snap_margin + self._top_reserved_space
+        max_y = available.bottom() - self.height() - self._snap_margin
         if self._custom_position is not None:
             x = min(max(self._custom_position.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
-            y = min(max(self._custom_position.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+            y = min(max(self._custom_position.y(), min_y), max_y)
         else:
             x = available.right() - self.width() - self._snap_margin
-            y = available.top() + self._snap_margin
+            y = min_y
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()
 
     def frameGeometry(self):  # noqa: N802, ANN201
         return self.geometry()
@@ -263,9 +312,13 @@ class TodoPanel(QQuickView):
             return
         candidate = cursor_pos - self._drag_offset
         x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
-        y = min(max(candidate.y(), available.top() + self._snap_margin), available.bottom() - self.height() - self._snap_margin)
+        y = min(
+            max(candidate.y(), available.top() + self._snap_margin + self._top_reserved_space),
+            available.bottom() - self.height() - self._snap_margin,
+        )
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()
 
     def _end_drag(self) -> None:
         if self._drag_offset is None:
@@ -283,10 +336,12 @@ class TodoPanel(QQuickView):
         right_snap = available.right() - self.width() - self._snap_margin
         x = left_snap if abs(x - left_snap) <= abs(x - right_snap) else right_snap
 
-        if abs(y - (available.top() + self._snap_margin)) <= self._snap_threshold:
-            y = available.top() + self._snap_margin
+        top_snap = available.top() + self._snap_margin + self._top_reserved_space
+        if abs(y - top_snap) <= self._snap_threshold:
+            y = top_snap
         if abs((available.bottom() - self.height() - self._snap_margin) - y) <= self._snap_threshold:
             y = available.bottom() - self.height() - self._snap_margin
 
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self.geometry_changed.emit()

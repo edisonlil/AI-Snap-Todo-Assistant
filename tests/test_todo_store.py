@@ -57,6 +57,27 @@ def test_complete_todo_sets_completed_at() -> None:
     assert updated.updated_at == updated.completed_at
 
 
+def test_reopen_todo_clears_completed_at() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-reopen")))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-reopen"), "analysis")
+    old_completed_at = "2026-04-20T10:00:00"
+
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            "UPDATE todos SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (TodoStatus.DONE, old_completed_at, old_completed_at, todo.id),
+        )
+
+    assert repository.reopen_todo(todo.id) is True
+
+    updated = repository.get_todo(todo.id)
+    assert updated is not None
+    assert updated.status == TodoStatus.OPEN
+    assert updated.completed_at == ""
+    assert updated.updated_at
+    assert updated.updated_at != old_completed_at
+
+
 def test_today_done_uses_completed_at_instead_of_updated_at() -> None:
     repository = SQLiteTodoRepository(str(_make_db_path("todo-filter")))
     today_todo = repository.create_todo_from_analysis(_build_snapshot("done-today"), "analysis")

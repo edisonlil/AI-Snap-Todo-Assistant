@@ -4,9 +4,9 @@ Rectangle {
     id: baseCard
     width: parent ? parent.width : 0
     radius: 18
-    color: rootContext ? rootContext.timelineBg : "#F7F7F4"
+    color: rootContext ? rootContext.timelineBg : "#F5F5F5"
     border.width: 1
-    border.color: rootContext ? rootContext.fieldLine : "#E7EDF5"
+    border.color: rootContext ? rootContext.fieldLine : "#E5E7EB"
     implicitHeight: Math.max(124, contentColumn.implicitHeight + 28)
 
     property var rootContext
@@ -25,14 +25,14 @@ Rectangle {
     property Component expandComponent
     property color bulletColor: status === "success"
                                  ? "#4B9A62"
-                                 : (status === "failed" ? "#C9414B" : (rootContext ? rootContext.accent : "#3D7CFF"))
+                                 : (status === "failed" ? "#B42318" : (rootContext ? rootContext.accent : "#2A313F"))
 
-    readonly property color runningFill: "#EEF4FF"
-    readonly property color runningInk: rootContext ? rootContext.accent : "#3D7CFF"
-    readonly property color successFill: "#EAF7EE"
-    readonly property color successInk: "#287D4E"
+    readonly property color runningFill: "#ECEFF3"
+    readonly property color runningInk: rootContext ? rootContext.accent : "#2A313F"
+    readonly property color successFill: "#E7F5ED"
+    readonly property color successInk: "#17663A"
     readonly property color failedFill: "#FDECEC"
-    readonly property color failedInk: "#C9414B"
+    readonly property color failedInk: "#B42318"
 
     function statusFillColor() {
         if (status === "success") {
@@ -205,7 +205,7 @@ Rectangle {
             Text {
                 visible: expandActionLabel.length > 0
                 text: expandActionLabel
-                color: rootContext ? rootContext.accent : "#3D7CFF"
+                color: rootContext ? rootContext.accent : "#2A313F"
                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                 font.pixelSize: 11
                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -222,7 +222,7 @@ Rectangle {
                 radius: 14
                 color: "#FFFFFF"
                 border.width: 1
-                border.color: rootContext ? rootContext.fieldLine : "#E7EDF5"
+                border.color: rootContext ? rootContext.fieldLine : "#E5E7EB"
                 visible: baseCard.expanded
                 implicitHeight: expandLoader.implicitHeight + 24
 

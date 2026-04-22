@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
-from pathlib import Path
 import sys
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -237,9 +236,12 @@ from aica.analysis_rules import (
     UserRuleConfig,
     build_scene_options_payload,
 )
+from aica.app_notifications import AppNotificationBridge
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
+from aica.hotkey import normalize_hotkey
 from aica.control_panel_state import (
     build_script_integration,
+    describe_script_integration_support,
     format_image_limit_megabytes,
     list_script_integrations,
     load_integration_config,
@@ -260,6 +262,7 @@ from aica.project_management import (
 )
 from aica.paths import (
     aica_database_file,
+    asset_file,
     app_data_dir,
     analysis_rules_file,
     config_file,
@@ -272,11 +275,95 @@ from aica.paths import (
     qml_dir,
 )
 from aica.models import TicketSummaryFields, is_unknown_text
+from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import now_iso
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
 from aica.todo_models import TodoItem, TodoStatus
 from aica.todo_store import TodoStore
+
+_QT_KEY_ESCAPE = 0x01000000
+_QT_KEY_TAB = 0x01000001
+_QT_KEY_RETURN = 0x01000004
+_QT_KEY_ENTER = 0x01000005
+_QT_KEY_SPACE = 0x20
+_QT_KEY_SHIFT = 0x01000020
+_QT_KEY_CONTROL = 0x01000021
+_QT_KEY_META = 0x01000022
+_QT_KEY_ALT = 0x01000023
+_QT_KEY_F1 = 0x01000030
+_QT_KEY_F24 = _QT_KEY_F1 + 23
+
+_QT_SHIFT_MODIFIER = 0x02000000
+_QT_CONTROL_MODIFIER = 0x04000000
+_QT_ALT_MODIFIER = 0x08000000
+_QT_META_MODIFIER = 0x10000000
+
+
+def _hotkey_primary_from_qt_key(key: int, text: str) -> str | None:
+    if key == _QT_KEY_SPACE:
+        return "Space"
+    if key == _QT_KEY_TAB:
+        return "Tab"
+    if key in (_QT_KEY_RETURN, _QT_KEY_ENTER):
+        return "Enter"
+    if key == _QT_KEY_ESCAPE:
+        return "Esc"
+    if _QT_KEY_F1 <= key <= _QT_KEY_F24:
+        return f"F{key - _QT_KEY_F1 + 1}"
+    if ord("0") <= key <= ord("9"):
+        return chr(key)
+    if ord("A") <= key <= ord("Z"):
+        return chr(key)
+    if ord("a") <= key <= ord("z"):
+        return chr(key).upper()
+    token = str(text or "").strip()
+    if len(token) == 1 and token.isalnum():
+        return token.upper()
+    return None
+
+
+def hotkey_from_qt_key_event(
+    key: int,
+    modifiers: int,
+    text: str = "",
+    *,
+    platform_id: str | None = None,
+) -> str | None:
+    if key in {_QT_KEY_SHIFT, _QT_KEY_CONTROL, _QT_KEY_ALT, _QT_KEY_META}:
+        return None
+
+    primary_key = _hotkey_primary_from_qt_key(int(key or 0), text)
+    if not primary_key:
+        return None
+
+    normalized_platform = RUNTIME_CAPABILITIES.platform_id if platform_id is None else platform_id
+    modifier_parts: list[str] = []
+    if normalized_platform == "macos":
+        # Qt on macOS maps the physical Command key to ControlModifier,
+        # and the physical Control key to MetaModifier.
+        if modifiers & _QT_CONTROL_MODIFIER:
+            modifier_parts.append("Command")
+        if modifiers & _QT_ALT_MODIFIER:
+            modifier_parts.append("Option")
+        if modifiers & _QT_META_MODIFIER:
+            modifier_parts.append("Control")
+        if modifiers & _QT_SHIFT_MODIFIER:
+            modifier_parts.append("Shift")
+    else:
+        if modifiers & _QT_CONTROL_MODIFIER:
+            modifier_parts.append("Ctrl")
+        if modifiers & _QT_ALT_MODIFIER:
+            modifier_parts.append("Alt")
+        if modifiers & _QT_SHIFT_MODIFIER:
+            modifier_parts.append("Shift")
+        if modifiers & _QT_META_MODIFIER:
+            modifier_parts.append("Win")
+
+    if not modifier_parts:
+        raise ValueError("截图热键至少需要一个修饰键")
+
+    return normalize_hotkey("+".join([*modifier_parts, primary_key]), normalized_platform)
 
 
 _TASK_LABELS = {
@@ -578,6 +665,7 @@ class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
     windowStateChanged = pyqtSignal()
+    todoListRefreshRequested = pyqtSignal()
     closeRequested = pyqtSignal()
     minimizeRequested = pyqtSignal()
     maximizeRequested = pyqtSignal()
@@ -586,8 +674,14 @@ class _ControlPanelBridge(QObject):
     configSaved = pyqtSignal(object)
     projectDateSelected = pyqtSignal(str, str)
 
-    def __init__(self, config_manager: ConfigManager) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        *,
+        notification_bridge: AppNotificationBridge | None = None,
+    ) -> None:
         super().__init__()
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._config_manager = config_manager
         self._config = config_manager.load()
         self._analysis_metrics = AnalysisMetricsStore()
@@ -617,10 +711,16 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._error_message = ""
         self._status_message = ""
+        self._last_notified_error_message = ""
+        self._last_notified_status_message = ""
         self._window_maximized = False
         records = self._prompt_debug_store.list_records(limit=1)
         if records:
             self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+
+    @property
+    def notificationBridge(self) -> AppNotificationBridge:
+        return self._notification_bridge
 
     @pyqtProperty("QVariantList", constant=True)
     def sections(self):  # noqa: ANN201
@@ -641,6 +741,38 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(bool, notify=windowStateChanged)
     def windowMaximized(self) -> bool:
         return self._window_maximized
+
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
+
+    @pyqtProperty(str, constant=True)
+    def logoSource(self) -> str:
+        return asset_file("aica_icon.png").as_uri()
+
+    @pyqtProperty(str, constant=True)
+    def refreshFeaturePointIconSource(self) -> str:
+        return asset_file("feature-point-refresh.svg").as_uri()
+
+    @pyqtProperty(str, constant=True)
+    def integrationScriptFilter(self) -> str:
+        return RUNTIME_CAPABILITIES.integration_script_filter
+
+    @pyqtProperty(str, constant=True)
+    def integrationScriptHelpText(self) -> str:
+        if RUNTIME_CAPABILITIES.is_windows:
+            return "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
+        return "支持导入 .py、.pyw、.sh。已存在的 Windows 专用脚本会保留配置，但会标记为当前平台不支持。"
+
+    @pyqtProperty(str, constant=True)
+    def hotkeyHelpText(self) -> str:
+        if RUNTIME_CAPABILITIES.is_macos:
+            return "支持形如 Command+Shift+A、Option+A、Control+Shift+F8，至少需要一个修饰键。"
+        return "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+
+    @pyqtProperty(str, constant=True)
+    def hotkeyPlaceholder(self) -> str:
+        return RUNTIME_CAPABILITIES.default_capture_hotkey
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def providers(self):  # noqa: ANN201
@@ -727,6 +859,7 @@ class _ControlPanelBridge(QObject):
         payload = []
         for integration in self._script_integrations:
             script_path = script_integration_display_path(integration)
+            supported, support_message = describe_script_integration_support(integration)
             payload.append(
                 {
                     "id": str(integration.get("id") or "").strip(),
@@ -734,6 +867,8 @@ class _ControlPanelBridge(QObject):
                     "enabled": bool(integration.get("enabled", True)),
                     "scriptPath": script_path,
                     "exists": bool(script_path) and Path(script_path).exists(),
+                    "supported": supported,
+                    "supportMessage": support_message,
                 }
             )
         return payload
@@ -944,8 +1079,16 @@ class _ControlPanelBridge(QObject):
     def _clear_messages(self) -> None:
         self._error_message = ""
         self._status_message = ""
+        self._last_notified_error_message = ""
+        self._last_notified_status_message = ""
 
     def _emit_data_changed(self) -> None:
+        if self._error_message and self._error_message != self._last_notified_error_message:
+            self._notification_bridge.notify("error", self._error_message, source="control_panel")
+            self._last_notified_error_message = self._error_message
+        if self._status_message and self._status_message != self._last_notified_status_message:
+            self._notification_bridge.notify("success", self._status_message, source="control_panel")
+            self._last_notified_status_message = self._status_message
         self.dataChanged.emit()
 
     def _load_project_payloads(self) -> list[dict[str, object]]:
@@ -1106,6 +1249,7 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket = self._build_ticket_detail_payload(todo)
         self._status_message = status_message
         self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
 
     def _load_ticket_payloads(self) -> list[dict[str, object]]:
         return [
@@ -1243,6 +1387,22 @@ class _ControlPanelBridge(QObject):
         self._capture_hotkey = str(value or "")
         self._clear_messages()
         self._emit_data_changed()
+
+    @pyqtSlot(int, int, str, result=bool)
+    def captureHotkeyFromKeyEvent(self, key: int, modifiers: int, text: str) -> bool:
+        try:
+            hotkey = hotkey_from_qt_key_event(key, modifiers, text)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return False
+        if not hotkey:
+            return False
+        self._capture_hotkey = hotkey
+        self._clear_messages()
+        self._emit_data_changed()
+        return True
 
     @pyqtSlot(str)
     def updateMaxImageMegabytes(self, value: str) -> None:
@@ -1529,7 +1689,7 @@ class _ControlPanelBridge(QObject):
             None,
             "选择外部脚本",
             str(app_data_dir()),
-            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+            self.integrationScriptFilter,
         )
         if not selected_path:
             return
@@ -1538,7 +1698,14 @@ class _ControlPanelBridge(QObject):
             for item in self._script_integrations
             if str(item.get("id") or "").strip()
         }
-        self._script_integrations.append(build_script_integration(selected_path, existing_ids))
+        try:
+            integration = build_script_integration(selected_path, existing_ids)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return
+        self._script_integrations.append(integration)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -1554,14 +1721,18 @@ class _ControlPanelBridge(QObject):
             None,
             "选择外部脚本",
             start_dir,
-            "脚本文件 (*.py *.pyw *.ps1 *.bat *.cmd *.exe);;所有文件 (*.*)",
+            self.integrationScriptFilter,
         )
         if not selected_path:
             return
-        self._replace_script_integration(
-            target_id,
-            update_script_integration_path(integration, selected_path),
-        )
+        try:
+            updated = update_script_integration_path(integration, selected_path)
+        except ValueError as exc:
+            self._error_message = str(exc)
+            self._status_message = ""
+            self._emit_data_changed()
+            return
+        self._replace_script_integration(target_id, updated)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -1716,8 +1887,28 @@ class _ControlPanelBridge(QObject):
         payload = self._build_ticket_detail_payload(todo)
         QApplication.clipboard().setText(_format_ticket_copy_text(payload))
         self._clear_messages()
-        self._status_message = "工单内容已复制到剪贴板。"
+        self._notification_bridge.notify("success", "工单内容已复制", source="control_panel")
         self._emit_data_changed()
+
+    @pyqtSlot()
+    def reopenSelectedTicket(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        reopened = self._todo_store.reopen_todo(todo.id)
+        if not reopened:
+            self._error_message = "\u91cd\u65b0\u6253\u5f00\u5de5\u5355\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        updated = self._todo_store.get_todo(todo.id)
+        if updated is None:
+            self._error_message = "\u5de5\u5355\u72b6\u6001\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(updated, status_message="\u5de5\u5355\u5df2\u91cd\u65b0\u6253\u5f00")
 
     @pyqtSlot()
     def deleteSelectedTicket(self) -> None:
@@ -1737,6 +1928,7 @@ class _ControlPanelBridge(QObject):
         self._refresh_ticket_payloads()
         self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
         self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
 
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:
@@ -1974,22 +2166,28 @@ class _ControlPanelBridge(QObject):
 
 class ControlPanelWindow(QWidget):
     config_saved = pyqtSignal(object)
+    todo_list_refresh_requested = pyqtSignal()
 
-    def __init__(self, config_manager: ConfigManager, parent=None) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        parent=None,
+        *,
+        notification_bridge: AppNotificationBridge | None = None,
+    ) -> None:
         super().__init__(parent)
         self._positioned = False
-        self._bridge = _ControlPanelBridge(config_manager)
+        self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._bridge = _ControlPanelBridge(
+            config_manager,
+            notification_bridge=self._notification_bridge,
+        )
         self._layout: QVBoxLayout | None = None
 
         self.setObjectName("controlPanelWindow")
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowSystemMenuHint
-            | Qt.WindowType.WindowMinMaxButtonsHint
-        )
+        self.setWindowFlags(RUNTIME_CAPABILITIES.control_panel_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setWindowTitle("AICA 控制面板")
+        self.setWindowTitle("Chattodo Hub")
         self.resize(1040, 760)
         self.setMinimumSize(920, 680)
 
@@ -2001,6 +2199,7 @@ class ControlPanelWindow(QWidget):
         self._bridge.dragRequested.connect(self._start_system_move)
         self._bridge.resizeRequested.connect(self._start_system_resize)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
+        self._bridge.todoListRefreshRequested.connect(lambda: self.todo_list_refresh_requested.emit())
         self._sync_window_state()
 
     def _setup_ui(self) -> None:

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<title>模型管理</title>
+
+<style>
+
+/* ===== 基础 ===== */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI";
+  background: #f7f8fa;
+  color: #1f2328;
+}
+
+/* 容器 */
+.container {
+  width: 920px;
+  margin: 48px auto;
+}
+
+/* ===== 标题 ===== */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ===== Tabs（优化版） ===== */
+.tabs {
+  display: flex;
+  gap: 12px;
+}
+
+.tab {
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.tab:hover {
+  background: #f3f4f6;
+}
+
+.tab.active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+/* ===== 卡片 ===== */
+.card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 28px;
+  border: 1px solid #eaecef;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
+}
+
+/* ===== 表单 ===== */
+.field {
+  margin-bottom: 12px;
+}
+
+.label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+input, select {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.15s;
+}
+
+input:focus, select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+}
+
+/* ===== 任务绑定 ===== */
+
+.task-row {
+  display: grid;
+  grid-template-columns: 160px 150px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 4px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.task-row:hover {
+  background: #f9fafb;
+}
+
+.task-name {
+  font-size: 14px;
+}
+
+/* ===== 可创建 Select ===== */
+
+.custom-select {
+  position: relative;
+}
+
+.custom-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+}
+
+.dropdown {
+  position: absolute;
+  top: 36px;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+  max-height: 200px;
+  overflow: auto;
+  z-index: 20;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from {opacity: 0; transform: translateY(-4px);}
+  to {opacity: 1; transform: translateY(0);}
+}
+
+.option {
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: #f3f4f6;
+}
+
+.add-option {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #2563eb;
+  border-top: 1px solid #eee;
+  cursor: pointer;
+}
+
+.add-option:hover {
+  background: #f0f7ff;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <!-- 模型供应商 -->
+  <div class="section-header">
+    <div class="title">模型供应商</div>
+    <div class="tabs" id="providerTabs">
+      <div class="tab active" data-id="DeepSeek">DeepSeek</div>
+      <div class="tab" data-id="OpenRouter">OpenRouter</div>
+      <div class="tab" data-id="MiniMax">MiniMax</div>
+      <div class="tab" data-id="Qwen">Qwen</div>
+    </div>
+  </div>
+
+  <div class="card" id="providerContent"></div>
+
+  <!-- 任务绑定 -->
+  <div class="section-header">
+    <div class="title">任务模型绑定</div>
+  </div>
+
+  <div class="card" id="taskCard"></div>
+
+</div>
+
+<script>
+
+/* 数据 */
+const providers = {
+  DeepSeek: { baseUrl: "", timeout: 30, models: ["deepseek-chat"] },
+  OpenRouter: { baseUrl: "", timeout: 30, models: ["gpt-4"] },
+  MiniMax: { baseUrl: "", timeout: 30, models: ["abab6.5"] },
+  Qwen: { baseUrl: "", timeout: 30, models: ["qwen2.5-vl"] }
+};
+
+const tasks = ["截图分析","方案导出","上下文摘要","日志分析"];
+
+let currentProvider = "DeepSeek";
+
+/* 模型供应商 */
+function renderProvider() {
+  const p = providers[currentProvider];
+
+  document.getElementById("providerContent").innerHTML = `
+    <div class="field">
+      <div class="label">API Key</div>
+      <input>
+    </div>
+
+    <div class="field">
+      <div class="label">Base URL</div>
+      <input value="${p.baseUrl}">
+    </div>
+
+    <div class="field">
+      <div class="label">超时时间（秒）</div>
+      <input type="number" value="${p.timeout}">
+    </div>
+  `;
+}
+
+document.querySelectorAll(".tab").forEach(tab=>{
+  tab.onclick=()=>{
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+    tab.classList.add("active");
+    currentProvider=tab.dataset.id;
+    renderProvider();
+  }
+});
+
+renderProvider();
+
+/* 任务绑定 */
+
+function createSelect() {
+  return `
+    <div class="custom-select">
+      <input class="custom-input" placeholder="选择或输入模型">
+      <div class="dropdown" style="display:none"></div>
+    </div>
+  `;
+}
+
+function renderTasks() {
+  const el = document.getElementById("taskCard");
+
+  el.innerHTML = tasks.map(name=>`
+    <div class="task-row">
+      <div class="task-name">${name}</div>
+
+      <select class="provider-select">
+        ${Object.keys(providers).map(p=>`<option>${p}</option>`).join("")}
+      </select>
+
+      ${createSelect()}
+    </div>
+  `).join("");
+
+  bindSelect();
+}
+
+function bindSelect() {
+  document.querySelectorAll(".custom-select").forEach(select=>{
+    const input = select.querySelector(".custom-input");
+    const dropdown = select.querySelector(".dropdown");
+    const providerSelect = select.closest(".task-row").querySelector(".provider-select");
+
+    function renderOptions() {
+      const models = providers[providerSelect.value].models;
+      const keyword = input.value.toLowerCase();
+
+      dropdown.innerHTML = "";
+
+      models
+        .filter(m=>m.toLowerCase().includes(keyword))
+        .forEach(m=>{
+          const div=document.createElement("div");
+          div.className="option";
+          div.innerText=m;
+          div.onclick=()=>{
+            input.value=m;
+            dropdown.style.display="none";
+          };
+          dropdown.appendChild(div);
+        });
+
+      if(input.value && !models.includes(input.value)){
+        const add=document.createElement("div");
+        add.className="add-option";
+        add.innerText=`➕ 添加 "${input.value}"`;
+        add.onclick=()=>{
+          models.push(input.value);
+          dropdown.style.display="none";
+        };
+        dropdown.appendChild(add);
+      }
+    }
+
+    input.onfocus=()=>{
+      dropdown.style.display="block";
+      renderOptions();
+    };
+
+    input.oninput=renderOptions;
+
+    document.addEventListener("click",e=>{
+      if(!select.contains(e.target)){
+        dropdown.style.display="none";
+      }
+    });
+
+    providerSelect.onchange=()=>{
+      input.value="";
+    };
+  });
+}
+
+renderTasks();
+
+</script>
+
+</body>
+</html>

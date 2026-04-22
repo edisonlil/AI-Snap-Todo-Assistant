@@ -52,6 +52,10 @@ class _FakeEnvironmentRepository:
         return list(entries)
 
 
+def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
+    return [str(item["message"]) for item in bridge.notificationBridge.notifications]
+
+
 def test_environment_schema_and_repository_roundtrip() -> None:
     fd, raw_path = tempfile.mkstemp(suffix=".db", dir=Path.cwd())
     os.close(fd)
@@ -231,6 +235,7 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
 
     bridge.copyEnvironmentOtp("entry-1")
     assert bridge.environmentAccessMessage == "已复制验证码"
+    assert _notification_messages(bridge)[-1] == "已复制验证码"
 
 
 def test_todo_detail_bridge_login_without_helper_data_does_not_expand_helper() -> None:

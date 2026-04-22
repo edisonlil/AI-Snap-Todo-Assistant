@@ -94,14 +94,20 @@ _STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
     "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
     "不新增事实，不编造时间线，不补写缺失步骤，不新增时间点、责任归因、根因和结论。"
     "如果原文是不确定、待确认或疑似，必须保留这种不确定性。"
-    "输出必须是纯文本，不要 Markdown，不要解释。"
+    "输出必须是 Markdown 正文，保留清晰的标题、段落和列表结构，不要解释，不要输出代码块围栏。"
+    "不要套固定四段模板，可根据内容自由组织结构。"
 )
 _STAGE_SUMMARY_PRESET_INSTRUCTIONS = {
+    "polish": "在不新增事实的前提下，重新梳理现有总结的结构和表述，让信息更清楚、更顺滑。",
     "shorter": "把现有总结整理得更简短，保留关键结论、当前进展和待确认点。",
     "customer": "把现有总结整理成更适合发给客户的表述，语气克制、清楚，弱化内部排查术语。",
     "rd": "把现有总结整理成更适合发给研发同学的表述，保留技术线索、日志依据和待确认项。",
     "materials": "在不新增事实的前提下，强调已经收集到的材料、截图、日志和已确认信息。",
 }
+_DEFAULT_STAGE_SUMMARY_REWRITE_INSTRUCTION = (
+    "请重新整理这版阶段总结，在不新增事实的前提下优化结构、去重和语序，让表达更自然清楚。"
+    "不要套固定模板，不要求保留原有标题名称；除非原文已经足够精炼，否则不要整段原样返回。"
+)
 
 
 def _build_stage_summary_rewrite_user_prompt(current_text: str, instruction: str) -> str:
@@ -112,6 +118,7 @@ def _build_stage_summary_rewrite_user_prompt(current_text: str, instruction: str
         "2. 不要新增“今天”“昨天”“随后”“最终”等时间锚点。\n"
         "3. 不要新增责任归因、根因判断、结论或未出现的处理动作。\n"
         "4. 原文里的“待确认”“疑似”“可能”等不确定表述必须保留。\n"
+        "5. 输出保持 Markdown 结构，但不要套固定模板；可根据内容自由调整标题、短段和列表。\n"
         f"整理要求：{instruction}\n\n"
         "现有总结：\n"
         f"{current_text}"
@@ -722,39 +729,56 @@ def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str)
     return _STAGE_SUMMARY_PRESET_INSTRUCTIONS.get(normalized_preset, "")
 
 
-def _rewrite_stage_summary_locally(current_text: str, preset_key: str, custom_instruction: str) -> str:
+def _rewrite_stage_summary_locally(
+    current_text: str,
+    preset_key: str,
+    custom_instruction: str,
+    *,
+    default_rewrite: bool = False,
+) -> str:
     normalized_text = sanitize_text(current_text).strip()
     if not normalized_text:
         return ""
     normalized_preset = sanitize_text(preset_key).strip()
-    instruction = _stage_summary_rewrite_instruction(normalized_preset, custom_instruction)
     lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    if normalized_preset == "polish":
+        selected = lines[:10] if lines else [normalized_text]
+        return "\n".join(selected).strip()
+    if default_rewrite:
+        deduped_lines: list[str] = []
+        seen: set[str] = set()
+        for line in lines:
+            key = line.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_lines.append(line)
+        selected = deduped_lines or lines or [normalized_text]
+        return "\n".join(selected[:10]).strip()
     if normalized_preset == "shorter":
-        shortened = lines[:4] if lines else [normalized_text]
-        return "\n".join(shortened)[:220].strip()
+        shortened = lines[:8] if lines else [normalized_text]
+        return "\n".join(shortened)[:320].strip()
     if normalized_preset == "customer":
         filtered = [
             line for line in lines
             if not any(keyword in line.lower() for keyword in ("trace", "request_id", "trad", "url", "日志路径"))
         ]
         selected = filtered or lines
-        return "\n".join(selected[:5]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
+        return "\n".join(selected[:8]).replace("问题概述", "当前情况").replace("下一步关注", "建议下一步").strip()
     if normalized_preset == "rd":
-        return "\n".join(lines[:6]).replace("下一步关注", "建议排查").strip()
+        return "\n".join(lines[:10]).replace("下一步关注", "建议排查").strip()
     if normalized_preset == "materials":
         material_lines = [
             line for line in lines
             if any(keyword in line.lower() for keyword in ("截图", "附件", "日志", "request_id", "trace", "材料"))
         ]
-        selected = material_lines or lines[:5]
+        selected = material_lines or lines[:8]
         return "\n".join(selected).strip()
-    if instruction:
-        return f"{normalized_text}\n\n按当前要求整理：{instruction}".strip()
     return normalized_text
 
 
 class StageSummaryWorker(QThread):
-    finished = pyqtSignal(str, str, str)
+    finished = pyqtSignal(str, str, str, str)
     error = pyqtSignal(str, str, str)
 
     def __init__(
@@ -773,9 +797,11 @@ class StageSummaryWorker(QThread):
         self._request_id = str(request_id or "").strip()
         self._mode = str(mode or "rollup").strip() or "rollup"
         self._payload = dict(payload or {})
+        self._result_notice = ""
 
     def run(self) -> None:
         try:
+            self._result_notice = ""
             if self._mode == "rewrite":
                 text = self._rewrite_summary()
             else:
@@ -783,7 +809,7 @@ class StageSummaryWorker(QThread):
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._todo_id, self._request_id, str(exc))
             return
-        self.finished.emit(self._todo_id, self._request_id, text)
+        self.finished.emit(self._todo_id, self._request_id, text, self._result_notice)
 
     def _build_rollup_summary(self) -> str:
         todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
@@ -804,9 +830,13 @@ class StageSummaryWorker(QThread):
             raise ValueError("暂无可调整的阶段总结")
         preset_key = sanitize_text(self._payload.get("presetKey", "")).strip()
         custom_instruction = sanitize_text(self._payload.get("instruction", "")).strip()
+        default_rewrite = bool(self._payload.get("defaultRewrite"))
         instruction = _stage_summary_rewrite_instruction(preset_key, custom_instruction)
         if not instruction:
-            return current_text
+            if default_rewrite:
+                instruction = _DEFAULT_STAGE_SUMMARY_REWRITE_INSTRUCTION
+            else:
+                return current_text
         try:
             rewritten = self._llm_service.run_task(
                 "context_summary",
@@ -816,13 +846,24 @@ class StageSummaryWorker(QThread):
                 ],
                 temperature=0.2,
             )
-            normalized = sanitize_text(rewritten).strip()
+            normalized = normalize_markdown_content(sanitize_text(rewritten).strip())
             if normalized:
+                if normalized == current_text:
+                    self._result_notice = "已调用模型重写，但返回内容未变化"
                 return normalized
-        except Exception:  # noqa: BLE001
-            pass
-        fallback = _rewrite_stage_summary_locally(current_text, preset_key, custom_instruction)
-        return fallback or current_text
+            raise ValueError("模型返回内容为空")
+        except Exception as exc:  # noqa: BLE001
+            fallback = _rewrite_stage_summary_locally(
+                current_text,
+                preset_key,
+                custom_instruction,
+                default_rewrite=default_rewrite,
+            )
+            fallback = normalize_markdown_content(sanitize_text(fallback).strip())
+            if fallback and fallback != current_text:
+                self._result_notice = "模型重写失败，已回退本地整理"
+                return fallback
+            raise RuntimeError("模型重写失败") from exc
 
 
 class PlanExportWorker(_BaseVisionWorker):

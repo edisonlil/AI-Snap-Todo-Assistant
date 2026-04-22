@@ -8,16 +8,19 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+import uuid
 
-from PyQt6.QtCore import QRect, QTimer
-from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtCore import QRect, QTimer, Qt
+from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.analysis_metrics import AnalysisMetricsStore
+from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
+from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
-from aica.config import DEFAULT_CAPTURE_HOTKEY, ConfigManager
+from aica.config import ConfigManager
 from aica.context_summary_models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
@@ -26,14 +29,25 @@ from aica.log_analysis_models import LogAnalysisTask
 from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
 from aica.log_analysis_store import LogAnalysisTaskStore
 from aica.log_analysis_worker import LogAnalysisWorker
+from aica.loading_dialog import LoadingDialog
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
 from aica.result_flow import ResultFlowCoordinator
+from aica.runtime import RUNTIME_CAPABILITIES, hotkey_failure_message
 from aica.single_instance import SingleInstanceGuard, show_already_running_message
-from aica.ticket_enrichment import TicketEnrichmentService, build_feature_point_provider
+from aica.ticket_enrichment import (
+    TicketEnrichmentService,
+    build_feature_point_provider,
+    build_ticket_enrichment_job,
+    is_ticket_enrichment_job_still_current,
+    merge_async_enrichment_fields,
+    summarize_enrichment_errors,
+)
+from aica.ticket_enrichment_worker import TicketEnrichmentWorker
 from aica.todo_controller import TodoController
 from aica.todo_detail_panel import TodoDetailPanel
+from aica.todo_detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
 from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo_panel import TodoPanel
 from aica.todo_store import TodoConclusion, TodoStore
@@ -98,11 +112,62 @@ def _setup_exception_handler() -> Path:
     return log_file
 
 
-def _format_ts(value: str) -> str:
+def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyManager:
+    default_hotkey = RUNTIME_CAPABILITIES.default_capture_hotkey
     try:
-        return datetime.fromisoformat(value).strftime("%m-%d %H:%M")
+        return HotkeyManager(
+            initial_config.hotkeys.capture,
+            platform_id=RUNTIME_CAPABILITIES.platform_id,
+        )
     except ValueError:
-        return value
+        initial_config.hotkeys.capture = default_hotkey
+        config_mgr.save(initial_config)
+        return HotkeyManager(default_hotkey, platform_id=RUNTIME_CAPABILITIES.platform_id)
+
+
+def _resolve_todo_detail_draft(payload: dict[str, object]) -> tuple[str, str, TicketSummaryFields, TodoConclusion]:
+    draft_payload = payload.get("draft")
+    source = dict(draft_payload or {}) if isinstance(draft_payload, dict) else dict(payload)
+    summary_fields = TicketSummaryFields.from_dict(source.get("summary_fields"))
+    conclusion_payload = source.get("conclusion")
+    conclusion = (
+        conclusion_payload
+        if isinstance(conclusion_payload, TodoConclusion)
+        else TodoConclusion(**dict(conclusion_payload or {}))
+    )
+    return (
+        str(source.get("title", "")),
+        str(source.get("current_summary", "")),
+        summary_fields,
+        conclusion,
+    )
+
+
+def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) -> Exception | None:
+    try:
+        hotkey_mgr.start()
+        _append_startup_log(startup_log_file, "startup: hotkey listener started")
+        return None
+    except Exception as exc:  # pragma: no cover - exercised via tests with monkeypatch
+        _append_startup_log(
+            startup_log_file,
+            f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
+        )
+        return exc
+
+
+def _show_build_expired_message(now: datetime | None = None) -> None:
+    QMessageBox.critical(
+        None,
+        "版本支持到期,请重新下载使用",
+        build_expiration_message(now=now),
+    )
+
+
+def _build_is_expired(now: datetime | None = None) -> bool:
+    if not should_enforce_build_expiration():
+        return False
+    return get_build_expiration_status(now=now).expired
 
 
 def main() -> None:
@@ -111,10 +176,11 @@ def main() -> None:
         show_already_running_message()
         return
 
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
+    if RUNTIME_CAPABILITIES.is_windows:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
 
     startup_log_file = _setup_exception_handler()
     _append_startup_log(startup_log_file, "startup: main entered")
@@ -122,17 +188,20 @@ def main() -> None:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setFont(QFont(RUNTIME_CAPABILITIES.ui_font))
     _append_startup_log(startup_log_file, "startup: QApplication ready")
+
+    if _build_is_expired():
+        _append_startup_log(startup_log_file, "startup: packaged build expired")
+        _show_build_expired_message()
+        return
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
-    try:
-        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
-    except ValueError:
-        initial_config.hotkeys.capture = DEFAULT_CAPTURE_HOTKEY
-        config_mgr.save(initial_config)
-        hotkey_mgr = HotkeyManager(initial_config.hotkeys.capture)
-    control_panel = ControlPanelWindow(config_mgr)
+    hotkey_mgr = _build_hotkey_manager(config_mgr, initial_config)
+    notification_bridge = AppNotificationBridge()
+    notification_window = AppNotificationWindow(notification_bridge)
+    control_panel = ControlPanelWindow(config_mgr, notification_bridge=notification_bridge)
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
     log_analysis_store = LogAnalysisTaskStore()
@@ -143,7 +212,9 @@ def main() -> None:
     )
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
     todo_panel = TodoPanel()
-    todo_detail_panel = TodoDetailPanel()
+    todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge)
+    todo_detail_panel.set_pinned(todo_panel.pinned)
+    loading_dialog = LoadingDialog()
     toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
@@ -151,19 +222,39 @@ def main() -> None:
     plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
+    ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
+    pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
-    tray_icon_path = icon_file()
+    def _resolve_tray_icon_path() -> Path:
+        if not RUNTIME_CAPABILITIES.is_macos:
+            return icon_file()
+        style_hints = app.styleHints()
+        is_dark_mode = False
+        color_scheme = getattr(style_hints, "colorScheme", None)
+        if callable(color_scheme):
+            is_dark_mode = color_scheme() == Qt.ColorScheme.Dark
+        return icon_file(dark_mode=is_dark_mode)
+
+    tray_icon_path = _resolve_tray_icon_path()
     tray_icon = QSystemTrayIcon(QIcon(str(tray_icon_path)), app)
     tray_icon.setToolTip("AICA")
     _append_startup_log(
         startup_log_file,
         f"startup: tray icon path={tray_icon_path} exists={tray_icon_path.exists()}",
     )
+
+    def _update_tray_icon() -> None:
+        current_path = _resolve_tray_icon_path()
+        tray_icon.setIcon(QIcon(str(current_path)))
+        _append_startup_log(
+            startup_log_file,
+            f"startup: tray icon updated path={current_path} exists={current_path.exists()}",
+        )
 
     def _show_control_panel(section_id: str = "models") -> None:
         control_panel.show_panel(section_id)
@@ -177,6 +268,7 @@ def main() -> None:
 
     def _quit_application() -> None:
         tray_icon.hide()
+        notification_window.hide()
         control_panel.hide()
         app.quit()
 
@@ -198,6 +290,13 @@ def main() -> None:
             _show_control_panel("models")
 
     tray_icon.activated.connect(_on_tray_activated)
+    style_hints = app.styleHints()
+    color_scheme_changed = getattr(style_hints, "colorSchemeChanged", None)
+    if RUNTIME_CAPABILITIES.is_macos and color_scheme_changed is not None:
+        color_scheme_changed.connect(lambda *_args: _update_tray_icon())
+    todo_panel.geometry_changed.connect(
+        lambda: loading_dialog.show_loading(todo_panel) if loading_dialog.isVisible() else None
+    )
 
     def _refresh_todo_panel() -> None:
         todo_panel.set_todos(
@@ -215,57 +314,6 @@ def main() -> None:
             todo_panel.frameGeometry(),
             sync_records=binding_store.list_record_payloads(todo_id),
             task_status_map=log_analysis_store.list_task_status_by_timeline_ids(todo_id, timeline_ids),
-        )
-
-    def _build_selected_todo_context() -> str:
-        todo = todo_controller.get_selected_todo()
-        if todo is None:
-            return ""
-        timeline_lines = [
-            f"- {_format_ts(event.timestamp)} {event.content}"
-            for event in todo.timeline[-5:]
-            if event.content.strip()
-        ]
-        evidence_lines = []
-        return (
-            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
-            "请重点根据当前这张新截图提炼新增信息。\n"
-            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
-            "请把本次新增进展写入 timeline_entry，把参数、日志、TraceId、URL 等排查依据写入 evidence_items。\n\n"
-            f"待办标题: {todo.title}\n"
-            f"群聊名称: {todo.summary_fields.group_name}\n"
-            f"环境: {todo.summary_fields.environment}\n"
-            f"产品线: {todo.summary_fields.product_line}\n"
-            f"工单类型: {todo.summary_fields.ticket_type}\n"
-            f"当前摘要: {todo.current_summary}\n"
-            "最近时间线:\n"
-            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
-            + "\n关键证据:\n"
-            + ("\n".join(evidence_lines) if evidence_lines else "- 暂无")
-        )
-
-    def _build_selected_todo_context() -> str:
-        todo = todo_controller.get_selected_todo()
-        if todo is None:
-            return ""
-        timeline_lines = [
-            f"- {_format_ts(event.timestamp)} {event.content}"
-            for event in todo.timeline[-5:]
-            if event.content.strip()
-        ]
-        return (
-            "以下内容是当前已选中待办的历史上下文，仅供参考，不要直接复述为本次分析结果。\n"
-            "请重点根据当前这张新截图提炼新增信息。\n"
-            "current_summary 是创建时摘要，后续追加时不要改写旧摘要；"
-            "请把本次新增进展写入 timeline_entry，如果有参数、日志、TraceId、URL 等细节，也直接写在 timeline_entry 里。\n\n"
-            f"待办标题: {todo.title}\n"
-            f"群聊名称: {todo.summary_fields.group_name}\n"
-            f"环境: {todo.summary_fields.environment}\n"
-            f"产品线: {todo.summary_fields.product_line}\n"
-            f"工单类型: {todo.summary_fields.ticket_type}\n"
-            f"当前摘要: {todo.current_summary}\n"
-            "最近时间线:\n"
-            + ("\n".join(timeline_lines) if timeline_lines else "- 暂无")
         )
 
     def _build_selected_todo_context() -> object:
@@ -343,6 +391,82 @@ def main() -> None:
             feature_point_provider=build_feature_point_provider(config.ticket_enrichment.feature_point),
             llm_service=llm_service,
         )
+
+    def _cleanup_ticket_enrichment_worker(worker: TicketEnrichmentWorker) -> None:
+        if worker in ticket_enrichment_workers:
+            ticket_enrichment_workers.remove(worker)
+        worker.deleteLater()
+
+    def _notify_ticket_enrichment_issue(message: str, *, level: str = "warning") -> None:
+        normalized = str(message or "").strip()
+        if not normalized:
+            return
+        notification_bridge.notify(
+            level,
+            f"待办字段后台生成未完成：{normalized}",
+            4800,
+            "ticket_enrichment",
+        )
+
+    def _on_ticket_enrichment_finished(todo_id: str, request_id: str, outcome: object) -> None:
+        pending = pending_ticket_enrichment_jobs.get(todo_id)
+        if pending is None or pending[0] != request_id:
+            return
+        _, job = pending
+        pending_ticket_enrichment_jobs.pop(todo_id, None)
+        current_todo = todo_store.get_todo(todo_id)
+        if current_todo is None or not is_ticket_enrichment_job_still_current(current_todo, job):
+            return
+        error_message = summarize_enrichment_errors(list(getattr(outcome, "errors", []) or []))
+        if error_message:
+            _notify_ticket_enrichment_issue(error_message)
+        enriched_fields = TicketSummaryFields.from_dict(
+            getattr(outcome, "summary_fields", current_todo.summary_fields).to_dict()
+        )
+        merged_fields = merge_async_enrichment_fields(
+            current_fields=current_todo.summary_fields,
+            enriched_fields=enriched_fields,
+            conclusion_changed=str(job.previous_conclusion or "").strip() != str(job.current_conclusion or "").strip(),
+        )
+        if merged_fields.to_dict() == current_todo.summary_fields.to_dict():
+            return
+        updated = todo_controller.update_todo(
+            todo_id,
+            summary_fields=merged_fields,
+            run_enrichment=False,
+        )
+        if updated is None:
+            return
+        if todo_controller.detail_todo_id == todo_id:
+            _show_todo_detail(todo_id)
+        _refresh_todo_panel()
+
+    def _on_ticket_enrichment_error(todo_id: str, request_id: str, message: str) -> None:
+        pending = pending_ticket_enrichment_jobs.get(todo_id)
+        if pending is not None and pending[0] == request_id:
+            pending_ticket_enrichment_jobs.pop(todo_id, None)
+            _notify_ticket_enrichment_issue(
+                str(message or "").strip() or "后台任务执行失败",
+                level="error",
+            )
+
+    def _start_ticket_enrichment(previous_todo, current_todo) -> None:
+        if previous_todo is None or current_todo is None:
+            return
+        request_id = str(uuid.uuid4())
+        job = build_ticket_enrichment_job(previous_todo=previous_todo, current_todo=current_todo)
+        pending_ticket_enrichment_jobs[current_todo.id] = (request_id, job)
+        worker = TicketEnrichmentWorker(
+            enrichment_service=_build_ticket_enrichment_service(config_mgr.load()),
+            request_id=request_id,
+            job=job,
+        )
+        ticket_enrichment_workers.append(worker)
+        worker.finished.connect(_on_ticket_enrichment_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _outcome, current=worker: _cleanup_ticket_enrichment_worker(current))
+        worker.error.connect(_on_ticket_enrichment_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_ticket_enrichment_worker(current))
+        worker.start()
 
     def _on_plan_export_finished(export_path: str) -> None:
         sender = app.sender()
@@ -453,6 +577,8 @@ def main() -> None:
         multi_worker_factory=MultiCaptureAIWorker,
         show_warning=lambda title, message: QMessageBox.warning(None, title, message),
         record_analysis_metrics=lambda stats, success: analysis_metrics_store.record(stats, success=success),
+        show_loading=lambda: (_refresh_todo_panel(), loading_dialog.show_loading(todo_panel)),
+        hide_loading=loading_dialog.hide_loading,
     )
 
     def _on_summarize() -> None:
@@ -495,9 +621,6 @@ def main() -> None:
         capture_session.active_overlay.clear_annotations()
         _sync_capture_from_active_overlay()
 
-    def _on_scenario_changed(scenario_name: str) -> None:
-        _ = scenario_name
-
     def _on_todo_selected(todo_id: str) -> None:
         todo_controller.toggle_selected_todo(todo_id)
         _refresh_todo_panel()
@@ -522,25 +645,39 @@ def main() -> None:
     def _on_todo_detail_saved(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):
             return
-        todo_controller.set_enrichment_service(_build_ticket_enrichment_service(config_mgr.load()))
-        summary_fields = TicketSummaryFields.from_dict(payload.get("summary_fields"))
-        conclusion_payload = payload.get("conclusion")
-        conclusion = (
-            conclusion_payload
-            if isinstance(conclusion_payload, TodoConclusion)
-            else TodoConclusion(**dict(conclusion_payload or {}))
-        )
+        previous_todo = todo_store.get_todo(todo_id)
+        action = str(payload.get("action", "")).strip()
+        save_mode = payload.get("saveMode")
+        title, current_summary, summary_fields, conclusion = _resolve_todo_detail_draft(payload)
         timeline_payload = payload.get("timeline", [])
+        if action == "append_timeline_entry":
+            current_todo = todo_store.get_todo(todo_id)
+            if current_todo is None:
+                return
+            event_payload = payload.get("event")
+            event = (
+                event_payload
+                if hasattr(event_payload, "id")
+                else None
+            )
+            if event is None:
+                return
+            timeline_payload = [*current_todo.timeline, event]
+        elif action == "save_conclusion":
+            timeline_payload = None
         updated = todo_controller.update_todo(
             todo_id,
-            title=str(payload.get("title", "")),
-            current_summary=str(payload.get("current_summary", "")),
+            title=title,
+            current_summary=current_summary,
             summary_fields=summary_fields,
             timeline=timeline_payload,
             conclusion=conclusion,
+            run_enrichment=False,
         )
         if updated is None:
             return
+        if should_run_ticket_enrichment_for_todo_detail_save(action, save_mode):
+            _start_ticket_enrichment(previous_todo, updated)
         todo_detail_panel.show_todo(
             updated,
             todo_panel.frameGeometry(),
@@ -549,6 +686,7 @@ def main() -> None:
                 todo_id,
                 [event.id for event in updated.timeline],
             ),
+            preserve_position=True,
         )
         _refresh_todo_panel()
 
@@ -634,8 +772,8 @@ def main() -> None:
         _show_todo_detail(todo_id)
         _refresh_todo_panel()
 
-    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str) -> None:
-        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text)
+    def _on_stage_summary_finished(todo_id: str, request_id: str, summary_text: str, notice: str) -> None:
+        todo_detail_panel.apply_stage_summary_result(todo_id, request_id, summary_text, notice)
 
     def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
@@ -651,7 +789,7 @@ def main() -> None:
         )
         stage_summary_workers.append(worker)
         worker.finished.connect(_on_stage_summary_finished)
-        worker.finished.connect(lambda _todo_id, _request_id, _text, current=worker: _cleanup_stage_summary_worker(current))
+        worker.finished.connect(lambda _todo_id, _request_id, _text, _notice, current=worker: _cleanup_stage_summary_worker(current))
         worker.error.connect(_on_stage_summary_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
         worker.start()
@@ -676,16 +814,16 @@ def main() -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
         except ValueError:
-            hotkey_mgr.update_hotkey(DEFAULT_CAPTURE_HOTKEY)
+            hotkey_mgr.update_hotkey(RUNTIME_CAPABILITIES.default_capture_hotkey)
         log_analysis_orchestrator.update_app_config(saved_config)
 
     control_panel.config_saved.connect(_on_control_panel_saved)
+    control_panel.todo_list_refresh_requested.connect(_refresh_todo_panel)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
     toolbar.summarize_clicked.connect(_on_summarize)
     toolbar.continue_capture_clicked.connect(_on_continue_capture)
     toolbar.copy_clicked.connect(_on_copy_capture)
     toolbar.cancel_clicked.connect(_on_cancel)
-    toolbar.scenario_changed.connect(_on_scenario_changed)
     toolbar.edit_mode_changed.connect(_on_edit_mode_changed)
     toolbar.undo_clicked.connect(_on_undo_annotation)
     toolbar.clear_annotations_clicked.connect(_on_clear_annotations)
@@ -693,6 +831,7 @@ def main() -> None:
     todo_panel.todo_completed.connect(_on_todo_completed)
     todo_panel.selection_cleared.connect(_on_todo_selection_cleared)
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
+    todo_panel.pinned_changed.connect(todo_detail_panel.set_pinned)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
     todo_detail_panel.log_analysis_requested.connect(_on_log_analysis_requested)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
@@ -711,22 +850,22 @@ def main() -> None:
         else:
             _append_startup_log(startup_log_file, "startup: system tray unavailable")
             _show_control_panel("models")
-        try:
-            hotkey_mgr.start()
-            _append_startup_log(startup_log_file, "startup: hotkey listener started")
-        except Exception as exc:
-            _append_startup_log(
-                startup_log_file,
-                f"startup: hotkey listener failed: {exc}\n{traceback.format_exc()}",
-            )
+        hotkey_error = _start_hotkey_listener(hotkey_mgr, startup_log_file)
+        if hotkey_error is not None:
             QMessageBox.warning(
                 None,
-                "???????",
-                f"???????????????????\n???????????????????\n\n??: {startup_log_file}\n{exc}",
+                "截图热键不可用",
+                hotkey_failure_message(
+                    hotkey_mgr.hotkey,
+                    hotkey_error,
+                    log_file=startup_log_file,
+                    platform_id=RUNTIME_CAPABILITIES.platform_id,
+                ),
             )
         sys.exit(app.exec())
     finally:
         tray_icon.hide()
+        notification_window.hide()
         control_panel.hide()
         hotkey_mgr.stop()
         instance_guard.release()

@@ -1,5 +1,5 @@
 from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .runtime import RUNTIME_CAPABILITIES
 from .analysis_intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .focus_hint_dialog import FocusHintDialog
 
@@ -46,17 +47,14 @@ class FloatingToolbar(QWidget):
         self._updating_edit_mode = False
         self._edit_buttons: dict[str, QPushButton] = {}
         self._focus_hint = ""
+        self._copy_shortcuts: list[QShortcut] = []
 
         self._setup_ui()
         self._apply_style()
         self.set_single_capture_mode()
 
     def _setup_ui(self) -> None:
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setWindowFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         root_layout = QHBoxLayout(self)
@@ -144,6 +142,12 @@ class FloatingToolbar(QWidget):
         self._btn_cancel.clicked.connect(self.cancel_clicked)
         surface_layout.addWidget(self._btn_cancel)
 
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(self._trigger_copy_shortcut)
+            self._copy_shortcuts.append(shortcut)
+
         root_layout.addWidget(self._surface)
 
         shadow = QGraphicsDropShadowEffect(self)
@@ -169,7 +173,7 @@ class FloatingToolbar(QWidget):
             QWidget {
                 background: transparent;
                 color: #111827;
-                font-family: 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+                font-family: %s;
             }
             QFrame#toolbarSurface {
                 background-color: rgba(255, 255, 255, 244);
@@ -228,17 +232,17 @@ class FloatingToolbar(QWidget):
             }
             QPushButton#primaryButton {
                 color: #ffffff;
-                background-color: #1677ff;
-                border: 1px solid #1677ff;
+                background-color: #2A313F;
+                border: 1px solid #2A313F;
                 min-width: 56px;
             }
             QPushButton#primaryButton:hover {
-                background-color: #2b85ff;
-                border: 1px solid #2b85ff;
+                background-color: #394152;
+                border: 1px solid #394152;
             }
             QPushButton#primaryButton:pressed {
-                background-color: #0e63d6;
-                border: 1px solid #0e63d6;
+                background-color: #1F2531;
+                border: 1px solid #1F2531;
             }
             QPushButton#secondaryButton {
                 color: #374151;
@@ -312,6 +316,7 @@ class FloatingToolbar(QWidget):
                 border: 1px solid rgba(229, 231, 235, 0.9);
             }
             """
+            % RUNTIME_CAPABILITIES.widget_font_css
         )
 
     def set_single_capture_mode(self) -> None:
@@ -339,11 +344,7 @@ class FloatingToolbar(QWidget):
 
         if overlay is None:
             self.setParent(None)
-            self.setWindowFlags(
-                Qt.WindowType.FramelessWindowHint
-                | Qt.WindowType.WindowStaysOnTopHint
-                | Qt.WindowType.Tool
-            )
+            self.setWindowFlags(RUNTIME_CAPABILITIES.floating_tool_window_flags(Qt.WindowType))
         else:
             self.setParent(overlay)
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Widget)
@@ -471,6 +472,35 @@ class FloatingToolbar(QWidget):
     def _tick_loading(self) -> None:
         self._loading_frame = (self._loading_frame + 1) % len(self._LOADING_FRAMES)
         self._btn_summarize.setText(self._LOADING_FRAMES[self._loading_frame])
+
+    def _trigger_copy_shortcut(self) -> None:
+        if not self._can_trigger_copy_shortcut():
+            return
+        self.copy_clicked.emit()
+
+    def _can_trigger_copy_shortcut(self) -> bool:
+        if self._loading or self._toolbar_mode != "single":
+            return False
+        if not self.isVisible() or not self._btn_copy.isVisible() or not self._btn_copy.isEnabled():
+            return False
+        active_window = QApplication.activeWindow()
+        valid_windows = {self.window()}
+        parent = self.parentWidget()
+        if parent is not None:
+            valid_windows.add(parent.window())
+        if active_window is not None and active_window not in valid_windows:
+            return False
+        focus_widget = QApplication.focusWidget()
+        if focus_widget is None:
+            return True
+        blocked_classes = (
+            "QLineEdit",
+            "QTextEdit",
+            "QPlainTextEdit",
+            "QComboBox",
+            "QAbstractSpinBox",
+        )
+        return not any(focus_widget.inherits(class_name) for class_name in blocked_classes)
 
     def _edit_focus_hint(self) -> None:
         dialog = FocusHintDialog(self._focus_hint, parent=self.window())

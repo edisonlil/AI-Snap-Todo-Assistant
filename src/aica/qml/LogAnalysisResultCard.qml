@@ -135,7 +135,7 @@ BaseTimelineCard {
 
             Text {
                 text: "复制结果"
-                color: rootContext ? rootContext.accent : "#3D7CFF"
+                color: rootContext ? rootContext.accent : "#2A313F"
                 font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                 font.pixelSize: 11
                 font.weight: rootContext ? rootContext.labelWeight : 500
@@ -171,8 +171,9 @@ BaseTimelineCard {
                     delegate: Rectangle {
                         width: sectionColumn.width
                         radius: 14
-                        color: "#FFFFFF"
-                        border.width: 0
+                        color: rootContext ? rootContext.fieldBg : "#F5F5F5"
+                        border.width: 1
+                        border.color: rootContext ? rootContext.fieldLine : "#E5E7EB"
                         implicitHeight: sectionContent.implicitHeight + 20
 
                         Column {
@@ -197,7 +198,7 @@ BaseTimelineCard {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "复制"
-                                    color: rootContext ? rootContext.accent : "#3D7CFF"
+                                    color: rootContext ? rootContext.accent : "#2A313F"
                                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
                                     font.pixelSize: 10
                                     font.weight: rootContext ? rootContext.labelWeight : 500

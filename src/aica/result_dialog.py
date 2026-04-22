@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 from aica.analysis_metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.runtime import RUNTIME_CAPABILITIES
 from aica.ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
@@ -64,6 +65,10 @@ class _ResultDialogBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
         return self._scenario
+
+    @pyqtProperty(str, constant=True)
+    def uiFont(self) -> str:
+        return RUNTIME_CAPABILITIES.ui_font
 
     @pyqtProperty(str, notify=dataChanged)
     def model(self) -> str:

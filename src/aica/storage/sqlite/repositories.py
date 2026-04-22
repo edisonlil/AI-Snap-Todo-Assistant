@@ -972,6 +972,15 @@ class SQLiteTodoRepository:
             )
         return cursor.rowcount > 0
 
+    def reopen_todo(self, todo_id: str) -> bool:
+        updated_at = now_iso()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE todos SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (TodoStatus.OPEN, "", updated_at, sanitize_text(todo_id)),
+            )
+        return cursor.rowcount > 0
+
     def delete_todo(self, todo_id: str) -> bool:
         with self._connect() as connection:
             cursor = connection.execute(

@@ -7,6 +7,8 @@ from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QPainter, QPen, QPixmap, QPolygon, QScreen
 from PyQt6.QtWidgets import QApplication, QLineEdit, QWidget
 
+from .runtime import RUNTIME_CAPABILITIES
+
 
 def normalize_rect(p1: QPoint, p2: QPoint) -> QRect:
     """Normalize any two points into a top-left/bottom-right QRect."""
@@ -120,11 +122,7 @@ class OverlayWindow(QWidget):
     def __init__(self, screen: QScreen, parent=None):
         super().__init__(parent)
         self._screen_key = self._make_screen_key(screen)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
+        self.setWindowFlags(RUNTIME_CAPABILITIES.overlay_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -160,9 +158,11 @@ class OverlayWindow(QWidget):
                 border-radius: 8px;
                 padding: 5px 8px;
                 selection-background-color: rgba(22, 119, 255, 0.18);
-                font: 12px 'Segoe UI Variable Text', 'Microsoft YaHei UI';
+                font-size: 12px;
+                font-family: %s;
             }
             """
+            % RUNTIME_CAPABILITIES.widget_font_css
         )
         self._text_editor.commit_requested.connect(self._commit_pending_text_annotation)
         self._text_editor.cancel_requested.connect(self._cancel_pending_text_annotation)
