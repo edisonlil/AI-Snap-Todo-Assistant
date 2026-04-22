@@ -293,10 +293,11 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def getSaveFileName(*_args, **_kwargs):
             return "", ""
 
-from .models import TicketSummaryFields
 from .app_notifications import AppNotificationBridge
+from .conclusion_timeline import build_conclusion_timeline_content
 from .environment_access import EnvironmentAccessService
 from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
+from .models import TicketSummaryFields
 from .paths import todo_attachments_dir
 from .runtime import RUNTIME_CAPABILITIES
 from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
@@ -1307,6 +1308,58 @@ class _TodoDetailBridge(QObject):
             if not self._should_hide_timeline_item(item)
         ]
 
+    def _sync_local_conclusion_timeline_item(self) -> None:
+        existing_index: int | None = None
+        existing_item: dict[str, object] | None = None
+        for index, item in enumerate(self._timeline):
+            if str(item.get("kind") or "").strip() != "conclusion":
+                continue
+            existing_index = index
+            existing_item = item
+            break
+        should_render = bool(
+            self._conclusion_content.strip()
+            or self._conclusion_attachments
+            or existing_item is not None
+            or str(self._conclusion_updated_at or "").strip()
+        )
+        if not should_render:
+            return
+        timestamp = self._conclusion_updated_at or datetime.now().isoformat()
+        content = build_conclusion_timeline_content(
+            self._conclusion_content,
+            [
+                str(item.get("name", "")).strip()
+                for item in self._conclusion_attachments
+                if isinstance(item, dict)
+            ],
+        )
+        next_item = {
+            "id": str(existing_item.get("id", "")) if isinstance(existing_item, dict) else str(uuid.uuid4()),
+            "timestamp": timestamp,
+            "created_at": timestamp,
+            "timeLabel": _format_ts(timestamp),
+            "scenario": _CONCLUSION_SCENARIO,
+            "cardLabel": _CONCLUSION_SCENARIO,
+            "content": content,
+            "kind": "conclusion",
+            "type": _TIMELINE_EVENT_TYPE_DEFAULT,
+            "payload": _clone_dict(existing_item.get("payload", {})) if isinstance(existing_item, dict) else {},
+            "status": "",
+            "statusLabel": "",
+            "attachments": [],
+            "attachmentCount": 0,
+        }
+        if existing_index is None:
+            self._timeline.insert(0, next_item)
+        else:
+            self._timeline[existing_index] = next_item
+        self._refresh_display_timeline()
+        if self._timeline and not self._timeline_expanded:
+            self._timeline_expanded = True
+            self.timelineExpandedChanged.emit()
+        self.timelineChanged.emit()
+
     def _build_log_analysis_result_payload(self, event: TimelineEvent, payload: dict[str, object]) -> dict[str, object]:
         resolved = _clone_dict(payload)
         analyzed_materials = [
@@ -1649,6 +1702,7 @@ class _TodoDetailBridge(QObject):
                 self._conclusion_attachments = [*self._conclusion_attachments, *draft_attachments]
             self._conclusion_updated_at = datetime.now().isoformat()
             self.dataChanged.emit()
+            self._sync_local_conclusion_timeline_item()
             self._emit_save_request()
             return
 
@@ -1879,7 +1933,19 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot()
     def saveTodo(self) -> None:
-        self.timelineChanged.emit()
+        has_existing_conclusion_item = any(
+            str(item.get("kind") or "").strip() == "conclusion"
+            for item in self._timeline
+        )
+        if (
+            self._conclusion_content.strip()
+            or self._conclusion_attachments
+            or has_existing_conclusion_item
+            or str(self._conclusion_updated_at or "").strip()
+        ):
+            self._sync_local_conclusion_timeline_item()
+        else:
+            self.timelineChanged.emit()
         self._emit_save_request(save_mode=_SAVE_MODE_MANUAL)
         if self._todo_id is not None:
             QTimer.singleShot(0, lambda: self._notify("success", "保存成功"))

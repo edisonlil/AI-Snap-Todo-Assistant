@@ -173,6 +173,12 @@ class EnrichmentOutcome:
 
 
 @dataclass(frozen=True)
+class GenerationResult:
+    value: str = ""
+    error_message: str = ""
+
+
+@dataclass(frozen=True)
 class TicketEnrichmentJob:
     todo_id: str
     previous_fields: TicketSummaryFields
@@ -234,10 +240,10 @@ class TicketEnrichmentService:
                 problem_desc=current_problem_desc,
                 conclusion=current_conclusion,
             )
-            if generated_desc:
-                fields.root_cause_desc = generated_desc
+            if generated_desc.value:
+                fields.root_cause_desc = generated_desc.value
                 fields.root_cause_desc_source = "auto"
-            elif self._llm_service is not None:
+            else:
                 errors.append("根因描述生成失败")
 
         if self._should_refresh_root_cause(
@@ -253,10 +259,10 @@ class TicketEnrichmentService:
                 conclusion=current_conclusion,
                 root_cause_desc=fields.root_cause_desc,
             )
-            if generated_root_cause:
-                fields.root_cause = generated_root_cause
+            if generated_root_cause.value:
+                fields.root_cause = generated_root_cause.value
                 fields.root_cause_source = "auto"
-            elif self._llm_service is not None:
+            else:
                 errors.append("问题根因生成失败")
 
         return EnrichmentOutcome(summary_fields=fields, errors=errors)
@@ -325,9 +331,9 @@ class TicketEnrichmentService:
             or sanitize_text(previous_fields.root_cause) != sanitize_text(current_fields.root_cause)
         )
 
-    def _generate_root_cause_desc(self, *, problem_desc: str, conclusion: str) -> str:
+    def _generate_root_cause_desc(self, *, problem_desc: str, conclusion: str) -> GenerationResult:
         if self._llm_service is None:
-            return ""
+            return GenerationResult(error_message="根因描述生成失败: 未配置 LLM")
         prompt = (
             "请根据问题描述和当前结论，总结一句简洁的根因描述。"
             "只输出根因描述本身，不要输出标题、编号、解释。"
@@ -344,9 +350,12 @@ class TicketEnrichmentService:
                 ],
                 temperature=0.1,
             )
-        except Exception:  # noqa: BLE001
-            return ""
-        return _normalize_llm_text(result, limit=120)
+        except Exception as exc:  # noqa: BLE001
+            return GenerationResult(error_message=f"根因描述生成失败: {exc}")
+        normalized = _normalize_llm_text(result, limit=120)
+        if normalized:
+            return GenerationResult(value=normalized)
+        return GenerationResult(error_message="根因描述生成失败")
 
     def _classify_root_cause(
         self,
@@ -354,9 +363,9 @@ class TicketEnrichmentService:
         problem_desc: str,
         conclusion: str,
         root_cause_desc: str,
-    ) -> str:
+    ) -> GenerationResult:
         if self._llm_service is None:
-            return ""
+            return GenerationResult(error_message="问题根因生成失败: 未配置 LLM")
         options = "\n".join(f"- {option}" for option in ROOT_CAUSE_OPTIONS)
         prompt = (
             "你是根因分类助手。请根据“根因描述”从以下固定可选根因分类中选择唯一一个最匹配的结果。\n\n"
@@ -387,10 +396,13 @@ class TicketEnrichmentService:
                 ],
                 temperature=0.0,
             )
-        except Exception:  # noqa: BLE001
-            return ""
+        except Exception as exc:  # noqa: BLE001
+            return GenerationResult(error_message=f"问题根因生成失败: {exc}")
         normalized = _normalize_llm_text(result, limit=120)
-        return _match_root_cause_option(normalized)
+        matched = _match_root_cause_option(normalized)
+        if matched:
+            return GenerationResult(value=matched)
+        return GenerationResult(error_message="问题根因生成失败")
 
 
 def build_ticket_enrichment_job(*, previous_todo, current_todo) -> TicketEnrichmentJob:
@@ -433,6 +445,18 @@ def merge_async_enrichment_fields(
         merged.root_cause = enriched_fields.root_cause
         merged.root_cause_source = enriched_fields.root_cause_source
     return merged
+
+
+def summarize_enrichment_errors(errors: list[str]) -> str:
+    messages: list[str] = []
+    seen: set[str] = set()
+    for item in errors:
+        normalized = sanitize_text(item).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        messages.append(normalized)
+    return "；".join(messages)
 
 
 def _extract_feature_point_value(payload: object) -> str:

@@ -188,6 +188,8 @@ def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> 
     assert bridge.draftTimelineAttachmentCount == 0
     assert bridge.conclusionContent == "最终结论"
     assert bridge.conclusionAttachmentCount == 2
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
     assert bridge.conclusionAttachments[0]["path"] == "/final/__conclusion__/existing.txt"
     assert bridge.conclusionAttachments[1]["path"] == "/final/__conclusion__/report.txt"
 
@@ -682,3 +684,20 @@ def test_stage_summary_default_rewrite_sets_default_flag() -> None:
     assert rewritten[0]["presetKey"] == ""
     assert rewritten[0]["instruction"] == ""
     assert rewritten[0]["defaultRewrite"] is True
+
+
+def test_manual_save_upserts_conclusion_timeline_item() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.updateField("conclusion_content", "已补充问题结论")
+    bridge.saveTodo()
+
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert len(saved) == 1
+    assert len(saved[0][1]["timeline"]) == 1
+    assert saved[0][1]["timeline"][0].kind == "conclusion"

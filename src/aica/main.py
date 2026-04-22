@@ -42,6 +42,7 @@ from aica.ticket_enrichment import (
     build_ticket_enrichment_job,
     is_ticket_enrichment_job_still_current,
     merge_async_enrichment_fields,
+    summarize_enrichment_errors,
 )
 from aica.ticket_enrichment_worker import TicketEnrichmentWorker
 from aica.todo_controller import TodoController
@@ -381,6 +382,17 @@ def main() -> None:
             ticket_enrichment_workers.remove(worker)
         worker.deleteLater()
 
+    def _notify_ticket_enrichment_issue(message: str, *, level: str = "warning") -> None:
+        normalized = str(message or "").strip()
+        if not normalized:
+            return
+        notification_bridge.notify(
+            level,
+            f"待办字段后台生成未完成：{normalized}",
+            4800,
+            "ticket_enrichment",
+        )
+
     def _on_ticket_enrichment_finished(todo_id: str, request_id: str, outcome: object) -> None:
         pending = pending_ticket_enrichment_jobs.get(todo_id)
         if pending is None or pending[0] != request_id:
@@ -390,6 +402,9 @@ def main() -> None:
         current_todo = todo_store.get_todo(todo_id)
         if current_todo is None or not is_ticket_enrichment_job_still_current(current_todo, job):
             return
+        error_message = summarize_enrichment_errors(list(getattr(outcome, "errors", []) or []))
+        if error_message:
+            _notify_ticket_enrichment_issue(error_message)
         enriched_fields = TicketSummaryFields.from_dict(
             getattr(outcome, "summary_fields", current_todo.summary_fields).to_dict()
         )
@@ -410,10 +425,14 @@ def main() -> None:
             _show_todo_detail(todo_id)
         _refresh_todo_panel()
 
-    def _on_ticket_enrichment_error(todo_id: str, request_id: str, _message: str) -> None:
+    def _on_ticket_enrichment_error(todo_id: str, request_id: str, message: str) -> None:
         pending = pending_ticket_enrichment_jobs.get(todo_id)
         if pending is not None and pending[0] == request_id:
             pending_ticket_enrichment_jobs.pop(todo_id, None)
+            _notify_ticket_enrichment_issue(
+                str(message or "").strip() or "后台任务执行失败",
+                level="error",
+            )
 
     def _start_ticket_enrichment(previous_todo, current_todo) -> None:
         if previous_todo is None or current_todo is None:

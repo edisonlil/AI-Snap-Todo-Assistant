@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from .conclusion_timeline import sync_conclusion_timeline
 from .models import (
     TicketSnapshot,
     TicketSummaryFields,
@@ -243,8 +244,7 @@ class TodoController:
             resolved_summary = enrichment.summary_fields
 
         if self._conclusion_changed(existing.conclusion, resolved_conclusion):
-            conclusion_event = self._build_conclusion_timeline_event(resolved_conclusion)
-            resolved_timeline = self._replace_conclusion_timeline_event(resolved_timeline, conclusion_event)
+            resolved_timeline = sync_conclusion_timeline(resolved_timeline, resolved_conclusion)
             if "timeline" not in changed_fields:
                 changed_fields.append("timeline")
 
