@@ -271,6 +271,108 @@ def test_removing_draft_attachment_does_not_touch_existing_event_attachments(mon
     assert removed_paths == ["/__draft_timeline__/draft.txt"]
 
 
+def test_timeline_draft_state_is_scoped_per_todo_and_restored_on_switch(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+
+    def _fake_copy_attachment(file_path: str, event_id: str) -> dict[str, object]:
+        return {
+            "id": f"{event_id}-{Path(file_path).stem}",
+            "name": Path(file_path).name,
+            "path": f"/{bridge.todoId}/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 8,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
+
+    monkeypatch.setattr(bridge, "_copy_attachment", _fake_copy_attachment)
+
+    first_todo = _build_todo("todo-1")
+    second_todo = _build_todo("todo-2")
+
+    bridge.set_todo(first_todo)
+    bridge.updateTimelineDraftText("draft for first todo")
+    bridge.setTimelineDraftEntryType("conclusion")
+    bridge.attach_files_to_draft_timeline(["first.txt"])
+
+    assert bridge.timelineDraftText == "draft for first todo"
+    assert bridge.timelineDraftEntryType == "conclusion"
+    assert bridge.timelineDraftEntryTypeSelected is True
+    assert bridge.draftTimelineAttachmentCount == 1
+
+    bridge.set_todo(second_todo)
+
+    assert bridge.timelineDraftText == ""
+    assert bridge.timelineDraftEntryType == "follow_up"
+    assert bridge.timelineDraftEntryTypeSelected is False
+    assert bridge.draftTimelineAttachmentCount == 0
+
+    bridge.set_todo(first_todo)
+
+    assert bridge.timelineDraftText == "draft for first todo"
+    assert bridge.timelineDraftEntryType == "conclusion"
+    assert bridge.timelineDraftEntryTypeSelected is True
+    assert bridge.draftTimelineAttachmentCount == 1
+    assert bridge.draftTimelineAttachments[0]["path"] == "/todo-1/__draft_timeline__/first.txt"
+
+
+def test_submitting_timeline_entry_clears_cached_draft_state(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+
+    monkeypatch.setattr(
+        bridge,
+        "_copy_attachment",
+        lambda file_path, event_id: {
+            "id": f"{event_id}-{Path(file_path).stem}",
+            "name": Path(file_path).name,
+            "path": f"/{bridge.todoId}/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 10,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_move_attachment_to_target",
+        lambda file_path, event_id: {
+            "id": f"{event_id}-final",
+            "name": Path(file_path).name,
+            "path": f"/{bridge.todoId}/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 10,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
+    )
+
+    first_todo = _build_todo("todo-1")
+    second_todo = _build_todo("todo-2")
+
+    bridge.set_todo(first_todo)
+    bridge.updateTimelineDraftText("ready to submit")
+    bridge.setTimelineDraftEntryType("follow_up")
+    bridge.attach_files_to_draft_timeline(["submit.txt"])
+
+    bridge.addTimelineEntry(bridge.timelineDraftText, bridge.timelineDraftEntryType)
+
+    assert bridge.timelineDraftText == ""
+    assert bridge.timelineDraftEntryType == "follow_up"
+    assert bridge.timelineDraftEntryTypeSelected is False
+    assert bridge.draftTimelineAttachmentCount == 0
+
+    bridge.set_todo(second_todo)
+    bridge.set_todo(first_todo)
+
+    assert bridge.timelineDraftText == ""
+    assert bridge.timelineDraftEntryType == "follow_up"
+    assert bridge.timelineDraftEntryTypeSelected is False
+    assert bridge.draftTimelineAttachmentCount == 0
+
+
 def test_toggle_stage_summary_requests_once_without_saving() -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())
@@ -507,6 +609,47 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
 
     assert window.x() == 650
     assert window.y() == 204
+
+
+def test_show_todo_restores_cached_timeline_draft_after_panel_close(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    first_todo = _build_todo("todo-1")
+    second_todo = _build_todo("todo-2")
+
+    monkeypatch.setattr(
+        panel._bridge,
+        "_copy_attachment",
+        lambda file_path, event_id: {
+            "id": f"{event_id}-{Path(file_path).stem}",
+            "name": Path(file_path).name,
+            "path": f"/{panel._bridge.todoId}/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 9,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
+    )
+
+    panel.show_todo(first_todo)
+    panel._bridge.updateTimelineDraftText("keep me")
+    panel._bridge.setTimelineDraftEntryType("log_analysis")
+    panel._bridge.attach_files_to_draft_timeline(["draft.txt"])
+
+    panel._close_panel()
+    panel.show_todo(first_todo)
+
+    assert panel._bridge.timelineDraftText == "keep me"
+    assert panel._bridge.timelineDraftEntryType == "log_analysis"
+    assert panel._bridge.timelineDraftEntryTypeSelected is True
+    assert panel._bridge.draftTimelineAttachmentCount == 1
+
+    panel.show_todo(second_todo)
+
+    assert panel._bridge.timelineDraftText == ""
+    assert panel._bridge.timelineDraftEntryType == "follow_up"
+    assert panel._bridge.timelineDraftEntryTypeSelected is False
+    assert panel._bridge.draftTimelineAttachmentCount == 0
 
 
 def test_show_todo_preserve_position_keeps_current_location(monkeypatch) -> None:

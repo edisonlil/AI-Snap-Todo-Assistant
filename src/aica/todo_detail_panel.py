@@ -389,6 +389,13 @@ def _normalize_entry_submission(value: str, entry_type: str) -> tuple[str, str]:
     return content, normalized_type
 
 
+def _normalize_timeline_draft_entry_type(value: object) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {_ENTRY_TYPE_CONCLUSION, _ENTRY_TYPE_LOG_ANALYSIS}:
+        return normalized
+    return _ENTRY_TYPE_FOLLOW_UP
+
+
 def _normalize_display_timeline(events: list[TimelineEvent]) -> list[TimelineEvent]:
     latest_conclusion: TimelineEvent | None = None
     remaining: list[TimelineEvent] = []
@@ -441,6 +448,12 @@ def _clone_dict(value: object) -> dict[str, object]:
 
 def _clone_list(value: object) -> list[object]:
     return list(value) if isinstance(value, list) else []
+
+
+def _clone_attachment_payloads(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
 def _project_status_label(status: str) -> str:
@@ -618,6 +631,7 @@ class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
     timelineExpandedChanged = pyqtSignal()
+    timelineDraftChanged = pyqtSignal()
     environmentAccessMessageChanged = pyqtSignal()
     panelDragStarted = pyqtSignal(float, float)
     panelDragMoved = pyqtSignal()
@@ -663,12 +677,17 @@ class _TodoDetailBridge(QObject):
         self._conclusion_updated_at = ""
         self._conclusion_attachments: list[dict[str, object]] = []
         self._draft_timeline_attachments: list[dict[str, object]] = []
+        self._timeline_draft_text = ""
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        self._timeline_draft_cache: dict[str, dict[str, object]] = {}
         self._overview = ""
         self._created_at = ""
         self._updated_at = ""
         self._timeline: list[dict[str, object]] = []
         self._display_timeline: list[dict[str, object]] = []
         self._timeline_expanded = True
+        self._todo_session_revision = 0
         self._attachment_root = Path(attachment_root) if attachment_root is not None else todo_attachments_dir()
         self._project_match_status = "未匹配项目"
         self._project_match_detail = "当前群聊名称尚未命中任何项目别名。"
@@ -712,6 +731,14 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(str, constant=True)
     def uiFont(self) -> str:
         return RUNTIME_CAPABILITIES.ui_font
+
+    @pyqtProperty(str, notify=dataChanged)
+    def todoId(self) -> str:
+        return str(self._todo_id or "")
+
+    @pyqtProperty(int, notify=dataChanged)
+    def todoSessionRevision(self) -> int:
+        return self._todo_session_revision
 
     @pyqtProperty(str, notify=dataChanged)
     def environmentAccessSummaryText(self) -> str:
@@ -809,11 +836,23 @@ class _TodoDetailBridge(QObject):
     def conclusionAttachments(self):  # noqa: ANN201
         return self._conclusion_attachments
 
-    @pyqtProperty(int, notify=dataChanged)
+    @pyqtProperty(str, notify=timelineDraftChanged)
+    def timelineDraftText(self) -> str:
+        return self._timeline_draft_text
+
+    @pyqtProperty(str, notify=timelineDraftChanged)
+    def timelineDraftEntryType(self) -> str:
+        return self._timeline_draft_entry_type
+
+    @pyqtProperty(bool, notify=timelineDraftChanged)
+    def timelineDraftEntryTypeSelected(self) -> bool:
+        return self._timeline_draft_entry_type_selected
+
+    @pyqtProperty(int, notify=timelineDraftChanged)
     def draftTimelineAttachmentCount(self) -> int:
         return len(self._draft_timeline_attachments)
 
-    @pyqtProperty("QVariantList", notify=dataChanged)
+    @pyqtProperty("QVariantList", notify=timelineDraftChanged)
     def draftTimelineAttachments(self):  # noqa: ANN201
         return self._draft_timeline_attachments
 
@@ -1103,13 +1142,62 @@ class _TodoDetailBridge(QObject):
 
         self._update_environment_entries(_updater)
 
+    def _current_timeline_draft_state(self) -> dict[str, object]:
+        return {
+            "text": self._timeline_draft_text,
+            "entry_type": self._timeline_draft_entry_type,
+            "entry_type_selected": self._timeline_draft_entry_type_selected,
+            "draft_attachments": _clone_attachment_payloads(self._draft_timeline_attachments),
+        }
+
+    def _apply_timeline_draft_state(self, draft_state: dict[str, object] | None) -> None:
+        state = draft_state if isinstance(draft_state, dict) else {}
+        self._timeline_draft_text = str(state.get("text", "") or "")
+        self._timeline_draft_entry_type = _normalize_timeline_draft_entry_type(state.get("entry_type"))
+        self._timeline_draft_entry_type_selected = bool(state.get("entry_type_selected", False))
+        self._draft_timeline_attachments = _clone_attachment_payloads(state.get("draft_attachments"))
+
+    def _store_current_timeline_draft(self) -> None:
+        todo_id = str(self._todo_id or "").strip()
+        if not todo_id:
+            return
+        state = self._current_timeline_draft_state()
+        has_draft_content = bool(
+            str(state.get("text", "") or "").strip()
+            or bool(state.get("entry_type_selected", False))
+            or bool(state.get("draft_attachments"))
+        )
+        if has_draft_content:
+            self._timeline_draft_cache[todo_id] = state
+            return
+        self._timeline_draft_cache.pop(todo_id, None)
+
+    def _emit_timeline_draft_changed(self) -> None:
+        self.timelineDraftChanged.emit()
+
+    def _reset_current_timeline_draft(self, *, remove_files: bool) -> None:
+        attachments = list(self._draft_timeline_attachments)
+        self._draft_timeline_attachments = []
+        if remove_files:
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                self._remove_attachment_file(str(attachment.get("path", "")))
+        self._timeline_draft_text = ""
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        todo_id = str(self._todo_id or "").strip()
+        if todo_id:
+            self._timeline_draft_cache.pop(todo_id, None)
+        self._emit_timeline_draft_changed()
+
     def set_todo(
         self,
         todo: TodoItem,
         sync_records: list[dict[str, object]] | None = None,
         task_status_map: dict[str, dict[str, object]] | None = None,
     ) -> None:
-        self._clear_draft_timeline_attachments()
+        self._store_current_timeline_draft()
         self._reset_stage_summary_state()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
@@ -1156,11 +1244,13 @@ class _TodoDetailBridge(QObject):
                 item["payload"] = payload
         self._timeline = timeline_items
         self._refresh_display_timeline()
+        self._apply_timeline_draft_state(self._timeline_draft_cache.get(todo.id))
         if not self._current_summary and self._timeline:
             self._current_summary = self._timeline[0]["content"]
             self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
             self._overview = self._title
         self._timeline_expanded = bool(self._timeline)
+        self._todo_session_revision += 1
         self._project_match_status = _project_status_label(todo.project_link.match_status)
         self._project_match_detail = _project_status_detail(todo)
         self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
@@ -1171,6 +1261,7 @@ class _TodoDetailBridge(QObject):
         self.dataChanged.emit()
         self.timelineChanged.emit()
         self.timelineExpandedChanged.emit()
+        self.timelineDraftChanged.emit()
 
     def _build_timeline_item(self, event: TimelineEvent, status_payload: dict[str, object]) -> dict[str, object]:
         event_type = _timeline_event_type(event)
@@ -1552,6 +1643,38 @@ class _TodoDetailBridge(QObject):
     def requestDraftTimelineClipboardImagePaste(self) -> None:
         self.draftClipboardImagePasteRequested.emit()
 
+    @pyqtSlot(str)
+    def updateTimelineDraftText(self, value: str) -> None:
+        text = sanitize_text(value)
+        if text == self._timeline_draft_text:
+            return
+        self._timeline_draft_text = text
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot(str)
+    def setTimelineDraftEntryType(self, entry_type: str) -> None:
+        normalized = _normalize_timeline_draft_entry_type(entry_type)
+        if self._timeline_draft_entry_type == normalized and self._timeline_draft_entry_type_selected:
+            return
+        self._timeline_draft_entry_type = normalized
+        self._timeline_draft_entry_type_selected = True
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot()
+    def clearTimelineDraftEntryType(self) -> None:
+        if self._timeline_draft_entry_type == _ENTRY_TYPE_FOLLOW_UP and not self._timeline_draft_entry_type_selected:
+            return
+        self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
+        self._timeline_draft_entry_type_selected = False
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
+
+    @pyqtSlot()
+    def resetTimelineDraft(self) -> None:
+        self._reset_current_timeline_draft(remove_files=True)
+
     @pyqtSlot(str, "QVariantList")
     def addTimelineAttachmentsFromUrls(self, event_id: str, urls: object) -> None:
         file_paths = _coerce_dropped_file_paths(urls)
@@ -1725,6 +1848,7 @@ class _TodoDetailBridge(QObject):
                     ),
                 },
             )
+            self._reset_current_timeline_draft(remove_files=False)
             return
 
         timestamp = datetime.now().isoformat()
@@ -1733,6 +1857,7 @@ class _TodoDetailBridge(QObject):
         insert_index = 1 if self._timeline and self._timeline[0].get("kind") == "conclusion" else 0
         if resolved_type == _ENTRY_TYPE_LOG_ANALYSIS:
             self._append_log_analysis_timeline_entry(content, event_id, timestamp, attachments, insert_index)
+            self._reset_current_timeline_draft(remove_files=False)
             return
 
         self._timeline.insert(
@@ -1785,6 +1910,7 @@ class _TodoDetailBridge(QObject):
                 ),
             },
         )
+        self._reset_current_timeline_draft(remove_files=False)
 
     @pyqtSlot(str)
     def deleteTimelineCard(self, event_id: str) -> None:
@@ -1899,7 +2025,8 @@ class _TodoDetailBridge(QObject):
         self._draft_timeline_attachments = remaining
         if removed_path:
             self._remove_attachment_file(removed_path)
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
 
     @pyqtSlot()
     def toggleTimeline(self) -> None:
@@ -2161,7 +2288,8 @@ class _TodoDetailBridge(QObject):
         if not added:
             return
         self._draft_timeline_attachments = attachments
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
 
     def _emit_save_request(self, *, save_mode: str = _SAVE_MODE_AUTOSAVE) -> None:
         payload = self._build_payload()
@@ -2480,7 +2608,8 @@ class _TodoDetailBridge(QObject):
         if attachment is None:
             return False
         self._draft_timeline_attachments = [*self._draft_timeline_attachments, attachment]
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
         return True
 
     def _save_clipboard_image(self, image: QImage, event_id: str) -> dict[str, object] | None:
@@ -2524,7 +2653,8 @@ class _TodoDetailBridge(QObject):
             moved_attachment = self._move_attachment_to_target(str(attachment.get("path", "")), event_id)
             if moved_attachment is not None:
                 moved.append(moved_attachment)
-        self.dataChanged.emit()
+        self._store_current_timeline_draft()
+        self._emit_timeline_draft_changed()
         return moved
 
     def _move_attachment_to_target(self, file_path: str, event_id: str) -> dict[str, object] | None:
@@ -2604,12 +2734,7 @@ class _TodoDetailBridge(QObject):
             return
 
     def _clear_draft_timeline_attachments(self) -> None:
-        attachments = list(self._draft_timeline_attachments)
-        self._draft_timeline_attachments = []
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            self._remove_attachment_file(str(attachment.get("path", "")))
+        self._reset_current_timeline_draft(remove_files=True)
 
     @pyqtSlot()
     def closePanel(self) -> None:
@@ -3237,7 +3362,6 @@ class TodoDetailPanel(QQuickView):
     def _close_panel(self) -> None:
         if not self.isVisible() and not self._stage_summary_window_visible:
             return
-        self._bridge._clear_draft_timeline_attachments()
         self._bridge.reset_stage_summary_session()
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False

@@ -44,7 +44,9 @@ Rectangle {
     readonly property int bodyWeight: 400
     readonly property int actionButtonWidth: 62
     property bool syncingFields: false
+    property bool syncingTimelineDraft: false
     property string activeAttachmentEventId: ""
+    property int syncedTodoSessionRevision: -1
     property string timelineEntryType: "follow_up"
     property bool timelineEntryTypeSelected: false
     property bool timelineCommandMenuVisible: false
@@ -88,19 +90,22 @@ Rectangle {
     }
 
     function clearTimelineEntryType() {
-        timelineEntryType = "follow_up"
-        timelineEntryTypeSelected = false
         timelineCommandSelectedIndex = 0
         timelineCommandMenuVisible = false
+        todoDetailBridge.clearTimelineDraftEntryType()
         addTimelineEdit.forceActiveFocus()
     }
 
     function selectTimelineEntryType(entryType) {
-        timelineEntryType = entryType === "conclusion" ? "conclusion" : (entryType === "log_analysis" ? "log_analysis" : "follow_up")
-        timelineEntryTypeSelected = true
         timelineCommandMenuVisible = false
-        syncTimelineCommandSelection()
-        addTimelineEdit.text = stripTimelineCommandPrefix(addTimelineEdit.text)
+        todoDetailBridge.setTimelineDraftEntryType(entryType)
+        var nextText = stripTimelineCommandPrefix(addTimelineEdit.text)
+        if (nextText !== addTimelineEdit.text) {
+            syncingTimelineDraft = true
+            addTimelineEdit.text = nextText
+            syncingTimelineDraft = false
+            todoDetailBridge.updateTimelineDraftText(nextText)
+        }
         addTimelineEdit.forceActiveFocus()
     }
 
@@ -140,6 +145,9 @@ Rectangle {
     }
 
     function syncTimelineCommandState() {
+        if (syncingTimelineDraft) {
+            return
+        }
         var trimmed = addTimelineEdit.text.trim()
         if (timelineEntryTypeSelected) {
             timelineCommandMenuVisible = false
@@ -173,8 +181,23 @@ Rectangle {
             return
         }
         todoDetailBridge.addTimelineEntry(addTimelineEdit.text, timelineEntryType)
-        addTimelineEdit.text = ""
-        clearTimelineEntryType()
+    }
+
+    function syncTimelineDraft() {
+        syncingTimelineDraft = true
+        timelineEntryType = todoDetailBridge.timelineDraftEntryType
+        timelineEntryTypeSelected = todoDetailBridge.timelineDraftEntryTypeSelected
+        syncTimelineCommandSelection()
+        if (addTimelineEdit.text !== todoDetailBridge.timelineDraftText) {
+            addTimelineEdit.text = todoDetailBridge.timelineDraftText
+        }
+        syncingTimelineDraft = false
+    }
+
+    function resetTransientComposerUi() {
+        timelineCommandMenuVisible = false
+        activeAttachmentEventId = ""
+        cancelActiveTimelineEdit()
     }
 
     function updateTimelineCommandMenuGeometry() {
@@ -206,7 +229,6 @@ Rectangle {
 
     function syncFields() {
         syncingFields = true
-        activeAttachmentEventId = todoDetailBridge.timelineCount > 0 ? todoDetailBridge.timeline[0].id : ""
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
         environmentEdit.text = todoDetailBridge.environment
@@ -214,6 +236,12 @@ Rectangle {
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
+
+        var nextRevision = todoDetailBridge.todoSessionRevision
+        if (syncedTodoSessionRevision !== nextRevision) {
+            syncedTodoSessionRevision = nextRevision
+            resetTransientComposerUi()
+        }
     }
 
     function pushField(name, value) {
@@ -355,9 +383,18 @@ Rectangle {
             root.syncFields()
         }
         function onTimelineChanged() {
-            if (root.activeAttachmentEventId.length === 0 && todoDetailBridge.timelineCount > 0) {
-                root.activeAttachmentEventId = todoDetailBridge.timeline[0].id
+            if (root.activeAttachmentEventId.length === 0) {
+                return
             }
+            for (var index = 0; index < todoDetailBridge.timeline.length; index += 1) {
+                if (String(todoDetailBridge.timeline[index].id || "") === root.activeAttachmentEventId) {
+                    return
+                }
+            }
+            root.activeAttachmentEventId = ""
+        }
+        function onTimelineDraftChanged() {
+            root.syncTimelineDraft()
         }
     }
 
@@ -1229,7 +1266,13 @@ Rectangle {
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
                                     activeFocusOnPress: true
-                                    onTextChanged: root.syncTimelineCommandState()
+                                    onTextChanged: {
+                                        if (root.syncingTimelineDraft) {
+                                            return
+                                        }
+                                        todoDetailBridge.updateTimelineDraftText(text)
+                                        root.syncTimelineCommandState()
+                                    }
                                     onActiveFocusChanged: {
                                         if (activeFocus) {
                                             root.markAttachmentTarget("")
@@ -1812,5 +1855,8 @@ Rectangle {
         }
     }
 
-    Component.onCompleted: syncFields()
+    Component.onCompleted: {
+        syncFields()
+        syncTimelineDraft()
+    }
 }
