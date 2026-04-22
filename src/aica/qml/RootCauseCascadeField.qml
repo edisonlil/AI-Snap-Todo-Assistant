@@ -21,9 +21,25 @@ Rectangle {
     property var level1OptionsFn
     property var level2OptionsFn
     property var level3OptionsFn
+
+    readonly property color titleInk: resolveThemeColor("titleInk", "#18202E")
+    readonly property color labelInk: resolveThemeColor("labelInk", "#7C8795")
+    readonly property color mutedInk: resolveThemeColor("mutedInk", "#A9B1BD")
+    readonly property color accent: resolveThemeColor("accent", "#2A313F")
+    readonly property color accentTint: resolveThemeColor("accentTint", "#ECEFF3")
+    readonly property color hoverBg: resolveThemeColor("hoverBg", "#F3F4F6")
+    readonly property color fieldBg: resolveThemeColor("fieldBg", "#F5F5F5")
+    readonly property color fieldLine: resolveThemeColor("fieldLine", resolveThemeColor("panelLine", "#E5E7EB"))
+    readonly property color inputBg: resolveThemeColor("inputBg", "#FFFFFF")
+    readonly property string uiFont: theme && theme.uiFont ? theme.uiFont : "Microsoft YaHei UI"
+
     signal clicked
     signal accepted(string value)
     signal canceled
+
+    function resolveThemeColor(name, fallback) {
+        return theme && theme[name] !== undefined ? theme[name] : fallback
+    }
 
     function displayPath(rawValue) {
         var text = String(rawValue || "")
@@ -93,8 +109,8 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: rootField.label
-            color: theme.labelInk
-            font.family: theme.uiFont
+            color: rootField.labelInk
+            font.family: rootField.uiFont
             font.pixelSize: 10
             font.weight: 500
             elide: Text.ElideRight
@@ -130,8 +146,8 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.rightMargin: 10
                         text: rootField.value.length > 0 ? rootField.displayPath(rootField.value) : rootField.placeholderText
-                        color: rootField.value.length > 0 ? theme.titleInk : "#A2907A"
-                        font.family: theme.uiFont
+                        color: rootField.value.length > 0 ? rootField.titleInk : rootField.labelInk
+                        font.family: rootField.uiFont
                         font.pixelSize: rootField.compact ? 12 : 13
                         font.weight: rootField.value.length > 0 ? 500 : 400
                         elide: Text.ElideRight
@@ -143,8 +159,8 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: hoverArea.containsMouse && !rootField.saving
                         text: "\u270e"
-                        color: theme.accent
-                        font.family: theme.uiFont
+                        color: rootField.accent
+                        font.family: rootField.uiFont
                         font.pixelSize: 11
                         opacity: 0.75
                     }
@@ -188,8 +204,8 @@ Rectangle {
                         anchors.rightMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
                         text: rootField.displayPath(rootField.composeValue())
-                        color: rootField.theme.titleInk
-                        font.family: rootField.theme.uiFont
+                        color: rootField.titleInk
+                        font.family: rootField.uiFont
                         font.pixelSize: rootField.compact ? 11 : 12
                         elide: Text.ElideRight
                     }
@@ -208,7 +224,7 @@ Rectangle {
                             context.lineTo(width, 0)
                             context.lineTo(width / 2, height)
                             context.closePath()
-                            context.fillStyle = rootField.theme.labelInk
+                            context.fillStyle = rootField.labelInk
                             context.fill()
                         }
                     }
@@ -218,8 +234,8 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         height: 1
-                        color: "#E0D5C8"
-                        opacity: 0.9
+                        color: cascadePopup.opened ? rootField.accent : rootField.fieldLine
+                        opacity: 0.95
                     }
 
                     MouseArea {
@@ -236,8 +252,8 @@ Rectangle {
 
                     Text {
                         text: "保存"
-                        color: rootField.theme.accent
-                        font.family: rootField.theme.uiFont
+                        color: rootField.accent
+                        font.family: rootField.uiFont
                         font.pixelSize: 11
                         font.weight: 600
 
@@ -253,8 +269,8 @@ Rectangle {
 
                     Text {
                         text: "取消"
-                        color: rootField.theme.labelInk
-                        font.family: rootField.theme.uiFont
+                        color: rootField.labelInk
+                        font.family: rootField.uiFont
                         font.pixelSize: 11
                         font.weight: 500
                         opacity: 0.88
@@ -283,9 +299,9 @@ Rectangle {
 
                     background: Rectangle {
                         radius: 8
-                        color: "#FFFEFC"
+                        color: rootField.inputBg
                         border.width: 1
-                        border.color: "#E0D5C8"
+                        border.color: rootField.fieldLine
                     }
 
                     contentItem: RowLayout {
@@ -296,9 +312,9 @@ Rectangle {
                             Layout.preferredWidth: 180
                             implicitHeight: 220
                             radius: 7
-                            color: "#FFF9F2"
+                            color: rootField.fieldBg
                             border.width: 1
-                            border.color: "#E7DCCF"
+                            border.color: rootField.fieldLine
 
                             ListView {
                                 anchors.fill: parent
@@ -312,7 +328,9 @@ Rectangle {
                                     width: ListView.view.width
                                     height: 30
                                     radius: 6
-                                    color: modelData.value === rootField.level1 ? "#F0E3D3" : "transparent"
+                                    color: itemMouseArea.containsMouse
+                                           ? rootField.hoverBg
+                                           : (modelData.value === rootField.level1 ? rootField.accentTint : "transparent")
 
                                     Text {
                                         anchors.left: parent.left
@@ -321,13 +339,15 @@ Rectangle {
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: modelData.text
-                                        color: rootField.theme.titleInk
-                                        font.family: rootField.theme.uiFont
+                                        color: modelData.value === rootField.level1 ? rootField.accent : rootField.titleInk
+                                        font.family: rootField.uiFont
                                         font.pixelSize: rootField.compact ? 11 : 12
+                                        font.weight: modelData.value === rootField.level1 ? 600 : 400
                                         elide: Text.ElideRight
                                     }
 
                                     MouseArea {
+                                        id: itemMouseArea
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
@@ -349,9 +369,9 @@ Rectangle {
                             Layout.preferredWidth: 180
                             implicitHeight: 220
                             radius: 7
-                            color: "#FFF9F2"
+                            color: rootField.fieldBg
                             border.width: 1
-                            border.color: "#E7DCCF"
+                            border.color: rootField.fieldLine
 
                             ListView {
                                 anchors.fill: parent
@@ -365,7 +385,9 @@ Rectangle {
                                     width: ListView.view.width
                                     height: 30
                                     radius: 6
-                                    color: modelData.value === rootField.level2 ? "#F0E3D3" : "transparent"
+                                    color: itemMouseArea.containsMouse
+                                           ? rootField.hoverBg
+                                           : (modelData.value === rootField.level2 ? rootField.accentTint : "transparent")
 
                                     Text {
                                         anchors.left: parent.left
@@ -374,13 +396,15 @@ Rectangle {
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: modelData.text
-                                        color: rootField.theme.titleInk
-                                        font.family: rootField.theme.uiFont
+                                        color: modelData.value === rootField.level2 ? rootField.accent : rootField.titleInk
+                                        font.family: rootField.uiFont
                                         font.pixelSize: rootField.compact ? 11 : 12
+                                        font.weight: modelData.value === rootField.level2 ? 600 : 400
                                         elide: Text.ElideRight
                                     }
 
                                     MouseArea {
+                                        id: itemMouseArea
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
@@ -400,9 +424,9 @@ Rectangle {
                             Layout.preferredWidth: 180
                             implicitHeight: 220
                             radius: 7
-                            color: "#FFF9F2"
+                            color: rootField.fieldBg
                             border.width: 1
-                            border.color: "#E7DCCF"
+                            border.color: rootField.fieldLine
 
                             ListView {
                                 anchors.fill: parent
@@ -416,7 +440,9 @@ Rectangle {
                                     width: ListView.view.width
                                     height: 30
                                     radius: 6
-                                    color: modelData.value === rootField.level3 ? "#F0E3D3" : "transparent"
+                                    color: itemMouseArea.containsMouse
+                                           ? rootField.hoverBg
+                                           : (modelData.value === rootField.level3 ? rootField.accentTint : "transparent")
 
                                     Text {
                                         anchors.left: parent.left
@@ -425,13 +451,15 @@ Rectangle {
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: modelData.text
-                                        color: rootField.theme.titleInk
-                                        font.family: rootField.theme.uiFont
+                                        color: modelData.value === rootField.level3 ? rootField.accent : rootField.titleInk
+                                        font.family: rootField.uiFont
                                         font.pixelSize: rootField.compact ? 11 : 12
+                                        font.weight: modelData.value === rootField.level3 ? 600 : 400
                                         elide: Text.ElideRight
                                     }
 
                                     MouseArea {
+                                        id: itemMouseArea
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
@@ -449,7 +477,7 @@ Rectangle {
             visible: !rootField.editing
             Layout.fillWidth: true
             implicitHeight: 1
-            color: "#E8DFD2"
+            color: rootField.fieldLine
             opacity: 0.85
         }
     }

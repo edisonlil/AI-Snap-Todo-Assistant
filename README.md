@@ -1,12 +1,12 @@
 # AI Snap Todo Assistant
 
-面向 Windows 的 AI 工单待办助手。
+面向 Windows 与 macOS 的 AI 工单待办助手。
 
 围绕“截图采集上下文 -> AI 结构化提取 -> 创建/追加待办 -> 持续跟进时间线”设计，适合技术支持、售后、实施、交付等需要高频处理工单上下文的场景。
 
 ## 产品定位
 
-- 使用 `Alt+A` 快速截取群聊、报错和工单上下文
+- 使用全局热键快速截取群聊、报错和工单上下文
 - 由 AI 提取结构化字段和本次新增跟进内容
 - 未选中待办时创建新待办
 - 已选中待办时追加到现有待办，并保持时间线连续
@@ -14,7 +14,7 @@
 
 ## 当前能力
 
-- 全局热键截图：`Alt+A`
+- 全局热键截图：Windows 默认 `Alt+A`，macOS 默认 `Command+Shift+A`
 - 截图覆盖层支持框选与标注
 - 单张截图分析与多张截图合并分析
 - AI 结构化提取工单信息
@@ -31,6 +31,7 @@
 ## 运行环境
 
 - Windows 10 或更高版本
+- macOS 13 或更高版本（当前以 Apple Silicon 为主）
 - Python 3.10+
 - 可访问模型供应商接口
   - `openai_compatible`
@@ -39,9 +40,19 @@
 
 ## 安装
 
+Windows：
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+macOS：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
@@ -161,7 +172,7 @@ python -m pip install -r requirements-build.txt
       "model_id": "qwen3-8b"
     }
   },
-  "hotkeys": {
+ "hotkeys": {
     "capture": "Alt+A"
   },
   "max_image_bytes": 4194304
@@ -190,6 +201,7 @@ python -m pip install -r requirements-build.txt
 补充说明：
 
 - 首次运行或任务绑定缺少可用 `api_key` / 模型时，程序会弹窗引导配置
+- Windows 默认截图热键为 `Alt+A`；macOS 新建配置默认使用 `Command+Shift+A`
 - 旧版 `config.json` 会在加载时自动迁移到新 schema
 - 运行时内部只使用新配置结构，不再依赖旧顶层字段
 
@@ -206,8 +218,16 @@ python -m pip install -r requirements-build.txt
 
 ## 启动
 
+Windows：
+
 ```powershell
 python .\run_aica.py
+```
+
+macOS：
+
+```bash
+python run_aica.py
 ```
 
 如果使用 conda 环境，例如：
@@ -221,8 +241,16 @@ python .\run_aica.py
 
 推荐的回归命令：
 
+Windows：
+
 ```powershell
 pytest tests\test_environment_access.py tests\test_log_analysis.py tests\test_context_summary.py tests\test_todo_detail_panel.py -q
+```
+
+macOS：
+
+```bash
+pytest tests/test_environment_access.py tests/test_log_analysis.py tests/test_context_summary.py tests/test_todo_detail_panel.py -q
 ```
 
 运行完整测试：
@@ -233,8 +261,16 @@ pytest tests -q
 
 快速语法与导入检查：
 
+Windows：
+
 ```powershell
 python -m compileall src\aica run_aica.py
+```
+
+macOS：
+
+```bash
+python -m compileall src/aica run_aica.py
 ```
 
 ## 打包
@@ -251,6 +287,17 @@ Windows `onefile`：
 powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ```
 
+macOS `.app`：
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+## macOS 权限说明
+
+- 首次在 macOS 使用全局截图热键时，可能需要在“系统设置 > 隐私与安全性”中为终端或打包后的 `AICA.app` 开启“辅助功能”和“输入监听”权限。
+- 如果权限未开启，AICA 会继续启动，并保留菜单栏入口；授权后重启应用即可重新启用热键。
+
 ## 控制面板更新
 
 当前版本已经切换为“系统托盘 + 统一控制面板”入口，控制面板负责模型供应商、任务模型、截图热键、压缩阈值与本地目录跳转等配置，并新增了项目管理能力、项目日期/项目级别设置以及窗口最大化支持。详细变更记录见下方 `Changelog`。
@@ -258,6 +305,60 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_onefile.ps1
 ## Changelog
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
+### 2026-04-21
+
+- 工单流转与补全能力增强：
+  - 新增“重新打开已完成工单”功能，便于已关闭事项再次进入跟进流程
+  - 新增异步工单丰富能力，可在后台补全和增强工单上下文信息
+- 阶段总结与时间线编辑优化：
+  - 优化阶段总结功能，并改进时间线梳理规则，提升总结内容的可读性与结构性
+  - 重构时间线卡片编辑实现，进一步理顺编辑交互与数据更新链路
+  - 修复待办详情面板位置保持问题，减少多窗口协同时的位置跳动
+- 通知与资源管理重构：
+  - 新增应用内通知系统，替换原有消息提示方式，统一反馈体验
+  - 重构通知中心的布局与同步逻辑，改善通知展示和状态更新的一致性
+  - 统一资源文件路径管理，降低图标、图片等静态资源在不同模块中的维护成本
+
+### 2026-04-20
+
+- 阶段总结窗口持续升级：
+  - 阶段总结输出从纯文本切换为 Markdown，提升内容展示与后续复用能力
+  - 新增阶段总结编辑模式与分段展示能力，便于按结构调整总结内容
+  - 新增可调整大小的阶段摘要窗口，并重构其 UI 组件与数据处理逻辑，改善编辑和阅读体验
+- 时间线摘要与日志分析增强：
+  - 时间线汇总新增附件过滤能力，减少无关附件对摘要结果的干扰
+  - 优化日志分析代理的请求链归因和 LLM 回退逻辑，提升复杂场景下的稳定性
+- 前端体验统一：
+  - 统一前端界面样式，进一步收敛近期新增面板与组件的视觉风格
+  - 移除工单复制成功状态消息，减少冗余提示对主流程操作的打扰
+
+### 2026-04-19
+
+- 待办与反馈界面交互优化：
+  - 新增待办置顶交互，方便优先关注高价值或紧急事项
+  - 将反馈面板重构为 QML 实现，统一与控制面板、待办相关界面的技术栈和视觉表现
+- 界面细节与工程整理：
+  - 调整模型页标签激活色，优化页签切换时的视觉反馈
+  - 更新 `.gitignore` 并同步本地工程改动，整理构建与开发过程中的文件管理策略
+
+### 2026-04-18
+
+- macOS 适配与运行时能力补齐：
+  - 新增 macOS 打包配置与构建脚本，补齐 `.app` 产物构建链路
+  - 引入运行时能力抽象，统一处理 macOS 与 Windows 下的窗口、字体、脚本与热键差异
+  - 完善单实例、主入口与相关窗口在 macOS 下的行为兼容性，确保菜单栏入口和基础流程可用
+- 日志分析结果结构化升级：
+  - 重构日志分析消费者，支持输出更结构化的分析结果
+  - 同步调整日志分析结果卡片与待办详情展示，提升日志排查结果的可读性
+  - 补充日志分析相关测试，覆盖结构化输出后的核心链路
+- 控制面板与品牌视觉优化：
+  - 优化快捷键录入交互，增强热键配置过程中的反馈与可用性
+  - 调整控制面板按钮、列表、配色和品牌资源，统一近期界面视觉风格
+  - 更新应用图标与控制面板品牌呈现，提升桌面端识别度
+- 待办面板样式调整：
+  - 调整待办浮动面板标题文案与头部布局
+  - 优化待办面板视觉样式，使其与控制面板的新品牌风格保持一致
 
 ### 2026-04-17
 

@@ -8,10 +8,10 @@ Rectangle {
 
     readonly property color bodyInk: "#4A5565"
     readonly property color mutedInk: "#A9B1BD"
-    readonly property color fieldBg: "#FCFBF8"
-    readonly property color fieldLine: "#E4DFD4"
-    readonly property color accent: "#3D7CFF"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property color fieldBg: "#F5F5F5"
+    readonly property color fieldLine: "#E5E7EB"
+    readonly property color accent: "#2A313F"
+    readonly property string uiFont: focusHintBridge ? focusHintBridge.uiFont : "Microsoft YaHei UI"
     readonly property int outerPadding: 10
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400
@@ -48,7 +48,7 @@ Rectangle {
             anchors.topMargin: 10
             anchors.rightMargin: 14
             text: "关闭"
-            color: "#707A89"
+            color: root.bodyInk
             font.family: root.uiFont
             font.pixelSize: 12
             font.weight: root.labelWeight

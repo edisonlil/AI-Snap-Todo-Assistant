@@ -12,6 +12,7 @@ from aica.config import AppConfig
 from aica.hotkey import normalize_hotkey
 from aica.llm.service import LLMService, ModelResolutionError
 from aica.paths import save_storage_paths, storage_config_file
+from aica.runtime import build_script_command, current_platform, describe_script_support_for_command
 
 
 MEGABYTE = 1024 * 1024
@@ -209,6 +210,10 @@ def script_integration_display_path(integration: dict[str, Any]) -> str:
         for arg in args:
             if not arg.startswith("-"):
                 return arg
+    if command_name in {"python3", "sh", "bash"}:
+        for arg in args:
+            if not arg.startswith("-"):
+                return arg
     if "powershell" in command_name:
         for index, arg in enumerate(args[:-1]):
             if arg.lower() == "-file":
@@ -217,13 +222,18 @@ def script_integration_display_path(integration: dict[str, Any]) -> str:
 
 
 def _build_script_command(script_path: Path) -> tuple[str, list[str]]:
-    suffix = script_path.suffix.lower()
-    script_text = str(script_path)
-    if suffix in {".py", ".pyw"}:
-        return "py", [script_text]
-    if suffix == ".ps1":
-        return "powershell", ["-ExecutionPolicy", "Bypass", "-File", script_text]
-    return script_text, []
+    return build_script_command(script_path, current_platform())
+
+
+def describe_script_integration_support(
+    integration: dict[str, Any],
+    *,
+    platform_id: str | None = None,
+) -> tuple[bool, str]:
+    command = str(integration.get("command") or "").strip()
+    args_payload = integration.get("args", [])
+    args = [str(item) for item in args_payload if str(item).strip()] if isinstance(args_payload, list) else []
+    return describe_script_support_for_command(command, args, platform_id=platform_id or current_platform())
 
 
 def _make_unique_integration_id(stem: str, existing_ids: set[str]) -> str:

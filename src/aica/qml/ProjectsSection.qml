@@ -13,7 +13,7 @@ ColumnLayout {
         theme: projectSection.theme
         Layout.fillWidth: true
         implicitHeight: projectManagerContent.implicitHeight + 32
-        color: "#F6F0E6"
+        color: theme.panelBg
 
         ColumnLayout {
             id: projectManagerContent
@@ -94,7 +94,7 @@ ColumnLayout {
                     Layout.preferredWidth: 340
                     implicitHeight: 520
                     radius: 18
-                    color: "#FFF9F1"
+                    color: theme.panelBg
                     border.width: 1
                     border.color: theme.panelLine
 
@@ -123,7 +123,7 @@ ColumnLayout {
                                 width: ListView.view.width
                                 height: projectInfoColumn.implicitHeight + 20
                                 radius: 14
-                                color: currentProject ? theme.accentSoft : "#FFFCF7"
+                                color: currentProject ? theme.accentSoft : theme.panelBg
                                 border.width: 1
                                 border.color: currentProject ? theme.accent : theme.panelLine
 
@@ -201,7 +201,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     implicitHeight: projectFormColumn.implicitHeight + 24
                     radius: 18
-                    color: "#FFF9F1"
+                    color: theme.panelBg
                     border.width: 1
                     border.color: theme.panelLine
 
@@ -316,7 +316,7 @@ ColumnLayout {
                                 Layout.fillWidth: true
                                 implicitHeight: 44
                                 radius: 16
-                                color: "#FFFEFC"
+                                color: theme.inputBg
                                 border.width: 1
                                 border.color: theme.panelLine
 
@@ -359,7 +359,7 @@ ColumnLayout {
                                 Layout.fillWidth: true
                                 implicitHeight: 44
                                 radius: 16
-                                color: "#FFFEFC"
+                                color: theme.inputBg
                                 border.width: 1
                                 border.color: theme.panelLine
 
@@ -414,9 +414,9 @@ ColumnLayout {
                                     radius: 14
                                     width: aliasChipText.implicitWidth + 28
                                     height: 28
-                                    color: "#F0F6FF"
+                                    color: theme.accentSoft
                                     border.width: 1
-                                    border.color: "#D7E6FF"
+                                    border.color: theme.panelLine
 
                                     Text {
                                         id: aliasChipText
@@ -487,8 +487,6 @@ ColumnLayout {
                                 visible: theme.projectDraft.id.length > 0
                                 theme: projectSection.theme
                                 label: "删除项目"
-                                fillColor: "#FFF3F1"
-                                inkColor: "#8B3A2C"
                                 onClicked: theme.deleteCurrentProject()
                             }
 
@@ -507,4 +505,3 @@ ColumnLayout {
         }
     }
 }
-

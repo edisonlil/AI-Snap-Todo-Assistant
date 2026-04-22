@@ -14,8 +14,8 @@ from aica.llm.service import LLMService
 from aica.log_analysis_commands import parse_log_analysis_command
 from aica.log_analysis_context import summarize_investigation_context
 from aica.models import TicketSummaryFields
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
-from aica.worker import StageSummaryWorker
+from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
+from aica.worker import StageSummaryWorker, _rewrite_stage_summary_locally, _stage_summary_rewrite_instruction
 
 
 class _FailingAgent:
@@ -206,7 +206,7 @@ def test_summarize_investigation_context_uses_shared_summary_mapping() -> None:
     assert any(item == "request_id=req-1" for item in result.current_focus)
 
 
-def test_timeline_rollup_prompt_forbids_expansion_and_requires_fixed_sections() -> None:
+def test_timeline_rollup_prompt_forbids_expansion_and_does_not_fix_template() -> None:
     todo = _build_todo()
     request = build_context_summary_request_for_todo(
         todo,
@@ -285,18 +285,98 @@ def test_timeline_rollup_local_summary_keeps_order_and_uncertainty() -> None:
     summary_text = result.summary_text
 
     assert result.source_stats["mode"] == "fallback_local"
-    assert "阶段现状:" in summary_text
-    assert "当前结论: 暂无明确结论" in summary_text
-    assert "已发生进展:" in summary_text
-    assert "待确认事项:" in summary_text
-    assert summary_text.index("请协助排查 request_id=req-1") < summary_text.index("/分析日志 request_id=req-1 权限报错")
-    assert summary_text.index("/分析日志 request_id=req-1 权限报错") < summary_text.index("日志分析结果")
+    assert "### 阶段现状" in summary_text
+    assert "### 当前结论" in summary_text
+    assert "暂无明确结论" in summary_text
+    assert "### 已发生进展" in summary_text
+    assert "### 待确认事项" in summary_text
+    assert summary_text.index("请协助排查 request\\_id=req-1") < summary_text.index("/分析日志 request\\_id=req-1 权限报错")
+    assert summary_text.index("/分析日志 request\\_id=req-1 权限报错") < summary_text.index("日志分析结果")
     assert summary_text.index("日志分析结果") < summary_text.index("待确认是否和用户权限配置有关")
     assert "待确认是否和用户权限配置有关" in summary_text
     assert "今天" not in summary_text
     assert "昨天" not in summary_text
     assert "随后" not in summary_text
     assert "最终" not in summary_text
+    assert "\n\n### 当前结论\n" in summary_text
+    assert "\n\n### 待确认事项\n" in summary_text
+
+
+def test_timeline_rollup_prompt_hides_attachment_filenames_without_links() -> None:
+    todo = _build_todo()
+    todo.timeline[0] = TimelineEvent(
+        id="event-with-attachments",
+        timestamp="2026-04-16T10:00:00",
+        kind="follow_up",
+        scenario="客户反馈",
+        content="客户反馈只要带 wpsPreview 参数就会出现问题",
+        attachments=[
+            TimelineAttachment(name="f847e28bc0c8d842ecd5459dc0a9c267.png", path="C:\\tmp\\f847e28bc0c8d842ecd5459dc0a9c267.png"),
+            TimelineAttachment(name="17a45e4abd8da4e0ee7ecafedff66f68.png", path="C:\\tmp\\17a45e4abd8da4e0ee7ecafedff66f68.png"),
+        ],
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+    agent = DefaultContextSummaryAgent()
+
+    messages = agent._build_messages(request, agent._select_entries(request))  # noqa: SLF001
+
+    assert "f847e28bc0c8d842ecd5459dc0a9c267.png" not in messages[1].content
+    assert "17a45e4abd8da4e0ee7ecafedff66f68.png" not in messages[1].content
+    assert "附件:" not in messages[1].content
+
+
+def test_timeline_rollup_summary_filters_attachment_suffix_noise() -> None:
+    todo = _build_todo()
+    todo.timeline.append(
+        TimelineEvent(
+            id="event-conclusion",
+            timestamp="2026-04-16T10:40:00",
+            kind="conclusion",
+            scenario="结论更新",
+            content="建议客户先不携带该参数保证业务正常\n附件: f847e28bc0c8d842ecd5459dc0a9c267.png, 关于进一步加强维修工属具使用安全的通知.docx",
+        )
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+
+    result = ContextSummaryService().summarize(request)
+
+    assert "附件:" not in result.summary_text
+    assert "f847e28bc0c8d842ecd5459dc0a9c267.png" not in result.summary_text
+    assert "关于进一步加强维修工属具使用安全的通知.docx" not in result.summary_text
+    assert "建议客户先不携带该参数保证业务正常" in result.summary_text
+
+
+def test_timeline_rollup_summary_keeps_real_urls_in_body() -> None:
+    todo = _build_todo()
+    todo.timeline.append(
+        TimelineEvent(
+            id="event-link",
+            timestamp="2026-04-16T10:35:00",
+            kind="follow_up",
+            scenario="客户补充",
+            content="客户提供预览链接: https://wpszt.bbwport.com/micsweb/viewweb/reader/439e8b9faf195951c968bced2424908a?wpsPreview=0010000",
+        )
+    )
+    request = build_context_summary_request_for_todo(
+        todo,
+        summary_goal="timeline_rollup",
+        max_items=8,
+        max_chars=1800,
+    )
+
+    result = ContextSummaryService().summarize(request)
+
+    assert "https://wpszt.bbwport.com/micsweb/viewweb/reader/439e8b9faf195951c968bced2424908a?wpsPreview=0010000" in result.summary_text
 
 
 def test_timeline_rollup_summary_surfaces_explicit_conclusion() -> None:
@@ -315,7 +395,8 @@ def test_timeline_rollup_summary_surfaces_explicit_conclusion() -> None:
 
     assert "当前结论（单独输入）" in messages[1].content
     assert "已定位为用户权限配置缺失" in messages[1].content
-    assert "当前结论: 已定位为用户权限配置缺失" in result.summary_text
+    assert "### 当前结论" in result.summary_text
+    assert "已定位为用户权限配置缺失" in result.summary_text
 
 
 def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> None:
@@ -341,3 +422,54 @@ def test_stage_summary_rewrite_prompt_forbids_new_facts_and_time_anchors() -> No
     assert "不允许新增事实" in messages[1].content
     assert "不要新增“今天”“昨天”“随后”“最终”等时间锚点" in messages[1].content
     assert "不确定表述必须保留" in messages[1].content
+    assert "Markdown" in messages[0].content
+    assert "Markdown 结构" in messages[1].content
+
+def test_stage_summary_default_polish_preset_is_available() -> None:
+    instruction = _stage_summary_rewrite_instruction("polish", "")
+
+    assert "重新梳理" in instruction
+
+
+def test_stage_summary_local_polish_fallback_preserves_markdown_text() -> None:
+    current_text = (
+        "### 阶段现状\n"
+        "客户反馈接口偶发 500\n\n"
+        "### 当前结论\n"
+        "暂无明确结论\n\n"
+        "### 已发生进展\n"
+        "- 已收集 request_id=req-1\n"
+        "- 已完成日志分析\n\n"
+        "### 待确认事项\n"
+        "- 待确认是否与权限有关"
+    )
+
+    rewritten = _rewrite_stage_summary_locally(current_text, "polish", "")
+
+    assert "### 阶段现状" in rewritten
+    assert "### 当前结论" in rewritten
+    assert "### 已发生进展" in rewritten
+    assert "### 待确认事项" in rewritten
+    assert "客户反馈接口偶发 500" in rewritten
+
+
+def test_stage_summary_default_rewrite_calls_llm() -> None:
+    llm_service = _RecordingLLMService("重新整理后的阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rewrite",
+        payload={
+            "currentText": "原始阶段总结",
+            "defaultRewrite": True,
+        },
+    )
+
+    result = worker._rewrite_summary()  # noqa: SLF001
+
+    assert result == "重新整理后的阶段总结"
+    assert len(llm_service.calls) == 1
+    messages = llm_service.calls[0]["messages"]
+    assert "不要套固定四段模板" in messages[0].content
+    assert "不要套固定模板" in messages[1].content

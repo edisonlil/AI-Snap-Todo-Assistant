@@ -4,15 +4,15 @@ Rectangle {
     id: buttonRoot
     required property var theme
     property string label: ""
-    property color fillColor: "#FFFDFC"
-    property color inkColor: theme.titleInk
+    property color fillColor: "#FFFFFF"
+    property color inkColor: theme.accent
     property int strokeWidth: 1
     signal clicked
 
     radius: 16
     color: fillColor
     border.width: strokeWidth
-    border.color: theme.panelLine
+    border.color: buttonRoot.strokeWidth > 0 ? theme.accent : buttonRoot.fillColor
     implicitWidth: buttonText.implicitWidth + 28
     implicitHeight: 38
 

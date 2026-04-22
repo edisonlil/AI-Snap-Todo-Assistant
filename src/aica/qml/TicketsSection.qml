@@ -11,7 +11,6 @@ ColumnLayout {
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
     property bool deleteTicketConfirmVisible: false
-    property string copyToastMessage: ""
     
     // Per-field editing state map: fieldName -> { editing, saving, draft, original }
     property var fieldStates: ({})
@@ -50,31 +49,12 @@ ColumnLayout {
         { value: 50, text: "50 \u6761/\u9875" }
     ]
 
-    function showCopyToast(message) {
-        copyToastMessage = message
-        copyToast.open()
-        copyToastTimer.restart()
-    }
-
-    function copyTicketForTool(todoId, showToast) {
+    function copyTicketForTool(todoId) {
         var targetId = String(todoId || controlPanelBridge.selectedTicket.id || "").trim()
-        var shouldShowToast = showToast === undefined ? true : !!showToast
         if (!targetId) {
-            if (shouldShowToast) {
-                showCopyToast("\u590d\u5236\u5931\u8d25")
-            }
             return
         }
-        try {
-            controlPanelBridge.copyTicket(targetId)
-            if (shouldShowToast) {
-                showCopyToast("\u5df2\u590d\u5236")
-            }
-        } catch (error) {
-            if (shouldShowToast) {
-                showCopyToast("\u590d\u5236\u5931\u8d25")
-            }
-        }
+        controlPanelBridge.copyTicket(targetId)
     }
 
     function currentStatusValue() {
@@ -416,6 +396,18 @@ ColumnLayout {
         deleteTicketConfirmVisible = true
     }
 
+    function requestReopenSelectedTicket() {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0 || deleteTicketConfirmVisible) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        controlPanelBridge.reopenSelectedTicket()
+    }
+
     function cancelDeleteSelectedTicket() {
         deleteTicketConfirmVisible = false
     }
@@ -443,42 +435,7 @@ ColumnLayout {
         theme: ticketSection.theme
         Layout.fillWidth: true
         implicitHeight: ticketContent.implicitHeight + 32
-        color: "#F6F0E6"
-
-        Popup {
-            id: copyToast
-            parent: ticketSectionCard
-            x: Math.round(ticketSectionCard.width - width - 24)
-            y: 24
-            padding: 0
-            margins: 0
-            modal: false
-            dim: false
-            focus: false
-            closePolicy: Popup.NoAutoClose
-            background: Rectangle {
-                radius: 12
-                color: "#2F241A"
-                opacity: 0.94
-            }
-            contentItem: Text {
-                leftPadding: 14
-                rightPadding: 14
-                topPadding: 10
-                bottomPadding: 10
-                text: ticketSection.copyToastMessage
-                color: "#FFF9F1"
-                font.family: ticketSection.theme.uiFont
-                font.pixelSize: 12
-            }
-        }
-
-        Timer {
-            id: copyToastTimer
-            interval: 1400
-            repeat: false
-            onTriggered: copyToast.close()
-        }
+        color: theme.panelBg
 
         ColumnLayout {
             id: ticketContent
@@ -493,7 +450,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 implicitHeight: ticketTotalCount > 0 ? 676 : 220
                 radius: 14
-                color: "#FDF9F2"
+                color: theme.panelBg
                 border.width: 1
                 border.color: theme.panelLine
 
@@ -568,7 +525,7 @@ ColumnLayout {
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 1
-                        color: "#E9E0D2"
+                        color: theme.panelLine
                     }
 
                     Item {
@@ -718,7 +675,7 @@ ColumnLayout {
                                 Rectangle {
                                     width: parent.width
                                     height: 1
-                                    color: "#E9E0D2"
+                                    color: theme.panelLine
                                 }
 
                                 ListView {
@@ -872,7 +829,7 @@ ColumnLayout {
                                                                 cursorShape: Qt.PointingHandCursor
                                                                 onClicked: function(mouse) {
                                                                     mouse.accepted = true
-                                                                    ticketSection.copyTicketForTool(modelData.id, false)
+                                                                    ticketSection.copyTicketForTool(modelData.id)
                                                                 }
                                                             }
                                                         }
@@ -911,7 +868,7 @@ ColumnLayout {
                                                 anchors.leftMargin: tableFlickable.sidePadding
                                                 anchors.rightMargin: tableFlickable.sidePadding
                                                 height: 1
-                                                color: "#F0E8DD"
+                                                color: theme.panelLine
                                             }
                                         }
                                     }
@@ -929,7 +886,7 @@ ColumnLayout {
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         height: 1
-                                        color: "#E9E0D2"
+                                        color: theme.panelLine
                                     }
 
                                     Row {
@@ -993,15 +950,15 @@ ColumnLayout {
                                                 width: pageItem.current ? 44 : 60
                                                 height: 36
                                                 radius: 16
-                                                color: pageItem.current ? "#F4ECDD" : "#FFFEFC"
+                                                color: pageItem.current ? theme.accent : theme.panelBg
                                                 border.width: 1
-                                                border.color: pageItem.enabled ? theme.panelLine : "#EEE5D8"
+                                                border.color: theme.accent
                                                 opacity: pageItem.enabled ? 1.0 : 0.56
 
                                                 Text {
                                                     anchors.centerIn: parent
                                                     text: parent.pageItem.label
-                                                    color: parent.pageItem.current ? theme.titleInk : theme.bodyInk
+                                                    color: parent.pageItem.current ? "#FFFFFF" : theme.accent
                                                     font.family: theme.uiFont
                                                     font.pixelSize: 12
                                                     font.weight: parent.pageItem.current ? 600 : 500
@@ -1091,14 +1048,19 @@ ColumnLayout {
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "\u590d\u5236\u5de5\u5355"
-                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id, true)
+                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id)
+                    }
+
+                    ControlPanelPlainButton {
+                        visible: controlPanelBridge.selectedTicket.status === "done"
+                        theme: ticketSection.theme
+                        label: "\u91cd\u65b0\u6253\u5f00"
+                        onClicked: ticketSection.requestReopenSelectedTicket()
                     }
 
                     ControlPanelPlainButton {
                         theme: ticketSection.theme
                         label: "\u5220\u9664\u5de5\u5355"
-                        fillColor: "#FFF3F1"
-                        inkColor: "#8B3A2C"
                         onClicked: ticketSection.requestDeleteSelectedTicket()
                     }
                 }
@@ -1154,7 +1116,7 @@ ColumnLayout {
                             ControlPanelPlainButton {
                                 theme: ticketSection.theme
                                 label: "\u786e\u8ba4\u5220\u9664"
-                                fillColor: "#C84E3A"
+                                fillColor: theme.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
                                 onClicked: ticketSection.confirmDeleteSelectedTicket()
@@ -1166,9 +1128,9 @@ ColumnLayout {
                 Rectangle {
                     Layout.fillWidth: true
                     radius: 22
-                    color: "#FFFCF8"
+                    color: theme.panelBg
                     border.width: 1
-                    border.color: "#ECE4D8"
+                    border.color: theme.panelLine
                     implicitHeight: ticketDetailColumn.implicitHeight + 40
 
                     ColumnLayout {
@@ -1227,7 +1189,7 @@ ColumnLayout {
                         Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: 1
-                            color: "#E9E0D3"
+                            color: theme.panelLine
                         }
 
                         GridLayout {
@@ -1298,7 +1260,7 @@ ColumnLayout {
                                                     width: 2
                                                     height: Math.max(0, parent.height - 24)
                                                     radius: 1
-                                                    color: "#E4DCCF"
+                                                    color: theme.panelLine
                                                 }
                                             }
 
@@ -1350,9 +1312,9 @@ ColumnLayout {
 
                                                         delegate: Rectangle {
                                                             radius: 14
-                                                            color: "#F6F2EA"
+                                                            color: theme.inputBg
                                                             border.width: 1
-                                                            border.color: "#E5DCD0"
+                                                            border.color: theme.panelLine
                                                             width: attachmentText.implicitWidth + 24
                                                             height: 30
 
@@ -1372,7 +1334,7 @@ ColumnLayout {
                                                     visible: index < controlPanelBridge.selectedTicket.timeline.length - 1
                                                     Layout.fillWidth: true
                                                     implicitHeight: 1
-                                                    color: "#EEE5D8"
+                                                    color: theme.panelLine
                                                     Layout.topMargin: 8
                                                 }
                                             }
@@ -1528,7 +1490,7 @@ ColumnLayout {
                                             compact: ticketSection.detailGridColumns === 1
                                             actionVisible: true
                                             actionBusy: ticketSection.activeActionField === "featurePoint"
-                                            actionIconSource: Qt.resolvedUrl("../../../assets/feature-point-refresh.svg")
+                                            actionIconSource: controlPanelBridge.refreshFeaturePointIconSource
                                             draftValue: ticketSection.getFieldDraft("featurePoint")
                                             
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")

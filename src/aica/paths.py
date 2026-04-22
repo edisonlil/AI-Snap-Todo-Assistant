@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from aica.runtime import PLATFORM_MACOS, PLATFORM_WINDOWS, current_platform
+
 
 _ENV_HOME = "AICA_HOME"
 _ENV_DATA_DIR = "AICA_DATA_DIR"
@@ -148,11 +150,33 @@ def runtime_root() -> Path:
     return Path(getattr(sys, "_MEIPASS", project_root()))
 
 
+def assets_dir() -> Path:
+    return runtime_root() / "assets"
+
+
+def asset_file(name: str) -> Path:
+    return assets_dir() / name
+
+
 def qml_dir() -> Path:
     if hasattr(sys, "_MEIPASS"):
         return runtime_root() / "aica" / "qml"
     return Path(__file__).resolve().with_name("qml")
 
 
-def icon_file() -> Path:
-    return runtime_root() / "assets" / "aica_icon.png"
+def icon_file(platform_id: str | None = None, *, dark_mode: bool = False) -> Path:
+    platform_id = platform_id or current_platform()
+    bundled_assets_dir = assets_dir()
+    if platform_id == PLATFORM_MACOS:
+        if dark_mode:
+            candidate = bundled_assets_dir / "aica_icon_dark.icns"
+            if candidate.exists():
+                return candidate
+        candidate = bundled_assets_dir / "aica_icon.icns"
+        if candidate.exists():
+            return candidate
+    if platform_id == PLATFORM_WINDOWS:
+        candidate = bundled_assets_dir / "aica_icon.ico"
+        if candidate.exists():
+            return candidate
+    return bundled_assets_dir / "aica_icon.png"

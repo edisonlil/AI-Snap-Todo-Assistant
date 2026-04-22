@@ -45,6 +45,9 @@ class TodoStore:
     def complete_todo(self, todo_id: str) -> bool:
         return self._repository.complete_todo(todo_id)
 
+    def reopen_todo(self, todo_id: str) -> bool:
+        return self._repository.reopen_todo(todo_id)
+
     def delete_todo(self, todo_id: str) -> bool:
         return self._repository.delete_todo(todo_id)
 

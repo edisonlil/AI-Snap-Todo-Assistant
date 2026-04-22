@@ -41,7 +41,7 @@ ComboBox {
 
     background: Rectangle {
         radius: 16
-        color: "#FFFEFC"
+        color: theme.inputBg
         border.width: 1
         border.color: combo.activeFocus ? theme.accent : theme.panelLine
     }

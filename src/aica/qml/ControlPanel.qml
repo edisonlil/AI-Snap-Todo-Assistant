@@ -8,21 +8,24 @@ Rectangle {
     height: 760
     color: "transparent"
 
-    readonly property color shellBg: "#F6F2EA"
-    readonly property color panelBg: "#FCF9F3"
-    readonly property color panelAltBg: "#F3EEE5"
-    readonly property color panelLine: "#E7DDCF"
-    readonly property color titleInk: "#18202E"
+    readonly property color shellBg: "#FFFFFF"
+    readonly property color panelBg: "#FFFFFF"
+    readonly property color panelAltBg: "#F8F9FA"
+    readonly property color panelLine: "#E5E7EB"
+    readonly property color titleInk: "#2A313F"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#7C8795"
-    readonly property color accent: "#3E7B67"
-    readonly property color accentSoft: "#D8EAE2"
-    readonly property color navIdle: "#F1EBE0"
+    readonly property color accent: "#2A313F"
+    readonly property color accentSoft: "#F1F3F6"
+    readonly property color navIdle: "#F8F9FA"
+    readonly property color inputBg: "#FFFFFF"
+    readonly property color hoverBg: "#F3F4F6"
+    readonly property color pressedBg: "#E5E7EB"
     readonly property color errorBg: "#FDECEC"
     readonly property color errorInk: "#B42318"
     readonly property color successBg: "#E7F5ED"
     readonly property color successInk: "#17663A"
-    readonly property string uiFont: "Microsoft YaHei UI"
+    readonly property string uiFont: controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI"
     readonly property var projectLevelOptions: [
         { value: "normal", text: "常规" },
         { value: "important", text: "重要" }
@@ -30,6 +33,7 @@ Rectangle {
     property var projectDraft: emptyProjectDraft()
     property string projectAliasInput: ""
     property string projectViewMode: "list"
+    property string selectedProviderId: ""
 
     function optionIndex(options, value) {
         for (var index = 0; index < options.length; index += 1) {
@@ -47,6 +51,33 @@ Rectangle {
             }
         }
         return value || ""
+    }
+
+    function ensureSelectedProvider() {
+        if (!controlPanelBridge || controlPanelBridge.currentSection !== "models") {
+            return
+        }
+        var providers = controlPanelBridge.providers || []
+        if (!providers.length) {
+            selectedProviderId = ""
+            return
+        }
+        for (var index = 0; index < providers.length; index += 1) {
+            if (providers[index].id === selectedProviderId) {
+                return
+            }
+        }
+        selectedProviderId = providers[0].id
+    }
+
+    function selectedProviderPayload() {
+        var providers = controlPanelBridge ? (controlPanelBridge.providers || []) : []
+        for (var index = 0; index < providers.length; index += 1) {
+            if (providers[index].id === selectedProviderId) {
+                return providers[index]
+            }
+        }
+        return providers.length ? providers[0] : null
     }
 
     function fuzzyMatch(text, query) {
@@ -219,20 +250,28 @@ Rectangle {
         function onProjectDateSelected(fieldName, value) {
             root.updateProjectDraft(fieldName, value)
         }
+        function onDataChanged() {
+            root.ensureSelectedProvider()
+        }
+        function onCurrentSectionChanged() {
+            root.ensureSelectedProvider()
+        }
     }
+
+    Component.onCompleted: ensureSelectedProvider()
 
     component PlainButton: Rectangle {
         id: buttonRoot
         property string label: ""
-        property color fillColor: "#FFFDFC"
-        property color inkColor: root.titleInk
+        property color fillColor: "#FFFFFF"
+        property color inkColor: root.accent
         property int strokeWidth: 1
         signal clicked
 
         radius: 16
         color: fillColor
         border.width: strokeWidth
-        border.color: root.panelLine
+        border.color: buttonRoot.strokeWidth > 0 ? root.accent : buttonRoot.fillColor
         implicitWidth: buttonText.implicitWidth + 28
         implicitHeight: 38
 
@@ -280,7 +319,7 @@ Rectangle {
                 width: 48
                 height: 26
                 radius: 13
-                color: toggleRoot.checked ? root.accent : "#D7CCBE"
+                color: toggleRoot.checked ? root.accent : "#D1D5DB"
 
                 Rectangle {
                     width: 22
@@ -288,9 +327,9 @@ Rectangle {
                     radius: 11
                     x: toggleRoot.checked ? parent.width - width - 2 : 2
                     y: 2
-                    color: "#FFFDFC"
+                    color: "#FFFFFF"
                     border.width: 1
-                    border.color: toggleRoot.checked ? "#D1E4DA" : "#E0D4C5"
+                    border.color: toggleRoot.checked ? "#D5DBE5" : "#D1D5DB"
                 }
             }
         }
@@ -305,8 +344,8 @@ Rectangle {
     component WindowButton: Rectangle {
         id: windowButton
         property string label: ""
-        property color hoverColor: "#EEE5D8"
-        property color pressedColor: "#E5D9C7"
+        property color hoverColor: root.hoverBg
+        property color pressedColor: root.pressedBg
         property color inkColor: root.bodyInk
         property int fontPixelSize: 15
         signal clicked
@@ -346,7 +385,7 @@ Rectangle {
         bottomPadding: 11
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: input.activeFocus ? root.accent : root.panelLine
         }
@@ -390,7 +429,7 @@ Rectangle {
 
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: combo.activeFocus ? root.accent : root.panelLine
         }
@@ -407,7 +446,7 @@ Rectangle {
         implicitHeight: 96
         background: Rectangle {
             radius: 16
-            color: "#FFFEFC"
+            color: root.inputBg
             border.width: 1
             border.color: area.activeFocus ? root.accent : root.panelLine
         }
@@ -421,7 +460,7 @@ Rectangle {
         signal valueCommitted(string value, string capabilities)
 
         implicitWidth: 200
-        implicitHeight: 44
+        implicitHeight: 32
 
         function filteredOptions() {
             var keyword = input.text || ""
@@ -521,8 +560,8 @@ Rectangle {
 
         Rectangle {
             anchors.fill: parent
-            radius: 16
-            color: "#FFFEFC"
+            radius: 8
+            color: "#FFFFFF"
             border.width: 1
             border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
         }
@@ -532,12 +571,12 @@ Rectangle {
             anchors.fill: parent
             color: root.titleInk
             font.family: root.uiFont
-            font.pixelSize: 12
+            font.pixelSize: 13
             selectByMouse: true
-            leftPadding: 14
-            rightPadding: 36
-            topPadding: 11
-            bottomPadding: 11
+            leftPadding: 10
+            rightPadding: 32
+            topPadding: 0
+            bottomPadding: 0
             placeholderText: comboRoot.placeholderText
             background: Item {}
             onTextEdited: popup.open()
@@ -550,7 +589,7 @@ Rectangle {
 
         Canvas {
             x: comboRoot.width - width - 14
-            y: 19
+            y: (comboRoot.height - height) / 2
             width: 10
             height: 6
             contextType: "2d"
@@ -583,30 +622,29 @@ Rectangle {
 
         Popup {
             id: popup
-            y: comboRoot.height + 6
+            y: comboRoot.height + 4
             width: comboRoot.width
-            padding: 8
+            padding: 0
             modal: false
             focus: true
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
             background: Rectangle {
-                radius: 16
-                color: "#FFFEFC"
+                radius: 10
+                color: "#FFFFFF"
                 border.width: 1
-                border.color: root.panelLine
+                border.color: "#E5E7EB"
             }
 
             contentItem: Column {
                 width: popup.width - popup.leftPadding - popup.rightPadding
-                spacing: 6
+                spacing: 0
 
                 Rectangle {
                     width: parent.width
-                    height: addLabel.implicitHeight + 14
-                    radius: 12
+                    height: addLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: addMouseArea.pressed ? "#E7F5ED" : addMouseArea.containsMouse ? "#F1FAF5" : "#FFFFFF"
+                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.accentSoft : "#FFFFFF"
 
                     Text {
                         id: addLabel
@@ -615,8 +653,8 @@ Rectangle {
                         text: "添加并使用: " + (input.text || "").trim()
                         color: root.accent
                         font.family: root.uiFont
-                        font.pixelSize: 12
-                        font.weight: 700
+                        font.pixelSize: 13
+                        font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                     }
@@ -632,10 +670,9 @@ Rectangle {
 
                 Rectangle {
                     width: parent.width
-                    height: textOnlyLabel.implicitHeight + 14
-                    radius: 12
+                    height: textOnlyLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: textOnlyMouseArea.pressed ? "#F6F0E6" : textOnlyMouseArea.containsMouse ? "#FBF6EE" : "#FFFFFF"
+                    color: textOnlyMouseArea.pressed ? "#F3F4F6" : textOnlyMouseArea.containsMouse ? "#F9FAFB" : "#FFFFFF"
 
                     Text {
                         id: textOnlyLabel
@@ -644,7 +681,7 @@ Rectangle {
                         text: "添加为仅文本模型"
                         color: root.bodyInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                         font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
@@ -668,9 +705,8 @@ Rectangle {
 
                     delegate: Rectangle {
                         width: optionList.width
-                        height: optionText.implicitHeight + 14
-                        radius: 12
-                        color: optionMouseArea.pressed ? "#EDE6D9" : optionMouseArea.containsMouse ? "#F7F1E7" : "transparent"
+                        height: optionText.implicitHeight + 16
+                        color: optionMouseArea.pressed ? "#ECEFF3" : optionMouseArea.containsMouse ? "#F3F4F6" : "transparent"
 
                         Text {
                             id: optionText
@@ -679,7 +715,7 @@ Rectangle {
                             text: modelData.text
                             color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: 13
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -694,6 +730,137 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    component ModelFieldInput: TextField {
+        id: input
+        color: root.titleInk
+        font.family: root.uiFont
+        font.pixelSize: 13
+        selectByMouse: true
+        leftPadding: 10
+        rightPadding: 10
+        topPadding: 0
+        bottomPadding: 0
+        implicitHeight: 32
+        background: Rectangle {
+            radius: 8
+            color: "#FFFFFF"
+            border.width: 1
+            border.color: input.activeFocus ? root.accent : root.panelLine
+        }
+    }
+
+    component ModelFieldCombo: ComboBox {
+        id: combo
+        textRole: "text"
+        font.family: root.uiFont
+        font.pixelSize: 13
+        implicitHeight: 32
+        leftPadding: 10
+        rightPadding: 30
+        topPadding: 0
+        bottomPadding: 0
+
+        contentItem: Text {
+            text: combo.displayText
+            color: root.titleInk
+            font.family: root.uiFont
+            font.pixelSize: 13
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+
+        indicator: Canvas {
+            x: combo.width - width - 12
+            y: (combo.height - height) / 2
+            width: 10
+            height: 6
+            contextType: "2d"
+            onPaint: {
+                context.reset()
+                context.moveTo(0, 0)
+                context.lineTo(width, 0)
+                context.lineTo(width / 2, height)
+                context.closePath()
+                context.fillStyle = "#6B7280"
+                context.fill()
+            }
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: "#FFFFFF"
+            border.width: 1
+            border.color: combo.activeFocus ? root.accent : root.panelLine
+        }
+
+        popup: Popup {
+            y: combo.height + 4
+            width: combo.width
+            padding: 0
+            implicitHeight: Math.min(contentItem.implicitHeight, 220)
+            background: Rectangle {
+                radius: 10
+                color: "#FFFFFF"
+                border.width: 1
+                border.color: "#E5E7EB"
+            }
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: combo.popup.visible ? combo.delegateModel : null
+                currentIndex: combo.highlightedIndex
+            }
+        }
+
+        delegate: ItemDelegate {
+            width: combo.width
+            height: 36
+            padding: 10
+            background: Rectangle {
+                color: highlighted ? "#F3F4F6" : "#FFFFFF"
+            }
+            contentItem: Text {
+                text: modelData.text
+                color: root.titleInk
+                font.family: root.uiFont
+                font.pixelSize: 13
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+        }
+    }
+
+    component ModelPageTab: Rectangle {
+        id: tabRoot
+        property string label: ""
+        property bool active: false
+        signal clicked
+
+        radius: 10
+        color: active ? "#2A313F" : "#FFFFFF"
+        border.width: 1
+        border.color: active ? "#2A313F" : "#E5E7EB"
+        implicitWidth: tabText.implicitWidth + 32
+        implicitHeight: 34
+
+        Text {
+            id: tabText
+            anchors.centerIn: parent
+            text: tabRoot.label
+            color: active ? "#FFFFFF" : root.titleInk
+            font.family: root.uiFont
+            font.pixelSize: 13
+            font.weight: 600
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: tabRoot.clicked()
         }
     }
 
@@ -719,7 +886,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 radius: 20
-                color: "#FAF5EC"
+                color: root.panelAltBg
 
                 MouseArea {
                     anchors.fill: parent
@@ -734,24 +901,17 @@ Rectangle {
                     anchors.rightMargin: 10
                     spacing: 10
 
-                    Rectangle {
+                    Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
-                        radius: 9
-                        color: root.accentSoft
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "A"
-                            color: root.accent
-                            font.family: root.uiFont
-                            font.pixelSize: 10
-                            font.weight: 700
-                        }
+                        source: controlPanelBridge.logoSource
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
                     }
 
                     Text {
-                        text: "AICA 控制面板"
+                        text: "Chattodo Hub"
                         color: root.bodyInk
                         font.family: root.uiFont
                         font.pixelSize: 13
@@ -791,7 +951,7 @@ Rectangle {
                 SectionCard {
                     Layout.preferredWidth: 220
                     Layout.fillHeight: true
-                    color: "#F8F2E8"
+                    color: root.panelAltBg
                     radius: 26
 
                     ColumnLayout {
@@ -802,7 +962,7 @@ Rectangle {
                         Text {
                             visible: false
                             Layout.preferredHeight: 0
-                            text: "AICA 控制面板"
+                            text: "Chattodo Hub"
                             color: root.titleInk
                             font.family: root.uiFont
                             font.pixelSize: 20
@@ -864,8 +1024,8 @@ Rectangle {
                                             text: modelData.title
                                             color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 800 : 700
+                                            font.pixelSize: controlPanelBridge.currentSection === modelData.id ? 14 : 13
+                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 700 : 400
                                         }
 
                                         MouseArea {
@@ -948,42 +1108,6 @@ Rectangle {
                             }
                         }
 
-                        SectionCard {
-                            visible: controlPanelBridge.hasError
-                            Layout.fillWidth: true
-                            color: root.errorBg
-                            implicitHeight: errorText.implicitHeight + 24
-
-                            Text {
-                                id: errorText
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                text: controlPanelBridge.errorMessage
-                                color: root.errorInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                wrapMode: Text.Wrap
-                            }
-                        }
-
-                        SectionCard {
-                            visible: controlPanelBridge.hasStatus
-                            Layout.fillWidth: true
-                            color: root.successBg
-                            implicitHeight: statusText.implicitHeight + 24
-
-                            Text {
-                                id: statusText
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                text: controlPanelBridge.statusMessage
-                                color: root.successInk
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                wrapMode: Text.Wrap
-                            }
-                        }
-
                         ScrollView {
                             id: scrollArea
                             Layout.fillWidth: true
@@ -995,154 +1119,200 @@ Rectangle {
                                 width: scrollArea.availableWidth
                                 spacing: 18
 
-                                Repeater {
-                                    model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.providers : []
+                                ColumnLayout {
+                                    visible: controlPanelBridge.currentSection === "models"
+                                    Layout.fillWidth: true
+                                    spacing: 14
 
-                                    delegate: SectionCard {
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        implicitHeight: providerContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        spacing: 16
+
+                                        Text {
+                                            text: "模型供应商"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 18
+                                            font.weight: 600
+                                        }
+
+                                        Item {
+                                            Layout.fillWidth: true
+                                        }
+
+                                        Row {
+                                            spacing: 12
+
+                                            Repeater {
+                                                model: controlPanelBridge.providers
+
+                                                delegate: ModelPageTab {
+                                                    label: modelData.name
+                                                    active: root.selectedProviderId === modelData.id
+                                                    onClicked: root.selectedProviderId = modelData.id
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: providerForm.implicitHeight + 40
+                                        radius: 14
+                                        color: "#FFFFFF"
+                                        border.width: 1
+                                        border.color: "#EAECF0"
 
                                         ColumnLayout {
-                                            id: providerContent
+                                            id: providerForm
                                             anchors.fill: parent
-                                            anchors.margins: 16
+                                            anchors.margins: 20
                                             spacing: 12
 
                                             Text {
-                                                text: modelData.name
-                                                color: root.titleInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 15
-                                                font.weight: 700
-                                            }
-
-                                            Text {
-                                                text: modelData.kind
-                                                color: root.labelInk
-                                                font.family: root.uiFont
-                                                font.pixelSize: 11
-                                            }
-
-                                            Text {
                                                 text: "API Key"
-                                                color: root.labelInk
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
                                                 echoMode: TextInput.Password
-                                                text: modelData.apiKey
-                                                placeholderText: "输入 " + modelData.name + " 的 API Key"
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "api_key", text)
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().apiKey : ""
+                                                placeholderText: root.selectedProviderPayload() ? ("输入 " + root.selectedProviderPayload().name + " 的 API Key") : ""
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "api_key", text)
                                             }
 
                                             Text {
                                                 text: "Base URL"
-                                                color: root.labelInk
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
-                                                enabled: modelData.baseUrlEnabled
-                                                text: modelData.baseUrl
-                                                placeholderText: modelData.baseUrlEnabled ? "https://..." : "该供应商无需设置"
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "base_url", text)
+                                                enabled: root.selectedProviderPayload() ? root.selectedProviderPayload().baseUrlEnabled : false
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().baseUrl : ""
+                                                placeholderText: root.selectedProviderPayload() && root.selectedProviderPayload().baseUrlEnabled ? "https://..." : "该供应商无需设置"
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "base_url", text)
                                             }
 
                                             Text {
-                                                text: "超时时间 (秒)"
-                                                color: root.labelInk
+                                                text: "超时时间（秒）"
+                                                color: "#6B7280"
                                                 font.family: root.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: 600
+                                                font.pixelSize: 12
                                             }
 
-                                            SettingsInput {
+                                            ModelFieldInput {
                                                 Layout.fillWidth: true
-                                                text: modelData.timeoutSeconds
                                                 inputMethodHints: Qt.ImhDigitsOnly
-                                                onTextEdited: controlPanelBridge.updateProviderField(modelData.id, "timeout_seconds", text)
+                                                text: root.selectedProviderPayload() ? root.selectedProviderPayload().timeoutSeconds : ""
+                                                onTextEdited: if (root.selectedProviderPayload()) controlPanelBridge.updateProviderField(root.selectedProviderPayload().id, "timeout_seconds", text)
                                             }
                                         }
                                     }
-                                }
 
-                                SectionCard {
-                                    visible: controlPanelBridge.currentSection === "models"
-                                    Layout.fillWidth: true
-                                    implicitHeight: bindingContent.implicitHeight + 32
-                                    color: "#F6F0E6"
-
-                                    ColumnLayout {
-                                        id: bindingContent
-                                        anchors.fill: parent
-                                        anchors.margins: 16
-                                        spacing: 12
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 16
 
                                         Text {
                                             text: "任务模型绑定"
                                             color: root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: 15
-                                            font.weight: 700
+                                            font.pixelSize: 18
+                                            font.weight: 600
                                         }
 
-                                        Repeater {
-                                            model: controlPanelBridge.currentSection === "models" ? controlPanelBridge.taskBindings : []
+                                        Item {
+                                            Layout.fillWidth: true
+                                        }
+                                    }
 
-                                            delegate: ColumnLayout {
-                                                Layout.fillWidth: true
-                                                spacing: 8
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: taskBindingColumn.implicitHeight + 40
+                                        radius: 14
+                                        color: "#FFFFFF"
+                                        border.width: 1
+                                        border.color: "#EAECF0"
 
-                                                Text {
-                                                    text: modelData.label
-                                                    color: root.bodyInk
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 12
-                                                    font.weight: 600
-                                                }
+                                        ColumnLayout {
+                                            id: taskBindingColumn
+                                            anchors.fill: parent
+                                            anchors.margins: 20
+                                            spacing: 8
 
-                                                SettingsCombo {
-                                                    id: providerCombo
+                                            Repeater {
+                                                model: controlPanelBridge.taskBindings
+
+                                                delegate: Rectangle {
                                                     Layout.fillWidth: true
-                                                    model: modelData.providerOptions
-                                                    currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId)
-                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
-                                                }
+                                                    implicitHeight: bindingMeta.visible ? bindingMeta.implicitHeight + 50 : 52
+                                                    radius: 8
+                                                    color: bindingMouse.containsMouse ? "#F9FAFB" : "transparent"
 
-                                                SearchableModelCombo {
-                                                    id: modelCombo
-                                                    Layout.fillWidth: true
-                                                    model: modelData.modelOptions
-                                                    value: modelData.modelId
-                                                    placeholderText: "输入或搜索模型名"
-                                                    onValueCommitted: (value, capabilities) => controlPanelBridge.addOrSelectTaskBindingModel(modelData.id, value, capabilities)
-                                                }
+                                                    ColumnLayout {
+                                                        anchors.fill: parent
+                                                        anchors.leftMargin: 4
+                                                        anchors.rightMargin: 4
+                                                        anchors.topMargin: 10
+                                                        anchors.bottomMargin: 10
+                                                        spacing: 6
 
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: modelData.performanceSummary
-                                                    color: root.labelInk
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 11
-                                                    wrapMode: Text.Wrap
-                                                }
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 12
 
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    visible: modelData.speedHint.length > 0
-                                                    text: modelData.speedHint
-                                                    color: "#B7793F"
-                                                    font.family: root.uiFont
-                                                    font.pixelSize: 11
-                                                    wrapMode: Text.Wrap
+                                                            Text {
+                                                                Layout.preferredWidth: 160
+                                                                text: modelData.label
+                                                                color: root.titleInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: 14
+                                                                font.weight: 500
+                                                                verticalAlignment: Text.AlignVCenter
+                                                            }
+
+                                                            ModelFieldCombo {
+                                                                id: providerCombo
+                                                                Layout.preferredWidth: 150
+                                                                model: modelData.providerOptions
+                                                                currentIndex: root.optionIndex(modelData.providerOptions, modelData.providerId)
+                                                                onActivated: if (currentIndex >= 0) controlPanelBridge.updateTaskBindingProvider(modelData.id, providerCombo.model[currentIndex].value)
+                                                            }
+
+                                                            SearchableModelCombo {
+                                                                Layout.fillWidth: true
+                                                                model: modelData.modelOptions
+                                                                value: modelData.modelId
+                                                                placeholderText: "选择或输入模型"
+                                                                onValueCommitted: (value, capabilities) => controlPanelBridge.addOrSelectTaskBindingModel(modelData.id, value, capabilities)
+                                                            }
+                                                        }
+
+                                                        Text {
+                                                            id: bindingMeta
+                                                            Layout.fillWidth: true
+                                                            Layout.leftMargin: 172
+                                                            visible: modelData.performanceSummary.length > 0 || modelData.speedHint.length > 0
+                                                            text: modelData.speedHint.length > 0 ? (modelData.performanceSummary + " · " + modelData.speedHint) : modelData.performanceSummary
+                                                            color: "#6B7280"
+                                                            font.family: root.uiFont
+                                                            font.pixelSize: 11
+                                                            wrapMode: Text.Wrap
+                                                        }
+                                                    }
+
+                                                    MouseArea {
+                                                        id: bindingMouse
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        acceptedButtons: Qt.NoButton
+                                                    }
                                                 }
                                             }
                                         }
@@ -1153,7 +1323,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: hotkeyContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: hotkeyContent
@@ -1170,7 +1340,7 @@ Rectangle {
                                         }
 
                                         Text {
-                                            text: "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+                                            text: controlPanelBridge.hotkeyHelpText
                                             color: root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 11
@@ -1179,10 +1349,37 @@ Rectangle {
                                         }
 
                                         SettingsInput {
+                                            id: captureHotkeyInput
                                             Layout.fillWidth: true
                                             text: controlPanelBridge.captureHotkey
-                                            placeholderText: "Alt+A"
-                                            onTextEdited: controlPanelBridge.updateCaptureHotkey(text)
+                                            placeholderText: activeFocus ? "点击后直接按下快捷键组合" : controlPanelBridge.hotkeyPlaceholder
+                                            readOnly: true
+                                            selectByMouse: false
+                                            Keys.onPressed: function(event) {
+                                                if (event.key === Qt.Key_Escape) {
+                                                    captureHotkeyInput.focus = false
+                                                    event.accepted = true
+                                                    return
+                                                }
+                                                if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                                                    controlPanelBridge.updateCaptureHotkey("")
+                                                    event.accepted = true
+                                                    return
+                                                }
+                                                if (controlPanelBridge.captureHotkeyFromKeyEvent(event.key, event.modifiers, event.text)) {
+                                                    captureHotkeyInput.focus = false
+                                                }
+                                                event.accepted = true
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "点击输入框后直接按下快捷键组合；按 Esc 取消本次录入。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
                                         }
                                     }
                                 }
@@ -1191,7 +1388,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: imageContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: imageContent
@@ -1229,7 +1426,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: analysisRulesContent
@@ -1316,7 +1513,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: promptDebugContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: promptDebugContent
@@ -1381,7 +1578,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 implicitHeight: debugItemColumn.implicitHeight + 18
                                                 radius: 16
-                                                color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accentSoft : "#FFFCF7"
+                                                color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accentSoft : root.panelBg
                                                 border.width: 1
                                                 border.color: controlPanelBridge.selectedPromptDebugRecord.trace_id === modelData.traceId ? root.accent : root.panelLine
 
@@ -1494,7 +1691,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "storage"
                                     Layout.fillWidth: true
                                     implicitHeight: storageContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: storageContent
@@ -1639,7 +1836,7 @@ Rectangle {
                                     visible: false && controlPanelBridge.currentSection === "projects"
                                     Layout.fillWidth: true
                                     implicitHeight: projectManagerContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: projectManagerContent
@@ -1715,7 +1912,7 @@ Rectangle {
                                                 Layout.preferredWidth: 340
                                                 implicitHeight: 520
                                                 radius: 18
-                                                color: "#FFF9F1"
+                                                color: root.panelBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -1745,7 +1942,7 @@ Rectangle {
                                                             width: ListView.view.width
                                                             height: projectInfoColumn.implicitHeight + 20
                                                             radius: 14
-                                                            color: currentProject ? root.accentSoft : "#FFFCF7"
+                                                            color: currentProject ? root.accentSoft : root.panelBg
                                                             border.width: 1
                                                             border.color: currentProject ? root.accent : root.panelLine
 
@@ -1823,7 +2020,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 implicitHeight: projectFormColumn.implicitHeight + 24
                                                 radius: 18
-                                                color: "#FFF9F1"
+                                                color: root.panelBg
                                                 border.width: 1
                                                 border.color: root.panelLine
 
@@ -1931,7 +2128,7 @@ Rectangle {
                                                             Layout.fillWidth: true
                                                             implicitHeight: 44
                                                             radius: 16
-                                                            color: "#FFFEFC"
+                                                            color: root.inputBg
                                                             border.width: 1
                                                             border.color: root.panelLine
 
@@ -1974,7 +2171,7 @@ Rectangle {
                                                             Layout.fillWidth: true
                                                             implicitHeight: 44
                                                             radius: 16
-                                                            color: "#FFFEFC"
+                                                            color: root.inputBg
                                                             border.width: 1
                                                             border.color: root.panelLine
 
@@ -2097,8 +2294,6 @@ Rectangle {
                                                         PlainButton {
                                                             visible: root.projectDraft.id.length > 0
                                                             label: "删除项目"
-                                                            fillColor: "#FFF3F1"
-                                                            inkColor: "#8B3A2C"
                                                             onClicked: root.deleteCurrentProject()
                                                         }
 
@@ -2120,7 +2315,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "integrations"
                                     Layout.fillWidth: true
                                     implicitHeight: integrationIntro.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: integrationIntro
@@ -2138,7 +2333,7 @@ Rectangle {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
+                                            text: controlPanelBridge.integrationScriptHelpText
                                             color: root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 11
@@ -2156,7 +2351,7 @@ Rectangle {
                                     visible: controlPanelBridge.currentSection === "integrations" && controlPanelBridge.integrationScripts.length === 0
                                     Layout.fillWidth: true
                                     implicitHeight: emptyIntegrationContent.implicitHeight + 32
-                                    color: "#F6F0E6"
+                                    color: root.panelAltBg
 
                                     ColumnLayout {
                                         id: emptyIntegrationContent
@@ -2189,7 +2384,7 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         implicitHeight: integrationContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        color: root.panelAltBg
 
                                         ColumnLayout {
                                             id: integrationContent
@@ -2216,11 +2411,11 @@ Rectangle {
                                                     }
 
                                                     Text {
-                                                        text: modelData.enabled ? "已启用" : "已停用"
-                                                        color: modelData.enabled ? root.successInk : root.labelInk
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: 11
-                                                        font.weight: 600
+                                                text: modelData.supported ? (modelData.enabled ? "已启用" : "已停用") : "当前平台不支持"
+                                                color: modelData.supported ? (modelData.enabled ? root.successInk : root.labelInk) : root.errorInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
                                                     }
                                                 }
 
@@ -2243,8 +2438,8 @@ Rectangle {
 
                                             Text {
                                                 Layout.fillWidth: true
-                                                text: modelData.exists ? "脚本文件存在" : "警告：当前脚本路径不存在"
-                                                color: modelData.exists ? root.labelInk : root.errorInk
+                                                text: !modelData.supported ? modelData.supportMessage : (modelData.exists ? "脚本文件存在" : "警告：当前脚本路径不存在")
+                                                color: modelData.supported && modelData.exists ? root.labelInk : root.errorInk
                                                 font.family: root.uiFont
                                                 font.pixelSize: 11
                                                 wrapMode: Text.Wrap
@@ -2265,8 +2460,6 @@ Rectangle {
 
                                                 PlainButton {
                                                     label: "移除"
-                                                    fillColor: "#FFF3F1"
-                                                    inkColor: "#8B3A2C"
                                                     onClicked: controlPanelBridge.removeIntegrationScript(modelData.id)
                                                 }
                                             }
@@ -2280,7 +2473,7 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         implicitHeight: locationContent.implicitHeight + 32
-                                        color: "#F6F0E6"
+                                        color: root.panelAltBg
 
                                         ColumnLayout {
                                             id: locationContent
@@ -2319,7 +2512,6 @@ Rectangle {
             }
         }
     }
-
     Item {
         anchors.right: shell.right
         anchors.bottom: shell.bottom
@@ -2335,7 +2527,7 @@ Rectangle {
             width: 12
             height: 12
             radius: 4
-            color: "#D8EAE2"
+            color: root.accentSoft
             opacity: 0.95
         }
 

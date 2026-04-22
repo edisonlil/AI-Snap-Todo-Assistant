@@ -88,7 +88,7 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             height: 1
-                            color: inlineEditor.activeFocus ? fieldRoot.theme.accent : "#D8CCBE"
+                            color: inlineEditor.activeFocus ? fieldRoot.theme.accent : fieldRoot.theme.panelLine
                             opacity: inlineEditor.activeFocus ? 1 : 0.9
                         }
                     }
@@ -151,7 +151,7 @@ Rectangle {
                             height: fieldRoot.multiline ? Math.min(implicitHeight, fieldTextLoader.maxHeight) : implicitHeight
                             clip: fieldRoot.multiline
                             text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
+                            color: fieldRoot.value.length > 0 ? theme.titleInk : theme.labelInk
                             font.family: theme.uiFont
                             font.pixelSize: fieldRoot.compact ? 12 : 13
                             font.weight: fieldRoot.value.length > 0 ? 500 : 400
@@ -164,7 +164,7 @@ Rectangle {
                         Text {
                             id: fieldText
                             text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                            color: fieldRoot.value.length > 0 ? theme.titleInk : "#A2907A"
+                            color: fieldRoot.value.length > 0 ? theme.titleInk : theme.labelInk
                             font.family: theme.uiFont
                             font.pixelSize: fieldRoot.compact ? 12 : 13
                             font.weight: fieldRoot.value.length > 0 ? 500 : 400
@@ -196,7 +196,7 @@ Rectangle {
                             implicitWidth: fieldRoot.compact ? 18 : 20
                             implicitHeight: implicitWidth
                             radius: implicitWidth / 2
-                            color: actionButtonHover.containsMouse ? "#F3E6D6" : "#FFF8EF"
+                            color: actionButtonHover.containsMouse ? theme.hoverBg : "#FFFFFF"
                             border.width: 1
                             border.color: theme.panelLine
 
@@ -289,7 +289,7 @@ Rectangle {
                 visible: !fieldRoot.editing
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: "#E8DFD2"
+                color: theme.panelLine
                 opacity: 0.85
             }
         }

@@ -182,6 +182,10 @@ class LogAnalysisResultPayload:
     evidence_refs: list[dict[str, Any]] = field(default_factory=list)
     image_clues: list[dict[str, Any]] = field(default_factory=list)
     search_hits: list[dict[str, Any]] = field(default_factory=list)
+    root_cause_signature: str = ""
+    request_chain: list[dict[str, Any]] = field(default_factory=list)
+    affected_entities: dict[str, Any] = field(default_factory=dict)
+    log_vs_ticket_note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -209,6 +213,10 @@ class LogAnalysisResultPayload:
             evidence_refs=list(payload.get("evidence_refs", [])),
             image_clues=list(payload.get("image_clues", [])),
             search_hits=list(payload.get("search_hits", [])),
+            root_cause_signature=sanitize_text(payload.get("root_cause_signature", "")),
+            request_chain=list(payload.get("request_chain", [])),
+            affected_entities=_clean_dict(payload.get("affected_entities", {})),
+            log_vs_ticket_note=sanitize_text(payload.get("log_vs_ticket_note", "")),
         )
 
 
