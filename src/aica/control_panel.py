@@ -729,6 +729,8 @@ class _ControlPanelBridge(QObject):
         self._project_environment_project_id = ""
         self._project_environment_groups: list[dict[str, object]] = []
         self._global_environment_groups: list[dict[str, object]] = []
+        self._selected_environment_id = ""
+        self._selected_environment = self._empty_environment_detail_payload()
         self._last_project_import_summary = ""
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
@@ -994,6 +996,14 @@ class _ControlPanelBridge(QObject):
     def globalEnvironmentGroups(self):  # noqa: ANN201
         return list(self._global_environment_groups)
 
+    @pyqtProperty(str, notify=dataChanged)
+    def selectedEnvironmentId(self) -> str:
+        return self._selected_environment_id
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedEnvironment(self):  # noqa: ANN201
+        return dict(self._selected_environment)
+
     @pyqtProperty("QVariantList", notify=dataChanged)
     def tickets(self):  # noqa: ANN201
         return list(self._tickets)
@@ -1162,6 +1172,24 @@ class _ControlPanelBridge(QObject):
         return first_project_id
 
     @staticmethod
+    def _empty_environment_detail_payload() -> dict[str, object]:
+        return {
+            "id": "",
+            "projectId": "",
+            "name": "",
+            "type": "",
+            "note": "",
+            "sortOrder": 0,
+            "isActive": True,
+            "scope": "global",
+            "scopeLabel": "",
+            "isGlobal": True,
+            "isProjectOverride": False,
+            "entryCount": 0,
+            "entries": [],
+        }
+
+    @staticmethod
     def _environment_scope_label(scope: str) -> str:
         return "全局环境" if normalize_environment_scope(scope) == "global" else "项目环境"
 
@@ -1185,7 +1213,7 @@ class _ControlPanelBridge(QObject):
             "isProjectOverride": bool(entry.is_project_override),
         }
 
-    def _build_environment_group_payload(self, bundle: ProjectEnvironmentBundle) -> dict[str, object]:
+    def _build_environment_summary_payload(self, bundle: ProjectEnvironmentBundle) -> dict[str, object]:
         scope = normalize_environment_scope(bundle.environment.scope or bundle.source_scope, default="project")
         return {
             "id": bundle.environment.id,
@@ -1200,23 +1228,67 @@ class _ControlPanelBridge(QObject):
             "isGlobal": scope == "global",
             "isProjectOverride": bool(bundle.is_project_override),
             "entryCount": len(bundle.entries),
-            "entries": [self._build_environment_entry_payload(entry) for entry in bundle.entries],
         }
+
+    def _build_environment_detail_payload(self, bundle: ProjectEnvironmentBundle) -> dict[str, object]:
+        payload = self._build_environment_summary_payload(bundle)
+        payload["entries"] = [self._build_environment_entry_payload(entry) for entry in bundle.entries]
+        return payload
+
+    def _refresh_selected_environment_payload(self) -> None:
+        normalized_id = str(self._selected_environment_id or "").strip()
+        if not normalized_id:
+            self._selected_environment = self._empty_environment_detail_payload()
+            return
+        environment, bundle = self._load_environment_bundle_for_edit(normalized_id)
+        if environment is None or bundle is None:
+            self._clear_selected_environment()
+            return
+        self._selected_environment = self._build_environment_detail_payload(bundle)
+
+    def _clear_selected_environment(self) -> None:
+        self._selected_environment_id = ""
+        self._selected_environment = self._empty_environment_detail_payload()
+
+    def _select_environment(self, environment_id: str) -> None:
+        self._selected_environment_id = str(environment_id or "").strip()
+        self._refresh_selected_environment_payload()
+
+    def _selected_environment_matches_current_scope(self) -> bool:
+        if not self._selected_environment_id:
+            return False
+        scope, payload = self._find_environment_group_payload(self._selected_environment_id)
+        if payload is None:
+            return False
+        if scope != self._environment_scope_filter:
+            return False
+        if scope != "project":
+            return True
+        return str(payload.get("projectId") or "").strip() == str(self._project_environment_project_id or "").strip()
+
+    def _sync_selected_environment_for_current_scope(self) -> None:
+        if self._selected_environment_matches_current_scope():
+            self._refresh_selected_environment_payload()
+            return
+        self._clear_selected_environment()
 
     def _refresh_project_environment_payloads(self, project_id: str) -> None:
         self._project_environment_project_id = self._resolve_project_environment_project_id(project_id)
         if not self._project_environment_project_id:
             self._project_environment_groups = []
+            self._sync_selected_environment_for_current_scope()
             return
         bundles = self._environment_repository.list_project_environments(
             self._project_environment_project_id,
             include_inactive=True,
         )
-        self._project_environment_groups = [self._build_environment_group_payload(bundle) for bundle in bundles]
+        self._project_environment_groups = [self._build_environment_summary_payload(bundle) for bundle in bundles]
+        self._sync_selected_environment_for_current_scope()
 
     def _refresh_global_environment_payloads(self) -> None:
         bundles = self._environment_repository.list_global_environments(include_inactive=True)
-        self._global_environment_groups = [self._build_environment_group_payload(bundle) for bundle in bundles]
+        self._global_environment_groups = [self._build_environment_summary_payload(bundle) for bundle in bundles]
+        self._sync_selected_environment_for_current_scope()
 
     def _find_environment_group_payload(self, environment_id: str) -> tuple[str, dict[str, object] | None]:
         normalized_id = str(environment_id or "").strip()
@@ -1252,6 +1324,21 @@ class _ControlPanelBridge(QObject):
             self._refresh_project_environment_payloads(self._project_environment_project_id)
             return
         self._refresh_global_environment_payloads()
+
+    def _refresh_environment_lists_for_current_scope(self) -> None:
+        if self._environment_scope_filter == "project":
+            self._refresh_project_payloads()
+            self._refresh_project_environment_payloads(self._project_environment_project_id)
+            return
+        self._refresh_global_environment_payloads()
+
+    def _refresh_environment_scope_after_change(self, scope: str, project_id: str = "") -> None:
+        normalized_scope = normalize_environment_scope(scope)
+        if normalized_scope == "global":
+            self._refresh_global_environment_payloads()
+        else:
+            self._refresh_project_environment_payloads(project_id or self._project_environment_project_id)
+        self._select_environment(self._selected_environment_id)
 
     def _build_ticket_list_payload(self, todo: TodoItem) -> dict[str, object]:
         snapshot = todo.project_link.project_snapshot
@@ -1452,10 +1539,7 @@ class _ControlPanelBridge(QObject):
             return
         self._current_section = section
         if section == "environments":
-            self._refresh_global_environment_payloads()
-            if self._environment_scope_filter == "project":
-                self._refresh_project_payloads()
-                self._refresh_project_environment_payloads(self._project_environment_project_id)
+            self._refresh_environment_lists_for_current_scope()
         self.currentSectionChanged.emit()
         self._emit_data_changed()
 
@@ -1483,6 +1567,7 @@ class _ControlPanelBridge(QObject):
             self._project_environment_groups = []
         if self._current_section == "environments" or self._global_environment_groups:
             self._refresh_global_environment_payloads()
+        self._refresh_selected_environment_payload()
         self._refresh_ticket_payloads()
         self._refresh_selected_ticket_payload()
         if self._selected_rule_scene not in self._analysis_rules.scene_rules:
@@ -1692,6 +1777,7 @@ class _ControlPanelBridge(QObject):
         if self._environment_scope_filter == normalized_scope:
             return
         self._environment_scope_filter = normalized_scope
+        self._clear_selected_environment()
         self._clear_messages()
         if self._current_section == "environments":
             self._refresh_current_environment_scope_payloads()
@@ -2026,6 +2112,23 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         self._emit_data_changed()
 
+    @pyqtSlot(str)
+    def openEnvironmentDetail(self, environment_id: str) -> None:
+        self._clear_messages()
+        environment = self._environment_repository.get_project_environment(environment_id)
+        if environment is not None:
+            self._environment_scope_filter = self._normalize_environment_scope_filter(environment.scope)
+            if normalize_environment_scope(environment.scope) == "project":
+                self._project_environment_project_id = str(environment.project_id or "").strip()
+        self._select_environment(environment_id)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def closeEnvironmentDetail(self) -> None:
+        self._clear_messages()
+        self._clear_selected_environment()
+        self._emit_data_changed()
+
     @pyqtSlot(str, "QVariantMap")
     def saveProjectEnvironment(self, project_id: str, payload: object) -> None:
         normalized_project_id = str(project_id or "").strip()
@@ -2048,7 +2151,8 @@ class _ControlPanelBridge(QObject):
             note=str(payload.get("note") or "").strip(),
         )
         saved = self._environment_repository.upsert_project_environment(record)
-        self._refresh_project_environment_payloads(normalized_project_id)
+        self._select_environment(saved.id)
+        self._refresh_environment_scope_after_change(saved.scope, saved.project_id)
         self._status_message = f"项目环境已保存：{saved.env_name}"
         self._emit_data_changed()
 
@@ -2073,7 +2177,8 @@ class _ControlPanelBridge(QObject):
             note=str(payload.get("note") or "").strip(),
         )
         saved = self._environment_repository.upsert_project_environment(record)
-        self._refresh_global_environment_payloads()
+        self._select_environment(saved.id)
+        self._refresh_environment_scope_after_change(saved.scope, saved.project_id)
         self._status_message = f"全局环境已保存：{saved.env_name}"
         self._emit_data_changed()
 
@@ -2088,6 +2193,8 @@ class _ControlPanelBridge(QObject):
             self._error_message = "删除项目环境失败"
             self._emit_data_changed()
             return
+        if self._selected_environment_id == environment.id:
+            self._clear_selected_environment()
         self._refresh_project_environment_payloads(environment.project_id)
         self._status_message = f"项目环境已删除：{environment.env_name}"
         self._emit_data_changed()
@@ -2103,6 +2210,8 @@ class _ControlPanelBridge(QObject):
             self._error_message = "删除全局环境失败"
             self._emit_data_changed()
             return
+        if self._selected_environment_id == environment.id:
+            self._clear_selected_environment()
         self._refresh_global_environment_payloads()
         self._status_message = f"全局环境已删除：{environment.env_name}"
         self._emit_data_changed()
@@ -2354,7 +2463,8 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._refresh_ticket_payloads()
-        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
+        todo_title = str(todo.title or "").strip() or "\u672a\u5206\u7c7b\u4efb\u52a1"
+        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{todo_title}"
         self._emit_data_changed()
         self.todoListRefreshRequested.emit()
 
@@ -2459,9 +2569,10 @@ class _ControlPanelBridge(QObject):
             "root_cause": "\u95ee\u9898\u6839\u56e0",
             "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
         }
+        field_label = field_labels.get(normalized_field, "\u5b57\u6bb5")
         self._apply_selected_ticket_update(
             updated,
-            status_message=f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58",
+            status_message=f"{field_label}\u5df2\u4fdd\u5b58",
         )
 
     @pyqtSlot(str, str)

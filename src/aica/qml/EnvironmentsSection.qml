@@ -15,6 +15,8 @@ ColumnLayout {
         { value: "project", text: "项目环境" }
     ]
     property string searchText: ""
+    property string environmentViewMode: "list"
+    property bool creatingEnvironment: false
     property var projectOptions: buildProjectOptions()
     property var filteredGroups: buildFilteredGroups()
 
@@ -43,23 +45,10 @@ ColumnLayout {
         if (!keyword.length) {
             return true
         }
-        if (theme.fuzzyMatch(groupItem.name || "", keyword) ||
-                theme.fuzzyMatch(groupItem.type || "", keyword) ||
-                theme.fuzzyMatch(groupItem.note || "", keyword) ||
-                theme.fuzzyMatch(groupItem.scopeLabel || "", keyword)) {
-            return true
-        }
-        var entries = groupItem.entries || []
-        for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-            var entry = entries[entryIndex]
-            if (theme.fuzzyMatch(entry.name || "", keyword) ||
-                    theme.fuzzyMatch(entry.urlOrHost || "", keyword) ||
-                    theme.fuzzyMatch(entry.username || "", keyword) ||
-                    theme.fuzzyMatch(entry.note || "", keyword)) {
-                return true
-            }
-        }
-        return false
+        return theme.fuzzyMatch(groupItem.name || "", keyword)
+            || theme.fuzzyMatch(groupItem.type || "", keyword)
+            || theme.fuzzyMatch(groupItem.note || "", keyword)
+            || theme.fuzzyMatch(groupItem.scopeLabel || "", keyword)
     }
 
     function buildFilteredGroups() {
@@ -105,12 +94,33 @@ ColumnLayout {
 
     function emptyStateMessage() {
         if (isProjectScope && projectOptions.length === 0) {
-            return "当前还没有可选项目，请先在项目管理中创建或导入项目。"
+            return "请先维护项目，再为项目绑定环境。"
         }
         if ((searchText || "").trim().length > 0) {
-            return "没有匹配的环境或访问项。"
+            return "没有匹配的环境，请调整搜索关键词。"
         }
-        return ""
+        return "当前范围下还没有环境。"
+    }
+
+    function showEnvironmentList() {
+        environmentViewMode = "list"
+        creatingEnvironment = false
+        controlPanelBridge.closeEnvironmentDetail()
+    }
+
+    function startCreateEnvironment() {
+        if (isProjectScope && !(controlPanelBridge.projectEnvironmentProjectId || "").length) {
+            return
+        }
+        creatingEnvironment = true
+        environmentViewMode = "detail"
+        controlPanelBridge.closeEnvironmentDetail()
+    }
+
+    function openEnvironmentDetail(environmentId) {
+        creatingEnvironment = false
+        environmentViewMode = "detail"
+        controlPanelBridge.openEnvironmentDetail(environmentId)
     }
 
     onVisibleChanged: {
@@ -127,9 +137,17 @@ ColumnLayout {
 
     Connections {
         target: controlPanelBridge
+
         function onDataChanged() {
             if (root.visible && root.isProjectScope) {
                 root.ensureProjectSelection()
+            }
+            if (root.environmentViewMode === "detail" && !root.creatingEnvironment
+                    && !(controlPanelBridge.selectedEnvironmentId || "").length) {
+                root.environmentViewMode = "list"
+            }
+            if (root.creatingEnvironment && (controlPanelBridge.selectedEnvironmentId || "").length) {
+                root.creatingEnvironment = false
             }
         }
     }
@@ -154,7 +172,7 @@ ColumnLayout {
                     id: searchInput
                     theme: root.theme
                     Layout.fillWidth: true
-                    placeholderText: "搜索环境名 / URL / 项目名"
+                    placeholderText: "搜索环境名称、类型或备注"
                     text: root.searchText
                     onTextEdited: root.searchText = text
                 }
@@ -183,7 +201,11 @@ ColumnLayout {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: controlPanelBridge.setEnvironmentScopeFilter(modelData.value)
+                            onClicked: {
+                                root.environmentViewMode = "list"
+                                root.creatingEnvironment = false
+                                controlPanelBridge.setEnvironmentScopeFilter(modelData.value)
+                            }
                         }
                     }
                 }
@@ -195,7 +217,7 @@ ColumnLayout {
                 spacing: 10
 
                 Text {
-                    text: "当前项目"
+                    text: "所属项目"
                     color: theme.labelInk
                     font.family: theme.uiFont
                     font.pixelSize: 12
@@ -207,18 +229,181 @@ ColumnLayout {
                     model: root.projectOptions
                     currentIndex: Math.max(0, theme.optionIndex(root.projectOptions, controlPanelBridge.projectEnvironmentProjectId || ""))
                     enabled: root.projectOptions.length > 0
-                    onActivated: controlPanelBridge.listProjectEnvironments(root.projectOptions[currentIndex].value)
+                    onActivated: {
+                        root.environmentViewMode = "list"
+                        root.creatingEnvironment = false
+                        controlPanelBridge.listProjectEnvironments(root.projectOptions[currentIndex].value)
+                    }
+                }
+            }
+        }
+    }
+
+    ControlPanelSectionCard {
+        visible: root.environmentViewMode === "list"
+        theme: root.theme
+        Layout.fillWidth: true
+        implicitHeight: listContent.implicitHeight + 24
+        color: theme.panelBg
+
+        ColumnLayout {
+            id: listContent
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    Text {
+                        text: root.isProjectScope ? "项目环境列表" : "全局环境列表"
+                        color: theme.titleInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 15
+                        font.weight: 700
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "列表页只保留环境摘要。点击进入详情后，再维护环境配置和访问信息。"
+                        color: theme.labelInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                    }
+                }
+
+                ControlPanelPlainButton {
+                    theme: root.theme
+                    label: "新建环境"
+                    visible: !root.isProjectScope || (controlPanelBridge.projectEnvironmentProjectId || "").length > 0
+                    onClicked: root.startCreateEnvironment()
+                }
+            }
+
+            Text {
+                visible: root.filteredGroups.length === 0
+                Layout.fillWidth: true
+                text: root.emptyStateMessage()
+                color: theme.bodyInk
+                font.family: theme.uiFont
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+
+            Repeater {
+                model: root.filteredGroups
+
+                delegate: Rectangle {
+                    Layout.fillWidth: true
+                    radius: 18
+                    color: theme.panelAltBg
+                    border.width: 1
+                    border.color: theme.panelLine
+                    implicitHeight: cardColumn.implicitHeight + 24
+
+                    ColumnLayout {
+                        id: cardColumn
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 10
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Text {
+                                    text: modelData.name || ""
+                                    color: theme.titleInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 14
+                                    font.weight: 700
+                                }
+
+                                Text {
+                                    visible: (modelData.type || "").length > 0 || (modelData.note || "").length > 0
+                                    Layout.fillWidth: true
+                                    text: ((modelData.type || "").length > 0 ? ("类型：" + modelData.type) : "")
+                                          + (((modelData.type || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
+                                          + ((modelData.note || "").length > 0 ? modelData.note : "")
+                                    color: theme.bodyInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+                            }
+
+                            Rectangle {
+                                radius: 10
+                                color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
+                                border.width: 1
+                                border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
+                                implicitWidth: scopeText.implicitWidth + 16
+                                implicitHeight: 24
+
+                                Text {
+                                    id: scopeText
+                                    anchors.centerIn: parent
+                                    text: modelData.scopeLabel || ""
+                                    color: modelData.isGlobal ? "#26418F" : "#17663A"
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 10
+                                    font.weight: 700
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "访问项 " + Number(modelData.entryCount || 0) + " 个"
+                                color: theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 11
+                            }
+
+                            Text {
+                                text: !!modelData.isActive ? "已启用" : "已停用"
+                                color: !!modelData.isActive ? "#17663A" : theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 11
+                                font.weight: 600
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: root.theme
+                                label: "查看详情"
+                                onClicked: root.openEnvironmentDetail(modelData.id)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     EnvironmentManagerSection {
+        visible: root.environmentViewMode === "detail"
         theme: root.theme
         scopeMode: root.isProjectScope ? "project" : "global"
         projectId: controlPanelBridge.projectEnvironmentProjectId || ""
-        groupsModel: root.filteredGroups
-        emptyStateText: root.emptyStateMessage()
+        selectedEnvironment: controlPanelBridge.selectedEnvironment
+        creatingEnvironment: root.creatingEnvironment
         Layout.fillWidth: true
+        onBackRequested: root.showEnvironmentList()
     }
 }

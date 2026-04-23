@@ -6,15 +6,13 @@ ColumnLayout {
     id: root
     required property var theme
     required property string scopeMode
-    required property var groupsModel
+    required property var selectedEnvironment
     property string projectId: ""
-    property string emptyStateText: ""
+    property bool creatingEnvironment: false
     readonly property bool editable: scopeMode === "global" || projectId.length > 0
-    property bool environmentEditorVisible: false
+    property var environmentDraft: emptyEnvironmentDraft()
     property bool accessEditorVisible: false
-    property var environmentDraft: ({})
-    property var accessDraft: ({})
-    property string editingEnvironmentId: ""
+    property var accessDraft: emptyAccessDraft()
     property string editingEntryEnvironmentId: ""
     property var accessTypeOptions: [
         { value: "web", text: "web" },
@@ -23,6 +21,8 @@ ColumnLayout {
         { value: "db", text: "db" },
         { value: "vpn", text: "vpn" }
     ]
+
+    signal backRequested()
 
     spacing: 12
 
@@ -55,43 +55,28 @@ ColumnLayout {
         }
     }
 
-    function syncProjectEnvironmentList() {
-        if (scopeMode === "global") {
-            controlPanelBridge.listGlobalEnvironments()
+    function loadEnvironmentDraft() {
+        if (creatingEnvironment) {
+            environmentDraft = emptyEnvironmentDraft()
+            accessEditorVisible = false
+            accessDraft = emptyAccessDraft()
+            editingEntryEnvironmentId = ""
             return
         }
-        controlPanelBridge.listProjectEnvironments(projectId)
-    }
-
-    function openCreateEnvironment() {
-        if (!editable) {
-            return
-        }
-        environmentDraft = emptyEnvironmentDraft()
-        editingEnvironmentId = ""
-        environmentEditorVisible = true
-    }
-
-    function openEditEnvironment(groupItem) {
         environmentDraft = {
-            id: groupItem.id || "",
-            name: groupItem.name || "",
-            type: groupItem.type || "",
-            note: groupItem.note || "",
-            sortOrder: Number(groupItem.sortOrder || 0),
-            isActive: !!groupItem.isActive
+            id: selectedEnvironment.id || "",
+            name: selectedEnvironment.name || "",
+            type: selectedEnvironment.type || "",
+            note: selectedEnvironment.note || "",
+            sortOrder: Number(selectedEnvironment.sortOrder || 0),
+            isActive: !!selectedEnvironment.isActive
         }
-        editingEnvironmentId = groupItem.id || ""
-        environmentEditorVisible = true
-    }
-
-    function closeEnvironmentEditor() {
-        environmentEditorVisible = false
-        environmentDraft = emptyEnvironmentDraft()
-        editingEnvironmentId = ""
     }
 
     function saveEnvironment() {
+        if (!editable) {
+            return
+        }
         var payload = {
             id: environmentDraft.id || "",
             name: (environmentDraft.name || "").trim(),
@@ -105,19 +90,31 @@ ColumnLayout {
         } else {
             controlPanelBridge.saveProjectEnvironment(projectId, payload)
         }
-        closeEnvironmentEditor()
     }
 
-    function openCreateAccess(environmentId) {
-        if (!editable) {
+    function deleteCurrentEnvironment() {
+        if (creatingEnvironment || !(selectedEnvironment.id || "").length) {
+            backRequested()
+            return
+        }
+        if (scopeMode === "global") {
+            controlPanelBridge.deleteGlobalEnvironment(selectedEnvironment.id)
+        } else {
+            controlPanelBridge.deleteProjectEnvironment(selectedEnvironment.id)
+        }
+        backRequested()
+    }
+
+    function openCreateAccess() {
+        if (!editable || !(selectedEnvironment.id || "").length) {
             return
         }
         accessDraft = emptyAccessDraft()
-        editingEntryEnvironmentId = environmentId || ""
+        editingEntryEnvironmentId = selectedEnvironment.id || ""
         accessEditorVisible = true
     }
 
-    function openEditAccess(environmentId, entryItem) {
+    function openEditAccess(entryItem) {
         accessDraft = {
             id: entryItem.id || "",
             name: entryItem.name || "",
@@ -133,7 +130,7 @@ ColumnLayout {
             hasPassword: !!entryItem.hasPassword,
             hasOtpConfig: !!entryItem.hasOtpConfig
         }
-        editingEntryEnvironmentId = environmentId || ""
+        editingEntryEnvironmentId = selectedEnvironment.id || ""
         accessEditorVisible = true
     }
 
@@ -144,6 +141,9 @@ ColumnLayout {
     }
 
     function saveAccess() {
+        if (!(editingEntryEnvironmentId || "").length) {
+            return
+        }
         var payload = {
             id: accessDraft.id || "",
             name: (accessDraft.name || "").trim(),
@@ -165,14 +165,6 @@ ColumnLayout {
         closeAccessEditor()
     }
 
-    function deleteEnvironment(groupItem) {
-        if (scopeMode === "global") {
-            controlPanelBridge.deleteGlobalEnvironment(groupItem.id)
-        } else {
-            controlPanelBridge.deleteProjectEnvironment(groupItem.id)
-        }
-    }
-
     function deleteAccess(entryItem) {
         if (scopeMode === "global") {
             controlPanelBridge.deleteGlobalEnvironmentAccessEntry(entryItem.id)
@@ -190,13 +182,9 @@ ColumnLayout {
         }
     }
 
-    Component.onCompleted: syncProjectEnvironmentList()
-
-    onProjectIdChanged: {
-        if (scopeMode === "project") {
-            syncProjectEnvironmentList()
-        }
-    }
+    onSelectedEnvironmentChanged: loadEnvironmentDraft()
+    onCreatingEnvironmentChanged: loadEnvironmentDraft()
+    Component.onCompleted: loadEnvironmentDraft()
 
     Rectangle {
         Layout.fillWidth: true
@@ -204,226 +192,45 @@ ColumnLayout {
         color: theme.panelBg
         border.width: 1
         border.color: theme.panelLine
-        implicitHeight: summaryColumn.implicitHeight + 24
+        implicitHeight: headerContent.implicitHeight + 24
 
         ColumnLayout {
-            id: summaryColumn
+            id: headerContent
             anchors.fill: parent
             anchors.margins: 12
-            spacing: 10
+            spacing: 12
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 10
+
+                ControlPanelPlainButton {
+                    theme: root.theme
+                    label: "返回列表"
+                    onClicked: root.backRequested()
+                }
 
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 4
 
                     Text {
-                        text: scopeMode === "global" ? "全局环境模板" : "项目环境维护"
+                        text: root.creatingEnvironment ? "新建环境" : ((root.selectedEnvironment.name || "").length > 0 ? root.selectedEnvironment.name : "环境详情")
                         color: theme.titleInk
                         font.family: theme.uiFont
-                        font.pixelSize: 14
+                        font.pixelSize: 15
                         font.weight: 700
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        text: editable
-                            ? (scopeMode === "global"
-                               ? "全局环境对所有项目默认可见；项目级同名环境可以覆盖。"
-                               : "维护当前项目的专属环境；保存后待办详情会自动读取全局与项目级合并结果。")
-                            : "请先保存项目，再维护项目环境。"
+                        text: root.creatingEnvironment
+                            ? "先保存环境基础信息，保存后再维护该环境的访问信息。"
+                            : "详情页集中维护环境基础信息和该环境下的访问信息。"
                         color: theme.labelInk
                         font.family: theme.uiFont
                         font.pixelSize: 11
                         wrapMode: Text.Wrap
-                    }
-                }
-
-                ControlPanelPlainButton {
-                    theme: root.theme
-                    label: "新增环境"
-                    visible: editable
-                    onClicked: root.openCreateEnvironment()
-                }
-            }
-
-            Text {
-                visible: groupsModel.length === 0
-                Layout.fillWidth: true
-                text: emptyStateText.length > 0 ? emptyStateText : (editable ? "当前还没有环境分组" : "当前项目尚未保存")
-                color: theme.bodyInk
-                font.family: theme.uiFont
-                font.pixelSize: 12
-            }
-
-            Repeater {
-                model: groupsModel
-
-                delegate: Rectangle {
-                    property string groupId: modelData.id || ""
-                    Layout.fillWidth: true
-                    radius: 16
-                    color: theme.panelAltBg
-                    border.width: 1
-                    border.color: theme.panelLine
-                    implicitHeight: groupColumn.implicitHeight + 20
-
-                    ColumnLayout {
-                        id: groupColumn
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 8
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.name || ""
-                                color: theme.titleInk
-                                font.family: theme.uiFont
-                                font.pixelSize: 13
-                                font.weight: 700
-                            }
-
-                            Rectangle {
-                                radius: 10
-                                color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
-                                border.width: 1
-                                border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
-                                implicitWidth: scopeText.implicitWidth + 16
-                                implicitHeight: 24
-
-                                Text {
-                                    id: scopeText
-                                    anchors.centerIn: parent
-                                    text: modelData.scopeLabel || ""
-                                    color: modelData.isGlobal ? "#26418F" : "#17663A"
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: 700
-                                }
-                            }
-                        }
-
-                        Text {
-                            visible: (modelData.type || "").length > 0 || (modelData.note || "").length > 0
-                            Layout.fillWidth: true
-                            text: ((modelData.type || "").length > 0 ? ("类型: " + modelData.type) : "")
-                                  + (((modelData.type || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
-                                  + ((modelData.note || "").length > 0 ? modelData.note : "")
-                            color: theme.bodyInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            ControlPanelPlainButton {
-                                theme: root.theme
-                                label: "新增访问项"
-                                onClicked: root.openCreateAccess(modelData.id)
-                            }
-
-                            ControlPanelPlainButton {
-                                theme: root.theme
-                                label: "编辑环境"
-                                onClicked: root.openEditEnvironment(modelData)
-                            }
-
-                            ControlPanelPlainButton {
-                                theme: root.theme
-                                label: "删除环境"
-                                onClicked: root.deleteEnvironment(modelData)
-                            }
-                        }
-
-                        Repeater {
-                            model: modelData.entries || []
-
-                            delegate: Rectangle {
-                                Layout.fillWidth: true
-                                radius: 14
-                                color: "#FFFFFF"
-                                border.width: 1
-                                border.color: theme.panelLine
-                                implicitHeight: entryColumn.implicitHeight + 18
-
-                                ColumnLayout {
-                                    id: entryColumn
-                                    anchors.fill: parent
-                                    anchors.margins: 10
-                                    spacing: 6
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: modelData.name || ""
-                                            color: theme.titleInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                            font.weight: 700
-                                        }
-
-                                        Text {
-                                            text: (modelData.hasPassword ? "已保存密码" : "无密码")
-                                                  + " / "
-                                                  + (modelData.hasOtpConfig ? "已保存 OTP" : "无 OTP")
-                                            color: theme.labelInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 10
-                                        }
-                                    }
-
-                                    Text {
-                                        visible: (modelData.urlOrHost || "").length > 0
-                                        Layout.fillWidth: true
-                                        text: modelData.urlOrHost || ""
-                                        color: theme.bodyInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 11
-                                        wrapMode: Text.WrapAnywhere
-                                    }
-
-                                    Text {
-                                        visible: (modelData.username || "").length > 0 || (modelData.note || "").length > 0
-                                        Layout.fillWidth: true
-                                        text: ((modelData.username || "").length > 0 ? ("账号: " + modelData.username) : "")
-                                              + (((modelData.username || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
-                                              + ((modelData.note || "").length > 0 ? modelData.note : "")
-                                        color: theme.labelInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 10
-                                        wrapMode: Text.Wrap
-                                    }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
-
-                                        ControlPanelPlainButton {
-                                            theme: root.theme
-                                            label: "编辑"
-                                            onClicked: root.openEditAccess(groupId, modelData)
-                                        }
-
-                                        ControlPanelPlainButton {
-                                            theme: root.theme
-                                            label: "删除"
-                                            onClicked: root.deleteAccess(modelData)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -431,7 +238,6 @@ ColumnLayout {
     }
 
     Rectangle {
-        visible: environmentEditorVisible
         Layout.fillWidth: true
         radius: 18
         color: theme.panelBg
@@ -446,7 +252,7 @@ ColumnLayout {
             spacing: 10
 
             Text {
-                text: editingEnvironmentId.length > 0 ? "编辑环境" : "新增环境"
+                text: "环境基础信息"
                 color: theme.titleInk
                 font.family: theme.uiFont
                 font.pixelSize: 13
@@ -504,7 +310,7 @@ ColumnLayout {
 
             TextArea {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 70
+                Layout.preferredHeight: 72
                 text: environmentDraft.note || ""
                 placeholderText: "备注"
                 wrapMode: TextEdit.Wrap
@@ -526,7 +332,7 @@ ColumnLayout {
 
             CheckBox {
                 checked: !!environmentDraft.isActive
-                text: "启用该环境"
+                text: "启用环境"
                 font.family: theme.uiFont
                 onToggled: {
                     var next = environmentDraft
@@ -537,13 +343,24 @@ ColumnLayout {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 10
 
-                Item { Layout.fillWidth: true }
+                Text {
+                    visible: !root.creatingEnvironment && (root.selectedEnvironment.scopeLabel || "").length > 0
+                    text: "范围：" + (root.selectedEnvironment.scopeLabel || "")
+                    color: theme.labelInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 11
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
 
                 ControlPanelPlainButton {
                     theme: root.theme
-                    label: "取消"
-                    onClicked: root.closeEnvironmentEditor()
+                    label: root.creatingEnvironment ? "取消" : "删除环境"
+                    onClicked: root.deleteCurrentEnvironment()
                 }
 
                 ControlPanelPlainButton {
@@ -553,6 +370,158 @@ ColumnLayout {
                     inkColor: "#FFFFFF"
                     strokeWidth: 0
                     onClicked: root.saveEnvironment()
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        visible: !root.creatingEnvironment && (root.selectedEnvironment.id || "").length > 0
+        Layout.fillWidth: true
+        radius: 18
+        color: theme.panelBg
+        border.width: 1
+        border.color: theme.panelLine
+        implicitHeight: accessContent.implicitHeight + 24
+
+        ColumnLayout {
+            id: accessContent
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    Text {
+                        text: "访问信息"
+                        color: theme.titleInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 13
+                        font.weight: 700
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "当前环境共 " + Number(root.selectedEnvironment.entryCount || 0) + " 个访问项。"
+                        color: theme.labelInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                    }
+                }
+
+                ControlPanelPlainButton {
+                    theme: root.theme
+                    label: "新增访问项"
+                    onClicked: root.openCreateAccess()
+                }
+            }
+
+            Text {
+                visible: (root.selectedEnvironment.entries || []).length === 0
+                Layout.fillWidth: true
+                text: "当前环境还没有访问信息。"
+                color: theme.bodyInk
+                font.family: theme.uiFont
+                font.pixelSize: 12
+            }
+
+            Repeater {
+                model: root.selectedEnvironment.entries || []
+
+                delegate: Rectangle {
+                    Layout.fillWidth: true
+                    radius: 16
+                    color: theme.panelAltBg
+                    border.width: 1
+                    border.color: theme.panelLine
+                    implicitHeight: entryColumn.implicitHeight + 20
+
+                    ColumnLayout {
+                        id: entryColumn
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 6
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: (modelData.name || "") + (((modelData.type || "").length > 0) ? (" · " + modelData.type) : "")
+                                color: theme.titleInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 12
+                                font.weight: 700
+                            }
+
+                            Text {
+                                text: (modelData.hasPassword ? "已存密码" : "未存密码")
+                                      + " / "
+                                      + (modelData.hasOtpConfig ? "已存 OTP" : "未存 OTP")
+                                color: theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 10
+                            }
+                        }
+
+                        Text {
+                            visible: (modelData.urlOrHost || "").length > 0
+                            Layout.fillWidth: true
+                            text: modelData.urlOrHost || ""
+                            color: theme.bodyInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 11
+                            wrapMode: Text.WrapAnywhere
+                        }
+
+                        Text {
+                            visible: (modelData.username || "").length > 0 || (modelData.note || "").length > 0
+                            Layout.fillWidth: true
+                            text: ((modelData.username || "").length > 0 ? ("账号：" + modelData.username) : "")
+                                  + (((modelData.username || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
+                                  + ((modelData.note || "").length > 0 ? modelData.note : "")
+                            color: theme.labelInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: !!modelData.isActive ? "已启用" : "已停用"
+                                color: !!modelData.isActive ? "#17663A" : theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 10
+                                font.weight: 600
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: root.theme
+                                label: "编辑"
+                                onClicked: root.openEditAccess(modelData)
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: root.theme
+                                label: "删除"
+                                onClicked: root.deleteAccess(modelData)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -574,7 +543,7 @@ ColumnLayout {
             spacing: 10
 
             Text {
-                text: accessDraft.id && accessDraft.id.length > 0 ? "编辑访问项" : "新增访问项"
+                text: (accessDraft.id || "").length > 0 ? "编辑访问项" : "新增访问项"
                 color: theme.titleInk
                 font.family: theme.uiFont
                 font.pixelSize: 13
@@ -589,7 +558,7 @@ ColumnLayout {
                     theme: root.theme
                     Layout.fillWidth: true
                     text: accessDraft.name || ""
-                    placeholderText: "访问方式名称"
+                    placeholderText: "访问项名称"
                     onTextEdited: {
                         var next = accessDraft
                         next.name = text
@@ -643,7 +612,7 @@ ColumnLayout {
                 theme: root.theme
                 Layout.fillWidth: true
                 text: accessDraft.password || ""
-                placeholderText: accessDraft.hasPassword ? "留空表示保留当前密码" : "密码"
+                placeholderText: accessDraft.hasPassword ? "留空则保持已存密码" : "密码"
                 echoMode: TextInput.Password
                 onTextEdited: {
                     var next = accessDraft
@@ -660,7 +629,9 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 86
                     text: accessDraft.otpConfig || ""
-                    placeholderText: accessDraft.hasOtpConfig ? "留空表示保留当前 OTP 配置" : "OTP 配置（otpauth://... 或 secret）"
+                    placeholderText: accessDraft.hasOtpConfig
+                        ? "留空则保持已存 OTP 配置"
+                        : "OTP 配置，支持 tpauth://..."
                     wrapMode: TextEdit.Wrap
                     font.family: theme.uiFont
                     font.pixelSize: 12
@@ -684,7 +655,7 @@ ColumnLayout {
 
                     ControlPanelPlainButton {
                         theme: root.theme
-                        label: "导入二维码"
+                        label: "从二维码导入"
                         onClicked: root.importOtpConfig()
                     }
 
@@ -763,7 +734,9 @@ ColumnLayout {
                     }
                 }
 
-                Item { Layout.fillWidth: true }
+                Item {
+                    Layout.fillWidth: true
+                }
 
                 ControlPanelPlainButton {
                     theme: root.theme

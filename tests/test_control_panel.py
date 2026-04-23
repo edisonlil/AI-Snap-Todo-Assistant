@@ -367,6 +367,7 @@ def test_global_environment_crud_and_qr_import(monkeypatch: pytest.MonkeyPatch) 
     )
 
     assert bridge.globalEnvironmentGroups[0]["name"] == "253-environment"
+    assert "entries" not in bridge.globalEnvironmentGroups[0]
     environment_id = str(bridge.globalEnvironmentGroups[0]["id"])
 
     monkeypatch.setattr(
@@ -412,8 +413,13 @@ def test_global_environment_crud_and_qr_import(monkeypatch: pytest.MonkeyPatch) 
         },
     )
 
-    assert bridge.globalEnvironmentGroups[0]["entries"][0]["hasOtpConfig"] is True
-    assert bridge.globalEnvironmentGroups[0]["entries"][0]["scope"] == "global"
+    assert "entries" not in bridge.globalEnvironmentGroups[0]
+
+    bridge.openEnvironmentDetail(environment_id)
+
+    assert bridge.selectedEnvironment["entries"][0]["hasOtpConfig"] is True
+    assert bridge.selectedEnvironment["entries"][0]["scope"] == "global"
+    assert bridge.selectedEnvironment["entries"][0]["urlOrHost"] == "https://example.com"
 
 
 def test_project_environment_access_entry_preserves_existing_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -431,6 +437,7 @@ def test_project_environment_access_entry_preserves_existing_secrets(monkeypatch
         },
     )
     environment_id = str(bridge.projectEnvironmentGroups[0]["id"])
+    assert "entries" not in bridge.projectEnvironmentGroups[0]
     bridge.saveProjectEnvironmentAccessEntry(
         environment_id,
         {
@@ -450,7 +457,9 @@ def test_project_environment_access_entry_preserves_existing_secrets(monkeypatch
         },
     )
 
-    entry_id = str(bridge.projectEnvironmentGroups[0]["entries"][0]["id"])
+    bridge.openEnvironmentDetail(environment_id)
+
+    entry_id = str(bridge.selectedEnvironment["entries"][0]["id"])
     bridge.saveProjectEnvironmentAccessEntry(
         environment_id,
         {
@@ -475,3 +484,5 @@ def test_project_environment_access_entry_preserves_existing_secrets(monkeypatch
     assert saved_entry is not None
     assert saved_entry.password_encrypted == "first-pass"
     assert saved_entry.otp_secret_encrypted.startswith("otpauth://")
+    assert "entries" not in bridge.projectEnvironmentGroups[0]
+    assert bridge.selectedEnvironment["entries"][0]["urlOrHost"] == "https://example.com/next"
