@@ -1827,6 +1827,11 @@ Rectangle {
                                     Layout.fillWidth: true
                                 }
 
+                                EnvironmentsSection {
+                                    theme: root
+                                    Layout.fillWidth: true
+                                }
+
                                 TicketsSection {
                                     theme: root
                                     Layout.fillWidth: true

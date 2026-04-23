@@ -2416,11 +2416,7 @@ class _TodoDetailBridge(QObject):
     def _load_environment_access(self, project_id: str) -> None:
         self._environment_access_popover_open = False
         normalized_project_id = str(project_id or "").strip()
-        if not normalized_project_id:
-            self._environment_access_groups = []
-            self._environment_access_summary_text = "环境访问 · 无可用环境"
-            return
-        bundles = self._environment_access_service.list_project_environments(normalized_project_id)
+        bundles = self._environment_access_service.list_effective_environments(normalized_project_id)
         visible_entries_by_environment = {
             bundle.environment.id: [
                 entry
@@ -2433,6 +2429,10 @@ class _TodoDetailBridge(QObject):
             {
                 "id": bundle.environment.id,
                 "name": bundle.environment.env_name,
+                "scope": str(bundle.environment.scope or bundle.source_scope or ""),
+                "scopeLabel": "全局环境" if str(bundle.environment.scope or bundle.source_scope or "") == "global" else "项目环境",
+                "isGlobal": str(bundle.environment.scope or bundle.source_scope or "") == "global",
+                "isProjectOverride": bool(bundle.is_project_override),
                 "type": bundle.environment.env_type,
                 "note": bundle.environment.note,
                 "expanded": False,
@@ -2444,6 +2444,10 @@ class _TodoDetailBridge(QObject):
                 ),
                 "entries": [
                     {
+                        "scope": str(entry.source_scope or entry.scope or bundle.environment.scope or bundle.source_scope or ""),
+                        "scopeLabel": "全局环境" if str(entry.source_scope or entry.scope or bundle.environment.scope or bundle.source_scope or "") == "global" else "项目环境",
+                        "isGlobal": str(entry.source_scope or entry.scope or bundle.environment.scope or bundle.source_scope or "") == "global",
+                        "isProjectOverride": bool(entry.is_project_override),
                         "id": entry.id,
                         "name": entry.access_name,
                         "type": entry.access_type,

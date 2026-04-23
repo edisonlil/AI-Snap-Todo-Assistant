@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
 import os
+from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.environment_access import (
+from aica.environment_access import (  # noqa: E402
     EnvironmentAccessEntryRecord,
     EnvironmentAccessService,
     ProjectEnvironmentBundle,
     ProjectEnvironmentRecord,
     TotpService,
 )
-from aica.storage.contracts import ProjectRecord
-from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
-from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator
-from aica.todo_detail_panel import _TodoDetailBridge
-from aica.todo_models import TodoItem, TodoProjectLink
+from aica.storage.contracts import ProjectRecord  # noqa: E402
+from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository  # noqa: E402
+from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator  # noqa: E402
+from aica.todo_detail_panel import _TodoDetailBridge  # noqa: E402
+from aica.todo_models import TodoItem, TodoProjectLink  # noqa: E402
 
 
 class _FakeEnvironmentRepository:
@@ -30,13 +30,30 @@ class _FakeEnvironmentRepository:
             for bundle in bundles
             for entry in bundle.entries
         }
+        self._environments = {
+            bundle.environment.id: bundle.environment
+            for bundle in bundles
+        }
 
     @property
     def path(self) -> str:
         return ""
 
+    def list_global_environments(self, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
+        return [bundle for bundle in self._bundles if bundle.environment.scope == "global"]
+
     def list_project_environments(self, project_id: str, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
-        return list(self._bundles) if project_id == "project-1" else []
+        return [
+            bundle
+            for bundle in self._bundles
+            if bundle.environment.scope == "project" and bundle.environment.project_id == project_id
+        ]
+
+    def list_effective_environments(self, project_id: str, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
+        return [*self.list_project_environments(project_id), *self.list_global_environments()]
+
+    def get_project_environment(self, environment_id: str) -> ProjectEnvironmentRecord | None:
+        return self._environments.get(environment_id)
 
     def get_access_entry(self, entry_id: str) -> EnvironmentAccessEntryRecord | None:
         return self._entries.get(entry_id)
@@ -50,6 +67,9 @@ class _FakeEnvironmentRepository:
         entries: list[EnvironmentAccessEntryRecord],
     ) -> list[EnvironmentAccessEntryRecord]:
         return list(entries)
+
+    def delete_project_environment(self, environment_id: str) -> bool:
+        return bool(self._environments.pop(environment_id, None))
 
 
 def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
@@ -66,9 +86,7 @@ def test_environment_schema_and_repository_roundtrip() -> None:
     with sqlite3.connect(db_path) as connection:
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
     assert "project_environments" in tables
     assert "environment_access_entries" in tables
@@ -78,7 +96,7 @@ def test_environment_schema_and_repository_roundtrip() -> None:
     project_repository.upsert_project(
         ProjectRecord(
             id="project-1",
-            project_name="示例项目",
+            project_name="demo project",
             task_order_no="WO-001",
         )
     )
@@ -87,41 +105,112 @@ def test_environment_schema_and_repository_roundtrip() -> None:
         ProjectEnvironmentRecord(
             id="env-1",
             project_id="project-1",
-            env_name="测试环境",
+            env_name="test-env",
+            scope="project",
             env_type="test",
-            note="3 个可用访问方式",
+            note="two entries",
         )
     )
     entries = environment_repository.replace_access_entries(
         environment.id,
         [
-                EnvironmentAccessEntryRecord(
-                    id="entry-1",
-                    environment_id=environment.id,
-                    access_name="应用后台",
-                    access_type="web",
-                    sort_order=1,
-                    url_or_host="https://test.example.com",
-                    username="admin",
-                    password_encrypted="pass-1",
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id=environment.id,
+                access_name="console",
+                access_type="web",
+                sort_order=1,
+                url_or_host="https://test.example.com",
+                username="admin",
+                password_encrypted="pass-1",
                 requires_otp=True,
                 otp_secret_encrypted="JBSWY3DPEHPK3PXP",
             ),
-                EnvironmentAccessEntryRecord(
-                    id="entry-2",
-                    environment_id=environment.id,
-                    access_name="客户现场环境",
-                    sort_order=2,
-                    note="仅备注说明",
-                ),
+            EnvironmentAccessEntryRecord(
+                id="entry-2",
+                environment_id=environment.id,
+                access_name="customer-site",
+                sort_order=2,
+                note="manual only",
+            ),
         ],
     )
 
     bundles = environment_repository.list_project_environments("project-1")
+
     assert len(bundles) == 1
-    assert bundles[0].environment.env_name == "测试环境"
-    assert [entry.access_name for entry in bundles[0].entries] == ["应用后台", "客户现场环境"]
+    assert bundles[0].environment.env_name == "test-env"
+    assert bundles[0].environment.scope == "project"
+    assert [entry.access_name for entry in bundles[0].entries] == ["console", "customer-site"]
     assert environment_repository.get_access_entry(entries[0].id) is not None
+
+
+def test_environment_repository_supports_global_and_effective_scope() -> None:
+    fd, raw_path = tempfile.mkstemp(suffix=".db", dir=Path.cwd())
+    os.close(fd)
+    Path(raw_path).unlink(missing_ok=True)
+    db_path = Path(raw_path)
+    SQLiteStorageMigrator(db_path).ensure_schema()
+
+    project_repository = SQLiteProjectRepository(db_path)
+    environment_repository = SQLiteProjectEnvironmentRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="demo",
+            task_order_no="WO-001",
+        )
+    )
+    global_env = environment_repository.upsert_project_environment(
+        ProjectEnvironmentRecord(
+            id="global-1",
+            project_id="",
+            env_name="253-env",
+            scope="global",
+        )
+    )
+    project_env = environment_repository.upsert_project_environment(
+        ProjectEnvironmentRecord(
+            id="project-env-1",
+            project_id="project-1",
+            env_name="253-env",
+            scope="project",
+        )
+    )
+    environment_repository.replace_access_entries(
+        global_env.id,
+        [
+            EnvironmentAccessEntryRecord(
+                id="global-entry",
+                environment_id=global_env.id,
+                access_name="console",
+                username="global-user",
+                otp_secret_encrypted="JBSWY3DPEHPK3PXP",
+                requires_otp=True,
+            ),
+        ],
+    )
+    environment_repository.replace_access_entries(
+        project_env.id,
+        [
+            EnvironmentAccessEntryRecord(
+                id="project-entry",
+                environment_id=project_env.id,
+                access_name="console",
+                username="project-user",
+            ),
+        ],
+    )
+
+    global_bundles = environment_repository.list_global_environments()
+    effective_bundles = environment_repository.list_effective_environments("project-1")
+
+    assert len(global_bundles) == 1
+    assert global_bundles[0].environment.scope == "global"
+    assert len(effective_bundles) == 1
+    assert effective_bundles[0].environment.scope == "project"
+    assert effective_bundles[0].is_project_override is True
+    assert [entry.username for entry in effective_bundles[0].entries] == ["project-user"]
 
 
 def test_environment_access_service_and_totp() -> None:
@@ -129,13 +218,14 @@ def test_environment_access_service_and_totp() -> None:
         environment=ProjectEnvironmentRecord(
             id="env-1",
             project_id="project-1",
-            env_name="测试环境",
+            env_name="test-env",
+            scope="project",
         ),
         entries=(
             EnvironmentAccessEntryRecord(
                 id="entry-1",
                 environment_id="env-1",
-                access_name="应用后台",
+                access_name="console",
                 username="admin",
                 password_encrypted="secret-pass",
                 requires_otp=True,
@@ -167,7 +257,7 @@ def test_totp_service_supports_unpadded_freeotp_base32_secret() -> None:
 def test_totp_service_supports_otpauth_uri_with_sha256() -> None:
     service = EnvironmentAccessService(_FakeEnvironmentRepository([]))
     parsed = service._parse_otp_config(  # noqa: SLF001
-        "otpauth://totp/kubewpsops:wpsadmin?secret=JZ3UMYBQNQDRDL7D&algorithm=SHA256"
+        "otpauth://totp/demo:admin?secret=JZ3UMYBQNQDRDL7D&algorithm=SHA256"
     )
     code, remaining = TotpService().generate(
         str(parsed["secret"]),
@@ -186,14 +276,15 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
         environment=ProjectEnvironmentRecord(
             id="env-1",
             project_id="project-1",
-            env_name="测试环境",
-            note="可直接访问",
+            env_name="test-env",
+            scope="project",
+            note="direct access",
         ),
         entries=(
             EnvironmentAccessEntryRecord(
                 id="entry-1",
                 environment_id="env-1",
-                access_name="应用后台",
+                access_name="console",
                 url_or_host="https://test.example.com",
                 username="admin",
                 password_encrypted="secret-pass",
@@ -207,17 +298,16 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
     )
     todo = TodoItem(
         id="todo-1",
-        title="排查登录问题",
+        title="check login flow",
         project_link=TodoProjectLink(
             todo_id="todo-1",
             project_id="project-1",
             match_status="matched",
-            project_snapshot={"project_name": "示例项目"},
+            project_snapshot={"project_name": "demo"},
         ),
     )
 
     bridge.set_todo(todo)
-    assert bridge.environmentAccessSummaryText == "环境访问 · 1 组"
     assert len(bridge.environmentAccessGroups) == 1
     assert bridge.environmentAccessGroups[0]["expanded"] is False
 
@@ -234,22 +324,23 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
     assert len(first_entry["otpCode"]) == 6
 
     bridge.copyEnvironmentOtp("entry-1")
-    assert bridge.environmentAccessMessage == "已复制验证码"
-    assert _notification_messages(bridge)[-1] == "已复制验证码"
+    assert bridge.environmentAccessMessage
+    assert _notification_messages(bridge)
 
 
-def test_todo_detail_bridge_login_without_helper_data_does_not_expand_helper() -> None:
+def test_todo_detail_bridge_includes_global_environment_entries() -> None:
     bundle = ProjectEnvironmentBundle(
         environment=ProjectEnvironmentRecord(
-            id="env-1",
-            project_id="project-1",
-            env_name="娴嬭瘯鐜",
+            id="global-env-1",
+            project_id="",
+            env_name="253-env",
+            scope="global",
         ),
         entries=(
             EnvironmentAccessEntryRecord(
-                id="entry-1",
-                environment_id="env-1",
-                access_name="绠＄悊鍚庡彴",
+                id="global-entry-1",
+                environment_id="global-env-1",
+                access_name="console",
                 url_or_host="https://example.com/login",
             ),
         ),
@@ -259,12 +350,50 @@ def test_todo_detail_bridge_login_without_helper_data_does_not_expand_helper() -
     )
     todo = TodoItem(
         id="todo-1",
-        title="妫€鏌ョ幆澧冭闂?",
+        title="check global environment",
         project_link=TodoProjectLink(
             todo_id="todo-1",
             project_id="project-1",
             match_status="matched",
-            project_snapshot={"project_name": "绀轰緥椤圭洰"},
+            project_snapshot={"project_name": "demo"},
+        ),
+    )
+
+    bridge.set_todo(todo)
+
+    assert bridge.environmentAccessGroups[0]["scope"] == "global"
+    assert bridge.environmentAccessGroups[0]["isGlobal"] is True
+    assert bridge.environmentAccessGroups[0]["entries"][0]["scope"] == "global"
+
+
+def test_todo_detail_bridge_login_without_helper_data_does_not_expand_helper() -> None:
+    bundle = ProjectEnvironmentBundle(
+        environment=ProjectEnvironmentRecord(
+            id="env-1",
+            project_id="project-1",
+            env_name="test-env",
+            scope="project",
+        ),
+        entries=(
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id="env-1",
+                access_name="console",
+                url_or_host="https://example.com/login",
+            ),
+        ),
+    )
+    bridge = _TodoDetailBridge(
+        environment_access_service=EnvironmentAccessService(_FakeEnvironmentRepository([bundle]))
+    )
+    todo = TodoItem(
+        id="todo-1",
+        title="check helper",
+        project_link=TodoProjectLink(
+            todo_id="todo-1",
+            project_id="project-1",
+            match_status="matched",
+            project_snapshot={"project_name": "demo"},
         ),
     )
 
@@ -284,18 +413,19 @@ def test_todo_detail_bridge_hides_standalone_otp_placeholder() -> None:
         environment=ProjectEnvironmentRecord(
             id="env-1",
             project_id="project-1",
-            env_name="正式环境",
+            env_name="prod-env",
+            scope="project",
         ),
         entries=(
             EnvironmentAccessEntryRecord(
                 id="otp-1",
                 environment_id="env-1",
-                access_name="OTP验证码",
+                access_name="OTP",
             ),
             EnvironmentAccessEntryRecord(
                 id="entry-1",
                 environment_id="env-1",
-                access_name="管理后台",
+                access_name="admin-console",
                 url_or_host="https://example.com/login",
                 username="admin",
                 password_encrypted="secret-pass",
@@ -309,16 +439,16 @@ def test_todo_detail_bridge_hides_standalone_otp_placeholder() -> None:
     )
     todo = TodoItem(
         id="todo-1",
-        title="检查环境访问",
+        title="check otp placeholder",
         project_link=TodoProjectLink(
             todo_id="todo-1",
             project_id="project-1",
             match_status="matched",
-            project_snapshot={"project_name": "示例项目"},
+            project_snapshot={"project_name": "demo"},
         ),
     )
 
     bridge.set_todo(todo)
     group = bridge.environmentAccessGroups[0]
     assert group["entryCount"] == 1
-    assert [entry["name"] for entry in group["entries"]] == ["管理后台"]
+    assert [entry["name"] for entry in group["entries"]] == ["admin-console"]

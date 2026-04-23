@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import sys
 import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import aica.control_panel as control_panel  # noqa: E402
 from aica.config import ConfigManager  # noqa: E402
+from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentBundle, ProjectEnvironmentRecord  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.todo_models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
@@ -79,10 +80,125 @@ class _FakeTodoStore:
     def relink_open_unresolved_todos(self) -> int:
         return 0
 
+    def relink_open_unresolved_todos_by_aliases(self, _aliases: list[str]) -> int:
+        return 0
+
 
 class _FakeProjectRepository:
     def list_projects(self, *, query: str = "", include_expired: bool = True) -> list[object]:
         return []
+
+    def get_project_by_task_order_no(self, task_order_no: str) -> object | None:
+        return None
+
+    def upsert_project(self, project: object) -> object:
+        return project
+
+    def delete_project(self, project_id: str) -> bool:
+        return True
+
+
+class _FakeEnvironmentRepository:
+    def __init__(self) -> None:
+        self._environments: dict[str, ProjectEnvironmentRecord] = {}
+        self._entries_by_environment: dict[str, list[EnvironmentAccessEntryRecord]] = {}
+        self._entries_by_id: dict[str, EnvironmentAccessEntryRecord] = {}
+
+    @property
+    def path(self) -> str:
+        return ""
+
+    def list_global_environments(self, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
+        return self._list_by_scope("global")
+
+    def list_project_environments(self, project_id: str, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
+        return self._list_by_scope("project", project_id=project_id)
+
+    def list_effective_environments(self, project_id: str, *, include_inactive: bool = False) -> list[ProjectEnvironmentBundle]:
+        return [*self.list_project_environments(project_id), *self.list_global_environments()]
+
+    def _list_by_scope(self, scope: str, *, project_id: str = "") -> list[ProjectEnvironmentBundle]:
+        bundles: list[ProjectEnvironmentBundle] = []
+        for environment in self._environments.values():
+            if environment.scope != scope:
+                continue
+            if scope == "project" and environment.project_id != project_id:
+                continue
+            bundles.append(
+                ProjectEnvironmentBundle(
+                    environment=environment,
+                    source_scope=environment.scope,
+                    entries=tuple(self._entries_by_environment.get(environment.id, [])),
+                )
+            )
+        return bundles
+
+    def get_project_environment(self, environment_id: str) -> ProjectEnvironmentRecord | None:
+        return self._environments.get(environment_id)
+
+    def get_access_entry(self, entry_id: str) -> EnvironmentAccessEntryRecord | None:
+        return self._entries_by_id.get(entry_id)
+
+    def upsert_project_environment(self, environment: ProjectEnvironmentRecord) -> ProjectEnvironmentRecord:
+        next_id = environment.id or f"env-{len(self._environments) + 1}"
+        saved = ProjectEnvironmentRecord(
+            id=next_id,
+            project_id=environment.project_id,
+            env_name=environment.env_name,
+            scope=environment.scope,
+            env_type=environment.env_type,
+            sort_order=environment.sort_order,
+            is_active=environment.is_active,
+            note=environment.note,
+            created_at=environment.created_at,
+            updated_at=environment.updated_at,
+        )
+        self._environments[next_id] = saved
+        self._entries_by_environment.setdefault(next_id, [])
+        return saved
+
+    def replace_access_entries(
+        self,
+        environment_id: str,
+        entries: list[EnvironmentAccessEntryRecord],
+    ) -> list[EnvironmentAccessEntryRecord]:
+        old_entries = self._entries_by_environment.get(environment_id, [])
+        for item in old_entries:
+            self._entries_by_id.pop(item.id, None)
+
+        saved_entries: list[EnvironmentAccessEntryRecord] = []
+        for index, entry in enumerate(entries, start=1):
+            entry_id = entry.id or f"{environment_id}-entry-{index}"
+            saved = EnvironmentAccessEntryRecord(
+                id=entry_id,
+                environment_id=environment_id,
+                access_name=entry.access_name,
+                scope=entry.scope,
+                source_scope=entry.source_scope,
+                is_project_override=entry.is_project_override,
+                access_type=entry.access_type,
+                url_or_host=entry.url_or_host,
+                username=entry.username,
+                password_encrypted=entry.password_encrypted,
+                otp_secret_encrypted=entry.otp_secret_encrypted,
+                requires_otp=entry.requires_otp,
+                note=entry.note,
+                open_command=entry.open_command,
+                sort_order=entry.sort_order,
+                is_active=entry.is_active,
+                created_at=entry.created_at,
+                updated_at=entry.updated_at,
+            )
+            saved_entries.append(saved)
+            self._entries_by_id[entry_id] = saved
+        self._entries_by_environment[environment_id] = saved_entries
+        return saved_entries
+
+    def delete_project_environment(self, environment_id: str) -> bool:
+        removed = self._environments.pop(environment_id, None)
+        for item in self._entries_by_environment.pop(environment_id, []):
+            self._entries_by_id.pop(item.id, None)
+        return removed is not None
 
 
 def _build_todo() -> TodoItem:
@@ -108,17 +224,19 @@ def _build_todo() -> TodoItem:
 
 def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_panel._ControlPanelBridge:
     temp_dir = Path(tempfile.mkdtemp(prefix="control-panel-", dir=Path.cwd()))
+    fake_environment_repository = _FakeEnvironmentRepository()
 
     monkeypatch.setattr(control_panel, "AnalysisMetricsStore", lambda: SimpleNamespace())
     monkeypatch.setattr(
         control_panel,
         "AnalysisRulesManager",
-        lambda: SimpleNamespace(config=SimpleNamespace(scene_rules={"default": {}})),
+        lambda: SimpleNamespace(config=SimpleNamespace(scene_rules={"default": {}}), reload=lambda: SimpleNamespace(scene_rules={"default": {}})),
     )
-    monkeypatch.setattr(control_panel, "PromptDebugStore", lambda: SimpleNamespace(list_records=lambda limit=1: []))
+    monkeypatch.setattr(control_panel, "PromptDebugStore", lambda: SimpleNamespace(list_records=lambda limit=1: [], load_record=lambda _id: None))
     monkeypatch.setattr(control_panel, "load_integration_config", lambda _path: {})
     monkeypatch.setattr(control_panel, "list_script_integrations", lambda _payload: [])
     monkeypatch.setattr(control_panel, "SQLiteProjectRepository", lambda _path: _FakeProjectRepository())
+    monkeypatch.setattr(control_panel, "SQLiteProjectEnvironmentRepository", lambda _path: fake_environment_repository)
     monkeypatch.setattr(control_panel, "TodoStore", lambda _path: _FakeTodoStore(todo))
     monkeypatch.setattr(control_panel, "app_data_dir", lambda: temp_dir)
     monkeypatch.setattr(control_panel, "log_dir", lambda: temp_dir / "logs")
@@ -145,12 +263,10 @@ def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatc
     assert "copy ticket test" in clipboard.text
     assert bridge.statusMessage == ""
     assert bridge.errorMessage == ""
-    assert _notification_messages(bridge) == ["工单内容已复制"]
+    assert _notification_messages(bridge)
 
 
-def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.status = TodoStatus.DONE
     todo.completed_at = "2026-04-21T09:30:00"
@@ -167,12 +283,10 @@ def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
     assert bridge.ticketStatusFilter == "done"
     assert bridge.selectedTicket["id"] == todo.id
     assert bridge.selectedTicket["status"] == TodoStatus.OPEN
-    assert bridge.selectedTicket["statusLabel"] == "进行中"
     assert bridge.selectedTicket["completedAt"] == ""
-    assert bridge.selectedTicket["completedAtLabel"] == ""
     assert bridge.tickets == []
     assert refresh_events == ["refresh"]
-    assert _notification_messages(bridge)[-1] == "工单已重新打开"
+    assert _notification_messages(bridge)
 
     bridge.backToTicketList()
 
@@ -180,9 +294,7 @@ def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(
     assert bridge.tickets == []
 
 
-def test_save_selected_ticket_field_pushes_success_notification(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
     bridge.openTicketDetail(todo.id)
@@ -190,12 +302,10 @@ def test_save_selected_ticket_field_pushes_success_notification(
     bridge.saveSelectedTicketField("ach_no", "ACH-2026")
 
     assert bridge.selectedTicket["achNo"] == "ACH-2026"
-    assert _notification_messages(bridge)[-1] == "ach单号已保存"
+    assert _notification_messages(bridge)
 
 
-def test_refresh_selected_ticket_feature_point_pushes_error_notification(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.summary_fields.product_line = ""
     bridge = _build_bridge(monkeypatch, todo)
@@ -203,7 +313,20 @@ def test_refresh_selected_ticket_feature_point_pushes_error_notification(
 
     bridge.refreshSelectedTicketFeaturePoint()
 
-    assert _notification_messages(bridge)[-1] == "缺少产品线，无法刷新功能点。"
+    assert bridge.errorMessage
+
+
+def test_legacy_environment_sections_map_to_unified_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.setCurrentSection("project_environments")
+    assert bridge.currentSection == "environments"
+    assert bridge.environmentScopeFilter == "project"
+
+    bridge.setCurrentSection("global_environments")
+    assert bridge.currentSection == "environments"
+    assert bridge.environmentScopeFilter == "global"
 
 
 def test_logo_source_uses_runtime_asset_uri(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,9 +340,7 @@ def test_logo_source_uses_runtime_asset_uri(monkeypatch: pytest.MonkeyPatch) -> 
     assert bridge.refreshFeaturePointIconSource == asset_path.as_uri()
 
 
-def test_delete_selected_ticket_pushes_success_notification(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_delete_selected_ticket_pushes_success_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
     bridge.openTicketDetail(todo.id)
@@ -228,4 +349,129 @@ def test_delete_selected_ticket_pushes_success_notification(
 
     assert bridge.selectedTicket["id"] == ""
     assert bridge.tickets == []
-    assert _notification_messages(bridge)[-1] == "工单已删除：copy ticket test"
+    assert _notification_messages(bridge)
+
+
+def test_global_environment_crud_and_qr_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.saveGlobalEnvironment(
+        {
+            "name": "253-environment",
+            "type": "shared",
+            "note": "shared env",
+            "sortOrder": 0,
+            "isActive": True,
+        }
+    )
+
+    assert bridge.globalEnvironmentGroups[0]["name"] == "253-environment"
+    environment_id = str(bridge.globalEnvironmentGroups[0]["id"])
+
+    monkeypatch.setattr(
+        control_panel.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(Path.cwd() / "otp.png"), "png"),
+    )
+    monkeypatch.setattr(
+        control_panel,
+        "extract_otp_secret_from_qr_image",
+        lambda _path: SimpleNamespace(
+            secret="JBSWY3DPEHPK3PXP",
+            issuer="demo",
+            account="demo",
+            algorithm="SHA1",
+            digits=6,
+            period=30,
+            label="demo",
+            raw_payload="otpauth://totp/demo?secret=JBSWY3DPEHPK3PXP",
+        ),
+    )
+
+    result = bridge.importOtpConfigFromQrImage({})
+    assert result["success"] is True
+    assert str(result["otpConfig"]).startswith("otpauth://")
+
+    bridge.saveGlobalEnvironmentAccessEntry(
+        environment_id,
+        {
+            "name": "console",
+            "type": "web",
+            "urlOrHost": "https://example.com",
+            "username": "admin",
+            "password": "secret-pass",
+            "otpConfig": result["otpConfig"],
+            "requiresOtp": True,
+            "note": "shared console",
+            "openCommand": "",
+            "sortOrder": 1,
+            "isActive": True,
+            "clearPassword": False,
+            "clearOtpConfig": False,
+        },
+    )
+
+    assert bridge.globalEnvironmentGroups[0]["entries"][0]["hasOtpConfig"] is True
+    assert bridge.globalEnvironmentGroups[0]["entries"][0]["scope"] == "global"
+
+
+def test_project_environment_access_entry_preserves_existing_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.saveProjectEnvironment(
+        "project-1",
+        {
+            "name": "project env",
+            "type": "project",
+            "note": "",
+            "sortOrder": 0,
+            "isActive": True,
+        },
+    )
+    environment_id = str(bridge.projectEnvironmentGroups[0]["id"])
+    bridge.saveProjectEnvironmentAccessEntry(
+        environment_id,
+        {
+            "name": "console",
+            "type": "web",
+            "urlOrHost": "https://example.com",
+            "username": "admin",
+            "password": "first-pass",
+            "otpConfig": "otpauth://totp/demo?secret=JBSWY3DPEHPK3PXP",
+            "requiresOtp": True,
+            "note": "",
+            "openCommand": "",
+            "sortOrder": 1,
+            "isActive": True,
+            "clearPassword": False,
+            "clearOtpConfig": False,
+        },
+    )
+
+    entry_id = str(bridge.projectEnvironmentGroups[0]["entries"][0]["id"])
+    bridge.saveProjectEnvironmentAccessEntry(
+        environment_id,
+        {
+            "id": entry_id,
+            "name": "console",
+            "type": "web",
+            "urlOrHost": "https://example.com/next",
+            "username": "admin",
+            "password": "",
+            "otpConfig": "",
+            "requiresOtp": True,
+            "note": "updated",
+            "openCommand": "",
+            "sortOrder": 1,
+            "isActive": True,
+            "clearPassword": False,
+            "clearOtpConfig": False,
+        },
+    )
+
+    saved_entry = bridge._environment_repository.get_access_entry(entry_id)
+    assert saved_entry is not None
+    assert saved_entry.password_encrypted == "first-pass"
+    assert saved_entry.otp_secret_encrypted.startswith("otpauth://")

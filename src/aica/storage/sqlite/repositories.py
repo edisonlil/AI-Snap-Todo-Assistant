@@ -26,7 +26,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "12"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -63,6 +63,10 @@ def _load_schema_sql() -> str:
 def _has_column(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     return any(str(row["name"] or "") == column_name for row in rows)
+
+
+def _table_info(connection: sqlite3.Connection, table_name: str) -> list[sqlite3.Row]:
+    return list(connection.execute(f"PRAGMA table_info({table_name})").fetchall())
 
 
 def _is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
@@ -163,6 +167,117 @@ class SQLiteStorageMigrator:
         for column_name, column_def in todo_columns.items():
             if not _has_column(connection, "todos", column_name):
                 connection.execute(f"ALTER TABLE todos ADD COLUMN {column_name} {column_def}")
+        self._migrate_project_environments_scope(connection)
+        connection.execute(
+            """
+            UPDATE environment_access_entries
+            SET access_type = 'web'
+            WHERE TRIM(LOWER(COALESCE(access_type, ''))) IN ('', 'http', 'https', 'web')
+            """
+        )
+
+    def _migrate_project_environments_scope(self, connection: sqlite3.Connection) -> None:
+        columns = _table_info(connection, "project_environments")
+        if not columns:
+            return
+        has_scope = any(str(row["name"] or "") == "scope" for row in columns)
+        project_id_info = next((row for row in columns if str(row["name"] or "") == "project_id"), None)
+        project_id_not_null = bool(project_id_info["notnull"]) if project_id_info is not None else False
+        if has_scope and not project_id_not_null:
+            connection.execute(
+                "UPDATE project_environments SET scope='project' WHERE TRIM(COALESCE(scope, '')) = ''"
+            )
+            return
+
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("ALTER TABLE environment_access_entries RENAME TO environment_access_entries_old")
+        connection.execute("ALTER TABLE project_environments RENAME TO project_environments_old")
+        connection.execute(
+            """
+            CREATE TABLE project_environments (
+              id TEXT PRIMARY KEY,
+              project_id TEXT DEFAULT '',
+              env_name TEXT NOT NULL,
+              scope TEXT NOT NULL DEFAULT 'project',
+              env_type TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK(scope IN ('global', 'project')),
+              CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO project_environments(
+              id, project_id, env_name, scope, env_type, sort_order,
+              is_active, note, created_at, updated_at
+            )
+            SELECT
+              id,
+              COALESCE(project_id, ''),
+              env_name,
+              'project',
+              COALESCE(env_type, ''),
+              COALESCE(sort_order, 0),
+              COALESCE(is_active, 1),
+              COALESCE(note, ''),
+              COALESCE(created_at, ''),
+              COALESCE(updated_at, '')
+            FROM project_environments_old
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE environment_access_entries (
+              id TEXT PRIMARY KEY,
+              environment_id TEXT NOT NULL,
+              access_name TEXT NOT NULL,
+              access_type TEXT NOT NULL DEFAULT '',
+              url_or_host TEXT NOT NULL DEFAULT '',
+              username TEXT NOT NULL DEFAULT '',
+              password_encrypted TEXT NOT NULL DEFAULT '',
+              otp_secret_encrypted TEXT NOT NULL DEFAULT '',
+              requires_otp INTEGER NOT NULL DEFAULT 0,
+              note TEXT NOT NULL DEFAULT '',
+              open_command TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(environment_id) REFERENCES project_environments(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO environment_access_entries(
+              id, environment_id, access_name, access_type, url_or_host,
+              username, password_encrypted, otp_secret_encrypted,
+              requires_otp, note, open_command, sort_order, is_active,
+              created_at, updated_at
+            )
+            SELECT
+              id, environment_id, access_name, COALESCE(access_type, ''), COALESCE(url_or_host, ''),
+              COALESCE(username, ''), COALESCE(password_encrypted, ''), COALESCE(otp_secret_encrypted, ''),
+              COALESCE(requires_otp, 0), COALESCE(note, ''), COALESCE(open_command, ''), COALESCE(sort_order, 0),
+              COALESCE(is_active, 1), COALESCE(created_at, ''), COALESCE(updated_at, '')
+            FROM environment_access_entries_old
+            """
+        )
+        connection.execute("DROP TABLE environment_access_entries_old")
+        connection.execute("DROP TABLE project_environments_old")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_environments_project ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_environment_access_entries_environment ON environment_access_entries(environment_id, is_active, sort_order, updated_at DESC)"
+        )
+        connection.execute("PRAGMA foreign_keys = ON")
 
     def get_schema_version(self) -> str:
         self.ensure_schema()
