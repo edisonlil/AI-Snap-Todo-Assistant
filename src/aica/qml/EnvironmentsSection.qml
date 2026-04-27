@@ -226,6 +226,9 @@ ColumnLayout {
                 ControlPanelSettingsCombo {
                     theme: root.theme
                     Layout.fillWidth: true
+                    popupMaxHeight: 240
+                    popupItemMinHeight: 48
+                    popupTextMaximumLineCount: 2
                     model: root.projectOptions
                     currentIndex: Math.max(0, theme.optionIndex(root.projectOptions, controlPanelBridge.projectEnvironmentProjectId || ""))
                     enabled: root.projectOptions.length > 0
