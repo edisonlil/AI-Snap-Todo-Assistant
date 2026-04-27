@@ -1033,6 +1033,16 @@ class _TodoDetailBridge(QObject):
     def _copy_entry_shape(group: dict[str, object], entry: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
         return dict(group), dict(entry)
 
+    def _find_environment_entry(self, entry_id: str) -> dict[str, object] | None:
+        normalized_entry_id = str(entry_id or "").strip()
+        if not normalized_entry_id:
+            return None
+        for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
+            for entry in entries:
+                if str(entry.get("id") or "") == normalized_entry_id:
+                    return entry
+        return None
+
     def _update_environment_entries(self, updater) -> bool:
         changed = False
         next_groups = self._clone_environment_groups(self._environment_access_groups)
@@ -1084,23 +1094,23 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def copyEnvironmentUsername(self, entry_id: str) -> None:
-        entry_id = str(entry_id or "").strip()
-        if not entry_id:
-            self._set_environment_access_message("当前访问方式未配置账号", level="warning")
-            return
-        username = ""
-        for _group, entries in self._iterate_environment_entries(self._environment_access_groups):
-            for entry in entries:
-                if str(entry.get("id") or "") == entry_id:
-                    username = str(entry.get("username") or "").strip()
-                    break
-            if username:
-                break
+        entry = self._find_environment_entry(entry_id)
+        username = str((entry or {}).get("username") or "").strip()
         if not username:
             self._set_environment_access_message("当前访问方式未配置账号", level="warning")
             return
         QApplication.clipboard().setText(username)
         self._set_environment_access_message("已复制账号", level="success")
+
+    @pyqtSlot(str)
+    def copyEnvironmentAddress(self, entry_id: str) -> None:
+        entry = self._find_environment_entry(entry_id)
+        address = str((entry or {}).get("urlOrHost") or "").strip()
+        if not address:
+            self._set_environment_access_message("当前访问方式未配置地址", level="warning")
+            return
+        QApplication.clipboard().setText(address)
+        self._set_environment_access_message("已复制地址", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentPassword(self, entry_id: str) -> None:
@@ -1110,6 +1120,28 @@ class _TodoDetailBridge(QObject):
             return
         QApplication.clipboard().setText(password)
         self._set_environment_access_message("已复制密码", level="success")
+
+    @pyqtSlot(str)
+    def copyEnvironmentLoginInfo(self, entry_id: str) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        entry = self._find_environment_entry(normalized_entry_id)
+        if entry is None:
+            self._set_environment_access_message("未找到环境访问项", level="warning")
+            return
+        address = str(entry.get("urlOrHost") or "").strip()
+        username = str(entry.get("username") or "").strip()
+        password = self._environment_access_service.get_password(normalized_entry_id)
+        lines = [
+            f"地址：{address}" if address else "",
+            f"账号：{username}" if username else "",
+            f"密码：{password}" if password else "",
+        ]
+        text = "\n".join(line for line in lines if line)
+        if not text:
+            self._set_environment_access_message("当前访问方式暂无可复制信息", level="warning")
+            return
+        QApplication.clipboard().setText(text)
+        self._set_environment_access_message("已复制地址/账号/密码", level="success")
 
     @pyqtSlot(str)
     def copyEnvironmentOtp(self, entry_id: str) -> None:

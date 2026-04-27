@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 
 Rectangle {
     id: root
@@ -222,27 +223,95 @@ Rectangle {
                                         width: parent.width
                                         spacing: 8
 
-                                        Rectangle {
-                                            visible: modelData.hasTarget || modelData.hasPassword
-                                            radius: 12
-                                            width: loginLabel.implicitWidth + 22
+                                        Row {
+                                            visible: modelData.hasTarget
+                                                || (modelData.username || "").length > 0
+                                                || modelData.hasPassword
+                                            spacing: 1
+                                            width: loginButton.width + copyMenuButton.width + spacing
                                             height: 30
-                                            color: "#111827"
 
-                                            Text {
-                                                id: loginLabel
-                                                anchors.centerIn: parent
-                                                text: "开始登录"
-                                                color: "#FFFFFF"
-                                                font.family: root.theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.theme.labelWeight
+                                            Rectangle {
+                                                id: loginButton
+                                                radius: 12
+                                                width: loginLabel.implicitWidth + 22
+                                                height: parent.height
+                                                color: "#111827"
+
+                                                Text {
+                                                    id: loginLabel
+                                                    anchors.centerIn: parent
+                                                    text: "开始登录"
+                                                    color: "#FFFFFF"
+                                                    font.family: root.theme.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.theme.labelWeight
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: todoDetailBridge.startEnvironmentLogin(modelData.id)
+                                                }
                                             }
 
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: todoDetailBridge.startEnvironmentLogin(modelData.id)
+                                            Rectangle {
+                                                id: copyMenuButton
+                                                radius: 12
+                                                width: 30
+                                                height: parent.height
+                                                color: copyMenu.opened ? "#1F2937" : "#111827"
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: "▾"
+                                                    color: "#FFFFFF"
+                                                    font.family: root.theme.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.theme.labelWeight
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        copyMenu.x = copyMenuButton.x
+                                                        copyMenu.y = copyMenuButton.y + copyMenuButton.height + 4
+                                                        copyMenu.open()
+                                                    }
+                                                }
+                                            }
+
+                                            Menu {
+                                                id: copyMenu
+
+                                                MenuItem {
+                                                    text: "复制地址"
+                                                    enabled: (modelData.urlOrHost || "").length > 0
+                                                    onTriggered: todoDetailBridge.copyEnvironmentAddress(modelData.id)
+                                                }
+
+                                                MenuItem {
+                                                    text: "复制账号"
+                                                    enabled: (modelData.username || "").length > 0
+                                                    onTriggered: todoDetailBridge.copyEnvironmentUsername(modelData.id)
+                                                }
+
+                                                MenuItem {
+                                                    text: "复制密码"
+                                                    enabled: modelData.hasPassword
+                                                    onTriggered: todoDetailBridge.copyEnvironmentPassword(modelData.id)
+                                                }
+
+                                                MenuItem {
+                                                    text: "复制地址/账号/密码"
+                                                    enabled: (
+                                                        (modelData.urlOrHost || "").length > 0
+                                                        || (modelData.username || "").length > 0
+                                                        || modelData.hasPassword
+                                                    )
+                                                    onTriggered: todoDetailBridge.copyEnvironmentLoginInfo(modelData.id)
+                                                }
                                             }
                                         }
                                     }

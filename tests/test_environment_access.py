@@ -18,8 +18,17 @@ from aica.environment_access import (  # noqa: E402
 from aica.storage.contracts import ProjectRecord  # noqa: E402
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository  # noqa: E402
 from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator  # noqa: E402
+import aica.todo_detail_panel as todo_detail_panel  # noqa: E402
 from aica.todo_detail_panel import _TodoDetailBridge  # noqa: E402
 from aica.todo_models import TodoItem, TodoProjectLink  # noqa: E402
+
+
+class _Clipboard:
+    def __init__(self) -> None:
+        self.text = ""
+
+    def setText(self, value: str) -> None:
+        self.text = value
 
 
 class _FakeEnvironmentRepository:
@@ -326,6 +335,59 @@ def test_todo_detail_bridge_environment_access_flow() -> None:
     bridge.copyEnvironmentOtp("entry-1")
     assert bridge.environmentAccessMessage
     assert _notification_messages(bridge)
+
+
+def test_todo_detail_bridge_copies_environment_login_fields(monkeypatch) -> None:
+    clipboard = _Clipboard()
+    monkeypatch.setattr(todo_detail_panel.QApplication, "clipboard", lambda: clipboard)
+    bundle = ProjectEnvironmentBundle(
+        environment=ProjectEnvironmentRecord(
+            id="env-1",
+            project_id="project-1",
+            env_name="test-env",
+            scope="project",
+        ),
+        entries=(
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id="env-1",
+                access_name="console",
+                url_or_host="https://example.com/login",
+                username="admin",
+                password_encrypted="secret-pass",
+            ),
+        ),
+    )
+    bridge = _TodoDetailBridge(
+        environment_access_service=EnvironmentAccessService(_FakeEnvironmentRepository([bundle]))
+    )
+    todo = TodoItem(
+        id="todo-1",
+        title="copy login fields",
+        project_link=TodoProjectLink(
+            todo_id="todo-1",
+            project_id="project-1",
+            match_status="matched",
+            project_snapshot={"project_name": "demo"},
+        ),
+    )
+
+    bridge.set_todo(todo)
+    bridge.copyEnvironmentAddress("entry-1")
+    assert clipboard.text == "https://example.com/login"
+
+    bridge.copyEnvironmentUsername("entry-1")
+    assert clipboard.text == "admin"
+
+    bridge.copyEnvironmentPassword("entry-1")
+    assert clipboard.text == "secret-pass"
+
+    bridge.copyEnvironmentLoginInfo("entry-1")
+    assert clipboard.text.splitlines() == [
+        "地址：https://example.com/login",
+        "账号：admin",
+        "密码：secret-pass",
+    ]
 
 
 def test_todo_detail_bridge_includes_global_environment_entries() -> None:
