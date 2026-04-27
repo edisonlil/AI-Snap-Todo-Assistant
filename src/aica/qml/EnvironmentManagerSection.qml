@@ -624,12 +624,6 @@ ColumnLayout {
             focus: true
             padding: 16
             closePolicy: Popup.CloseOnEscape
-            Keys.onPressed: function(event) {
-                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
-                    root.pasteOtpConfig()
-                    event.accepted = true
-                }
-            }
             onClosed: {
                 if (accessEditorVisible) {
                     root.closeAccessEditor()
@@ -645,6 +639,12 @@ ColumnLayout {
 
             Overlay.modal: Rectangle {
                 color: "#66000000"
+            }
+
+            Shortcut {
+                sequences: [StandardKey.Paste]
+                enabled: accessEditorPopup.visible
+                onActivated: root.pasteOtpConfig()
             }
 
             contentItem: ScrollView {

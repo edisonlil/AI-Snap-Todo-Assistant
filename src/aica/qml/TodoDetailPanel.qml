@@ -412,7 +412,7 @@ Rectangle {
     }
 
     Shortcut {
-        sequence: StandardKey.Paste
+        sequences: [StandardKey.Paste]
         enabled: addTimelineEdit.activeFocus || root.activeAttachmentEventId.length > 0
         onActivated: {
             if (addTimelineEdit.activeFocus) {

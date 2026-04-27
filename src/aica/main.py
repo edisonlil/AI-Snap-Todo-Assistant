@@ -176,12 +176,6 @@ def main() -> None:
         show_already_running_message()
         return
 
-    if RUNTIME_CAPABILITIES.is_windows:
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-
     startup_log_file = _setup_exception_handler()
     _append_startup_log(startup_log_file, "startup: main entered")
 

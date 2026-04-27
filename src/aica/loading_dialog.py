@@ -143,10 +143,11 @@ class LoadingDialog(QDialog):
     def hide_loading(self) -> None:
         if self._movie is not None:
             self._movie.stop()
-        if self._anchor_widget is not None and hasattr(self._anchor_widget, "set_top_reserved_space"):
-            self._anchor_widget.set_top_reserved_space(0)
+        anchor_widget = self._anchor_widget
         self._anchor_widget = None
         self.hide()
+        if anchor_widget is not None and hasattr(anchor_widget, "set_top_reserved_space"):
+            anchor_widget.set_top_reserved_space(0)
 
     def _place_top_right(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()

@@ -250,8 +250,7 @@ Rectangle {
 
                 RowLayout {
                     visible: fieldRoot.editable && fieldRoot.editing
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                     spacing: 10
 
                     Text {
