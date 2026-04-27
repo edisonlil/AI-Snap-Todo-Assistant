@@ -393,7 +393,7 @@ def hotkey_from_qt_key_event(
             modifier_parts.append("Win")
 
     if not modifier_parts:
-        raise ValueError("鎴浘鐑敭鑷冲皯闇€瑕佷竴涓慨楗伴敭")
+        raise ValueError("截图热键至少需要一个修饰键")
 
     return normalize_hotkey("+".join([*modifier_parts, primary_key]), normalized_platform)
 
@@ -663,12 +663,12 @@ def _format_ticket_product(product: object) -> str:
     value = _ticket_field_text(product).strip()
     if not value:
         return ""
-    if value == "WPS鍗忎綔":
-        return "WPS鍗忎綔锛堟硾锛?鍗忎綔-绉佺綉"
-    if value == "鏂囨。涓彴":
-        return "鏂囨。涓彴/V7"
-    if value == "鏂囨。涓績":
-        return "鏂囨。涓績/V7"
+    if value == "WPS协作":
+        return "WPS协作（泛微）协作-私网"
+    if value == "文档中台":
+        return "文档中台/V7"
+    if value == "文档中心":
+        return "文档中心/V7"
     return value
 
 
@@ -682,17 +682,17 @@ def _format_ticket_project_name(project_name: object) -> str:
 
 def _format_ticket_copy_text(ticket: dict[str, object]) -> str:
     return (
-        f"鏍囬: {_ticket_field_text(ticket.get('title'))}\n"
-        "浜岀嚎: 鍚n"
-        f"缁撹: {_ticket_field_text(ticket.get('conclusionContent'))}\n"
-        f"瀹㈡埛鍚嶇О: {_ticket_field_text(ticket.get('customerName'))}\n"
-        f"椤圭洰鍚嶇О: {_format_ticket_project_name(ticket.get('projectName'))}\n"
-        f"鍔熻兘鐐? {_ticket_field_text(ticket.get('featurePoint'))}\n"
-        f"鐗堟湰: {_ticket_field_text(ticket.get('ticketVersion'))}\n"
-        f"鏍瑰洜鍒嗙被: {_ticket_field_text(ticket.get('rootCause'))}\n"
-        f"鏍瑰洜鎻忚堪: {_ticket_field_text(ticket.get('rootCauseDesc'))}\n"
-        f"浜у搧: {_format_ticket_product(ticket.get('productLine'))}\n"
-        f"鎻忚堪: {_ticket_field_text(ticket.get('summary'))}"
+        f"标题: {_ticket_field_text(ticket.get('title'))}\n"
+        "二线: 否\n"
+        f"结论: {_ticket_field_text(ticket.get('conclusionContent'))}\n"
+        f"客户名称: {_ticket_field_text(ticket.get('customerName'))}\n"
+        f"项目名称: {_format_ticket_project_name(ticket.get('projectName'))}\n"
+        f"功能点: {_ticket_field_text(ticket.get('featurePoint'))}\n"
+        f"版本: {_ticket_field_text(ticket.get('ticketVersion'))}\n"
+        f"根因分类: {_ticket_field_text(ticket.get('rootCause'))}\n"
+        f"根因描述: {_ticket_field_text(ticket.get('rootCauseDesc'))}\n"
+        f"产品: {_format_ticket_product(ticket.get('productLine'))}\n"
+        f"描述: {_ticket_field_text(ticket.get('summary'))}"
     )
 
 
@@ -855,14 +855,14 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, constant=True)
     def integrationScriptHelpText(self) -> str:
         if RUNTIME_CAPABILITIES.is_windows:
-            return "???? .py?.ps1?.bat?.cmd?.exe???? AICA ?????? ScriptEventHandler ???????"
-        return "???? .py?.pyw?.sh????? Windows ???????????????????????"
+            return "支持 .py、.ps1、.bat、.cmd、.exe 文件，AICA 会按 ScriptEventHandler 配置调用。"
+        return "支持 .py、.pyw、.sh 文件，Windows 环境建议优先使用可直接执行的脚本。"
 
     @pyqtProperty(str, constant=True)
     def hotkeyHelpText(self) -> str:
         if RUNTIME_CAPABILITIES.is_macos:
-            return "??? Command+Shift+A?Option+A?Control+Shift+F8???????????"
-        return "??? Alt+A?Ctrl+Shift+A???????????"
+            return "例如 Command+Shift+A、Option+A、Control+Shift+F8，点击输入框后直接按下组合键。"
+        return "例如 Alt+A、Ctrl+Shift+A，点击输入框后直接按下组合键。"
 
     @pyqtProperty(str, constant=True)
     def hotkeyPlaceholder(self) -> str:
@@ -957,7 +957,7 @@ class _ControlPanelBridge(QObject):
             payload.append(
                 {
                     "id": str(integration.get("id") or "").strip(),
-                    "name": str(integration.get("name") or integration.get("id") or "?????").strip(),
+                    "name": str(integration.get("name") or integration.get("id") or "未命名").strip(),
                     "enabled": bool(integration.get("enabled", True)),
                     "scriptPath": script_path,
                     "exists": bool(script_path) and Path(script_path).exists(),
@@ -1091,32 +1091,32 @@ class _ControlPanelBridge(QObject):
         return [
             {
                 "id": "data_dir",
-                "title": "鏈湴鏁版嵁鐩綍",
+                "title": "本地数据目录",
                 "description": self._data_dir,
             },
             {
                 "id": "feedback_dir",
-                "title": "鍙嶉鐩綍",
+                "title": "反馈目录",
                 "description": str(feedback_dir()),
             },
             {
                 "id": "analysis_rules_dir",
-                "title": "鍒嗘瀽瑙勫垯鏂囦欢",
+                "title": "分析规则文件",
                 "description": str(analysis_rules_file()),
             },
             {
                 "id": "prompt_debug_dir",
-                "title": "Prompt 璋冭瘯鐩綍",
+                "title": "Prompt 调试目录",
                 "description": str(prompt_debug_dir()),
             },
             {
                 "id": "error_log_dir",
-                "title": "閿欒鏃ュ織鐩綍",
+                "title": "错误日志目录",
                 "description": self._log_dir,
             },
             {
                 "id": "integrations_dir",
-                "title": "鑴氭湰闆嗘垚閰嶇疆鐩綍",
+                "title": "脚本集成配置目录",
                 "description": str(self._integrations_path.parent),
             },
         ]
@@ -1704,7 +1704,7 @@ class _ControlPanelBridge(QObject):
             binding.model_id = model.id
         else:
             self._status_message = (
-                f"????? {model.name}???????? {required_capability} ??????????"
+                f"模型 {model.name} 不支持 {required_capability} 能力，已保留当前选择"
             )
         self._emit_data_changed()
 
@@ -1755,7 +1755,7 @@ class _ControlPanelBridge(QObject):
         start_dir = current_value.strip() or str(app_data_dir())
         selected_path = QFileDialog.getExistingDirectory(
             None,
-            "閫夋嫨鐩綍",
+            "选择目录",
             start_dir,
         )
         if not selected_path:
@@ -1869,7 +1869,7 @@ class _ControlPanelBridge(QObject):
         self._data_dir = result["data_dir"]
         self._log_dir = result["log_dir"]
         self.reloadConfig()
-        self._status_message = "?????????????????????????????????????"
+        self._status_message = "存储目录已保存，配置与数据已重新加载"
         self._emit_data_changed()
 
     @pyqtSlot(str)
@@ -1954,7 +1954,7 @@ class _ControlPanelBridge(QObject):
         try:
             self._analysis_rules.debug.max_records = max(1, int(self._analysis_rules.debug.max_records))
         except (TypeError, ValueError):
-            self._error_message = "璋冭瘯璁板綍淇濈暀鏉℃暟蹇呴』鏄鏁存暟"
+            self._error_message = "调试记录保留条数必须是正整数"
             self._emit_data_changed()
             return
         self._analysis_rules_manager.update_debug_config(
@@ -1966,7 +1966,7 @@ class _ControlPanelBridge(QObject):
         for scene_type, rule in self._analysis_rules.scenes.items():
             self._analysis_rules_manager.update_scene_rule(scene_type, rule)
         self._analysis_rules = self._analysis_rules_manager.save()
-        self._status_message = "?????????????"
+        self._status_message = "分析规则已保存"
         self._emit_data_changed()
 
     @pyqtSlot(str)
@@ -1990,7 +1990,7 @@ class _ControlPanelBridge(QObject):
             return
         field_value = str(payload.get(str(field_name or "").strip(), "")).strip()
         QApplication.clipboard().setText(field_value)
-        self._status_message = "????????????"
+        self._status_message = "字段内容已复制"
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -2011,7 +2011,7 @@ class _ControlPanelBridge(QObject):
 
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
-        self._status_message = "??????????????????"
+        self._status_message = "配置已保存"
         self._emit_data_changed()
         self.configSaved.emit(self._config)
 
@@ -2023,14 +2023,14 @@ class _ControlPanelBridge(QObject):
             self._script_integrations,
         )
         save_integration_config(self._integrations_path, self._integration_payload)
-        self._status_message = "??????????"
+        self._status_message = "脚本集成已保存"
         self._emit_data_changed()
 
     @pyqtSlot()
     def addIntegrationScript(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
             None,
-            "閫夋嫨澶栭儴鑴氭湰",
+            "选择外部脚本",
             str(app_data_dir()),
             self.integrationScriptFilter,
         )
@@ -2062,7 +2062,7 @@ class _ControlPanelBridge(QObject):
         start_dir = str(Path(current_path).parent) if current_path else str(app_data_dir())
         selected_path, _ = QFileDialog.getOpenFileName(
             None,
-            "閫夋嫨澶栭儴鑴氭湰",
+            "选择外部脚本",
             start_dir,
             self.integrationScriptFilter,
         )
@@ -2103,9 +2103,9 @@ class _ControlPanelBridge(QObject):
     def chooseProjectImportFile(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
             None,
-            "?????????",
+            "选择项目文件",
             str(app_data_dir()),
-            "椤圭洰鏂囦欢 (*.csv *.xlsx);;鎵€鏈夋枃浠?(*.*)",
+            "项目文件 (*.csv *.xlsx);;所有文件 (*.*)",
         )
         if selected_path:
             self.importProjectFile(selected_path)
@@ -2121,22 +2121,22 @@ class _ControlPanelBridge(QObject):
             return
         self._refresh_project_payloads()
         self._last_project_import_summary = (
-            f"??????? {result.created_count}??? {result.updated_count}?"
-            f"?? {result.skipped_count}???? {result.relinked_count}?"
+            f"新增 {result.created_count} 个，更新 {result.updated_count} 个，"
+            f"跳过 {result.skipped_count} 个，关联 {result.relinked_count} 个"
         )
         if result.alias_conflicts or result.error_rows:
             fragments = [self._last_project_import_summary]
             if result.alias_conflicts:
                 first_conflict = result.alias_conflicts[0]
                 fragments.append(
-                    "???????"
-                    f"? {first_conflict.row_number} ??? {first_conflict.alias} "
-                    f"宸茶 {first_conflict.conflicting_project_name}"
-                    f"({first_conflict.conflicting_task_order_no}) ???"
+                    "别名冲突："
+                    f"第 {first_conflict.row_number} 行，别名 {first_conflict.alias} "
+                    f"已被 {first_conflict.conflicting_project_name}"
+                    f"({first_conflict.conflicting_task_order_no}) 使用"
                 )
             if result.error_rows:
                 first_error = result.error_rows[0]
-                fragments.append(f"閿欒绀轰緥锛氱 {first_error['rowNumber']} 琛岋紝{first_error['message']}")
+                fragments.append(f"错误示例：第 {first_error['rowNumber']} 行，{first_error['message']}")
             self._status_message = " ".join(fragments)
         else:
             self._status_message = self._last_project_import_summary
@@ -2146,9 +2146,9 @@ class _ControlPanelBridge(QObject):
     def downloadProjectTemplate(self) -> None:
         selected_path, _ = QFileDialog.getSaveFileName(
             None,
-            "淇濆瓨椤圭洰瀵煎叆妯℃澘",
+            "保存项目导入模板",
             str(app_data_dir() / "project_import_template.csv"),
-            "CSV 鏂囦欢 (*.csv)",
+            "CSV 文件 (*.csv)",
         )
         if not selected_path:
             return
@@ -2156,7 +2156,7 @@ class _ControlPanelBridge(QObject):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(build_project_template_content(), encoding="utf-8-sig")
         self._clear_messages()
-        self._status_message = f"椤圭洰瀵煎叆妯℃澘宸蹭繚瀛樺埌 {target}"
+        self._status_message = f"项目导入模板已保存到 {target}"
         self._emit_data_changed()
 
     @pyqtSlot(str, bool)
@@ -2548,13 +2548,13 @@ class _ControlPanelBridge(QObject):
             return
         todo = self._todo_store.get_todo(normalized_id)
         if todo is None:
-            self._error_message = "????????????"
+            self._error_message = "未找到对应待办"
             self._emit_data_changed()
             return
         payload = self._build_ticket_detail_payload(todo)
         QApplication.clipboard().setText(_format_ticket_copy_text(payload))
         self._clear_messages()
-        self._notification_bridge.notify("success", "???????", source="control_panel")
+        self._notification_bridge.notify("success", "工单内容已复制", source="control_panel")
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -2693,7 +2693,7 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
         field_labels = {
-            "ach_no": "ach鍗曞彿",
+            "ach_no": "ach单号",
             "ticket_version": "\u7248\u672c\u53f7",
             "feature_point": "\u529f\u80fd\u70b9",
             "root_cause": "\u95ee\u9898\u6839\u56e0",
@@ -2711,7 +2711,7 @@ class _ControlPanelBridge(QObject):
         if normalized_field not in {"followUpStartedAt", "supportEndedAt"}:
             return
         dialog = QDialog()
-        dialog.setWindowTitle("閫夋嫨鏃ユ湡")
+        dialog.setWindowTitle("选择日期")
         dialog.setModal(True)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -2748,7 +2748,7 @@ class _ControlPanelBridge(QObject):
             str(payload.get("taskOrderNo") or payload.get("task_order_no") or "")
         )
         if cached_existing is not None and existing_by_task_order is not None and existing_by_task_order.id != cached_existing.id:
-            self._error_message = "浠诲姟鍗曞彿宸茶鍏朵粬椤圭洰鍗犵敤"
+            self._error_message = "任务单号已被其他项目占用"
             self._emit_data_changed()
             return
         existing = cached_existing or existing_by_task_order
@@ -2765,9 +2765,9 @@ class _ControlPanelBridge(QObject):
         if conflicts:
             first_conflict = conflicts[0]
             self._error_message = (
-                f"缇ゅ悕鍒悕 {first_conflict.alias} 宸茶 "
+                f"群名别名 {first_conflict.alias} 已被 "
                 f"{first_conflict.conflicting_project_name}"
-                f"({first_conflict.conflicting_task_order_no}) 浣跨敤"
+                f"({first_conflict.conflicting_task_order_no}) 使用"
             )
             self._emit_data_changed()
             return
@@ -2777,8 +2777,8 @@ class _ControlPanelBridge(QObject):
         self._refresh_project_payloads()
         self._refresh_project_environment_payloads(project.id)
         self._status_message = (
-            f"??????{project.project_name}?"
-            f"????? {relinked_count} ???????"
+            f"已保存项目 {project.project_name}，"
+            f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
 
@@ -2798,8 +2798,8 @@ class _ControlPanelBridge(QObject):
             self._project_environment_project_id = ""
             self._project_environment_groups = []
         self._status_message = (
-            f"??????{project.project_name}?"
-            f"????? {relinked_count} ???????"
+            f"已删除项目 {project.project_name}，"
+            f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
 
@@ -2808,7 +2808,7 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         relinked_count = self._todo_store.relink_open_unresolved_todos()
         self._refresh_project_payloads()
-        self._status_message = f"???? {relinked_count} ??????????????"
+        self._status_message = f"已关联 {relinked_count} 个未解决待办到项目"
         self._emit_data_changed()
 
     def _coerce_provider_timeouts(self) -> None:
@@ -2816,9 +2816,9 @@ class _ControlPanelBridge(QObject):
             try:
                 provider.timeout_seconds = int(provider.timeout_seconds)
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"{provider.name} ???????????") from exc
+                raise ValueError(f"{provider.name} 的超时时间必须是整数") from exc
             if provider.timeout_seconds <= 0:
-                raise ValueError(f"{provider.name} ????????? 0")
+                raise ValueError(f"{provider.name} 的超时时间必须大于 0")
 
     def _find_script_integration(self, integration_id: str) -> dict[str, object] | None:
         return next(

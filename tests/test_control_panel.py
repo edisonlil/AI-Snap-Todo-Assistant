@@ -354,6 +354,38 @@ def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatc
     assert _notification_messages(bridge)
 
 
+def test_control_panel_readable_chinese_copy_and_locations(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    copy_text = control_panel._format_ticket_copy_text(
+        {
+            "title": "标题A",
+            "conclusionContent": "结论B",
+            "customerName": "客户C",
+            "projectName": "项目D",
+            "featurePoint": "功能E",
+            "ticketVersion": "V7",
+            "rootCause": "分类F",
+            "rootCauseDesc": "描述G",
+            "productLine": "文档中台",
+            "summary": "说明H",
+        }
+    )
+
+    assert "标题: 标题A" in copy_text
+    assert "项目名称: 项目D" in copy_text
+    assert "产品: 文档中台/V7" in copy_text
+    assert [item["title"] for item in bridge.locations] == [
+        "本地数据目录",
+        "反馈目录",
+        "分析规则文件",
+        "Prompt 调试目录",
+        "错误日志目录",
+        "脚本集成配置目录",
+    ]
+
+
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.status = TodoStatus.DONE
