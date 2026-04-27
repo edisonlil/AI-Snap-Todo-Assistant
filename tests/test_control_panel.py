@@ -11,9 +11,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import aica.control_panel as control_panel  # noqa: E402
+from aica.analysis_metrics import ModelLatencySummary  # noqa: E402
 from aica.config import ConfigManager  # noqa: E402
 from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentBundle, ProjectEnvironmentRecord  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
+from aica.otp_secret_extractor import OtpSecretExtractResult  # noqa: E402
 from aica.todo_models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
@@ -23,6 +25,20 @@ class _Clipboard:
 
     def setText(self, value: str) -> None:
         self.text = value
+
+
+class _TextClipboard:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def text(self) -> str:
+        return self._text
+
+    def image(self) -> object | None:
+        return None
+
+    def mimeData(self) -> object | None:
+        return None
 
 
 class _FakeTodoStore:
@@ -248,6 +264,78 @@ def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_pa
 
 def _notification_messages(bridge: control_panel._ControlPanelBridge) -> list[str]:
     return [str(item["message"]) for item in bridge.notificationBridge.notifications]
+
+
+def test_task_bindings_use_readable_chinese_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._analysis_metrics = SimpleNamespace(get_summary=lambda *_args: None)
+
+    bindings = {item["id"]: item for item in bridge.taskBindings}
+
+    assert bindings["analysis"]["label"] == "截图分析"
+    assert bindings["plan_export"]["label"] == "方案导出"
+    assert bindings["context_summary"]["label"] == "上下文摘要"
+    assert bindings["log_analysis"]["label"] == "日志分析"
+    assert {item["performanceSummary"] for item in bindings.values()} == {"暂无耗时样本"}
+
+
+def test_model_options_use_middle_dot_metric_separator() -> None:
+    label = control_panel._append_metric_suffix(
+        "Qwen/Qwen2.5-VL-72B-Instruct (vision_chat, text_chat)",
+        ModelLatencySummary(
+            sample_count=20,
+            success_count=20,
+            last_latency_ms=8200,
+            avg_latency_ms=10300,
+            p90_latency_ms=12300,
+        ),
+    )
+
+    assert " · 最近 8.2s · 平均 10.3s · P90 12.3s · 样本 20" in label
+    assert " 路 " not in label
+
+
+def test_import_otp_qr_image_path_accepts_file_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    image_path = Path.cwd() / "otp.png"
+
+    def fake_extract(path: object) -> OtpSecretExtractResult:
+        assert str(path).replace("\\", "/").endswith("/otp.png")
+        return OtpSecretExtractResult(
+            type="totp",
+            secret="JBSWY3DPEHPK3PXP",
+            raw_payload="otpauth://totp/demo:admin?secret=JBSWY3DPEHPK3PXP",
+        )
+
+    monkeypatch.setattr(control_panel, "extract_otp_secret_from_qr_image", fake_extract)
+
+    result = bridge.importOtpConfigFromQrImagePath(image_path.as_uri())
+
+    assert result["success"] is True
+    assert result["otpConfig"].startswith("otpauth://")
+    assert str(result["previewImageUrl"]).startswith("file:///")
+    assert result["source"] == "drop"
+    assert bridge.statusMessage == "OTP 配置已从拖拽二维码导入"
+
+
+def test_import_otp_from_clipboard_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    monkeypatch.setattr(
+        control_panel.QApplication,
+        "clipboard",
+        lambda: _TextClipboard("otpauth://totp/demo:admin?secret=JBSWY3DPEHPK3PXP"),
+    )
+
+    result = bridge.importOtpConfigFromClipboardQr()
+
+    assert result["success"] is True
+    assert result["secret"] == "JBSWY3DPEHPK3PXP"
+    assert result["previewImageUrl"] == ""
+    assert result["source"] == "clipboard_text"
+    assert bridge.statusMessage == "OTP 配置已从剪贴板导入"
 
 
 def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatch) -> None:

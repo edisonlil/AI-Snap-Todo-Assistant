@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
+from pathlib import Path
 import sys
+import tempfile
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 
@@ -104,6 +106,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def fromLocalFile(path):
             return QUrl(path)
 
+        def isLocalFile(self):
+            return str(self._path).startswith("file:")
+
+        def toLocalFile(self):
+            text = str(self._path)
+            if text.startswith("file:///"):
+                return text[8:]
+            if text.startswith("file://"):
+                return text[7:]
+            return text
+
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
             pass
@@ -147,6 +160,15 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
     class _Clipboard:
         def setText(self, *_args, **_kwargs):
+            return None
+
+        def text(self):
+            return ""
+
+        def image(self):
+            return None
+
+        def mimeData(self):
             return None
 
     class QApplication:  # type: ignore[no-redef]
@@ -261,7 +283,7 @@ from aica.environment_access import (
     normalize_access_type,
     normalize_environment_scope,
 )
-from aica.otp_secret_extractor import extract_otp_secret_from_qr_image
+from aica.otp_secret_extractor import OtpSecretExtractResult, extract_otp_secret_from_qr_image, parse_otpauth_payload
 from aica.project_management import (
     build_project_template_content,
     find_active_alias_conflicts,
@@ -377,11 +399,11 @@ def hotkey_from_qt_key_event(
 
 
 _TASK_LABELS = {
-    "analysis": "鎴浘鍒嗘瀽",
-    "plan_export": "鏂规瀵煎嚭",
+    "analysis": "截图分析",
+    "plan_export": "方案导出",
 }
 _TASK_LABELS["context_summary"] = "上下文摘要"
-_TASK_LABELS["log_analysis"] = "鏃ュ織鍒嗘瀽"
+_TASK_LABELS["log_analysis"] = "日志分析"
 _SECTION_GROUPS = [
     {
         "id": "business",
@@ -528,7 +550,51 @@ def _normalize_capabilities(value: str) -> list[str]:
 def _append_metric_suffix(label: str, summary: ModelLatencySummary | None) -> str:
     if summary is None or summary.is_empty:
         return label
-    return f"{label} 路 {summary.to_display_text()}"
+    return f"{label} · {summary.to_display_text()}"
+
+
+def _otp_import_payload(
+    parsed: OtpSecretExtractResult,
+    *,
+    selected_path: str = "",
+    preview_image_url: str = "",
+    source: str = "",
+) -> dict[str, object]:
+    otp_config = str(parsed.raw_payload or parsed.secret or "").strip()
+    return {
+        "success": True,
+        "otpConfig": otp_config,
+        "secret": parsed.secret,
+        "issuer": parsed.issuer,
+        "account": parsed.account,
+        "algorithm": parsed.algorithm,
+        "digits": parsed.digits,
+        "period": parsed.period,
+        "label": parsed.label,
+        "rawPayload": parsed.raw_payload,
+        "selectedPath": selected_path,
+        "previewImageUrl": preview_image_url,
+        "source": source,
+    }
+
+
+def _preview_image_url(image_path: str) -> str:
+    normalized = str(image_path or "").strip()
+    if not normalized:
+        return ""
+    try:
+        return Path(normalized).expanduser().resolve().as_uri()
+    except ValueError:
+        return ""
+
+
+def _local_path_from_url_or_path(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("file:"):
+        return QUrl(text).toLocalFile()
+    return text
 
 
 def _build_speed_hint(model_name: str, summary: ModelLatencySummary | None) -> str:
@@ -823,7 +889,7 @@ class _ControlPanelBridge(QObject):
                     "label": label,
                     "providerId": binding.provider_id,
                     "modelId": binding.model_id,
-                    "performanceSummary": summary.to_display_text() if summary is not None else "鏆傛棤鑰楁椂鏍锋湰",
+                    "performanceSummary": summary.to_display_text() if summary is not None else "暂无耗时样本",
                     "speedHint": _build_speed_hint(model_name, summary),
                     "providerOptions": [
                         _option_payload(provider.id, provider.name)
@@ -2336,29 +2402,93 @@ class _ControlPanelBridge(QObject):
         )
         if not selected_path:
             return {"success": False, "canceled": True}
+        return self._import_otp_config_from_qr_image_path(selected_path, source="file_dialog")
+
+    @pyqtSlot(str, result="QVariantMap")
+    def importOtpConfigFromQrImagePath(self, image_path: str):  # noqa: ANN201
+        normalized_path = _local_path_from_url_or_path(image_path)
+        if not normalized_path:
+            return {"success": False, "error": "未找到二维码图片路径"}
+        return self._import_otp_config_from_qr_image_path(normalized_path, source="drop")
+
+    @pyqtSlot(result="QVariantMap")
+    def importOtpConfigFromClipboardQr(self):  # noqa: ANN201
+        self._clear_messages()
+        clipboard = QApplication.clipboard()
+        try:
+            image = clipboard.image()
+        except Exception:  # noqa: BLE001
+            image = None
+        if image is not None and not bool(getattr(image, "isNull", lambda: True)()):
+            try:
+                return self._import_otp_config_from_clipboard_image(image)
+            except Exception as exc:  # noqa: BLE001
+                self._error_message = f"剪贴板二维码导入失败：{exc}"
+                self._emit_data_changed()
+                return {"success": False, "error": str(exc)}
+
+        mime_data = clipboard.mimeData() if hasattr(clipboard, "mimeData") else None
+        if mime_data is not None and getattr(mime_data, "hasUrls", lambda: False)():
+            for item in mime_data.urls():
+                normalized_path = _local_path_from_url_or_path(item.toString() if hasattr(item, "toString") else item)
+                if normalized_path:
+                    return self._import_otp_config_from_qr_image_path(normalized_path, source="clipboard_url")
+
+        text = str(clipboard.text() if hasattr(clipboard, "text") else "").strip()
+        if text:
+            image_path = _local_path_from_url_or_path(text)
+            if Path(image_path).expanduser().is_file():
+                return self._import_otp_config_from_qr_image_path(image_path, source="clipboard_path")
+            try:
+                parsed = parse_otpauth_payload(text)
+            except Exception as exc:  # noqa: BLE001
+                self._error_message = f"剪贴板内容不是有效的 OTP 二维码或配置：{exc}"
+                self._emit_data_changed()
+                return {"success": False, "error": str(exc)}
+            self._status_message = "OTP 配置已从剪贴板导入"
+            self._emit_data_changed()
+            return _otp_import_payload(parsed, source="clipboard_text")
+
+        self._error_message = "剪贴板中未找到二维码图片、图片路径或 OTP 配置"
+        self._emit_data_changed()
+        return {"success": False, "error": self._error_message}
+
+    def _import_otp_config_from_clipboard_image(self, image: object) -> dict[str, object]:
+        temp_file = tempfile.NamedTemporaryFile(prefix="aica_otp_qr_", suffix=".png", delete=False)
+        temp_path = Path(temp_file.name)
+        temp_file.close()
+        saved = image.save(str(temp_path), "PNG")
+        if saved is False:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError("剪贴板图片保存失败")
+        return self._import_otp_config_from_qr_image_path(str(temp_path), source="clipboard_image")
+
+    def _import_otp_config_from_qr_image_path(self, image_path: str, *, source: str) -> dict[str, object]:
         self._clear_messages()
         try:
-            parsed = extract_otp_secret_from_qr_image(selected_path)
+            parsed = extract_otp_secret_from_qr_image(image_path)
         except Exception as exc:  # noqa: BLE001
             self._error_message = f"OTP 二维码导入失败：{exc}"
             self._emit_data_changed()
             return {"success": False, "error": str(exc)}
-        otp_config = str(parsed.raw_payload or parsed.secret or "").strip()
-        self._status_message = "OTP 配置已从二维码导入"
+        source_label = {
+            "clipboard_image": "剪贴板二维码",
+            "clipboard_path": "剪贴板图片路径",
+            "clipboard_url": "剪贴板图片",
+            "drop": "拖拽二维码",
+            "file_dialog": "二维码图片",
+        }.get(source, "二维码")
+        self._status_message = f"OTP 配置已从{source_label}导入"
         self._emit_data_changed()
-        return {
-            "success": True,
-            "otpConfig": otp_config,
-            "secret": parsed.secret,
-            "issuer": parsed.issuer,
-            "account": parsed.account,
-            "algorithm": parsed.algorithm,
-            "digits": parsed.digits,
-            "period": parsed.period,
-            "label": parsed.label,
-            "rawPayload": parsed.raw_payload,
-            "selectedPath": selected_path,
-        }
+        return _otp_import_payload(
+            parsed,
+            selected_path=image_path,
+            preview_image_url=_preview_image_url(image_path),
+            source=source,
+        )
 
     @pyqtSlot(str, str)
     def listTickets(self, query: str, status_filter: str) -> None:

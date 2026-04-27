@@ -51,8 +51,35 @@ ColumnLayout {
             isActive: true,
             requiresOtp: true,
             hasPassword: false,
-            hasOtpConfig: false
+            hasOtpConfig: false,
+            otpImportSummary: "",
+            otpPreviewUrl: ""
         }
+    }
+
+    function copyAccessDraft(overrides) {
+        var source = accessDraft || emptyAccessDraft()
+        var next = {
+            id: source.id || "",
+            name: source.name || "",
+            type: source.type || "web",
+            urlOrHost: source.urlOrHost || "",
+            username: source.username || "",
+            password: source.password || "",
+            otpConfig: source.otpConfig || "",
+            note: source.note || "",
+            sortOrder: Number(source.sortOrder || 0),
+            isActive: !!source.isActive,
+            requiresOtp: !!source.requiresOtp,
+            hasPassword: !!source.hasPassword,
+            hasOtpConfig: !!source.hasOtpConfig,
+            otpImportSummary: source.otpImportSummary || "",
+            otpPreviewUrl: source.otpPreviewUrl || ""
+        }
+        for (var key in overrides) {
+            next[key] = overrides[key]
+        }
+        return next
     }
 
     function loadEnvironmentDraft() {
@@ -111,7 +138,7 @@ ColumnLayout {
         }
         accessDraft = emptyAccessDraft()
         editingEntryEnvironmentId = selectedEnvironment.id || ""
-        accessEditorVisible = true
+        openAccessEditorPopup()
     }
 
     function openEditAccess(entryItem) {
@@ -128,16 +155,28 @@ ColumnLayout {
             isActive: !!entryItem.isActive,
             requiresOtp: !!entryItem.requiresOtp,
             hasPassword: !!entryItem.hasPassword,
-            hasOtpConfig: !!entryItem.hasOtpConfig
+            hasOtpConfig: !!entryItem.hasOtpConfig,
+            otpImportSummary: entryItem.hasOtpConfig ? "已保存 OTP 配置" : "",
+            otpPreviewUrl: ""
         }
         editingEntryEnvironmentId = selectedEnvironment.id || ""
+        openAccessEditorPopup()
+    }
+
+    function openAccessEditorPopup() {
         accessEditorVisible = true
+        accessEditorPopup.open()
+        Qt.callLater(function() {
+            accessNameInput.forceActiveFocus()
+            accessNameInput.selectAll()
+        })
     }
 
     function closeAccessEditor() {
         accessEditorVisible = false
         accessDraft = emptyAccessDraft()
         editingEntryEnvironmentId = ""
+        accessEditorPopup.close()
     }
 
     function saveAccess() {
@@ -162,6 +201,9 @@ ColumnLayout {
         } else {
             controlPanelBridge.saveProjectEnvironmentAccessEntry(editingEntryEnvironmentId, payload)
         }
+        if (controlPanelBridge.hasError) {
+            return
+        }
         closeAccessEditor()
     }
 
@@ -175,11 +217,50 @@ ColumnLayout {
 
     function importOtpConfig() {
         var result = controlPanelBridge.importOtpConfigFromQrImage({})
-        if (result && result.success) {
-            var next = accessDraft
-            next.otpConfig = result.otpConfig || result.rawPayload || ""
-            accessDraft = next
+        applyOtpImportResult(result)
+    }
+
+    function pasteOtpConfig() {
+        var result = controlPanelBridge.importOtpConfigFromClipboardQr()
+        applyOtpImportResult(result)
+    }
+
+    function importDroppedOtpConfig(urls) {
+        if (!urls || urls.length <= 0) {
+            return
         }
+        var result = controlPanelBridge.importOtpConfigFromQrImagePath(String(urls[0]))
+        applyOtpImportResult(result)
+    }
+
+    function applyOtpImportResult(result) {
+        if (result && result.success) {
+            accessDraft = copyAccessDraft({
+                otpConfig: result.otpConfig || result.rawPayload || "",
+                requiresOtp: true,
+                otpImportSummary: otpImportDisplayText(result),
+                otpPreviewUrl: result.previewImageUrl || ""
+            })
+        }
+    }
+
+    function otpImportDisplayText(result) {
+        var issuer = result && result.issuer ? String(result.issuer) : ""
+        var account = result && result.account ? String(result.account) : ""
+        var label = result && result.label ? String(result.label) : ""
+        if (issuer.length > 0 && account.length > 0) {
+            return issuer + " / " + account
+        }
+        if (label.length > 0) {
+            return label
+        }
+        return "已解析 OTP 配置"
+    }
+
+    function hasOtpDraftDisplay() {
+        return (accessDraft.otpConfig || "").length > 0
+            || (accessDraft.otpImportSummary || "").length > 0
+            || !!accessDraft.hasOtpConfig
     }
 
     onSelectedEnvironmentChanged: loadEnvironmentDraft()
@@ -527,57 +608,93 @@ ColumnLayout {
         }
     }
 
-    Rectangle {
-        visible: accessEditorVisible
-        Layout.fillWidth: true
-        radius: 18
-        color: theme.panelBg
-        border.width: 1
-        border.color: theme.panelLine
-        implicitHeight: accessForm.implicitHeight + 24
+    Item {
+        visible: false
+        implicitWidth: 0
+        implicitHeight: 0
 
-        ColumnLayout {
-            id: accessForm
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-
-            Text {
-                text: (accessDraft.id || "").length > 0 ? "编辑访问项" : "新增访问项"
-                color: theme.titleInk
-                font.family: theme.uiFont
-                font.pixelSize: 13
-                font.weight: 700
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                ControlPanelSettingsInput {
-                    theme: root.theme
-                    Layout.fillWidth: true
-                    text: accessDraft.name || ""
-                    placeholderText: "访问项名称"
-                    onTextEdited: {
-                        var next = accessDraft
-                        next.name = text
-                        accessDraft = next
-                    }
-                }
-
-                ControlPanelSettingsCombo {
-                    theme: root.theme
-                    Layout.fillWidth: true
-                    model: root.accessTypeOptions
-                    currentIndex: Math.max(0, theme.optionIndex(root.accessTypeOptions, accessDraft.type || "web"))
-                    onActivated: {
-                        var next = accessDraft
-                        next.type = root.accessTypeOptions[currentIndex].value
-                        accessDraft = next
-                    }
+        Popup {
+            id: accessEditorPopup
+            parent: Overlay.overlay
+            x: Math.round((parent.width - width) / 2)
+            y: Math.round((parent.height - height) / 2)
+            width: Math.max(280, Math.min(860, parent.width - 64))
+            height: Math.min(accessEditorScroll.implicitHeight + topPadding + bottomPadding, Math.max(320, parent.height - 80))
+            modal: true
+            focus: true
+            padding: 16
+            closePolicy: Popup.CloseOnEscape
+            Keys.onPressed: function(event) {
+                if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
+                    root.pasteOtpConfig()
+                    event.accepted = true
                 }
             }
+            onClosed: {
+                if (accessEditorVisible) {
+                    root.closeAccessEditor()
+                }
+            }
+
+            background: Rectangle {
+                radius: 18
+                color: theme.panelBg
+                border.width: 1
+                border.color: theme.panelLine
+            }
+
+            Overlay.modal: Rectangle {
+                color: "#66000000"
+            }
+
+            contentItem: ScrollView {
+                id: accessEditorScroll
+                implicitHeight: Math.min(accessForm.implicitHeight, 620)
+                clip: true
+
+                ColumnLayout {
+                    id: accessForm
+                    width: accessEditorScroll.availableWidth
+                    spacing: 10
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: (accessDraft.id || "").length > 0 ? "编辑访问项" : "新增访问项"
+                        color: theme.titleInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 15
+                        font.weight: 700
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        ControlPanelSettingsInput {
+                            id: accessNameInput
+                            theme: root.theme
+                            Layout.fillWidth: true
+                            text: accessDraft.name || ""
+                            placeholderText: "访问项名称"
+                            onTextEdited: {
+                                var next = accessDraft
+                                next.name = text
+                                accessDraft = next
+                            }
+                        }
+
+                        ControlPanelSettingsCombo {
+                            theme: root.theme
+                            Layout.fillWidth: true
+                            model: root.accessTypeOptions
+                            currentIndex: Math.max(0, theme.optionIndex(root.accessTypeOptions, accessDraft.type || "web"))
+                            onActivated: {
+                                var next = accessDraft
+                                next.type = root.accessTypeOptions[currentIndex].value
+                                accessDraft = next
+                            }
+                        }
+                    }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -621,42 +738,94 @@ ColumnLayout {
                 }
             }
 
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 10
+                spacing: 8
 
-                TextArea {
+                Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 86
-                    text: accessDraft.otpConfig || ""
-                    placeholderText: accessDraft.hasOtpConfig
-                        ? "留空则保持已存 OTP 配置"
-                        : "OTP 配置，支持 tpauth://..."
-                    wrapMode: TextEdit.Wrap
-                    font.family: theme.uiFont
-                    font.pixelSize: 12
-                    color: theme.titleInk
-                    onTextChanged: {
-                        var next = accessDraft
-                        next.otpConfig = text
-                        accessDraft = next
-                    }
-                    background: Rectangle {
-                        radius: 16
-                        color: theme.inputBg
+                    Layout.preferredHeight: 126
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 8
+                        color: otpDropArea.containsDrag ? theme.accentSoft : theme.panelAltBg
                         border.width: 1
-                        border.color: theme.panelLine
+                        border.color: otpDropArea.containsDrag ? theme.accent : theme.panelLine
+                    }
+
+                    DropArea {
+                        id: otpDropArea
+                        anchors.fill: parent
+
+                        onEntered: function(drag) {
+                            if (drag.hasUrls) {
+                                drag.acceptProposedAction()
+                            }
+                        }
+
+                        onDropped: function(drop) {
+                            if (!drop.hasUrls) {
+                                return
+                            }
+                            root.importDroppedOtpConfig(drop.urls)
+                            drop.acceptProposedAction()
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.importOtpConfig()
+                        }
+
+                        Column {
+                            anchors.centerIn: parent
+                            width: parent.width - 32
+                            spacing: 6
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: root.hasOtpDraftDisplay()
+                                    ? ((accessDraft.otpConfig || "").length > 0 ? "已导入 OTP 配置" : "已保存 OTP 配置")
+                                    : (otpDropArea.containsDrag ? "释放即可导入 OTP 二维码" : "将二维码拖到此处，或直接粘贴")
+                                color: theme.accent
+                                font.family: theme.uiFont
+                                font.pixelSize: 14
+                                font.weight: 700
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                visible: root.hasOtpDraftDisplay()
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: accessDraft.otpImportSummary || "已解析 OTP 配置"
+                                color: theme.labelInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 11
+                                elide: Text.ElideMiddle
+                            }
+                        }
                     }
                 }
 
-                ColumnLayout {
-                    Layout.preferredWidth: 150
-                    spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
 
-                    ControlPanelPlainButton {
-                        theme: root.theme
-                        label: "从二维码导入"
-                        onClicked: root.importOtpConfig()
+                    Text {
+                        Layout.fillWidth: true
+                        text: "点击上传框选择图片，也可拖拽二维码图片或按 Ctrl+V 粘贴"
+                        color: theme.labelInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
                     }
 
                     CheckBox {
@@ -667,6 +836,75 @@ ColumnLayout {
                             var next = accessDraft
                             next.requiresOtp = checked
                             accessDraft = next
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: (accessDraft.otpConfig || "").length > 0
+                    Layout.fillWidth: true
+                    implicitHeight: otpPreviewRow.implicitHeight + 20
+                    radius: 8
+                    color: theme.inputBg
+                    border.width: 1
+                    border.color: theme.panelLine
+
+                    RowLayout {
+                        id: otpPreviewRow
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 10
+
+                        Rectangle {
+                            visible: (accessDraft.otpPreviewUrl || "").length > 0
+                            Layout.preferredWidth: 72
+                            Layout.preferredHeight: 72
+                            radius: 6
+                            color: theme.panelAltBg
+                            border.width: 1
+                            border.color: theme.panelLine
+                            clip: true
+
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 5
+                                source: accessDraft.otpPreviewUrl || ""
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: false
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: accessDraft.otpImportSummary || "已解析 OTP 配置"
+                                color: theme.titleInk
+                                font.family: theme.uiFont
+                                font.pixelSize: 12
+                                font.weight: 700
+                                elide: Text.ElideRight
+                            }
+
+                            TextArea {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 56
+                                readOnly: true
+                                selectByMouse: true
+                                text: accessDraft.otpConfig || ""
+                                wrapMode: TextEdit.WrapAnywhere
+                                font.family: theme.uiFont
+                                font.pixelSize: 11
+                                color: theme.bodyInk
+                                background: Rectangle {
+                                    radius: 6
+                                    color: theme.panelAltBg
+                                    border.width: 0
+                                }
+                            }
                         }
                     }
                 }
@@ -754,5 +992,7 @@ ColumnLayout {
                 }
             }
         }
+        }
     }
+}
 }
