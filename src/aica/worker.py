@@ -73,6 +73,13 @@ from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
 from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .case_search import (
+    CaseSearchProvider,
+    KDocsSseCaseSearchProvider,
+    build_case_search_queries,
+    build_case_search_request,
+    empty_case_result,
+)
 from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
 from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
 from .image_utils import EncodedImage, encode_image_for_api
@@ -873,6 +880,7 @@ class AssistAnalysisWorker(QThread):
         todo_id: str,
         request_id: str,
         payload: dict[str, object],
+        case_search_provider: CaseSearchProvider | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -880,6 +888,7 @@ class AssistAnalysisWorker(QThread):
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
         self._payload = dict(payload or {})
+        self._case_search_provider = case_search_provider or KDocsSseCaseSearchProvider()
 
     def run(self) -> None:
         try:
@@ -896,9 +905,23 @@ class AssistAnalysisWorker(QThread):
                 result = _normalize_assist_analysis_payload(_extract_json_object(raw))
             except Exception:
                 result = _local_assist_analysis_payload(todo)
+            result["caseResults"] = self._search_cases(todo)
             self.finished.emit(self._todo_id, self._request_id, result)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._todo_id, self._request_id, str(exc))
+
+    def _search_cases(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            request = build_case_search_request(
+                todo_id=todo.id,
+                title=todo.title,
+                current_summary=todo.current_summary,
+                timeline_lines=_timeline_lines_for_assist(todo),
+            )
+            queries = build_case_search_queries(self._llm_service, request)
+            return self._case_search_provider.search_many(queries).to_payload()
+        except Exception as exc:  # noqa: BLE001
+            return empty_case_result(error_message=str(exc)).to_payload()
 
 
 def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:

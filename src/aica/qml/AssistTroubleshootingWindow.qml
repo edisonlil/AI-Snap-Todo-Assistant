@@ -96,19 +96,9 @@ Rectangle {
         readonly property var resultData: ({
             "case": {
                 "title": "相似案例",
-                "count": "模拟 2 条结果",
-                "items": [
-                    {
-                        "title": "电子签章在线预览坐标偏移",
-                        "desc": "历史结论：生产与测试环境 preview_mode、缩放参数不一致，导致坐标换算结果不同。",
-                        "text": "【相似案例】preview_mode 与缩放参数不一致可能导致坐标偏移，建议优先比对请求参数。"
-                    },
-                    {
-                        "title": "PDF 转图片后签章错位",
-                        "desc": "与 DPI/缩放设置相关，服务端渲染参数不同导致偏移。",
-                        "text": "【相似案例】与 DPI/缩放设置相关，建议核对服务端渲染参数。"
-                    }
-                ]
+                "count": "暂无案例",
+                "emptyText": "暂无案例",
+                "items": []
             },
             "doc": {
                 "title": "官方文档",
@@ -217,7 +207,21 @@ Rectangle {
             return upgrade.reason || "当前缺少参数、日志、demo 对比等关键证据。建议先补齐信息，再判断是否需要升级。"
         }
 
+        function caseResults() {
+            var results = todoDetailBridge ? (todoDetailBridge.assistCaseResults || ({})) : ({})
+            var items = results.items || []
+            return {
+                "title": results.title || "相似案例",
+                "count": results.countLabel || results.count || (items.length > 0 ? ("检索 " + items.length + " 条结果") : "暂无案例"),
+                "emptyText": results.emptyText || "暂无案例",
+                "items": items
+            }
+        }
+
         function currentResults() {
+            if (selectedKey === "case") {
+                return caseResults()
+            }
             return resultData[selectedKey] || resultData["case"]
         }
 
@@ -469,6 +473,18 @@ Rectangle {
                                 }
                             }
 
+                            Text {
+                                width: parent.width
+                                visible: panel.currentResults().items.length === 0
+                                text: panel.currentResults().emptyText || "暂无案例"
+                                wrapMode: Text.Wrap
+                                color: panel.mutedText
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                font.weight: 400
+                                lineHeight: 1.25
+                            }
+
                             Repeater {
                                 model: panel.currentResults().items
 
@@ -530,6 +546,7 @@ Rectangle {
 
                                             Text {
                                                 text: "查看详情"
+                                                visible: String(modelData.detailUrl || "").length > 0
                                                 color: "#4F73FF"
                                                 font.family: root.uiFont
                                                 font.pixelSize: 12
@@ -538,7 +555,7 @@ Rectangle {
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: panel.showToast("暂无更多详情")
+                                                    onClicked: todoDetailBridge.openAssistResultDetail(modelData.detailUrl)
                                                 }
                                             }
                                         }

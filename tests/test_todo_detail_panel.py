@@ -248,6 +248,57 @@ def test_log_analysis_submission_pushes_notification() -> None:
     assert _notification_messages(bridge)[-1] == "已提交日志分析任务，后台排查中"
 
 
+def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._assist_analysis_pending_request_id = "req-1"  # noqa: SLF001
+
+    bridge.apply_assist_analysis_result(
+        "todo-1",
+        "req-1",
+        {
+            "summary": "分析完成",
+            "caseResults": {
+                "status": "success",
+                "countLabel": "检索 1 条结果",
+                "items": [
+                    {
+                        "title": "移动端鉴权 token 未透传",
+                        "desc": "历史案例描述",
+                        "text": "引用文本",
+                        "detailUrl": "https://www.kdocs.cn/l/case1",
+                    }
+                ],
+            },
+        },
+    )
+
+    results = bridge.assistCaseResults
+    assert results["countLabel"] == "检索 1 条结果"
+    assert results["items"][0]["title"] == "移动端鉴权 token 未透传"
+    assert results["items"][0]["detailUrl"] == "https://www.kdocs.cn/l/case1"
+
+
+def test_assist_analysis_empty_case_results_stay_empty() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._assist_analysis_pending_request_id = "req-1"  # noqa: SLF001
+
+    bridge.apply_assist_analysis_result(
+        "todo-1",
+        "req-1",
+        {
+            "summary": "分析完成",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+
+    results = bridge.assistCaseResults
+    assert results["countLabel"] == "暂无案例"
+    assert results["items"] == []
+    assert results["emptyText"] == "暂无案例"
+
+
 def test_removing_draft_attachment_does_not_touch_existing_event_attachments(monkeypatch) -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())

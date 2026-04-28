@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -723,6 +724,8 @@ class _TodoDetailBridge(QObject):
         self._assist_analysis_error = ""
         self._assist_analysis_requested_once = False
         self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_pending_cache_key = ""
+        self._assist_analysis_cache: dict[str, dict[str, object]] = {}
         self._assist_analysis_result: dict[str, object] = self._default_assist_analysis_result()
 
     @property
@@ -939,6 +942,11 @@ class _TodoDetailBridge(QObject):
     def assistUpgradeSuggestion(self):  # noqa: ANN201
         value = self._assist_analysis_result.get("upgradeSuggestion")
         return dict(value or {}) if isinstance(value, dict) else {}
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def assistCaseResults(self):  # noqa: ANN201
+        value = self._assist_analysis_result.get("caseResults")
+        return dict(value or {}) if isinstance(value, dict) else self._empty_assist_case_results(status="loading")
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -2177,6 +2185,13 @@ class _TodoDetailBridge(QObject):
     def closeAssistTroubleshooting(self) -> None:
         self._set_assist_troubleshooting_visible(False)
 
+    @pyqtSlot(str)
+    def openAssistResultDetail(self, url: str) -> None:
+        normalized = sanitize_text(url).strip()
+        if not normalized:
+            return
+        QDesktopServices.openUrl(QUrl(normalized))
+
     @pyqtSlot()
     def refreshAssistAnalysis(self) -> None:
         if self._todo_id is None:
@@ -2184,11 +2199,25 @@ class _TodoDetailBridge(QObject):
         payload = self._build_payload()
         if payload is None:
             return
+        cache_key = self._assist_analysis_cache_key()
+        cached = self._assist_analysis_cache.get(cache_key)
+        if cached is not None:
+            self._assist_analysis_busy = False
+            self._assist_analysis_error = ""
+            self._assist_analysis_requested_once = True
+            self._assist_analysis_pending_request_id = ""
+            self._assist_analysis_pending_cache_key = ""
+            self._assist_analysis_result = self._normalize_assist_analysis_result(cached)
+            self._assist_analysis_result["caseResults"] = self._normalize_assist_case_results(cached.get("caseResults"))
+            self.dataChanged.emit()
+            return
         request_id = str(uuid.uuid4())
         self._assist_analysis_busy = True
         self._assist_analysis_error = ""
         self._assist_analysis_requested_once = True
         self._assist_analysis_pending_request_id = request_id
+        self._assist_analysis_pending_cache_key = cache_key
+        self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
         self.dataChanged.emit()
         self.assistAnalysisRequested.emit(
             self._todo_id,
@@ -2383,6 +2412,22 @@ class _TodoDetailBridge(QObject):
         ]
         return payload
 
+    def _assist_analysis_cache_key(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(str(self._todo_id or "").encode("utf-8", errors="ignore"))
+        digest.update(b"\0")
+        digest.update(str(self._current_summary or "").encode("utf-8", errors="ignore"))
+        digest.update(b"\0")
+        digest.update(str(self._title or "").encode("utf-8", errors="ignore"))
+        digest.update(b"\0")
+        digest.update(str(self._conclusion_content or "").encode("utf-8", errors="ignore"))
+        for item in self._timeline:
+            digest.update(b"\0")
+            digest.update(str(item.get("id", "")).encode("utf-8", errors="ignore"))
+            digest.update(str(item.get("timestamp", "")).encode("utf-8", errors="ignore"))
+            digest.update(str(item.get("content", "")).encode("utf-8", errors="ignore"))
+        return digest.hexdigest()
+
     def _emit_command_request(
         self,
         *,
@@ -2515,6 +2560,60 @@ class _TodoDetailBridge(QObject):
         }
 
     @staticmethod
+    def _empty_assist_case_results(status: str = "empty", error_message: str = "") -> dict[str, object]:
+        return {
+            "status": status,
+            "title": "相似案例",
+            "countLabel": "检索中" if status == "loading" else "暂无案例",
+            "count": "检索中" if status == "loading" else "暂无案例",
+            "emptyText": "正在检索相似案例..." if status == "loading" else "暂无案例",
+            "items": [],
+            "errorMessage": sanitize_text(error_message).strip(),
+        }
+
+    @staticmethod
+    def _normalize_assist_case_results(payload: object) -> dict[str, object]:
+        if not isinstance(payload, dict):
+            return _TodoDetailBridge._empty_assist_case_results()
+        items: list[dict[str, str]] = []
+        raw_items = payload.get("items", [])
+        if isinstance(raw_items, list):
+            for item in raw_items[:5]:
+                if not isinstance(item, dict):
+                    continue
+                title = sanitize_text(item.get("title")).strip()
+                desc = sanitize_text(item.get("desc")).strip()
+                text = sanitize_text(item.get("text")).strip()
+                detail_url = sanitize_text(item.get("detailUrl") or item.get("detail_url")).strip()
+                source = sanitize_text(item.get("source")).strip()
+                if title:
+                    items.append(
+                        {
+                            "title": title,
+                            "desc": desc,
+                            "text": text or desc or title,
+                            "detailUrl": detail_url,
+                            "source": source,
+                        }
+                    )
+        status = sanitize_text(payload.get("status")).strip() or ("success" if items else "empty")
+        if not items and status == "success":
+            status = "empty"
+        count_label = sanitize_text(payload.get("countLabel") or payload.get("count")).strip()
+        if not count_label:
+            count_label = f"检索 {len(items)} 条结果" if items else "暂无案例"
+        empty_text = sanitize_text(payload.get("emptyText")).strip() or ("正在检索相似案例..." if status == "loading" else "暂无案例")
+        return {
+            "status": status,
+            "title": sanitize_text(payload.get("title")).strip() or "相似案例",
+            "countLabel": count_label,
+            "count": count_label,
+            "emptyText": empty_text,
+            "items": items,
+            "errorMessage": sanitize_text(payload.get("errorMessage")).strip(),
+        }
+
+    @staticmethod
     def _normalize_assist_analysis_result(payload: object) -> dict[str, object]:
         data = dict(payload or {}) if isinstance(payload, dict) else {}
         information = dict(data.get("informationStatus") or {}) if isinstance(data.get("informationStatus"), dict) else {}
@@ -2555,6 +2654,7 @@ class _TodoDetailBridge(QObject):
         self._assist_analysis_error = ""
         self._assist_analysis_requested_once = False
         self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_pending_cache_key = ""
         self._assist_analysis_result = self._default_assist_analysis_result()
 
     def _set_assist_troubleshooting_visible(self, visible: bool) -> None:
@@ -2618,6 +2718,13 @@ class _TodoDetailBridge(QObject):
         self._assist_analysis_pending_request_id = ""
         self._assist_analysis_error = ""
         self._assist_analysis_result = self._normalize_assist_analysis_result(payload)
+        if isinstance(payload, dict) and "caseResults" in payload:
+            self._assist_analysis_result["caseResults"] = self._normalize_assist_case_results(payload.get("caseResults"))
+        else:
+            self._assist_analysis_result["caseResults"] = self._empty_assist_case_results()
+        if self._assist_analysis_pending_cache_key:
+            self._assist_analysis_cache[self._assist_analysis_pending_cache_key] = dict(self._assist_analysis_result)
+            self._assist_analysis_pending_cache_key = ""
         self.dataChanged.emit()
         return True
 
@@ -2628,6 +2735,8 @@ class _TodoDetailBridge(QObject):
             return False
         self._assist_analysis_busy = False
         self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(error_message=message)
+        self._assist_analysis_pending_cache_key = ""
         self._assist_analysis_error = sanitize_text(message).strip() or "辅助排查分析失败"
         self.dataChanged.emit()
         return True
