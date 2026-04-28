@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 import uuid
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+_MIN_ASSIST_CASE_MATCH_SCORE = 50
 
 try:
     if _SKIP_QT_IMPORT:
@@ -2583,9 +2584,10 @@ class _TodoDetailBridge(QObject):
         if not isinstance(payload, dict):
             return _TodoDetailBridge._empty_assist_case_results()
         items: list[dict[str, str]] = []
+        dropped_low_score = False
         raw_items = payload.get("items", [])
         if isinstance(raw_items, list):
-            for item in raw_items[:5]:
+            for item in raw_items:
                 if not isinstance(item, dict):
                     continue
                 title = sanitize_text(item.get("title")).strip()
@@ -2596,6 +2598,9 @@ class _TodoDetailBridge(QObject):
                 score = _coerce_int(item.get("score"))
                 score_label = sanitize_text(item.get("scoreLabel") or item.get("score_label")).strip()
                 match_reason = sanitize_text(item.get("matchReason") or item.get("match_reason")).strip()
+                if score < _MIN_ASSIST_CASE_MATCH_SCORE:
+                    dropped_low_score = True
+                    continue
                 if title:
                     items.append(
                         {
@@ -2609,11 +2614,15 @@ class _TodoDetailBridge(QObject):
                             "matchReason": match_reason,
                         }
                     )
+                if len(items) >= 5:
+                    break
         status = sanitize_text(payload.get("status")).strip() or ("success" if items else "empty")
         if not items and status == "success":
             status = "empty"
         count_label = sanitize_text(payload.get("countLabel") or payload.get("count")).strip()
-        if not count_label:
+        if dropped_low_score and status != "loading":
+            count_label = f"检索 {len(items)} 条结果" if items else "暂无案例"
+        elif not count_label:
             count_label = f"检索 {len(items)} 条结果" if items else "暂无案例"
         empty_text = sanitize_text(payload.get("emptyText")).strip() or ("正在检索相似案例..." if status == "loading" else "暂无案例")
         return {

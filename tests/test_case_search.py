@@ -149,10 +149,11 @@ def test_rank_case_search_result_uses_llm_scores_and_summaries() -> None:
 
     ranked = rank_case_search_result(llm, request, result)
 
-    assert [item.title for item in ranked.items] == ["编辑保存偶现保存失败，20022.otl", "模板损坏"]
+    assert [item.title for item in ranked.items] == ["编辑保存偶现保存失败，20022.otl"]
     assert ranked.items[0].score == 91
     assert ranked.items[0].desc == "案例结论：文件过大时 size 字段需返回 integer 类型。"
     assert "契合度 91" in ranked.items[0].text
+    assert ranked.count_label == "检索 1 条结果"
 
 
 def test_rank_case_search_result_falls_back_to_local_scoring_when_llm_unavailable() -> None:
@@ -173,5 +174,31 @@ def test_rank_case_search_result_falls_back_to_local_scoring_when_llm_unavailabl
     ranked = rank_case_search_result(_LLM(RuntimeError("no model")), request, result)
 
     assert ranked.items[0].title == "编辑保存偶现保存失败，20022.otl"
-    assert ranked.items[0].score > ranked.items[1].score
+    assert len(ranked.items) == 1
     assert "integer" in ranked.items[0].desc
+
+
+def test_rank_case_search_result_hides_cases_below_50_score() -> None:
+    request = CaseSearchRequest(
+        title="编辑保存失败 20022",
+        current_summary="编辑保存时提示 20022",
+        timeline_text="- 客户保存失败",
+    )
+    result = CaseSearchResult(
+        status="success",
+        count_label="检索 2 条结果",
+        items=[
+            CaseSearchItem(title="弱相关案例", raw_content="模板文件损坏。"),
+            CaseSearchItem(title="不相关案例", raw_content="登录失败。"),
+        ],
+    )
+    llm = _LLM(
+        '[{"index":0,"score":49,"conclusion":"弱相关。","matchReason":"仅同为文件问题"},'
+        '{"index":1,"score":12,"conclusion":"不相关。","matchReason":"现象不同"}]'
+    )
+
+    ranked = rank_case_search_result(llm, request, result)
+
+    assert ranked.status == "empty"
+    assert ranked.count_label == "暂无案例"
+    assert ranked.items == []

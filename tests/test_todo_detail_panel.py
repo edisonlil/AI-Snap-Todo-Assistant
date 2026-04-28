@@ -260,8 +260,17 @@ def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> 
             "summary": "分析完成",
             "caseResults": {
                 "status": "success",
-                "countLabel": "检索 1 条结果",
+                "countLabel": "检索 2 条结果",
                 "items": [
+                    {
+                        "title": "弱相关案例",
+                        "desc": "低分案例描述",
+                        "text": "低分引用文本",
+                        "detailUrl": "https://www.kdocs.cn/l/case-low",
+                        "score": 49,
+                        "scoreLabel": "契合度 49",
+                        "matchReason": "仅弱相关",
+                    },
                     {
                         "title": "移动端鉴权 token 未透传",
                         "desc": "历史案例描述",
@@ -278,6 +287,7 @@ def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> 
 
     results = bridge.assistCaseResults
     assert results["countLabel"] == "检索 1 条结果"
+    assert len(results["items"]) == 1
     assert results["items"][0]["title"] == "移动端鉴权 token 未透传"
     assert results["items"][0]["detailUrl"] == "https://www.kdocs.cn/l/case1"
     assert results["items"][0]["score"] == 86

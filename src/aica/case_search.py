@@ -14,6 +14,8 @@ import requests
 from aica.llm.types import Message
 from aica.text_sanitize import sanitize_text
 
+MIN_CASE_MATCH_SCORE = 50
+
 
 @dataclass(frozen=True)
 class CaseSearchRequest:
@@ -268,11 +270,12 @@ def rank_case_search_result(
     if not scored:
         scored = [_score_case_item_locally(request, item) for item in deduped]
 
-    ranked = sorted(scored, key=lambda item: (-item.score, item.title))[: max(1, int(max_results))]
+    eligible = [item for item in scored if item.score >= MIN_CASE_MATCH_SCORE]
+    ranked = sorted(eligible, key=lambda item: (-item.score, item.title))[: max(1, int(max_results))]
     return CaseSearchResult(
-        status="success" if ranked else result.status,
+        status="success" if ranked else "empty",
         title=result.title,
-        count_label=f"检索 {len(ranked)} 条结果" if ranked else result.count_label,
+        count_label=f"检索 {len(ranked)} 条结果" if ranked else "暂无案例",
         items=ranked,
         error_message=result.error_message,
     )
