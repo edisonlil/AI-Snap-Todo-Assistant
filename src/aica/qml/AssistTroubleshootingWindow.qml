@@ -91,8 +91,85 @@ Rectangle {
             }
         })
 
+        readonly property var resultData: ({
+            "case": {
+                "title": "相似案例",
+                "count": "模拟 2 条结果",
+                "items": [
+                    {
+                        "title": "电子签章在线预览坐标偏移",
+                        "desc": "历史结论：生产与测试环境 preview_mode、缩放参数不一致，导致坐标换算结果不同。",
+                        "text": "【相似案例】preview_mode 与缩放参数不一致可能导致坐标偏移，建议优先比对请求参数。"
+                    },
+                    {
+                        "title": "PDF 转图片后签章错位",
+                        "desc": "与 DPI/缩放设置相关，服务端渲染参数不同导致偏移。",
+                        "text": "【相似案例】与 DPI/缩放设置相关，建议核对服务端渲染参数。"
+                    }
+                ]
+            },
+            "doc": {
+                "title": "官方文档",
+                "count": "模拟 2 条结果",
+                "items": [
+                    {
+                        "title": "签章预览坐标与缩放说明",
+                        "desc": "页码、坐标原点、缩放比、旋转与预览模式共同影响展示。",
+                        "text": "【官方文档】签章位置与页码/坐标系/缩放/预览模式相关，建议对照核查。"
+                    },
+                    {
+                        "title": "预览服务参数列表",
+                        "desc": "包含 preview_mode、scale、dpi 等关键字段说明。",
+                        "text": "【官方文档】建议核对 preview_mode/scale/dpi 等字段。"
+                    }
+                ]
+            },
+            "err": {
+                "title": "错误码说明",
+                "count": "模拟 2 条结果",
+                "items": [
+                    {
+                        "title": "400000007",
+                        "desc": "参数校验失败，检查必填字段与格式。",
+                        "text": "【错误码】400000007 参数校验失败，需检查必填字段与格式。"
+                    },
+                    {
+                        "title": "15041",
+                        "desc": "文档创建失败，可能与权限或模板异常相关。",
+                        "text": "【错误码】15041 文档创建失败，需检查权限与模板。"
+                    }
+                ]
+            },
+            "step": {
+                "title": "验证步骤",
+                "count": "模拟 1 条结果",
+                "items": [
+                    {
+                        "title": "生产与 demo 对比验证",
+                        "desc": "1. 使用同一文件；2. 使用同一请求参数；3. 对比 preview_mode、scale、dpi、页码和坐标；4. 记录是否复现。",
+                        "text": "【验证步骤】\n1. 使用同一文件\n2. 使用同一请求参数\n3. 对比 preview_mode、scale、dpi、页码和坐标\n4. 记录生产与 demo 是否复现"
+                    }
+                ]
+            }
+        })
+
         function currentData() {
             return tabData[selectedKey] || tabData["case"]
+        }
+
+        function currentResults() {
+            return resultData[selectedKey] || resultData["case"]
+        }
+
+        function appendTimelineDraft(text) {
+            var value = String(text || "").trim()
+            if (value.length === 0 || !todoDetailBridge) {
+                return
+            }
+            var current = String(todoDetailBridge.timelineDraftText || "").trim()
+            todoDetailBridge.setTimelineDraftEntryType("follow_up")
+            todoDetailBridge.updateTimelineDraftText(current.length > 0 ? current + "\n\n" + value : value)
+            panel.showToast("已引用到跟进")
         }
 
         function showToast(text) {
@@ -262,18 +339,18 @@ Rectangle {
                                 model: panel.toolTabs
 
                                 delegate: Rectangle {
-                                    width: tabText.implicitWidth + 16
+                                    width: tabText.implicitWidth + 20
                                     height: panel.chipHeight
-                                    radius: panel.chipRadius
-                                    color: panel.selectedKey === modelData.key ? "#ECEFF3" : "#FFFFFF"
+                                    radius: 8
+                                    color: panel.selectedKey === modelData.key ? "#EEF2FF" : "transparent"
                                     border.width: 1
-                                    border.color: panel.selectedKey === modelData.key ? panel.primaryFill : panel.chipBorder
+                                    border.color: "transparent"
 
                                     Text {
                                         id: tabText
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: panel.selectedKey === modelData.key ? panel.primaryFill : panel.chipText
+                                        color: panel.selectedKey === modelData.key ? "#4F73FF" : "#667085"
                                         font.family: root.uiFont
                                         font.pixelSize: panel.chipFontSize
                                         font.weight: 500
@@ -283,6 +360,126 @@ Rectangle {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: panel.selectedKey = modelData.key
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: resultColumn.implicitHeight + 24
+                        radius: 14
+                        color: "#FFFFFF"
+                        border.width: 1
+                        border.color: panel.contentBorder
+
+                        Column {
+                            id: resultColumn
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 14
+                            spacing: 10
+
+                            Item {
+                                width: parent.width
+                                height: 18
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: panel.currentResults().title
+                                    color: panel.titleText
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    font.weight: 600
+                                }
+
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: panel.currentResults().count
+                                    color: panel.mutedText
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: 400
+                                }
+                            }
+
+                            Repeater {
+                                model: panel.currentResults().items
+
+                                delegate: Rectangle {
+                                    width: parent.width
+                                    height: resultCardColumn.implicitHeight + 20
+                                    radius: 12
+                                    color: "#FFFFFF"
+                                    border.width: 1
+                                    border.color: panel.contentBorder
+
+                                    Column {
+                                        id: resultCardColumn
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: 12
+                                        spacing: 7
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.title
+                                            wrapMode: Text.Wrap
+                                            color: panel.titleText
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 600
+                                            lineHeight: 1.2
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: modelData.desc
+                                            wrapMode: Text.Wrap
+                                            color: panel.bodyText
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            font.weight: 400
+                                            lineHeight: 1.25
+                                        }
+
+                                        Row {
+                                            spacing: 14
+                                            height: 18
+
+                                            Text {
+                                                text: "引用到跟进"
+                                                color: "#4F73FF"
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                font.weight: 500
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: panel.appendTimelineDraft(modelData.text)
+                                                }
+                                            }
+
+                                            Text {
+                                                text: "查看详情"
+                                                color: "#4F73FF"
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                font.weight: 500
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: panel.showToast("暂无更多详情")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
