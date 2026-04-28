@@ -651,6 +651,7 @@ class _TodoDetailBridge(QObject):
     exportPlanRequested = pyqtSignal(str, object)
     stageSummaryRequested = pyqtSignal(str, object)
     stageSummaryRewriteRequested = pyqtSignal(str, object)
+    assistAnalysisRequested = pyqtSignal(str, object)
 
     def __init__(
         self,
@@ -718,6 +719,11 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
         self._assist_troubleshooting_visible = False
+        self._assist_analysis_busy = False
+        self._assist_analysis_error = ""
+        self._assist_analysis_requested_once = False
+        self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_result: dict[str, object] = self._default_assist_analysis_result()
 
     @property
     def notificationBridge(self) -> AppNotificationBridge:
@@ -906,6 +912,33 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(bool, notify=assistTroubleshootingChanged)
     def assistTroubleshootingVisible(self) -> bool:
         return self._assist_troubleshooting_visible
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def assistAnalysisBusy(self) -> bool:
+        return self._assist_analysis_busy
+
+    @pyqtProperty(str, notify=dataChanged)
+    def assistAnalysisError(self) -> str:
+        return self._assist_analysis_error
+
+    @pyqtProperty(str, notify=dataChanged)
+    def assistAnalysisSummary(self) -> str:
+        return str(self._assist_analysis_result.get("summary", "") or "")
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def assistInformationStatus(self):  # noqa: ANN201
+        value = self._assist_analysis_result.get("informationStatus")
+        return dict(value or {}) if isinstance(value, dict) else {}
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def assistMissingSupplement(self):  # noqa: ANN201
+        value = self._assist_analysis_result.get("missingSupplement")
+        return dict(value or {}) if isinstance(value, dict) else {}
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def assistUpgradeSuggestion(self):  # noqa: ANN201
+        value = self._assist_analysis_result.get("upgradeSuggestion")
+        return dict(value or {}) if isinstance(value, dict) else {}
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -2145,6 +2178,27 @@ class _TodoDetailBridge(QObject):
         self._set_assist_troubleshooting_visible(False)
 
     @pyqtSlot()
+    def refreshAssistAnalysis(self) -> None:
+        if self._todo_id is None:
+            return
+        payload = self._build_payload()
+        if payload is None:
+            return
+        request_id = str(uuid.uuid4())
+        self._assist_analysis_busy = True
+        self._assist_analysis_error = ""
+        self._assist_analysis_requested_once = True
+        self._assist_analysis_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.assistAnalysisRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "todoPayload": payload,
+            },
+        )
+
+    @pyqtSlot()
     def refreshStageSummary(self) -> None:
         if self._todo_id is None:
             return
@@ -2443,15 +2497,78 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
 
+    @staticmethod
+    def _default_assist_analysis_result() -> dict[str, object]:
+        return {
+            "summary": "正在基于问题描述和时间线跟进记录整理问题分析摘要。",
+            "informationStatus": {
+                "recognized": "等待分析当前描述和时间线证据",
+                "checkedDirections": [],
+            },
+            "missingSupplement": {
+                "directions": [],
+            },
+            "upgradeSuggestion": {
+                "decision": "暂不建议升级",
+                "reason": "等待完成证据分析后再判断是否需要升级。",
+            },
+        }
+
+    @staticmethod
+    def _normalize_assist_analysis_result(payload: object) -> dict[str, object]:
+        data = dict(payload or {}) if isinstance(payload, dict) else {}
+        information = dict(data.get("informationStatus") or {}) if isinstance(data.get("informationStatus"), dict) else {}
+        missing = dict(data.get("missingSupplement") or {}) if isinstance(data.get("missingSupplement"), dict) else {}
+        upgrade = dict(data.get("upgradeSuggestion") or {}) if isinstance(data.get("upgradeSuggestion"), dict) else {}
+
+        def _items(value: object, body_key: str) -> list[dict[str, str]]:
+            result: list[dict[str, str]] = []
+            if not isinstance(value, list):
+                return result
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                title = sanitize_text(item.get("title")).strip()
+                body = sanitize_text(item.get(body_key) or item.get("evidence") or item.get("reason")).strip()
+                if title:
+                    result.append({"title": title, body_key: body})
+            return result
+
+        default_result = _TodoDetailBridge._default_assist_analysis_result()
+        return {
+            "summary": sanitize_text(data.get("summary")).strip() or str(default_result["summary"]),
+            "informationStatus": {
+                "recognized": sanitize_text(information.get("recognized")).strip() or "已基于当前描述和时间线完成初步识别",
+                "checkedDirections": _items(information.get("checkedDirections"), "evidence"),
+            },
+            "missingSupplement": {
+                "directions": _items(missing.get("directions"), "reason"),
+            },
+            "upgradeSuggestion": {
+                "decision": sanitize_text(upgrade.get("decision")).strip() or "暂不建议升级",
+                "reason": sanitize_text(upgrade.get("reason")).strip() or "当前缺少足够证据，建议先补齐问题现象、请求参数、日志或复现结论。",
+            },
+        }
+
+    def _reset_assist_analysis_state(self) -> None:
+        self._assist_analysis_busy = False
+        self._assist_analysis_error = ""
+        self._assist_analysis_requested_once = False
+        self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_result = self._default_assist_analysis_result()
+
     def _set_assist_troubleshooting_visible(self, visible: bool) -> None:
         visible = bool(visible)
         if self._assist_troubleshooting_visible == visible:
             return
         self._assist_troubleshooting_visible = visible
         self.assistTroubleshootingChanged.emit()
+        if visible and not self._assist_analysis_requested_once:
+            self.refreshAssistAnalysis()
 
     def reset_assist_troubleshooting_session(self) -> None:
         self._set_assist_troubleshooting_visible(False)
+        self._reset_assist_analysis_state()
 
     def reset_stage_summary_session(self) -> None:
         self._reset_stage_summary_state()
@@ -2489,6 +2606,29 @@ class _TodoDetailBridge(QObject):
             self._stage_summary_error = normalized
         elif not self._stage_summary_text.strip():
             self._stage_summary_error = "阶段总结整理失败"
+        self.dataChanged.emit()
+        return True
+
+    def apply_assist_analysis_result(self, todo_id: str, request_id: str, payload: object) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._assist_analysis_pending_request_id:
+            return False
+        self._assist_analysis_busy = False
+        self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_error = ""
+        self._assist_analysis_result = self._normalize_assist_analysis_result(payload)
+        self.dataChanged.emit()
+        return True
+
+    def apply_assist_analysis_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._assist_analysis_pending_request_id:
+            return False
+        self._assist_analysis_busy = False
+        self._assist_analysis_pending_request_id = ""
+        self._assist_analysis_error = sanitize_text(message).strip() or "辅助排查分析失败"
         self.dataChanged.emit()
         return True
 
@@ -3493,6 +3633,7 @@ class TodoDetailPanel(QQuickView):
     export_plan_requested = pyqtSignal(str, object)
     stage_summary_requested = pyqtSignal(str, object)
     stage_summary_rewrite_requested = pyqtSignal(str, object)
+    assist_analysis_requested = pyqtSignal(str, object)
 
     def __init__(self, parent=None, *, notification_bridge: AppNotificationBridge | None = None):
         super().__init__(parent)
@@ -3558,6 +3699,7 @@ class TodoDetailPanel(QQuickView):
         self._bridge.exportPlanRequested.connect(self.export_plan_requested)
         self._bridge.stageSummaryRequested.connect(self.stage_summary_requested)
         self._bridge.stageSummaryRewriteRequested.connect(self.stage_summary_rewrite_requested)
+        self._bridge.assistAnalysisRequested.connect(self.assist_analysis_requested)
         self._bridge.panelDragStarted.connect(self._begin_panel_drag)
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
@@ -3820,3 +3962,9 @@ class TodoDetailPanel(QQuickView):
 
     def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
+
+    def apply_assist_analysis_result(self, todo_id: str, request_id: str, payload: object) -> bool:
+        return self._bridge.apply_assist_analysis_result(todo_id, request_id, payload)
+
+    def apply_assist_analysis_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        return self._bridge.apply_assist_analysis_error(todo_id, request_id, message)

@@ -13,12 +13,14 @@ Rectangle {
         anchors.fill: parent
 
         property string selectedKey: "case"
+        property bool resultExpanded: true
         property string toastText: ""
 
         readonly property real panelSidePadding: 24
         readonly property real panelTopPadding: 16
         readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
+        readonly property real scrollbarRightMargin: 8
         readonly property color panelBorder: "#E5E7EB"
         readonly property color titleText: "#18202E"
         readonly property color bodyText: "#4A5565"
@@ -33,7 +35,7 @@ Rectangle {
         readonly property real chipRadius: 14
         readonly property real chipFontSize: 11
         readonly property real headerHeight: 28
-        readonly property real helperHeight: 64
+        readonly property real helperHeight: 48
         readonly property real bodyHeight: root.height
             - panel.panelTopPadding
             - panel.panelBottomPadding
@@ -155,6 +157,64 @@ Rectangle {
 
         function currentData() {
             return tabData[selectedKey] || tabData["case"]
+        }
+
+        function analysisSummaryText() {
+            if (!todoDetailBridge) {
+                return "更像环境或参数差异问题，建议先补齐参数和日志，再决定是否升级。"
+            }
+            if (todoDetailBridge.assistAnalysisBusy) {
+                return "正在基于问题描述和时间线跟进记录整理问题分析摘要..."
+            }
+            if (todoDetailBridge.assistAnalysisError && todoDetailBridge.assistAnalysisError.length > 0) {
+                return todoDetailBridge.assistAnalysisError
+            }
+            return todoDetailBridge.assistAnalysisSummary || "当前证据仍不完整，建议先补齐关键信息后再判断是否升级。"
+        }
+
+        function informationStatus() {
+            return todoDetailBridge ? (todoDetailBridge.assistInformationStatus || ({})) : ({})
+        }
+
+        function missingSupplement() {
+            return todoDetailBridge ? (todoDetailBridge.assistMissingSupplement || ({})) : ({})
+        }
+
+        function upgradeSuggestion() {
+            return todoDetailBridge ? (todoDetailBridge.assistUpgradeSuggestion || ({})) : ({})
+        }
+
+        function checkedDirections() {
+            var info = informationStatus()
+            var items = info.checkedDirections || []
+            if (items.length > 0) {
+                return items
+            }
+            return [{ "title": currentData().known, "evidence": currentData().knownReason }]
+        }
+
+        function missingDirections() {
+            var supplement = missingSupplement()
+            var items = supplement.directions || []
+            if (items.length > 0) {
+                return items
+            }
+            return currentData().missing
+        }
+
+        function recognizedText() {
+            var info = informationStatus()
+            return info.recognized || currentData().recognized
+        }
+
+        function upgradeDecisionText() {
+            var upgrade = upgradeSuggestion()
+            return upgrade.decision || "暂不建议升级"
+        }
+
+        function upgradeReasonText() {
+            var upgrade = upgradeSuggestion()
+            return upgrade.reason || "当前缺少参数、日志、demo 对比等关键证据。建议先补齐信息，再判断是否需要升级。"
         }
 
         function currentResults() {
@@ -280,27 +340,29 @@ Rectangle {
                 }
             }
 
-            Rectangle {
+            Item {
                 width: parent.width
                 height: panel.helperHeight
-                radius: 12
-                color: panel.subtleFill
-                border.width: 1
-                border.color: panel.contentBorder
 
                 Text {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    anchors.topMargin: 10
-                    anchors.bottomMargin: 10
-                    text: "更像环境或参数差异问题，建议先补齐参数和日志，再决定是否升级。"
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: panel.analysisSummaryText()
                     wrapMode: Text.Wrap
                     color: panel.bodyText
                     font.family: root.uiFont
                     font.pixelSize: 13
                     font.weight: 400
                     lineHeight: 1.22
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: "#EEF1F5"
                 }
             }
 
@@ -309,7 +371,7 @@ Rectangle {
                 width: parent.width
                 height: panel.bodyHeight
                 clip: true
-                contentWidth: width
+                contentWidth: bodyColumn.width
                 contentHeight: bodyColumn.implicitHeight
                 boundsBehavior: Flickable.StopAtBounds
 
@@ -320,15 +382,7 @@ Rectangle {
 
                     Column {
                         width: parent.width
-                        spacing: 8
-
-                        Text {
-                            text: "操作"
-                            color: panel.mutedText
-                            font.family: root.uiFont
-                            font.pixelSize: 12
-                            font.weight: 400
-                        }
+                        spacing: 0
 
                         Row {
                             width: parent.width
@@ -342,7 +396,7 @@ Rectangle {
                                     width: tabText.implicitWidth + 20
                                     height: panel.chipHeight
                                     radius: 8
-                                    color: panel.selectedKey === modelData.key ? "#EEF2FF" : "transparent"
+                                    color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#EEF2FF" : "transparent"
                                     border.width: 1
                                     border.color: "transparent"
 
@@ -350,7 +404,7 @@ Rectangle {
                                         id: tabText
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: panel.selectedKey === modelData.key ? "#4F73FF" : "#667085"
+                                        color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#4F73FF" : "#667085"
                                         font.family: root.uiFont
                                         font.pixelSize: panel.chipFontSize
                                         font.weight: 500
@@ -359,7 +413,14 @@ Rectangle {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: panel.selectedKey = modelData.key
+                                        onClicked: {
+                                            if (panel.resultExpanded && panel.selectedKey === modelData.key) {
+                                                panel.resultExpanded = false
+                                                return
+                                            }
+                                            panel.selectedKey = modelData.key
+                                            panel.resultExpanded = true
+                                        }
                                     }
                                 }
                             }
@@ -367,8 +428,9 @@ Rectangle {
                     }
 
                     Rectangle {
+                        visible: panel.resultExpanded
                         width: parent.width
-                        height: resultColumn.implicitHeight + 24
+                        height: visible ? resultColumn.implicitHeight + 24 : 0
                         radius: 14
                         color: "#FFFFFF"
                         border.width: 1
@@ -492,15 +554,15 @@ Rectangle {
 
                         Text {
                             text: "信息状态"
-                            color: panel.mutedText
+                            color: panel.titleText
                             font.family: root.uiFont
-                            font.pixelSize: 12
-                            font.weight: 400
+                            font.pixelSize: 13
+                            font.weight: 600
                         }
 
                         Text {
                             width: parent.width
-                            text: panel.currentData().recognized
+                            text: panel.recognizedText()
                             wrapMode: Text.Wrap
                             color: panel.bodyText
                             font.family: root.uiFont
@@ -509,30 +571,36 @@ Rectangle {
                             lineHeight: 1.2
                         }
 
-                        Column {
+                        Repeater {
                             width: parent.width
-                            spacing: 3
+                            model: panel.checkedDirections()
 
-                            Text {
+                            delegate: Column {
                                 width: parent.width
-                                text: "✓ " + panel.currentData().known
-                                wrapMode: Text.Wrap
-                                color: panel.bodyText
-                                font.family: root.uiFont
-                                font.pixelSize: 13
-                                font.weight: 400
-                                lineHeight: 1.2
-                            }
+                                spacing: 3
 
-                            Text {
-                                width: parent.width
-                                text: panel.currentData().knownReason
-                                wrapMode: Text.Wrap
-                                color: panel.mutedText
-                                font.family: root.uiFont
-                                font.pixelSize: 12
-                                font.weight: 400
-                                lineHeight: 1.2
+                                Text {
+                                    width: parent.width
+                                    text: "✓ " + modelData.title
+                                    wrapMode: Text.Wrap
+                                    color: panel.bodyText
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    font.weight: 400
+                                    lineHeight: 1.2
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: modelData.evidence
+                                    visible: text.length > 0
+                                    wrapMode: Text.Wrap
+                                    color: panel.mutedText
+                                    font.family: root.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: 400
+                                    lineHeight: 1.2
+                                }
                             }
                         }
                     }
@@ -543,14 +611,14 @@ Rectangle {
 
                         Text {
                             text: "仍需补充"
-                            color: panel.mutedText
+                            color: panel.titleText
                             font.family: root.uiFont
-                            font.pixelSize: 12
-                            font.weight: 400
+                            font.pixelSize: 13
+                            font.weight: 600
                         }
 
                         Repeater {
-                            model: panel.currentData().missing
+                            model: panel.missingDirections()
 
                             delegate: Column {
                                 width: parent.width
@@ -598,7 +666,7 @@ Rectangle {
                             Text {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "暂不建议升级"
+                                text: panel.upgradeDecisionText()
                                 color: panel.titleText
                                 font.family: root.uiFont
                                 font.pixelSize: 14
@@ -627,7 +695,7 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: "当前缺少参数、日志、demo 对比等关键证据。建议先补齐信息，再判断是否需要升级。"
+                            text: panel.upgradeReasonText()
                             wrapMode: Text.Wrap
                             color: panel.bodyText
                             font.family: root.uiFont
@@ -637,18 +705,20 @@ Rectangle {
                         }
                     }
                 }
-
-                Rectangle {
-                    visible: bodyFlick.contentHeight > bodyFlick.height + 2
-                    anchors.right: parent.right
-                    anchors.rightMargin: 4
-                    y: 8 + (bodyFlick.contentY / Math.max(1, bodyFlick.contentHeight - bodyFlick.height)) * (parent.height - height - 16)
-                    width: 4
-                    height: Math.max(48, (bodyFlick.height / Math.max(bodyFlick.contentHeight, 1)) * (parent.height - 16))
-                    radius: 2
-                    color: "#BEC6D2"
-                }
             }
+        }
+
+        Rectangle {
+            visible: bodyFlick.contentHeight > bodyFlick.height + 2
+            anchors.right: parent.right
+            anchors.rightMargin: panel.scrollbarRightMargin
+            y: panelColumn.y + bodyFlick.y + 8
+                + (bodyFlick.contentY / Math.max(1, bodyFlick.contentHeight - bodyFlick.height))
+                * (bodyFlick.height - height - 16)
+            width: 4
+            height: Math.max(48, (bodyFlick.height / Math.max(bodyFlick.contentHeight, 1)) * (bodyFlick.height - 16))
+            radius: 2
+            color: "#BEC6D2"
         }
 
         Rectangle {

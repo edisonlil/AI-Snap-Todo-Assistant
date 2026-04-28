@@ -54,6 +54,7 @@ from aica.todo_store import TodoConclusion, TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
+    AssistAnalysisWorker,
     MultiCaptureAIWorker,
     PlanExportWorker,
     StageSummaryWorker,
@@ -216,6 +217,7 @@ def main() -> None:
     plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
+    assist_analysis_workers: list[AssistAnalysisWorker] = []
     ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
     pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
     capture_ui = CaptureUiFlow(
@@ -698,6 +700,10 @@ def main() -> None:
     def _cleanup_stage_summary_worker(worker: StageSummaryWorker) -> None:
         if worker in stage_summary_workers:
             stage_summary_workers.remove(worker)
+
+    def _cleanup_assist_analysis_worker(worker: AssistAnalysisWorker) -> None:
+        if worker in assist_analysis_workers:
+            assist_analysis_workers.remove(worker)
         worker.deleteLater()
 
     def _on_log_analysis_finished(task_id: str) -> None:
@@ -772,6 +778,12 @@ def main() -> None:
     def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
 
+    def _on_assist_analysis_finished(todo_id: str, request_id: str, payload: object) -> None:
+        todo_detail_panel.apply_assist_analysis_result(todo_id, request_id, payload)
+
+    def _on_assist_analysis_error(todo_id: str, request_id: str, message: str) -> None:
+        todo_detail_panel.apply_assist_analysis_error(todo_id, request_id, message)
+
     def _start_stage_summary_worker(todo_id: str, request_id: str, mode: str, payload: dict[str, object]) -> None:
         config = config_mgr.load()
         worker = StageSummaryWorker(
@@ -786,6 +798,26 @@ def main() -> None:
         worker.finished.connect(lambda _todo_id, _request_id, _text, _notice, current=worker: _cleanup_stage_summary_worker(current))
         worker.error.connect(_on_stage_summary_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
+        worker.start()
+
+    def _on_assist_analysis_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        config = config_mgr.load()
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config),
+            todo_id=todo_id,
+            request_id=request_id,
+            payload=payload,
+        )
+        assist_analysis_workers.append(worker)
+        worker.finished.connect(_on_assist_analysis_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(_on_assist_analysis_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
         worker.start()
 
     def _on_stage_summary_requested(todo_id: str, payload: object) -> None:
@@ -835,6 +867,7 @@ def main() -> None:
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
     todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
     todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
+    todo_detail_panel.assist_analysis_requested.connect(_on_assist_analysis_requested)
 
     try:
         _refresh_todo_panel()

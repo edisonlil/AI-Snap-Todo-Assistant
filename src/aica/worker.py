@@ -721,6 +721,186 @@ def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
     )
 
 
+_ASSIST_ANALYSIS_SYSTEM_PROMPT = (
+    "你是一个工单辅助排查分析助手。"
+    "你只能基于给定的问题描述、当前摘要、结论和时间线记录进行分析，不得编造错误码、日志、接口、根因或已完成动作。"
+    "信息状态只写已经排查过的方向和已有证据；仍需补充只写建议排查方向和需要补充的材料。"
+    "如果证据不足，必须明确保留不确定性，不要写成已确认根因。"
+)
+
+
+def _extract_json_object(text: str) -> dict[str, object]:
+    normalized = str(text or "").strip()
+    if normalized.startswith("```"):
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", normalized, re.IGNORECASE)
+        if match:
+            normalized = match.group(1).strip()
+    start = normalized.find("{")
+    end = normalized.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("response is not JSON")
+    payload = json.loads(normalized[start:end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("response is not a JSON object")
+    return payload
+
+
+def _coerce_assist_text(value: object, fallback: str = "") -> str:
+    normalized = sanitize_text(value).strip()
+    return normalized or fallback
+
+
+def _coerce_assist_items(value: object, *, body_key: str, max_items: int = 4) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                title = _coerce_assist_text(item.get("title"))
+                body = _coerce_assist_text(
+                    item.get(body_key) or item.get("evidence") or item.get("reason") or item.get("material")
+                )
+            else:
+                title = _coerce_assist_text(item)
+                body = ""
+            if not title:
+                continue
+            items.append({"title": title, body_key: body})
+            if len(items) >= max_items:
+                break
+    return items
+
+
+def _normalize_assist_analysis_payload(payload: object) -> dict[str, object]:
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    information = dict(data.get("informationStatus") or {}) if isinstance(data.get("informationStatus"), dict) else {}
+    missing = dict(data.get("missingSupplement") or {}) if isinstance(data.get("missingSupplement"), dict) else {}
+    upgrade = dict(data.get("upgradeSuggestion") or {}) if isinstance(data.get("upgradeSuggestion"), dict) else {}
+    return {
+        "summary": _coerce_assist_text(data.get("summary"), "当前证据仍不完整，建议先补齐关键信息后再判断是否升级。"),
+        "informationStatus": {
+            "recognized": _coerce_assist_text(information.get("recognized"), "已基于当前描述和时间线完成初步识别"),
+            "checkedDirections": _coerce_assist_items(information.get("checkedDirections"), body_key="evidence"),
+        },
+        "missingSupplement": {
+            "directions": _coerce_assist_items(missing.get("directions"), body_key="reason", max_items=5),
+        },
+        "upgradeSuggestion": {
+            "decision": _coerce_assist_text(upgrade.get("decision"), "暂不建议升级"),
+            "reason": _coerce_assist_text(upgrade.get("reason"), "当前缺少足够证据，建议先补齐问题现象、请求参数、日志或复现结论。"),
+        },
+    }
+
+
+def _timeline_lines_for_assist(todo: TodoItem, *, max_items: int = 12) -> list[str]:
+    lines: list[str] = []
+    for event in list(todo.timeline)[-max_items:]:
+        content = sanitize_text(getattr(event, "content", "")).strip()
+        if not content:
+            continue
+        scenario = sanitize_text(getattr(event, "scenario", "")).strip()
+        timestamp = sanitize_text(getattr(event, "timestamp", "") or getattr(event, "created_at", "")).strip()
+        prefix = " / ".join(part for part in (timestamp, scenario) if part)
+        lines.append(f"- {prefix}: {content}" if prefix else f"- {content}")
+    return lines
+
+
+def _local_assist_analysis_payload(todo: TodoItem) -> dict[str, object]:
+    title = sanitize_text(todo.title).strip()
+    summary = sanitize_text(todo.current_summary).strip()
+    timeline_lines = _timeline_lines_for_assist(todo, max_items=6)
+    combined = "\n".join([title, summary, *timeline_lines]).strip()
+    checked: list[dict[str, str]] = []
+    if summary:
+        checked.append({"title": "已有问题描述 / 当前摘要", "evidence": summary[:120]})
+    if timeline_lines:
+        checked.append({"title": "已有时间线跟进记录", "evidence": f"已记录 {len(timeline_lines)} 条可参考跟进证据"})
+    if "demo" in combined.lower() or "测试" in combined or "生产" in combined:
+        checked.append({"title": "已有环境对比线索", "evidence": "当前记录中出现 demo、测试或生产环境相关描述"})
+    missing = [
+        {"title": "关键请求参数", "reason": "用于核对不同环境或链路中的参数是否一致"},
+        {"title": "日志 / request_id / trace_id", "reason": "用于串联服务端日志并确认异常发生位置"},
+        {"title": "复现结论和问题材料", "reason": "用于确认问题是否稳定复现，以及是否具备升级排查条件"},
+    ]
+    return _normalize_assist_analysis_payload(
+        {
+            "summary": (
+                "当前已有问题描述和部分跟进记录，但证据仍不完整；建议先补齐请求参数、日志和复现结论，再判断是否需要升级。"
+                if combined
+                else "当前缺少明确问题描述和时间线证据，建议先补充问题现象、发生环境和复现材料。"
+            ),
+            "informationStatus": {
+                "recognized": "已基于当前描述和时间线完成初步识别" if combined else "当前可识别信息较少",
+                "checkedDirections": checked,
+            },
+            "missingSupplement": {"directions": missing},
+            "upgradeSuggestion": {
+                "decision": "暂不建议升级",
+                "reason": "当前证据链尚不完整，建议先补齐参数、日志、复现材料或已有排查结论。",
+            },
+        }
+    )
+
+
+def _build_assist_analysis_user_prompt(todo: TodoItem) -> str:
+    payload = {
+        "title": sanitize_text(todo.title).strip(),
+        "current_summary": sanitize_text(todo.current_summary).strip(),
+        "summary_fields": todo.summary_fields.to_dict(),
+        "conclusion": sanitize_text(getattr(todo.conclusion, "content", "")).strip(),
+        "timeline": _timeline_lines_for_assist(todo),
+    }
+    return (
+        "请基于以下待办上下文输出 JSON 对象，字段固定为：\n"
+        "{\n"
+        '  "summary": "30-80字的问题分析摘要",\n'
+        '  "informationStatus": {"recognized": "已识别到的当前状态", "checkedDirections": [{"title": "已排查方向或已有证据", "evidence": "对应证据"}]},\n'
+        '  "missingSupplement": {"directions": [{"title": "建议排查方向或待补材料", "reason": "为什么需要补充"}]},\n'
+        '  "upgradeSuggestion": {"decision": "暂不建议升级/建议升级", "reason": "判断依据"}\n'
+        "}\n\n"
+        "规则：informationStatus 只能写已经排查过的方向和已有证据；missingSupplement 只能写建议排查方向和需要补充的材料；证据不足时明确说证据不足；只输出 JSON。\n\n"
+        f"待办上下文：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
+    )
+
+
+class AssistAnalysisWorker(QThread):
+    finished = pyqtSignal(str, str, object)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        llm_service: LLMService,
+        todo_id: str,
+        request_id: str,
+        payload: dict[str, object],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._llm_service = llm_service
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._payload = dict(payload or {})
+
+    def run(self) -> None:
+        try:
+            todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
+            try:
+                raw = self._llm_service.run_task(
+                    "context_summary",
+                    messages=[
+                        Message(role="system", content=_ASSIST_ANALYSIS_SYSTEM_PROMPT),
+                        Message(role="user", content=_build_assist_analysis_user_prompt(todo)),
+                    ],
+                    temperature=0.2,
+                )
+                result = _normalize_assist_analysis_payload(_extract_json_object(raw))
+            except Exception:
+                result = _local_assist_analysis_payload(todo)
+            self.finished.emit(self._todo_id, self._request_id, result)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+
+
 def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:
     normalized_preset = sanitize_text(preset_key).strip()
     normalized_custom = sanitize_text(custom_instruction).strip()

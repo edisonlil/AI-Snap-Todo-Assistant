@@ -409,6 +409,68 @@ def test_toggle_stage_summary_requests_once_without_saving() -> None:
     assert len(requested) == 1
 
 
+def test_toggle_assist_troubleshooting_requests_analysis_once() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is True
+    assert len(requested) == 1
+    todo_id, payload = requested[0]
+    assert todo_id == "todo-1"
+    assert isinstance(payload, dict)
+    assert payload["requestId"]
+    assert payload["todoPayload"]["title"]
+
+    bridge.closeAssistTroubleshooting()
+    bridge.toggleAssistTroubleshooting()
+
+    assert len(requested) == 1
+
+
+def test_apply_assist_analysis_result_updates_structured_state() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    requested: list[dict[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.toggleAssistTroubleshooting()
+    request_id = str(requested[0]["requestId"])
+
+    assert bridge.apply_assist_analysis_result(
+        "todo-1",
+        request_id,
+        {
+            "summary": "已有 demo 对比线索，但仍缺少生产请求参数和日志。",
+            "informationStatus": {
+                "recognized": "已识别到环境对比线索",
+                "checkedDirections": [
+                    {"title": "demo 已验证", "evidence": "时间线记录 demo 正常"}
+                ],
+            },
+            "missingSupplement": {
+                "directions": [
+                    {"title": "生产请求参数", "reason": "用于核对参数差异"}
+                ],
+            },
+            "upgradeSuggestion": {
+                "decision": "暂不建议升级",
+                "reason": "证据链不完整。",
+            },
+        },
+    ) is True
+
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "已有 demo 对比线索，但仍缺少生产请求参数和日志。"
+    assert bridge.assistInformationStatus["recognized"] == "已识别到环境对比线索"
+    assert bridge.assistInformationStatus["checkedDirections"][0]["title"] == "demo 已验证"
+    assert bridge.assistMissingSupplement["directions"][0]["reason"] == "用于核对参数差异"
+    assert bridge.assistUpgradeSuggestion["reason"] == "证据链不完整。"
+
+
 def test_stage_summary_result_resets_when_switching_todo() -> None:
     bridge = _build_bridge(Path("unused"))
     first_todo = _build_todo("todo-1")
