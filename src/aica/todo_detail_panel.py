@@ -361,6 +361,13 @@ def _clean_text(value: str, fallback: str = _EMPTY_TEXT) -> str:
     return text or fallback
 
 
+def _coerce_int(value: object, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _normalize_timeline_scenario(kind: str, scenario: str) -> str:
     if kind == "conclusion":
         return _CONCLUSION_SCENARIO
@@ -2586,6 +2593,9 @@ class _TodoDetailBridge(QObject):
                 text = sanitize_text(item.get("text")).strip()
                 detail_url = sanitize_text(item.get("detailUrl") or item.get("detail_url")).strip()
                 source = sanitize_text(item.get("source")).strip()
+                score = _coerce_int(item.get("score"))
+                score_label = sanitize_text(item.get("scoreLabel") or item.get("score_label")).strip()
+                match_reason = sanitize_text(item.get("matchReason") or item.get("match_reason")).strip()
                 if title:
                     items.append(
                         {
@@ -2594,6 +2604,9 @@ class _TodoDetailBridge(QObject):
                             "text": text or desc or title,
                             "detailUrl": detail_url,
                             "source": source,
+                            "score": score,
+                            "scoreLabel": score_label or (f"契合度 {score}" if score > 0 else ""),
+                            "matchReason": match_reason,
                         }
                     )
         status = sanitize_text(payload.get("status")).strip() or ("success" if items else "empty")

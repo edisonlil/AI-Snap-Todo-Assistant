@@ -79,6 +79,7 @@ from .case_search import (
     build_case_search_queries,
     build_case_search_request,
     empty_case_result,
+    rank_case_search_result,
 )
 from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
 from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
@@ -919,7 +920,8 @@ class AssistAnalysisWorker(QThread):
                 timeline_lines=_timeline_lines_for_assist(todo),
             )
             queries = build_case_search_queries(self._llm_service, request)
-            return self._case_search_provider.search_many(queries).to_payload()
+            result = self._case_search_provider.search_many(queries)
+            return rank_case_search_result(self._llm_service, request, result, max_results=5).to_payload()
         except Exception as exc:  # noqa: BLE001
             return empty_case_result(error_message=str(exc)).to_payload()
 

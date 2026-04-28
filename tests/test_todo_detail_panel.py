@@ -267,6 +267,9 @@ def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> 
                         "desc": "历史案例描述",
                         "text": "引用文本",
                         "detailUrl": "https://www.kdocs.cn/l/case1",
+                        "score": 86,
+                        "scoreLabel": "契合度 86",
+                        "matchReason": "现象均包含移动端鉴权 token",
                     }
                 ],
             },
@@ -277,6 +280,9 @@ def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> 
     assert results["countLabel"] == "检索 1 条结果"
     assert results["items"][0]["title"] == "移动端鉴权 token 未透传"
     assert results["items"][0]["detailUrl"] == "https://www.kdocs.cn/l/case1"
+    assert results["items"][0]["score"] == 86
+    assert results["items"][0]["scoreLabel"] == "契合度 86"
+    assert results["items"][0]["matchReason"] == "现象均包含移动端鉴权 token"
 
 
 def test_assist_analysis_empty_case_results_stay_empty() -> None:

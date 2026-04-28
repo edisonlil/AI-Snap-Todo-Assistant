@@ -504,15 +504,42 @@ Rectangle {
                                         anchors.margins: 12
                                         spacing: 7
 
-                                        Text {
+                                        Item {
                                             width: parent.width
-                                            text: modelData.title
-                                            wrapMode: Text.Wrap
-                                            color: panel.titleText
-                                            font.family: root.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: 600
-                                            lineHeight: 1.2
+                                            height: Math.max(cardTitle.implicitHeight, scoreBadge.visible ? scoreBadge.height : 0)
+
+                                            Text {
+                                                id: cardTitle
+                                                width: parent.width - (scoreBadge.visible ? scoreBadge.width + 8 : 0)
+                                                text: modelData.title
+                                                wrapMode: Text.Wrap
+                                                color: panel.titleText
+                                                font.family: root.uiFont
+                                                font.pixelSize: 13
+                                                font.weight: 600
+                                                lineHeight: 1.2
+                                            }
+
+                                            Rectangle {
+                                                id: scoreBadge
+                                                visible: String(modelData.scoreLabel || "").length > 0
+                                                anchors.right: parent.right
+                                                anchors.top: parent.top
+                                                width: scoreText.implicitWidth + 12
+                                                height: 22
+                                                radius: 11
+                                                color: "#EEF2FF"
+
+                                                Text {
+                                                    id: scoreText
+                                                    anchors.centerIn: parent
+                                                    text: modelData.scoreLabel || ""
+                                                    color: "#4F73FF"
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: 600
+                                                }
+                                            }
                                         }
 
                                         Text {

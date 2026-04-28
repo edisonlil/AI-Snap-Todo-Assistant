@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import re
 import time
@@ -36,14 +36,25 @@ class CaseSearchItem:
     text: str = ""
     detail_url: str = ""
     source: str = ""
+    score: int = 0
+    score_label: str = ""
+    match_reason: str = ""
+    raw_content: str = ""
 
-    def to_payload(self) -> dict[str, str]:
+    def to_payload(self) -> dict[str, object]:
         return {
             "title": self.title,
             "desc": self.desc,
-            "text": self.text or self.desc or self.title,
+            "text": self.text or (
+                _case_reference_text(self)
+                if self.score > 0 or self.score_label or self.match_reason
+                else self.desc or self.title
+            ),
             "detailUrl": self.detail_url,
             "source": self.source,
+            "score": self.score,
+            "scoreLabel": self.score_label or (f"契合度 {self.score}" if self.score > 0 else ""),
+            "matchReason": self.match_reason,
         }
 
 
@@ -238,10 +249,48 @@ def build_case_search_queries(llm_service: object, request: CaseSearchRequest) -
         return fallback
 
 
+def rank_case_search_result(
+    llm_service: object,
+    request: CaseSearchRequest,
+    result: CaseSearchResult,
+    *,
+    max_results: int = 5,
+) -> CaseSearchResult:
+    """Score, summarize, and sort recalled cases against the current issue."""
+    if not result.items:
+        return result
+
+    deduped = _dedupe_case_items(result.items)
+    try:
+        scored = _rank_cases_with_llm(llm_service, request, deduped)
+    except Exception:
+        scored = []
+    if not scored:
+        scored = [_score_case_item_locally(request, item) for item in deduped]
+
+    ranked = sorted(scored, key=lambda item: (-item.score, item.title))[: max(1, int(max_results))]
+    return CaseSearchResult(
+        status="success" if ranked else result.status,
+        title=result.title,
+        count_label=f"检索 {len(ranked)} 条结果" if ranked else result.count_label,
+        items=ranked,
+        error_message=result.error_message,
+    )
+
+
 _QUERY_REWRITE_SYSTEM_PROMPT = (
     "你是技术支持知识库检索 query 改写助手。"
     "只能基于输入的摘要和时间线事实生成检索 query，不得新增事实、猜测根因或扩展错误码。"
     "输出 JSON 数组，每项包含 query 和 reason。"
+)
+
+
+_CASE_RANK_SYSTEM_PROMPT = (
+    "你是技术支持历史案例契合度评分助手。"
+    "你只能基于当前问题现象和候选案例正文评分，不得编造案例中没有的根因、参数、日志或解决方案。"
+    "score 为 0-100 的整数，表示候选案例与当前问题现象的契合度。"
+    "conclusion 必须总结候选案例正文里的关键结论、原因或解决方法。"
+    "输出 JSON 数组，每项包含 index、score、conclusion、matchReason。"
 )
 
 
@@ -256,6 +305,81 @@ def _build_query_rewrite_prompt(request: CaseSearchRequest) -> str:
         "只输出 JSON 数组，例如：[{\"query\":\"...\",\"reason\":\"...\"}]。\n\n"
         f"待办上下文：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
+
+
+def _build_case_rank_prompt(request: CaseSearchRequest, items: list[CaseSearchItem]) -> str:
+    payload = {
+        "current_issue": {
+            "title": request.title,
+            "current_summary": request.current_summary,
+            "timeline": request.timeline_text,
+        },
+        "candidate_cases": [
+            {
+                "index": index,
+                "title": item.title,
+                "content": _truncate(_case_content(item), 900),
+            }
+            for index, item in enumerate(items)
+        ],
+    }
+    return (
+        "请逐条判断候选案例与当前问题现象的契合度，并从案例正文中总结关键结论。\n"
+        "只输出 JSON 数组，例如："
+        "[{\"index\":0,\"score\":86,\"conclusion\":\"案例结论...\",\"matchReason\":\"共同现象...\"}]。\n\n"
+        f"输入：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
+    )
+
+
+def _rank_cases_with_llm(llm_service: object, request: CaseSearchRequest, items: list[CaseSearchItem]) -> list[CaseSearchItem]:
+    if not items:
+        return []
+    raw = llm_service.run_task(
+        "context_summary",
+        messages=[
+            Message(role="system", content=_CASE_RANK_SYSTEM_PROMPT),
+            Message(role="user", content=_build_case_rank_prompt(request, items)),
+        ],
+        temperature=0.1,
+    )
+    ranked_by_index = _parse_case_rank_response(raw)
+    ranked: list[CaseSearchItem] = []
+    for index, item in enumerate(items):
+        score_payload = ranked_by_index.get(index)
+        if not score_payload:
+            ranked.append(_score_case_item_locally(request, item))
+            continue
+        summary = sanitize_text(score_payload.get("conclusion") or score_payload.get("desc")).strip()
+        reason = sanitize_text(score_payload.get("matchReason") or score_payload.get("reason")).strip()
+        score = _clamp_score(score_payload.get("score"))
+        ranked.append(_with_case_score(item, score=score, conclusion=summary, match_reason=reason))
+    return ranked
+
+
+def _parse_case_rank_response(raw: str) -> dict[int, dict[str, object]]:
+    text = sanitize_text(raw).strip()
+    if text.startswith("```"):
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, re.IGNORECASE)
+        if match:
+            text = match.group(1).strip()
+    start = text.find("[")
+    end = text.rfind("]")
+    if start >= 0 and end > start:
+        data = json.loads(text[start:end + 1])
+    else:
+        payload = json.loads(text)
+        data = payload.get("cases") if isinstance(payload, dict) else payload
+    results: dict[int, dict[str, object]] = {}
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                index = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            results[index] = item
+    return results
 
 
 def _fallback_case_search_queries(request: CaseSearchRequest) -> list[CaseSearchQuery]:
@@ -321,6 +445,7 @@ def parse_kdocs_sse_lines(lines: Iterable[object]) -> list[CaseSearchItem]:
             desc=_truncate(answer, 180),
             text=f"【相似案例】{answer}",
             source="KDocs",
+            raw_content=answer,
         )
     ]
 
@@ -340,7 +465,8 @@ def _items_from_recall_content(value: object) -> list[CaseSearchItem]:
             continue
         detail_url = sanitize_text(file_meta.get("link_url")).strip()
         source = _extract_source_name(file_meta)
-        desc = _truncate(" ".join(_paragraph_texts(file_meta.get("pages"))), 220)
+        raw_content = " ".join(_paragraph_texts(file_meta.get("pages")))
+        desc = _truncate(raw_content, 220)
         text_parts = [f"【相似案例】{title}"]
         if desc:
             text_parts.append(desc)
@@ -353,6 +479,7 @@ def _items_from_recall_content(value: object) -> list[CaseSearchItem]:
                 text="\n".join(text_parts),
                 detail_url=detail_url,
                 source=source,
+                raw_content=raw_content,
             )
         )
     return results
@@ -412,6 +539,162 @@ def _dedupe_case_items(items: list[CaseSearchItem]) -> list[CaseSearchItem]:
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def _score_case_item_locally(request: CaseSearchRequest, item: CaseSearchItem) -> CaseSearchItem:
+    issue_text = " ".join([request.title, request.current_summary, request.timeline_text])
+    case_text = _case_content(item)
+    issue_terms = _match_terms(issue_text)
+    case_terms = _match_terms(case_text)
+    overlap = sorted(issue_terms & case_terms)
+    identifiers = sorted(_identifiers(issue_text) & _identifiers(case_text))
+
+    score = 12
+    score += min(len(overlap) * 7, 48)
+    score += min(len(identifiers) * 18, 36)
+    if any(term in sanitize_text(item.title).casefold() for term in overlap):
+        score += 12
+    if identifiers:
+        score += 10
+    if not overlap and not identifiers:
+        score = 8 if case_text else 0
+
+    conclusion = _extract_case_conclusion(case_text) or item.desc or "知识库召回相似案例"
+    reason = "、".join((identifiers + overlap)[:4])
+    match_reason = f"共同命中：{reason}" if reason else "未命中明确共同现象，作为低契合度候选保留"
+    return _with_case_score(
+        item,
+        score=_clamp_score(score),
+        conclusion=conclusion,
+        match_reason=match_reason,
+    )
+
+
+def _with_case_score(item: CaseSearchItem, *, score: int, conclusion: str, match_reason: str) -> CaseSearchItem:
+    normalized_score = _clamp_score(score)
+    normalized_conclusion = _truncate(conclusion or _extract_case_conclusion(_case_content(item)) or item.desc, 160)
+    normalized_reason = _truncate(match_reason, 120)
+    scored = replace(
+        item,
+        desc=normalized_conclusion or item.desc,
+        score=normalized_score,
+        score_label=f"契合度 {normalized_score}",
+        match_reason=normalized_reason,
+    )
+    return replace(scored, text=_case_reference_text(scored))
+
+
+def _case_reference_text(item: CaseSearchItem) -> str:
+    lines = [f"【相似案例】{item.title}"]
+    score_label = item.score_label or (f"契合度 {item.score}" if item.score > 0 else "")
+    if score_label:
+        lines.append(score_label)
+    if item.desc:
+        lines.append(f"关键结论：{item.desc}")
+    if item.match_reason:
+        lines.append(f"契合原因：{item.match_reason}")
+    if item.detail_url:
+        lines.append(f"详情：{item.detail_url}")
+    return "\n".join(lines)
+
+
+def _case_content(item: CaseSearchItem) -> str:
+    return sanitize_text(" ".join(part for part in (item.title, item.raw_content, item.desc) if part)).strip()
+
+
+def _extract_case_conclusion(text: str) -> str:
+    normalized = sanitize_text(text).strip()
+    if not normalized:
+        return ""
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[。！？；;])|\n+", normalized)
+        if part.strip()
+    ]
+    if not sentences:
+        return _truncate(normalized, 140)
+    markers = (
+        "解决方法",
+        "解决方案",
+        "处理方案",
+        "问题原因",
+        "根因",
+        "原因",
+        "结论",
+        "建议",
+        "规避",
+        "正常",
+        "异常",
+        "失败",
+    )
+    best = max(
+        sentences,
+        key=lambda sentence: (
+            sum(18 for marker in markers if marker in sentence),
+            min(len(sentence), 80),
+        ),
+    )
+    return _truncate(best, 140)
+
+
+def _match_terms(text: str) -> set[str]:
+    normalized = sanitize_text(text).casefold()
+    terms = set(_identifiers(normalized))
+    known_terms = (
+        "编辑保存",
+        "保存失败",
+        "预览失败",
+        "打开失败",
+        "加载失败",
+        "模板损坏",
+        "鉴权",
+        "token",
+        "中台",
+        "生产",
+        "demo",
+        "测试",
+        "内网",
+        "外网",
+        "vpn",
+        "客户端ip",
+        "网络侧拦截",
+        "接口",
+        "返回",
+        "文件太大",
+        "size",
+        "integer",
+        "权限",
+        "参数",
+        "日志",
+        "报错",
+        "异常",
+        "失败",
+        "空白",
+        "卡住",
+        "崩溃",
+        "wps",
+        "文档",
+        "打开文件",
+        "预览",
+        "转换",
+        "导出",
+    )
+    terms.update(term for term in known_terms if term in normalized)
+    terms.update(token for token in re.findall(r"[a-z0-9_./-]{2,}", normalized) if len(token) <= 32)
+    return {term for term in terms if term}
+
+
+def _identifiers(text: str) -> set[str]:
+    normalized = sanitize_text(text).casefold()
+    return set(re.findall(r"[a-z]+[-_a-z0-9.]*\d[-_a-z0-9.]*|\d{4,}", normalized))
+
+
+def _clamp_score(value: object) -> int:
+    try:
+        score = int(round(float(value)))
+    except (TypeError, ValueError):
+        score = 0
+    return max(0, min(100, score))
 
 
 def _truncate(value: str, limit: int) -> str:

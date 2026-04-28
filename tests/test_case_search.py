@@ -9,9 +9,11 @@ from aica.case_search import (
     CaseSearchItem,
     CaseSearchQuery,
     CaseSearchRequest,
+    CaseSearchResult,
     KDocsSseCaseSearchProvider,
     build_case_search_queries,
     parse_kdocs_sse_lines,
+    rank_case_search_result,
 )
 
 
@@ -68,6 +70,7 @@ def test_parse_kdocs_sse_lines_extracts_recall_content() -> None:
     assert items[0].title == "2093562 移动端鉴权token未带到中台.otl"
     assert items[0].detail_url == "https://www.kdocs.cn/l/case1"
     assert "token 未透传" in items[0].desc
+    assert "正常打开时 cookies" in items[0].raw_content
     assert items[0].source == "产品技术服务知识库"
 
 
@@ -107,3 +110,68 @@ def test_kdocs_provider_merges_dedupes_and_tolerates_single_query_failure() -> N
     assert result.status == "success"
     assert len(result.items) == 3
     assert [item.detail_url for item in result.items].count("https://www.kdocs.cn/l/a") == 1
+
+
+def test_case_item_payload_exposes_score_fields() -> None:
+    payload = CaseSearchItem(
+        title="编辑保存偶现失败",
+        desc="关键结论：文件大小字段需按 integer 返回。",
+        detail_url="https://www.kdocs.cn/l/case1",
+        score=86,
+        score_label="契合度 86",
+        match_reason="现象均包含编辑保存失败和 20022",
+    ).to_payload()
+
+    assert payload["score"] == 86
+    assert payload["scoreLabel"] == "契合度 86"
+    assert payload["matchReason"] == "现象均包含编辑保存失败和 20022"
+    assert "关键结论" in str(payload["text"])
+
+
+def test_rank_case_search_result_uses_llm_scores_and_summaries() -> None:
+    request = CaseSearchRequest(
+        title="编辑保存偶现保存失败",
+        current_summary="客户反馈编辑保存时偶现 20022",
+        timeline_text="- 已确认上传文件较大",
+    )
+    result = CaseSearchResult(
+        status="success",
+        count_label="检索 2 条结果",
+        items=[
+            CaseSearchItem(title="模板损坏", raw_content="模板文件损坏，重新下载安装 WPS。"),
+            CaseSearchItem(title="编辑保存偶现保存失败，20022.otl", raw_content="问题原因：文件过大时 size 字段格式不符合 integer。解决方法：按接口文档返回 integer 类型。"),
+        ],
+    )
+    llm = _LLM(
+        '[{"index":0,"score":21,"conclusion":"案例结论：模板文件损坏需重新安装。","matchReason":"仅同为保存打开类异常"},'
+        '{"index":1,"score":91,"conclusion":"案例结论：文件过大时 size 字段需返回 integer 类型。","matchReason":"均包含编辑保存失败和 20022"}]'
+    )
+
+    ranked = rank_case_search_result(llm, request, result)
+
+    assert [item.title for item in ranked.items] == ["编辑保存偶现保存失败，20022.otl", "模板损坏"]
+    assert ranked.items[0].score == 91
+    assert ranked.items[0].desc == "案例结论：文件过大时 size 字段需返回 integer 类型。"
+    assert "契合度 91" in ranked.items[0].text
+
+
+def test_rank_case_search_result_falls_back_to_local_scoring_when_llm_unavailable() -> None:
+    request = CaseSearchRequest(
+        title="编辑保存失败 20022",
+        current_summary="编辑保存时提示 20022，怀疑文件 size 返回格式异常",
+        timeline_text="- 客户上传大文件后保存失败",
+    )
+    result = CaseSearchResult(
+        status="success",
+        count_label="检索 2 条结果",
+        items=[
+            CaseSearchItem(title="WPS 模板损坏", raw_content="打开文件提示模板损坏。解决方法：重新下载 WPS。"),
+            CaseSearchItem(title="编辑保存偶现保存失败，20022.otl", raw_content="问题原因：文件过大，上传返回的文件大小 size 不是 integer。解决方法：按接口文档返回 integer 类型。"),
+        ],
+    )
+
+    ranked = rank_case_search_result(_LLM(RuntimeError("no model")), request, result)
+
+    assert ranked.items[0].title == "编辑保存偶现保存失败，20022.otl"
+    assert ranked.items[0].score > ranked.items[1].score
+    assert "integer" in ranked.items[0].desc
