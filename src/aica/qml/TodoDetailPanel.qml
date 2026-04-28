@@ -1159,7 +1159,7 @@ Rectangle {
 
                         Item {
                             width: parent.width
-                            height: 26
+                            height: 32
 
                             Text {
                                 anchors.left: parent.left
@@ -1185,12 +1185,12 @@ Rectangle {
                             Row {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 12
+                                spacing: 6
 
                                 Rectangle {
-                                    width: summaryToggleText.implicitWidth + 24
-                                    height: 30
-                                    radius: 15
+                                    width: summaryToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
                                     color: todoDetailBridge.stageSummaryVisible ? root.accent : "#FFFFFF"
                                     border.width: 1
                                     border.color: todoDetailBridge.stageSummaryVisible ? root.accent : root.fieldLine
@@ -1213,9 +1213,34 @@ Rectangle {
                                 }
 
                                 Rectangle {
-                                    width: timelineToggleText.implicitWidth + 20
-                                    height: 30
-                                    radius: 15
+                                    width: assistToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
+                                    color: todoDetailBridge.assistTroubleshootingVisible ? root.accent : "#FFFFFF"
+                                    border.width: 1
+                                    border.color: todoDetailBridge.assistTroubleshootingVisible ? root.accent : root.fieldLine
+
+                                    Text {
+                                        id: assistToggleText
+                                        anchors.centerIn: parent
+                                        text: "辅助排查"
+                                        color: todoDetailBridge.assistTroubleshootingVisible ? "#FFFFFF" : root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: todoDetailBridge.toggleAssistTroubleshooting()
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: timelineToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
                                     color: "#FFFFFF"
                                     border.width: 1
                                     border.color: root.fieldLine
@@ -1226,8 +1251,8 @@ Rectangle {
                                         text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
                                         color: root.bodyInk
                                         font.family: root.uiFont
-                                        font.pixelSize: 12
-                                        font.weight: 700
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
                                     }
 
                                     MouseArea {

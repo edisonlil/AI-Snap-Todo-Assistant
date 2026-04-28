@@ -7,8 +7,14 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import TodoDetailPanel, _resolve_neighbor_panel_x, _StageSummaryWindow, _TodoDetailBridge
-from aica.todo_models import TodoConclusion, TodoItem
+from aica.todo_detail_panel import (
+    TodoDetailPanel,
+    _AssistTroubleshootingWindow,
+    _resolve_neighbor_panel_x,
+    _StageSummaryWindow,
+    _TodoDetailBridge,
+)
+from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
 
 
 def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
@@ -16,6 +22,7 @@ def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
         attachment_root=attachment_root,
         environment_access_service=SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
         ),
     )
 
@@ -25,6 +32,7 @@ def _build_panel(monkeypatch) -> TodoDetailPanel:
         "aica.todo_detail_panel.SQLiteProjectEnvironmentRepository",
         lambda: SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
             get_access_entry=lambda _entry_id: None,
         ),
     )
@@ -190,6 +198,9 @@ def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> 
     assert bridge.conclusionAttachmentCount == 2
     assert bridge.timelineCount == 1
     assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == bridge.conclusionContent
+    assert bridge.timeline[0]["attachmentCount"] == 2
+    assert [item["name"] for item in bridge.timeline[0]["attachments"]] == ["existing.txt", "report.txt"]
     assert bridge.conclusionAttachments[0]["path"] == "/final/__conclusion__/existing.txt"
     assert bridge.conclusionAttachments[1]["path"] == "/final/__conclusion__/report.txt"
 
@@ -611,6 +622,138 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
     assert window.y() == 204
 
 
+def test_toggle_assist_troubleshooting_does_not_save_detail_payload() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, object]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert saved == []
+
+    bridge.closeAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is False
+    assert saved == []
+
+
+def test_assist_troubleshooting_window_sync_uses_default_width_and_preferred_height(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _AssistTroubleshootingWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+    moved: list[tuple[int, int, object]] = []
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 470 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 710,
+    )
+    monkeypatch.setattr(
+        window,
+        "_move_within_screen",
+        lambda x, y, screen: moved.append((x, y, screen)),
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 470
+    assert moved == [(710, 204, "screen-token")]
+
+
+def test_assist_troubleshooting_window_manual_resize_and_drag_persist_until_hidden(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _AssistTroubleshootingWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 460 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 640,
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.resize(620, 540)
+    window.setPosition(730, 280)
+    window._manual_size_override = True  # noqa: SLF001
+    window._manual_position_override = True  # noqa: SLF001
+    window.update_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 620
+    assert window.height() == 540
+    assert window.x() == 730
+    assert window.y() == 280
+
+    window.hide()
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 460
+    assert window.x() == 640
+    assert window.y() == 204
+
+
+def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel._bridge._assist_troubleshooting_visible = True  # noqa: SLF001
+    panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
+
+    hide_calls: list[str] = []
+    monkeypatch.setattr(
+        panel._assist_troubleshooting_window,
+        "hide",
+        lambda: hide_calls.append("assist"),
+    )
+
+    panel._close_panel()
+
+    assert panel._bridge.assistTroubleshootingVisible is False
+    assert panel._assist_troubleshooting_window_visible is False
+    assert hide_calls
+
+
 def test_show_todo_restores_cached_timeline_draft_after_panel_close(monkeypatch) -> None:
     panel = _build_panel(monkeypatch)
     first_todo = _build_todo("todo-1")
@@ -847,6 +990,33 @@ def test_manual_save_upserts_conclusion_timeline_item() -> None:
     assert len(saved) == 1
     assert len(saved[0][1]["timeline"]) == 1
     assert saved[0][1]["timeline"][0].kind == "conclusion"
+
+
+def test_manual_save_preserves_legacy_conclusion_timeline_item() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.conclusion = TodoConclusion()
+    todo.timeline = [
+        TimelineEvent(
+            id="conclusion-legacy",
+            timestamp="2026-04-22T10:00:00",
+            kind="conclusion",
+            scenario="结论更新",
+            content="已有结论内容",
+        )
+    ]
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.set_todo(todo)
+    bridge.saveTodo()
+
+    assert bridge.conclusionContent == "已有结论内容"
+    assert bridge.timeline[0]["content"] == "已有结论内容"
+    assert len(saved) == 1
+    assert saved[0][1]["conclusion"].content == "已有结论内容"
+    assert saved[0][1]["timeline"][0].content == "已有结论内容"
 
 
 def test_add_conclusion_emits_conclusion_command() -> None:

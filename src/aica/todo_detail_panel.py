@@ -633,6 +633,7 @@ class _TodoDetailBridge(QObject):
     timelineExpandedChanged = pyqtSignal()
     timelineDraftChanged = pyqtSignal()
     environmentAccessMessageChanged = pyqtSignal()
+    assistTroubleshootingChanged = pyqtSignal()
     panelDragStarted = pyqtSignal(float, float)
     panelDragMoved = pyqtSignal()
     panelDragFinished = pyqtSignal()
@@ -676,6 +677,7 @@ class _TodoDetailBridge(QObject):
         self._conclusion_content = ""
         self._conclusion_updated_at = ""
         self._conclusion_attachments: list[dict[str, object]] = []
+        self._conclusion_dirty = False
         self._draft_timeline_attachments: list[dict[str, object]] = []
         self._timeline_draft_text = ""
         self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
@@ -715,6 +717,7 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+        self._assist_troubleshooting_visible = False
 
     @property
     def notificationBridge(self) -> AppNotificationBridge:
@@ -899,6 +902,10 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def stageSummaryNotice(self) -> str:
         return self._stage_summary_notice
+
+    @pyqtProperty(bool, notify=assistTroubleshootingChanged)
+    def assistTroubleshootingVisible(self) -> bool:
+        return self._assist_troubleshooting_visible
 
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
@@ -1246,6 +1253,25 @@ class _TodoDetailBridge(QObject):
             self._timeline_draft_cache.pop(todo_id, None)
         self._emit_timeline_draft_changed()
 
+    @staticmethod
+    def _is_cleared_conclusion_content(content: object) -> bool:
+        return str(content or "").strip() == "结论已清空"
+
+    def _hydrate_conclusion_from_timeline(self, timeline_items: list[dict[str, object]]) -> None:
+        for item in timeline_items:
+            if str(item.get("kind") or "").strip() != "conclusion":
+                continue
+            content = str(item.get("content", "") or "").strip()
+            attachments = _clone_attachment_payloads(item.get("attachments", []))
+            if not content and not attachments:
+                continue
+            if self._is_cleared_conclusion_content(content):
+                continue
+            self._conclusion_content = content
+            self._conclusion_updated_at = str(item.get("timestamp", "") or item.get("created_at", "") or "").strip()
+            self._conclusion_attachments = attachments
+            return
+
     def set_todo(
         self,
         todo: TodoItem,
@@ -1254,6 +1280,7 @@ class _TodoDetailBridge(QObject):
     ) -> None:
         self._store_current_timeline_draft()
         self._reset_stage_summary_state()
+        self.reset_assist_troubleshooting_session()
         self._todo_id = todo.id
         self._group_name = _clean_text(todo.summary_fields.group_name)
         self._environment = _clean_text(todo.summary_fields.environment)
@@ -1272,6 +1299,7 @@ class _TodoDetailBridge(QObject):
         self._conclusion_content = str(todo.conclusion.content or "").strip()
         self._conclusion_updated_at = str(todo.conclusion.updated_at or "").strip()
         self._conclusion_attachments = [self._attachment_to_dict(item) for item in todo.conclusion.attachments]
+        self._conclusion_dirty = False
         self._title = todo.title.strip() or _DEFAULT_TODO_TITLE
         self._overview = self._title
         self._created_at = _format_ts(todo.created_at)
@@ -1297,6 +1325,8 @@ class _TodoDetailBridge(QObject):
             if result_event_id:
                 payload["result_event_id"] = result_event_id
                 item["payload"] = payload
+        if not self._conclusion_content.strip() and not self._conclusion_attachments:
+            self._hydrate_conclusion_from_timeline(timeline_items)
         self._timeline = timeline_items
         self._refresh_display_timeline()
         self._apply_timeline_draft_state(self._timeline_draft_cache.get(todo.id))
@@ -1466,12 +1496,10 @@ class _TodoDetailBridge(QObject):
             existing_index = index
             existing_item = item
             break
-        should_render = bool(
-            self._conclusion_content.strip()
-            or self._conclusion_attachments
-            or existing_item is not None
-            or str(self._conclusion_updated_at or "").strip()
-        )
+        has_meaningful_conclusion = bool(self._conclusion_content.strip() or self._conclusion_attachments)
+        if not has_meaningful_conclusion and not self._conclusion_dirty:
+            return
+        should_render = bool(has_meaningful_conclusion or existing_item is not None or self._conclusion_dirty)
         if not should_render:
             return
         timestamp = self._conclusion_updated_at or datetime.now().isoformat()
@@ -1483,6 +1511,7 @@ class _TodoDetailBridge(QObject):
                 if isinstance(item, dict)
             ],
         )
+        conclusion_attachments = [dict(item) for item in self._conclusion_attachments if isinstance(item, dict)]
         next_item = {
             "id": str(existing_item.get("id", "")) if isinstance(existing_item, dict) else str(uuid.uuid4()),
             "timestamp": timestamp,
@@ -1496,8 +1525,8 @@ class _TodoDetailBridge(QObject):
             "payload": _clone_dict(existing_item.get("payload", {})) if isinstance(existing_item, dict) else {},
             "status": "",
             "statusLabel": "",
-            "attachments": [],
-            "attachmentCount": 0,
+            "attachments": conclusion_attachments,
+            "attachmentCount": len(conclusion_attachments),
         }
         if existing_index is None:
             self._timeline.insert(0, next_item)
@@ -1661,6 +1690,7 @@ class _TodoDetailBridge(QObject):
         elif name == "conclusion_content":
             self._conclusion_content = text
             self._conclusion_updated_at = datetime.now().isoformat()
+            self._conclusion_dirty = True
         else:
             return
         self.dataChanged.emit()
@@ -1669,7 +1699,12 @@ class _TodoDetailBridge(QObject):
     def updateTimelineContent(self, event_id: str, value: str) -> None:
         item = self._find_timeline_item(event_id)
         if item is not None:
-            item["content"] = sanitize_text(value)
+            text = sanitize_text(value)
+            item["content"] = text
+            if str(item.get("kind") or "").strip() == "conclusion":
+                self._conclusion_content = text
+                self._conclusion_updated_at = datetime.now().isoformat()
+                self._conclusion_dirty = True
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
@@ -1882,6 +1917,7 @@ class _TodoDetailBridge(QObject):
             if draft_attachments:
                 self._conclusion_attachments = [*self._conclusion_attachments, *draft_attachments]
             self._conclusion_updated_at = datetime.now().isoformat()
+            self._conclusion_dirty = True
             self.dataChanged.emit()
             self._sync_local_conclusion_timeline_item()
             self._emit_command_request(
@@ -2023,6 +2059,9 @@ class _TodoDetailBridge(QObject):
         item = self._find_timeline_item(event_id)
         if item is None:
             return
+        if str(item.get("kind") or "").strip() == "conclusion":
+            self.removeConclusionAttachment(attachment_id)
+            return
         attachments = item.get("attachments", [])
         if not isinstance(attachments, list):
             return
@@ -2059,8 +2098,10 @@ class _TodoDetailBridge(QObject):
             return
         self._conclusion_attachments = remaining
         self._conclusion_updated_at = datetime.now().isoformat()
+        self._conclusion_dirty = True
         if removed_path:
             self._remove_attachment_file(removed_path)
+        self._sync_local_conclusion_timeline_item()
         self.dataChanged.emit()
         self._emit_save_request()
 
@@ -2094,6 +2135,14 @@ class _TodoDetailBridge(QObject):
         self.dataChanged.emit()
         if self._stage_summary_visible and not self._stage_summary_requested_once:
             self.refreshStageSummary()
+
+    @pyqtSlot()
+    def toggleAssistTroubleshooting(self) -> None:
+        self._set_assist_troubleshooting_visible(not self._assist_troubleshooting_visible)
+
+    @pyqtSlot()
+    def closeAssistTroubleshooting(self) -> None:
+        self._set_assist_troubleshooting_visible(False)
 
     @pyqtSlot()
     def refreshStageSummary(self) -> None:
@@ -2303,10 +2352,14 @@ class _TodoDetailBridge(QObject):
     def attach_files_to_event(self, event_id: str, file_paths: list[str]) -> None:
         if self._todo_id is None:
             return
-        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+        item = None if event_id == _CONCLUSION_ATTACHMENT_TARGET else self._find_timeline_item(event_id)
+        is_conclusion_target = (
+            event_id == _CONCLUSION_ATTACHMENT_TARGET
+            or (item is not None and str(item.get("kind") or "").strip() == "conclusion")
+        )
+        if is_conclusion_target:
             attachments = self._conclusion_attachments
         else:
-            item = self._find_timeline_item(event_id)
             if item is None:
                 return
             attachments = item.setdefault("attachments", [])
@@ -2314,17 +2367,20 @@ class _TodoDetailBridge(QObject):
                 attachments = []
                 item["attachments"] = attachments
         added = False
+        attachment_target = _CONCLUSION_ATTACHMENT_TARGET if is_conclusion_target else event_id
         for file_path in file_paths:
-            attachment = self._copy_attachment(file_path, event_id)
+            attachment = self._copy_attachment(file_path, attachment_target)
             if attachment is None:
                 continue
             attachments.append(attachment)
             added = True
         if not added:
             return
-        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+        if is_conclusion_target:
             self._conclusion_attachments = list(attachments)
             self._conclusion_updated_at = datetime.now().isoformat()
+            self._conclusion_dirty = True
+            self._sync_local_conclusion_timeline_item()
             self.dataChanged.emit()
         else:
             item["attachmentCount"] = len(attachments)
@@ -2386,6 +2442,16 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+
+    def _set_assist_troubleshooting_visible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if self._assist_troubleshooting_visible == visible:
+            return
+        self._assist_troubleshooting_visible = visible
+        self.assistTroubleshootingChanged.emit()
+
+    def reset_assist_troubleshooting_session(self) -> None:
+        self._set_assist_troubleshooting_visible(False)
 
     def reset_stage_summary_session(self) -> None:
         self._reset_stage_summary_state()
@@ -2640,12 +2706,17 @@ class _TodoDetailBridge(QObject):
 
     def attach_clipboard_image_to_event(self, event_id: str, image: QImage) -> bool:
         item = self._find_timeline_item(event_id) if event_id != _CONCLUSION_ATTACHMENT_TARGET else None
-        if event_id != _CONCLUSION_ATTACHMENT_TARGET and item is None:
+        is_conclusion_target = (
+            event_id == _CONCLUSION_ATTACHMENT_TARGET
+            or (item is not None and str(item.get("kind") or "").strip() == "conclusion")
+        )
+        if not is_conclusion_target and item is None:
             return False
-        attachment = self._save_clipboard_image(image, event_id)
+        attachment_target = _CONCLUSION_ATTACHMENT_TARGET if is_conclusion_target else event_id
+        attachment = self._save_clipboard_image(image, attachment_target)
         if attachment is None:
             return False
-        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+        if is_conclusion_target:
             attachments = self._conclusion_attachments
         else:
             attachments = item.setdefault("attachments", [])
@@ -2653,9 +2724,11 @@ class _TodoDetailBridge(QObject):
                 attachments = []
                 item["attachments"] = attachments
         attachments.append(attachment)
-        if event_id == _CONCLUSION_ATTACHMENT_TARGET:
+        if is_conclusion_target:
             self._conclusion_attachments = list(attachments)
             self._conclusion_updated_at = datetime.now().isoformat()
+            self._conclusion_dirty = True
+            self._sync_local_conclusion_timeline_item()
             self.dataChanged.emit()
         else:
             item["attachmentCount"] = len(attachments)
@@ -3153,6 +3226,263 @@ class _StageSummaryWindow(QQuickView):
         return super().event(event)
 
 
+class _AssistTroubleshootingWindow(QQuickView):
+    _MIN_PANEL_WIDTH = 320
+    _MIN_PANEL_HEIGHT = 260
+
+    def __init__(
+        self,
+        bridge: _TodoDetailBridge,
+        *,
+        panel_width: int,
+        panel_height: int,
+        screen_margin: int,
+    ) -> None:
+        super().__init__()
+        self._owner_panel: TodoDetailPanel | None = None
+        self._bridge = bridge
+        self._panel_width = panel_width
+        self._panel_height = panel_height
+        self._screen_margin = screen_margin
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+        self._anchor_window: QQuickView | None = None
+        self._anchor_width = 0
+        self._anchor_gap = 0
+        self._top_offset = 0
+        self._pinned = False
+        self._manual_size_override = False
+        self._manual_position_override = False
+
+        self._apply_window_flags()
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
+        self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
+        self.rootContext().setContextProperty("assistTroubleshootingWindowBridge", self)
+        self.setSource(
+            QUrl.fromLocalFile(
+                str(Path(__file__).with_name("qml").joinpath("AssistTroubleshootingWindow.qml"))
+            )
+        )
+        self._ensure_qml_loaded()
+        self.resize(self._panel_width, self._preferred_panel_height())
+        self.hide()
+
+    def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
+        self._owner_panel = owner_panel
+
+    def set_pinned(self, pinned: bool) -> None:
+        self._pinned = bool(pinned)
+        self._apply_window_flags()
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        self.setFlags(
+            RUNTIME_CAPABILITIES.floating_tool_window_flags(
+                Qt.WindowType,
+                stays_on_top=self._pinned,
+            )
+        )
+        if was_visible:
+            self.show()
+
+    def _ensure_qml_loaded(self) -> None:
+        if self.status() != QQuickView.Status.Error:
+            return
+        errors = "\n".join(error.toString() for error in self.errors())
+        raise RuntimeError(f"Failed to load AssistTroubleshootingWindow.qml:\n{errors}")
+
+    def show_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=True)
+
+    def update_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=False)
+
+    @pyqtSlot()
+    def syncPanelSize(self) -> None:
+        self._sync_geometry(activate=False)
+
+    @pyqtSlot(str)
+    def startPanelResize(self, edge_name: str) -> None:
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            started = self.startSystemResize(edge)
+        except AttributeError:
+            self.requestActivate()
+            return
+        if started is False:
+            self.requestActivate()
+            return
+        self._manual_size_override = True
+
+    @pyqtSlot(float, float)
+    def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
+        self._drag_active = True
+        self._drag_offset_x = max(0, int(offset_x))
+        self._drag_offset_y = max(0, int(offset_y))
+        self._manual_position_override = True
+
+    @pyqtSlot()
+    def updatePanelDrag(self) -> None:
+        if not self._drag_active:
+            return
+        cursor_pos = QCursor.pos()
+        x = cursor_pos.x() - self._drag_offset_x
+        y = cursor_pos.y() - self._drag_offset_y
+        self._move_within_screen(x, y, _virtual_available_geometry())
+
+    @pyqtSlot()
+    def finishPanelDrag(self) -> None:
+        self._drag_active = False
+
+    def _preferred_panel_height(self, available_height: int | None = None) -> int:
+        preferred_height = self._panel_height
+        root_object_method = getattr(self, "rootObject", None)
+        if callable(root_object_method):
+            root_object = root_object_method()
+            if root_object is not None:
+                raw_value = root_object.property("preferredHeight")
+                if raw_value is not None:
+                    try:
+                        preferred_height = max(self._MIN_PANEL_HEIGHT, int(float(raw_value)))
+                    except (TypeError, ValueError):
+                        preferred_height = self._panel_height
+        preferred_height = min(preferred_height, self._panel_height)
+        if available_height is not None:
+            preferred_height = min(
+                preferred_height,
+                max(self._MIN_PANEL_HEIGHT, int(available_height) - self._screen_margin * 2),
+            )
+        return max(self._MIN_PANEL_HEIGHT, preferred_height)
+
+    def _manual_panel_size(self, available) -> tuple[int, int]:
+        max_width = max(
+            self._MIN_PANEL_WIDTH,
+            int(available.width()) - self._screen_margin * 2,
+        )
+        max_height = max(
+            self._MIN_PANEL_HEIGHT,
+            int(available.height()) - self._screen_margin * 2,
+        )
+        return (
+            max(self._MIN_PANEL_WIDTH, min(int(self.width()), max_width)),
+            max(self._MIN_PANEL_HEIGHT, min(int(self.height()), max_height)),
+        )
+
+    def _sync_geometry(self, *, activate: bool) -> None:
+        anchor_window = self._anchor_window
+        if anchor_window is None:
+            return
+
+        screen = _screen_for_point(anchor_window.frameGeometry().center())
+        if screen is None:
+            return
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+
+        set_transient_parent = getattr(self, "setTransientParent", None)
+        if callable(set_transient_parent):
+            set_transient_parent(anchor_window)
+
+        x = _resolve_neighbor_panel_x(
+            anchor_window.x(),
+            self._anchor_width,
+            panel_width=self._panel_width,
+            available_left=available.left(),
+            available_right=available.right(),
+            margin=self._screen_margin,
+            gap=self._anchor_gap,
+        )
+        y = anchor_window.y() + self._top_offset
+        if self._manual_size_override:
+            width, height = self._manual_panel_size(available)
+        else:
+            width = self._panel_width
+            height = self._preferred_panel_height(available.height())
+        self.resize(width, height)
+        if self._manual_position_override and self.isVisible():
+            current_screen = _screen_for_point(QPoint(self.x(), self.y()))
+            self._move_within_screen(self.x(), self.y(), current_screen or screen)
+        else:
+            self._move_within_screen(x, y, screen)
+
+        is_visible_method = getattr(self, "isVisible", None)
+        is_visible = bool(is_visible_method()) if callable(is_visible_method) else False
+        if activate and not is_visible:
+            self.show()
+            is_visible = True
+        if activate and is_visible:
+            self.raise_()
+            self.requestActivate()
+
+    def hide(self) -> None:
+        self._manual_size_override = False
+        self._manual_position_override = False
+        super().hide()
+
+    def _move_within_screen(self, x: int, y: int, screen) -> None:
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        target_x, target_y = _clamp_panel_position(
+            int(x),
+            int(y),
+            panel_width=self.width(),
+            panel_height=self.height(),
+            available_left=available.left(),
+            available_top=available.top(),
+            available_right=available.right(),
+            available_bottom=available.bottom(),
+            margin=self._screen_margin,
+        )
+        self.setPosition(target_x, target_y)
+
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            owner_panel = self._owner_panel
+            if owner_panel is not None:
+                QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
+        return super().event(event)
+
+
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
     log_analysis_requested = pyqtSignal(str, object)
@@ -3173,6 +3503,10 @@ class TodoDetailPanel(QQuickView):
         self._stage_summary_window_gap = 18
         self._stage_summary_top_offset = 84
         self._stage_summary_window_height = 632
+        self._assist_troubleshooting_window_width = 443
+        self._assist_troubleshooting_window_gap = 18
+        self._assist_troubleshooting_top_offset = 84
+        self._assist_troubleshooting_window_height = 632
         self._panel_height = 724
         self._screen_margin = 20
         self._anchor_gap = 16
@@ -3180,6 +3514,7 @@ class TodoDetailPanel(QQuickView):
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._stage_summary_window_visible = False
+        self._assist_troubleshooting_window_visible = False
         self._pinned = False
         self._auto_collapse_hold_count = 0
 
@@ -3201,6 +3536,14 @@ class TodoDetailPanel(QQuickView):
         )
         self._stage_summary_window.set_owner_panel(self)
         self._stage_summary_window.set_pinned(self._pinned)
+        self._assist_troubleshooting_window = _AssistTroubleshootingWindow(
+            self._bridge,
+            panel_width=self._assist_troubleshooting_window_width,
+            panel_height=self._assist_troubleshooting_window_height,
+            screen_margin=self._screen_margin,
+        )
+        self._assist_troubleshooting_window.set_owner_panel(self)
+        self._assist_troubleshooting_window.set_pinned(self._pinned)
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
@@ -3219,6 +3562,7 @@ class TodoDetailPanel(QQuickView):
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
         self._bridge.dataChanged.connect(self._sync_stage_summary_window)
+        self._bridge.assistTroubleshootingChanged.connect(self._sync_assist_troubleshooting_window)
 
         self.resize(self._panel_width, self._panel_height)
         self.hide()
@@ -3250,7 +3594,9 @@ class TodoDetailPanel(QQuickView):
         self._pinned = pinned
         self._apply_window_flags()
         self._stage_summary_window.set_pinned(pinned)
+        self._assist_troubleshooting_window.set_pinned(pinned)
         self._sync_stage_summary_window()
+        self._sync_assist_troubleshooting_window()
         if pinned and self.isVisible():
             self.raise_()
             self.requestActivate()
@@ -3316,6 +3662,8 @@ class TodoDetailPanel(QQuickView):
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
+        self._assist_troubleshooting_window.hide()
+        self._assist_troubleshooting_window_visible = False
         self.resize(self._panel_width, self._panel_height)
         if preserve_position and self.isVisible():
             screen = _screen_for_point(QPoint(self.x(), self.y()))
@@ -3328,6 +3676,7 @@ class TodoDetailPanel(QQuickView):
         self.raise_()
         self.requestActivate()
         self._sync_stage_summary_window()
+        self._sync_assist_troubleshooting_window()
 
     def _sync_stage_summary_window(self) -> None:
         should_show = bool(self._bridge.stageSummaryVisible) and self.isVisible()
@@ -3351,6 +3700,29 @@ class TodoDetailPanel(QQuickView):
         if not should_show and self._stage_summary_window_visible:
             self._stage_summary_window.hide()
             self._stage_summary_window_visible = False
+
+    def _sync_assist_troubleshooting_window(self) -> None:
+        should_show = bool(self._bridge.assistTroubleshootingVisible) and self.isVisible()
+        if should_show and not self._assist_troubleshooting_window_visible:
+            self._assist_troubleshooting_window.show_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._assist_troubleshooting_window_gap,
+                top_offset=self._assist_troubleshooting_top_offset,
+            )
+            self._assist_troubleshooting_window_visible = True
+            return
+        if should_show and self._assist_troubleshooting_window_visible:
+            self._assist_troubleshooting_window.update_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._assist_troubleshooting_window_gap,
+                top_offset=self._assist_troubleshooting_top_offset,
+            )
+            return
+        if not should_show and self._assist_troubleshooting_window_visible:
+            self._assist_troubleshooting_window.hide()
+            self._assist_troubleshooting_window_visible = False
 
     def _reposition(self, anchor_rect=None) -> None:
         if anchor_rect is not None:
@@ -3422,11 +3794,18 @@ class TodoDetailPanel(QQuickView):
         self._close_panel()
 
     def _close_panel(self) -> None:
-        if not self.isVisible() and not self._stage_summary_window_visible:
+        if (
+            not self.isVisible()
+            and not self._stage_summary_window_visible
+            and not self._assist_troubleshooting_window_visible
+        ):
             return
         self._bridge.reset_stage_summary_session()
+        self._bridge.reset_assist_troubleshooting_session()
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
+        self._assist_troubleshooting_window.hide()
+        self._assist_troubleshooting_window_visible = False
         self.hide()
         self.closed.emit()
 

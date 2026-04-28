@@ -16,6 +16,7 @@ def _build_bridge() -> _TodoDetailBridge:
         attachment_root=Path("unused"),
         environment_access_service=SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
         ),
     )
 

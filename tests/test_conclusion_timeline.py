@@ -9,13 +9,13 @@ from aica.conclusion_timeline import build_conclusion_timeline_content, sync_con
 from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion
 
 
-def test_build_conclusion_timeline_content_includes_attachment_suffix() -> None:
+def test_build_conclusion_timeline_content_keeps_attachments_out_of_text() -> None:
     content = build_conclusion_timeline_content(
         "已定位根因",
         ["report.txt", "screen.png"],
     )
 
-    assert content == "已定位根因\n附件: report.txt, screen.png"
+    assert content == "已定位根因"
 
 
 def test_sync_conclusion_timeline_appends_conclusion_event() -> None:
@@ -40,7 +40,8 @@ def test_sync_conclusion_timeline_appends_conclusion_event() -> None:
 
     assert [event.kind for event in updated] == ["manual", "conclusion"]
     assert updated[-1].scenario == "结论更新"
-    assert updated[-1].content == "已定位为配置缺失\n附件: detail.txt"
+    assert updated[-1].content == "已定位为配置缺失"
+    assert [attachment.name for attachment in updated[-1].attachments] == ["detail.txt"]
 
 
 def test_sync_conclusion_timeline_preserves_existing_conclusion_event_id_when_cleared() -> None:

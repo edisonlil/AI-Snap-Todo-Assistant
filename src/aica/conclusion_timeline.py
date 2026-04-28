@@ -13,14 +13,7 @@ def build_conclusion_timeline_content(
     content: str,
     attachment_names: list[str],
 ) -> str:
-    normalized_content = sanitize_text(content).strip() or _CLEARED_CONCLUSION_TEXT
-    normalized_attachment_names = [
-        sanitize_text(name).strip()
-        for name in attachment_names
-        if sanitize_text(name).strip()
-    ]
-    suffix = f"\n附件: {', '.join(normalized_attachment_names[:5])}" if normalized_attachment_names else ""
-    return f"{normalized_content}{suffix}".strip()
+    return sanitize_text(content).strip() or _CLEARED_CONCLUSION_TEXT
 
 
 def sync_conclusion_timeline(
@@ -55,6 +48,6 @@ def sync_conclusion_timeline(
         kind=_CONCLUSION_KIND,
         scenario=_CONCLUSION_SCENARIO,
         content=build_conclusion_timeline_content(conclusion.content, attachment_names),
-        attachments=[],
+        attachments=list(conclusion.attachments),
     )
     return remaining + [conclusion_event]
