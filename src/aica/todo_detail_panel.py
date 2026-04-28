@@ -1113,6 +1113,29 @@ class _TodoDetailBridge(QObject):
         self._set_environment_access_message("已复制地址", level="success")
 
     @pyqtSlot(str)
+    def copyEnvironmentAddressAndShowDetails(self, entry_id: str) -> None:
+        normalized_entry_id = str(entry_id or "").strip()
+        result = self._environment_access_service.prepare_login(normalized_entry_id)
+        if result is None:
+            self._set_environment_access_message("未找到环境访问项", level="warning")
+            return
+        address = str(result.entry.url_or_host or "").strip()
+        if not address:
+            self._set_environment_access_message("当前访问方式未配置地址", level="warning")
+            return
+        QApplication.clipboard().setText(address)
+        self._activate_environment_entry(
+            result.entry.id,
+            login_activated=True,
+            password_available=result.has_password,
+            otp_available=result.entry.requires_otp,
+            otp_code=result.otp_code,
+            otp_remaining_seconds=result.otp_remaining_seconds,
+            detail_mode="link",
+        )
+        self._set_environment_access_message("已复制链接", level="success")
+
+    @pyqtSlot(str)
     def copyEnvironmentPassword(self, entry_id: str) -> None:
         password = self._environment_access_service.get_password(str(entry_id or "").strip())
         if not password:
@@ -2491,6 +2514,7 @@ class _TodoDetailBridge(QObject):
                         "hasOtpSecret": bool(str(entry.otp_secret_encrypted or "").strip()),
                         "note": entry.note,
                         "loginActivated": False,
+                        "detailMode": "",
                         "canCopyPassword": False,
                         "canCopyOtp": False,
                         "otpCode": "",
@@ -2517,6 +2541,7 @@ class _TodoDetailBridge(QObject):
         otp_available: bool,
         otp_code: str,
         otp_remaining_seconds: int,
+        detail_mode: str = "login",
     ) -> None:
         normalized_entry_id = str(entry_id or "").strip()
         if not normalized_entry_id:
@@ -2529,6 +2554,7 @@ class _TodoDetailBridge(QObject):
                 should_activate = is_target and login_activated
                 next_entry = dict(entry)
                 next_entry["loginActivated"] = should_activate
+                next_entry["detailMode"] = str(detail_mode or "login") if should_activate else ""
                 next_entry["canCopyPassword"] = bool(password_available) if should_activate else False
                 next_entry["canCopyOtp"] = bool(otp_available) if should_activate else False
                 next_entry["otpCode"] = str(otp_code or "") if should_activate else ""

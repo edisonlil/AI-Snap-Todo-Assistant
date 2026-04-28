@@ -375,6 +375,13 @@ def test_todo_detail_bridge_copies_environment_login_fields(monkeypatch) -> None
     bridge.set_todo(todo)
     bridge.copyEnvironmentAddress("entry-1")
     assert clipboard.text == "https://example.com/login"
+    assert bridge.environmentAccessGroups[0]["entries"][0]["loginActivated"] is False
+
+    bridge.copyEnvironmentAddressAndShowDetails("entry-1")
+    first_entry = bridge.environmentAccessGroups[0]["entries"][0]
+    assert clipboard.text == "https://example.com/login"
+    assert first_entry["loginActivated"] is True
+    assert first_entry["canCopyPassword"] is True
 
     bridge.copyEnvironmentUsername("entry-1")
     assert clipboard.text == "admin"

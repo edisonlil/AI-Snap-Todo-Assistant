@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 
 Rectangle {
     id: root
@@ -15,6 +14,12 @@ Rectangle {
 
     function flowMessage(entry) {
         var accessName = (entry && entry.name) ? entry.name : "当前入口"
+        if (entry && entry.detailMode === "link") {
+            if ((entry.username || "").length === 0 && !entry.canCopyPassword && !entry.canCopyOtp) {
+                return "已复制" + accessName + "链接。当前访问方式暂无账号、密码或验证码。"
+            }
+            return "已复制" + accessName + "链接。继续复制账号、密码或验证码："
+        }
         if (entry && entry.hasTarget) {
             return "已用新窗口打开" + accessName + "，并自动复制账号。继续完成登录："
         }
@@ -227,8 +232,9 @@ Rectangle {
                                             visible: modelData.hasTarget
                                                 || (modelData.username || "").length > 0
                                                 || modelData.hasPassword
-                                            spacing: 1
-                                            width: loginButton.width + copyMenuButton.width + spacing
+                                            spacing: 10
+                                            width: loginButton.width
+                                                   + (copyLinkText.visible ? copyLinkText.implicitWidth + spacing : 0)
                                             height: 30
 
                                             Rectangle {
@@ -255,64 +261,25 @@ Rectangle {
                                                 }
                                             }
 
-                                            Rectangle {
-                                                id: copyMenuButton
-                                                radius: 12
-                                                width: 30
+                                            Text {
+                                                id: copyLinkText
+                                                visible: modelData.hasTarget
+                                                width: implicitWidth
                                                 height: parent.height
-                                                color: copyMenu.opened ? "#1F2937" : "#111827"
-
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: "▾"
-                                                    color: "#FFFFFF"
-                                                    font.family: root.theme.uiFont
-                                                    font.pixelSize: 11
-                                                    font.weight: root.theme.labelWeight
-                                                }
+                                                text: "复制链接"
+                                                color: "#111827"
+                                                font.family: root.theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: root.theme.labelWeight
+                                                verticalAlignment: Text.AlignVCenter
 
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        copyMenu.x = copyMenuButton.x
-                                                        copyMenu.y = copyMenuButton.y + copyMenuButton.height + 4
-                                                        copyMenu.open()
-                                                    }
+                                                    onClicked: todoDetailBridge.copyEnvironmentAddressAndShowDetails(modelData.id)
                                                 }
                                             }
 
-                                            Menu {
-                                                id: copyMenu
-
-                                                MenuItem {
-                                                    text: "复制地址"
-                                                    enabled: (modelData.urlOrHost || "").length > 0
-                                                    onTriggered: todoDetailBridge.copyEnvironmentAddress(modelData.id)
-                                                }
-
-                                                MenuItem {
-                                                    text: "复制账号"
-                                                    enabled: (modelData.username || "").length > 0
-                                                    onTriggered: todoDetailBridge.copyEnvironmentUsername(modelData.id)
-                                                }
-
-                                                MenuItem {
-                                                    text: "复制密码"
-                                                    enabled: modelData.hasPassword
-                                                    onTriggered: todoDetailBridge.copyEnvironmentPassword(modelData.id)
-                                                }
-
-                                                MenuItem {
-                                                    text: "复制地址/账号/密码"
-                                                    enabled: (
-                                                        (modelData.urlOrHost || "").length > 0
-                                                        || (modelData.username || "").length > 0
-                                                        || modelData.hasPassword
-                                                    )
-                                                    onTriggered: todoDetailBridge.copyEnvironmentLoginInfo(modelData.id)
-                                                }
-                                            }
                                         }
                                     }
 
