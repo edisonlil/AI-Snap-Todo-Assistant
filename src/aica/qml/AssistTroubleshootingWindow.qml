@@ -400,7 +400,7 @@ Rectangle {
                                     width: tabText.implicitWidth + 20
                                     height: panel.chipHeight
                                     radius: 8
-                                    color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#EEF2FF" : "transparent"
+                                    color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#ECEFF3" : "transparent"
                                     border.width: 1
                                     border.color: "transparent"
 
@@ -408,7 +408,7 @@ Rectangle {
                                         id: tabText
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#4F73FF" : "#667085"
+                                        color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#2A313F" : "#667085"
                                         font.family: root.uiFont
                                         font.pixelSize: panel.chipFontSize
                                         font.weight: 500
@@ -528,13 +528,13 @@ Rectangle {
                                                 width: scoreText.implicitWidth + 12
                                                 height: 22
                                                 radius: 11
-                                                color: "#EEF2FF"
+                                                color: "#ECEFF3"
 
                                                 Text {
                                                     id: scoreText
                                                     anchors.centerIn: parent
                                                     text: modelData.scoreLabel || ""
-                                                    color: "#4F73FF"
+                                                    color: "#2A313F"
                                                     font.family: root.uiFont
                                                     font.pixelSize: 11
                                                     font.weight: 600
@@ -559,7 +559,7 @@ Rectangle {
 
                                             Text {
                                                 text: "引用到跟进"
-                                                color: "#4F73FF"
+                                                color: "#2A313F"
                                                 font.family: root.uiFont
                                                 font.pixelSize: 12
                                                 font.weight: 500
@@ -574,7 +574,7 @@ Rectangle {
                                             Text {
                                                 text: "查看详情"
                                                 visible: String(modelData.detailUrl || "").length > 0
-                                                color: "#4F73FF"
+                                                color: "#2A313F"
                                                 font.family: root.uiFont
                                                 font.pixelSize: 12
                                                 font.weight: 500
