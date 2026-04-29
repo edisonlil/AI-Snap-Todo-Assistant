@@ -1250,6 +1250,28 @@ class SQLiteTodoRepository:
             self._refresh_project_link(sanitized_id, updated_group_name)
         return self.get_todo(sanitized_id)
 
+    def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
+        sanitized_id = sanitize_text(todo_id)
+        if not sanitized_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM todos WHERE id = ?",
+                (sanitized_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            stamp = now_iso()
+            connection.execute(
+                "DELETE FROM todo_project_links WHERE todo_id = ?",
+                (sanitized_id,),
+            )
+            connection.execute(
+                "UPDATE todos SET product_line = '', ticket_version = '', updated_at = ? WHERE id = ?",
+                (stamp, sanitized_id),
+            )
+        return self.get_todo(sanitized_id)
+
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:
         row_payload = dict(row)
         project_link = self._project_repository.get_project_link(str(row["id"]))

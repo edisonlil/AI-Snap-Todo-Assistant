@@ -102,6 +102,9 @@ class TodoRepository(Protocol):
     ) -> "TodoItem | None":
         """Update editable Todo fields."""
 
+    def unlink_todo_project(self, todo_id: str) -> "TodoItem | None":
+        """Remove a Todo project link and clear project-backed fields."""
+
 
 class ProjectRepository(Protocol):
     path: str

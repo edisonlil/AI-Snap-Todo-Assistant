@@ -17,6 +17,8 @@ Rectangle {
     property bool actionVisible: false
     property bool actionBusy: false
     property string actionIconSource: ""
+    property string actionText: ""
+    property color actionInkColor: theme.accent
     signal clicked
     signal actionTriggered
     signal accepted(string value)
@@ -192,13 +194,14 @@ Rectangle {
                         z: 2
 
                         Rectangle {
+                            readonly property bool textAction: fieldRoot.actionText.length > 0
                             visible: fieldRoot.actionVisible
-                            implicitWidth: fieldRoot.compact ? 18 : 20
-                            implicitHeight: implicitWidth
-                            radius: implicitWidth / 2
-                            color: actionButtonHover.containsMouse ? theme.hoverBg : "#FFFFFF"
-                            border.width: 1
-                            border.color: theme.panelLine
+                            implicitWidth: textAction ? actionTextLabel.implicitWidth + 2 : (fieldRoot.compact ? 18 : 20)
+                            implicitHeight: textAction ? 20 : implicitWidth
+                            radius: textAction ? 0 : implicitWidth / 2
+                            color: textAction ? "transparent" : (actionButtonHover.containsMouse ? theme.hoverBg : "#FFFFFF")
+                            border.width: textAction ? 0 : 1
+                            border.color: textAction ? "transparent" : theme.panelLine
 
                             BusyIndicator {
                                 anchors.centerIn: parent
@@ -212,9 +215,21 @@ Rectangle {
                                 anchors.centerIn: parent
                                 width: 12
                                 height: 12
-                                visible: !fieldRoot.actionBusy
+                                visible: !fieldRoot.actionBusy && !parent.textAction
                                 source: fieldRoot.actionIconSource
                                 fillMode: Image.PreserveAspectFit
+                            }
+
+                            Text {
+                                id: actionTextLabel
+                                anchors.centerIn: parent
+                                visible: !fieldRoot.actionBusy && parent.textAction
+                                text: fieldRoot.actionText
+                                color: fieldRoot.actionInkColor
+                                font.family: theme.uiFont
+                                font.pixelSize: 11
+                                font.weight: 600
+                                opacity: actionButtonHover.containsMouse ? 1 : 0.72
                             }
 
                             MouseArea {

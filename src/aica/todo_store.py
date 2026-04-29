@@ -69,3 +69,6 @@ class TodoStore:
             timeline=timeline,
             conclusion=conclusion,
         )
+
+    def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
+        return self._repository.unlink_todo_project(todo_id)

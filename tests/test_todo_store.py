@@ -10,7 +10,8 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSnapshot, TicketSummaryFields
-from aica.storage.sqlite.repositories import SQLiteStorageMigrator, SQLiteTodoRepository
+from aica.storage.contracts import ProjectRecord
+from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
 from aica.todo_models import TodoStatus
 
 
@@ -99,6 +100,52 @@ def test_today_done_uses_completed_at_instead_of_updated_at() -> None:
     today_done = repository.list_todos(status="today_done")
 
     assert [todo.id for todo in today_done] == [today_todo.id]
+
+
+def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
+    db_path = _make_db_path("todo-unlink-project")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-linked"), "analysis")
+
+    linked = repository.get_todo(todo.id)
+    assert linked is not None
+    assert linked.project_link.match_status == "matched"
+    assert linked.project_link.project_snapshot["project_name"] == "Demo Project"
+    assert linked.summary_fields.product_line == "WPS协作"
+    assert linked.summary_fields.ticket_version == "release_dc_v7"
+
+    updated = repository.unlink_todo_project(todo.id)
+
+    assert updated is not None
+    assert updated.project_link.match_status == ""
+    assert updated.project_link.project_snapshot == {}
+    assert updated.summary_fields.product_line == "未知"
+    assert updated.summary_fields.ticket_version == ""
+    with sqlite3.connect(repository.path) as connection:
+        link_rows = connection.execute(
+            "SELECT todo_id FROM todo_project_links WHERE todo_id = ?",
+            (todo.id,),
+        ).fetchall()
+        todo_row = connection.execute(
+            "SELECT product_line, ticket_version FROM todos WHERE id = ?",
+            (todo.id,),
+        ).fetchone()
+
+    assert link_rows == []
+    assert todo_row == ("", "")
 
 
 def test_schema_migration_adds_completed_at_column() -> None:

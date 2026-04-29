@@ -1480,7 +1480,7 @@ class _ControlPanelBridge(QObject):
             "projectName": str(snapshot.get("project_name") or "").strip(),
             "customerName": str(snapshot.get("customer_name") or "").strip(),
             "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
-            "productLine": str(todo.summary_fields.product_line or "").strip(),
+            "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
             "ticketVersion": ticket_version,
             "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
@@ -2597,6 +2597,24 @@ class _ControlPanelBridge(QObject):
         self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{todo_title}"
         self._emit_data_changed()
         self.todoListRefreshRequested.emit()
+
+    @pyqtSlot()
+    def unlinkSelectedTicketProject(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        updated = self._todo_store.unlink_todo_project(todo.id)
+        if updated is None:
+            self._error_message = "\u89e3\u9664\u5173\u8054\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(
+            updated,
+            status_message="\u5df2\u89e3\u9664\u9879\u76ee\u5173\u8054",
+        )
 
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:

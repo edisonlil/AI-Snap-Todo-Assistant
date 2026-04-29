@@ -45,6 +45,7 @@ class _FakeTodoStore:
     def __init__(self, todo: TodoItem) -> None:
         self._todo = todo
         self._deleted = False
+        self._unlink_should_fail = False
 
     def list_todos(self, *, query: str = "", status: str = "open") -> list[TodoItem]:
         if self._deleted:
@@ -91,6 +92,20 @@ class _FakeTodoStore:
             return None
         self._todo.summary_fields = summary_fields
         self._todo.updated_at = "2026-04-21T10:05:00"
+        return self._todo
+
+    def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
+        if self._unlink_should_fail or self._deleted or todo_id != self._todo.id:
+            return None
+        self._todo.summary_fields = TicketSummaryFields.from_dict(
+            {
+                **self._todo.summary_fields.to_dict(),
+                "product_line": "",
+                "ticket_version": "",
+            }
+        )
+        self._todo.project_link = TodoProjectLink(todo_id=self._todo.id)
+        self._todo.updated_at = "2026-04-21T10:10:00"
         return self._todo
 
     def relink_open_unresolved_todos(self) -> int:
@@ -423,6 +438,70 @@ def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pyt
 
     assert bridge.selectedTicket["achNo"] == "ACH-2026"
     assert _notification_messages(bridge)
+
+
+def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields.product_line = "WPS协作"
+    todo.summary_fields.ticket_version = "release_dc_v7"
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="matched",
+        matched_alias="test-group",
+        project_snapshot={
+            "project_id": "project-1",
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+            "product_line": "WPS协作",
+            "product_version": "release_dc_v7",
+            "project_manager": "Alice",
+        },
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+    refresh_events: list[str] = []
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    bridge.openTicketDetail(todo.id)
+    bridge.unlinkSelectedTicketProject()
+
+    assert bridge.selectedTicket["id"] == todo.id
+    assert bridge.selectedTicket["projectStatus"] == ""
+    assert bridge.selectedTicket["projectStatusLabel"] == "未匹配项目"
+    assert bridge.selectedTicket["projectName"] == ""
+    assert bridge.selectedTicket["customerName"] == ""
+    assert bridge.selectedTicket["taskOrderNo"] == ""
+    assert bridge.selectedTicket["projectManager"] == ""
+    assert bridge.selectedTicket["productLine"] == ""
+    assert bridge.selectedTicket["ticketVersion"] == ""
+    assert bridge.statusMessage == "已解除项目关联"
+    assert bridge.errorMessage == ""
+    assert refresh_events == ["refresh"]
+    assert _notification_messages(bridge)
+
+
+def test_unlink_selected_ticket_project_failure_pushes_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    bridge._todo_store._unlink_should_fail = True  # noqa: SLF001
+
+    bridge.unlinkSelectedTicketProject()
+
+    assert bridge.selectedTicket["id"] == todo.id
+    assert bridge.errorMessage == "解除关联失败，请稍后重试。"
+    assert bridge.statusMessage == ""
+
+
+def test_unlink_selected_ticket_project_without_selection_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.unlinkSelectedTicketProject()
+
+    assert bridge.selectedTicket["id"] == ""
+    assert bridge.errorMessage == ""
 
 
 def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,6 +11,7 @@ ColumnLayout {
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
     property bool deleteTicketConfirmVisible: false
+    property bool unlinkProjectConfirmVisible: false
     
     // Per-field editing state map: fieldName -> { editing, saving, draft, original }
     property var fieldStates: ({})
@@ -218,6 +219,7 @@ ColumnLayout {
         // Create a completely new empty object to ensure reactivity
         fieldStates = {}
         activeActionField = ""
+        unlinkProjectConfirmVisible = false
     }
 
     function parseRootCausePath(value) {
@@ -393,11 +395,12 @@ ColumnLayout {
                 return
             }
         }
+        unlinkProjectConfirmVisible = false
         deleteTicketConfirmVisible = true
     }
 
     function requestReopenSelectedTicket() {
-        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0 || deleteTicketConfirmVisible) {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0 || deleteTicketConfirmVisible || unlinkProjectConfirmVisible) {
             return
         }
         for (var key in fieldStates) {
@@ -406,6 +409,43 @@ ColumnLayout {
             }
         }
         controlPanelBridge.reopenSelectedTicket()
+    }
+
+    function canUnlinkSelectedTicketProject() {
+        var ticket = controlPanelBridge.selectedTicket || {}
+        var status = String(ticket.projectStatus || "").trim()
+        if (status !== "matched" && status !== "manual" && status !== "expired") {
+            return false
+        }
+        return String(ticket.projectName || ticket.taskOrderNo || ticket.projectStatusDetail || "").trim().length > 0
+    }
+
+    function requestUnlinkSelectedTicketProject() {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0 || deleteTicketConfirmVisible) {
+            return
+        }
+        if (!canUnlinkSelectedTicketProject()) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        unlinkProjectConfirmVisible = true
+    }
+
+    function cancelUnlinkSelectedTicketProject() {
+        unlinkProjectConfirmVisible = false
+    }
+
+    function confirmUnlinkSelectedTicketProject() {
+        if (!controlPanelBridge.selectedTicket.id) {
+            unlinkProjectConfirmVisible = false
+            return
+        }
+        unlinkProjectConfirmVisible = false
+        controlPanelBridge.unlinkSelectedTicketProject()
     }
 
     function cancelDeleteSelectedTicket() {
@@ -1037,6 +1077,7 @@ ColumnLayout {
                         label: "返回列表"
                         onClicked: {
                             ticketSection.cancelDeleteSelectedTicket()
+                            ticketSection.cancelUnlinkSelectedTicketProject()
                             controlPanelBridge.backToTicketList()
                         }
                     }
@@ -1411,14 +1452,83 @@ ColumnLayout {
                                             placeholderText: "未填写"
                                         }
 
-                                        DetailField {
-                                            theme: ticketSection.theme
+                                        ColumnLayout {
                                             Layout.fillWidth: true
                                             Layout.columnSpan: ticketSection.detailGridColumns
-                                            label: "项目关联"
-                                            value: controlPanelBridge.selectedTicket.projectStatusDetail
-                                            placeholderText: "暂无项目关联信息"
-                                            multiline: true
+                                            spacing: 10
+
+                                            DetailField {
+                                                theme: ticketSection.theme
+                                                Layout.fillWidth: true
+                                                label: "项目关联"
+                                                value: controlPanelBridge.selectedTicket.projectStatusDetail
+                                                placeholderText: "暂无项目关联信息"
+                                                multiline: true
+                                                actionVisible: ticketSection.canUnlinkSelectedTicketProject()
+                                                actionText: "解除"
+                                                actionInkColor: "#B75B2B"
+                                                onActionTriggered: ticketSection.requestUnlinkSelectedTicketProject()
+                                            }
+
+                                            Rectangle {
+                                                visible: ticketSection.unlinkProjectConfirmVisible
+                                                Layout.fillWidth: true
+                                                radius: 16
+                                                color: "#FFF7F4"
+                                                border.width: 1
+                                                border.color: "#E7C8BF"
+                                                implicitHeight: unlinkProjectConfirmColumn.implicitHeight + 20
+
+                                                ColumnLayout {
+                                                    id: unlinkProjectConfirmColumn
+                                                    anchors.fill: parent
+                                                    anchors.margins: 10
+                                                    spacing: 8
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: "确认解除当前工单的项目关联吗？"
+                                                        color: theme.titleInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 13
+                                                        font.weight: 700
+                                                        wrapMode: Text.Wrap
+                                                    }
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: "解除后会清空项目关联、产品线和版本号；之后自动或批量关联仍可重新匹配。"
+                                                        color: theme.labelInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 12
+                                                        wrapMode: Text.Wrap
+                                                    }
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 10
+
+                                                        Item {
+                                                            Layout.fillWidth: true
+                                                        }
+
+                                                        ControlPanelPlainButton {
+                                                            theme: ticketSection.theme
+                                                            label: "取消"
+                                                            onClicked: ticketSection.cancelUnlinkSelectedTicketProject()
+                                                        }
+
+                                                        ControlPanelPlainButton {
+                                                            theme: ticketSection.theme
+                                                            label: "确认解除"
+                                                            fillColor: theme.accent
+                                                            inkColor: "#FFFFFF"
+                                                            strokeWidth: 0
+                                                            onClicked: ticketSection.confirmUnlinkSelectedTicketProject()
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         DetailField {
