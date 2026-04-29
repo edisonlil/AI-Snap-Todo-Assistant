@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -35,7 +34,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def emit(self, *args, **kwargs):
             for callback in list(self._callbacks):
-                callback(*args, **kwargs)
+                if callable(callback):
+                    callback(*args, **kwargs)
+                elif hasattr(callback, "emit"):
+                    callback.emit(*args, **kwargs)
 
     class _SignalDescriptor:
         def __init__(self):
@@ -296,6 +298,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return "", ""
 
 from .app_notifications import AppNotificationBridge
+from .assist_analysis import build_assist_analysis_cache_key
 from .conclusion_timeline import build_conclusion_timeline_content
 from .environment_access import EnvironmentAccessService
 from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
@@ -2202,6 +2205,12 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot()
     def refreshAssistAnalysis(self) -> None:
+        self._request_assist_analysis(force=False)
+
+    def prewarmAssistAnalysisIfNeeded(self) -> None:
+        self._prewarm_assist_analysis_if_needed()
+
+    def _request_assist_analysis(self, *, force: bool) -> None:
         if self._todo_id is None:
             return
         payload = self._build_payload()
@@ -2209,7 +2218,7 @@ class _TodoDetailBridge(QObject):
             return
         cache_key = self._assist_analysis_cache_key()
         cached = self._assist_analysis_cache.get(cache_key)
-        if cached is not None:
+        if cached is not None and not force:
             self._assist_analysis_busy = False
             self._assist_analysis_error = ""
             self._assist_analysis_requested_once = True
@@ -2232,8 +2241,19 @@ class _TodoDetailBridge(QObject):
             {
                 "requestId": request_id,
                 "todoPayload": payload,
+                "cacheKey": cache_key,
             },
         )
+
+    def _prewarm_assist_analysis_if_needed(self) -> None:
+        if self._todo_id is None:
+            return
+        cache_key = self._assist_analysis_cache_key()
+        if cache_key in self._assist_analysis_cache:
+            return
+        if self._assist_analysis_pending_cache_key == cache_key:
+            return
+        self._request_assist_analysis(force=True)
 
     @pyqtSlot()
     def refreshStageSummary(self) -> None:
@@ -2421,20 +2441,8 @@ class _TodoDetailBridge(QObject):
         return payload
 
     def _assist_analysis_cache_key(self) -> str:
-        digest = hashlib.sha256()
-        digest.update(str(self._todo_id or "").encode("utf-8", errors="ignore"))
-        digest.update(b"\0")
-        digest.update(str(self._current_summary or "").encode("utf-8", errors="ignore"))
-        digest.update(b"\0")
-        digest.update(str(self._title or "").encode("utf-8", errors="ignore"))
-        digest.update(b"\0")
-        digest.update(str(self._conclusion_content or "").encode("utf-8", errors="ignore"))
-        for item in self._timeline:
-            digest.update(b"\0")
-            digest.update(str(item.get("id", "")).encode("utf-8", errors="ignore"))
-            digest.update(str(item.get("timestamp", "")).encode("utf-8", errors="ignore"))
-            digest.update(str(item.get("content", "")).encode("utf-8", errors="ignore"))
-        return digest.hexdigest()
+        payload = self._build_payload()
+        return build_assist_analysis_cache_key(self._todo_id or "", payload or {})
 
     def _emit_command_request(
         self,
@@ -2671,6 +2679,15 @@ class _TodoDetailBridge(QObject):
             },
         }
 
+    @classmethod
+    def _normalize_full_assist_analysis_result(cls, payload: object) -> dict[str, object]:
+        result = cls._normalize_assist_analysis_result(payload)
+        if isinstance(payload, dict) and "caseResults" in payload:
+            result["caseResults"] = cls._normalize_assist_case_results(payload.get("caseResults"))
+        else:
+            result["caseResults"] = cls._empty_assist_case_results()
+        return result
+
     def _reset_assist_analysis_state(self) -> None:
         self._assist_analysis_busy = False
         self._assist_analysis_error = ""
@@ -2739,14 +2756,39 @@ class _TodoDetailBridge(QObject):
         self._assist_analysis_busy = False
         self._assist_analysis_pending_request_id = ""
         self._assist_analysis_error = ""
-        self._assist_analysis_result = self._normalize_assist_analysis_result(payload)
-        if isinstance(payload, dict) and "caseResults" in payload:
-            self._assist_analysis_result["caseResults"] = self._normalize_assist_case_results(payload.get("caseResults"))
-        else:
-            self._assist_analysis_result["caseResults"] = self._empty_assist_case_results()
+        self._assist_analysis_result = self._normalize_full_assist_analysis_result(payload)
         if self._assist_analysis_pending_cache_key:
             self._assist_analysis_cache[self._assist_analysis_pending_cache_key] = dict(self._assist_analysis_result)
             self._assist_analysis_pending_cache_key = ""
+        self.dataChanged.emit()
+        return True
+
+    def cache_assist_analysis_result(self, todo_id: str, payload: object) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        phase = sanitize_text(payload.get("phase")).strip()
+        should_update = bool(payload.get("shouldUpdate", True))
+        if phase == "review" and not should_update:
+            return False
+        cache_key = sanitize_text(payload.get("cacheKey")).strip()
+        if not cache_key:
+            if str(todo_id or "").strip() == str(self._todo_id or "").strip():
+                cache_key = self._assist_analysis_cache_key()
+            else:
+                return False
+        normalized = self._normalize_full_assist_analysis_result(payload)
+        self._assist_analysis_cache[cache_key] = dict(normalized)
+        if str(todo_id or "").strip() != str(self._todo_id or "").strip():
+            return True
+        if cache_key != self._assist_analysis_cache_key():
+            return True
+        self._assist_analysis_busy = False
+        self._assist_analysis_error = ""
+        self._assist_analysis_requested_once = True
+        self._assist_analysis_result = normalized
+        if self._assist_analysis_pending_cache_key == cache_key:
+            self._assist_analysis_pending_cache_key = ""
+            self._assist_analysis_pending_request_id = ""
         self.dataChanged.emit()
         return True
 
@@ -3938,6 +3980,7 @@ class TodoDetailPanel(QQuickView):
         self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
         self.resize(self._panel_width, self._panel_height)
+        self._bridge.prewarmAssistAnalysisIfNeeded()
         if preserve_position and self.isVisible():
             screen = _screen_for_point(QPoint(self.x(), self.y()))
             if screen is None:
@@ -4096,6 +4139,9 @@ class TodoDetailPanel(QQuickView):
 
     def apply_assist_analysis_result(self, todo_id: str, request_id: str, payload: object) -> bool:
         return self._bridge.apply_assist_analysis_result(todo_id, request_id, payload)
+
+    def cache_assist_analysis_result(self, todo_id: str, payload: object) -> bool:
+        return self._bridge.cache_assist_analysis_result(todo_id, payload)
 
     def apply_assist_analysis_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_assist_analysis_error(todo_id, request_id, message)

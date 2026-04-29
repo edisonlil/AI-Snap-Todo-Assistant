@@ -8,6 +8,7 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -73,6 +74,7 @@ from .analysis_rules import AnalysisRulesManager, PromptDebugStore
 from .analysis_intent import AnalysisIntent, build_analysis_intent
 from .analysis_metrics import AnalysisRunStats
 from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
 from .case_search import (
     CaseSearchProvider,
     KDocsSseCaseSearchProvider,
@@ -881,6 +883,7 @@ class AssistAnalysisWorker(QThread):
         todo_id: str,
         request_id: str,
         payload: dict[str, object],
+        phase: str = "initial",
         case_search_provider: CaseSearchProvider | None = None,
         parent=None,
     ) -> None:
@@ -889,27 +892,84 @@ class AssistAnalysisWorker(QThread):
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
         self._payload = dict(payload or {})
+        self._phase = str(phase or "initial").strip() or "initial"
         self._case_search_provider = case_search_provider or KDocsSseCaseSearchProvider()
 
     def run(self) -> None:
         try:
             todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
-            try:
-                raw = self._llm_service.run_task(
-                    "context_summary",
-                    messages=[
-                        Message(role="system", content=_ASSIST_ANALYSIS_SYSTEM_PROMPT),
-                        Message(role="user", content=_build_assist_analysis_user_prompt(todo)),
-                    ],
-                    temperature=0.2,
+            if self._phase == "review":
+                candidate = self._with_metadata(
+                    self._build_initial_result(todo),
+                    todo,
+                    phase="review",
+                    should_update=True,
                 )
-                result = _normalize_assist_analysis_payload(_extract_json_object(raw))
-            except Exception:
-                result = _local_assist_analysis_payload(todo)
-            result["caseResults"] = self._search_cases(todo)
+                previous = self._payload.get("previousResult")
+                if not should_update_assist_analysis(previous, candidate):
+                    candidate = self._with_metadata({}, todo, phase="review", should_update=False)
+                result = candidate
+            else:
+                result = self._with_metadata(
+                    self._build_initial_result(todo),
+                    todo,
+                    phase="initial",
+                    should_update=True,
+                )
             self.finished.emit(self._todo_id, self._request_id, result)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._todo_id, self._request_id, str(exc))
+
+    def _build_initial_result(self, todo: TodoItem) -> dict[str, object]:
+        result: dict[str, object] = {}
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            analysis_future = executor.submit(self._run_assist_analysis, todo)
+            cases_future = executor.submit(self._search_cases, todo)
+            try:
+                result = analysis_future.result()
+            except Exception:
+                result = _local_assist_analysis_payload(todo)
+            try:
+                result["caseResults"] = cases_future.result()
+            except Exception as exc:  # noqa: BLE001
+                result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+        return result
+
+    def _run_assist_analysis(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            raw = self._llm_service.run_task(
+                "context_summary",
+                messages=[
+                    Message(role="system", content=_ASSIST_ANALYSIS_SYSTEM_PROMPT),
+                    Message(role="user", content=_build_assist_analysis_user_prompt(todo)),
+                ],
+                temperature=0.2,
+            )
+            return _normalize_assist_analysis_payload(_extract_json_object(raw))
+        except Exception:
+            return _local_assist_analysis_payload(todo)
+
+    def _with_metadata(
+        self,
+        payload: dict[str, object],
+        todo: TodoItem,
+        *,
+        phase: str,
+        should_update: bool,
+    ) -> dict[str, object]:
+        result = dict(payload or {})
+        result["phase"] = phase
+        result["shouldUpdate"] = bool(should_update)
+        result["cacheKey"] = build_assist_analysis_cache_key(
+            todo.id,
+            {
+                "title": todo.title,
+                "current_summary": todo.current_summary,
+                "conclusion": todo.conclusion,
+                "timeline": todo.timeline,
+            },
+        )
+        return result
 
     def _search_cases(self, todo: TodoItem) -> dict[str, object]:
         try:

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSyst
 from aica.analysis_flow import AnalysisFlowCoordinator
 from aica.analysis_metrics import AnalysisMetricsStore
 from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
+from aica.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
@@ -220,6 +221,7 @@ def main() -> None:
     assist_analysis_workers: list[AssistAnalysisWorker] = []
     ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
     pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
+    pending_assist_analysis_keys: set[str] = set()
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -330,6 +332,7 @@ def main() -> None:
             toolbar.get_current_scenario(),
         )
         _refresh_todo_panel()
+        _start_assist_analysis_prewarm(save_result.todo)
         return save_result.action, save_result.todo.title
 
     def _show_overlays() -> None:
@@ -706,6 +709,13 @@ def main() -> None:
             assist_analysis_workers.remove(worker)
         worker.deleteLater()
 
+    def _clear_pending_assist_analysis_key(payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        cache_key = str(payload.get("cacheKey", "") or "").strip()
+        if cache_key:
+            pending_assist_analysis_keys.discard(cache_key)
+
     def _on_log_analysis_finished(task_id: str) -> None:
         task = log_analysis_store.get_task(task_id)
         if task is not None and todo_controller.detail_todo_id == task.todo_id:
@@ -784,6 +794,66 @@ def main() -> None:
     def _on_assist_analysis_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_assist_analysis_error(todo_id, request_id, message)
 
+    def _build_assist_worker_payload(todo, *, previous_result: object | None = None) -> dict[str, object]:
+        todo_payload = build_assist_todo_payload(todo)
+        payload: dict[str, object] = {
+            "requestId": str(uuid.uuid4()),
+            "todoPayload": todo_payload,
+            "cacheKey": build_assist_analysis_cache_key(todo.id, todo_payload),
+        }
+        if previous_result is not None:
+            payload["previousResult"] = previous_result
+        return payload
+
+    def _start_assist_analysis_review(todo, previous_result: object) -> None:
+        payload = _build_assist_worker_payload(todo, previous_result=previous_result)
+        pending_assist_analysis_keys.add(str(payload["cacheKey"]))
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config_mgr.load()),
+            todo_id=todo.id,
+            request_id=str(payload["requestId"]),
+            payload=payload,
+            phase="review",
+        )
+        assist_analysis_workers.append(worker)
+        worker.finished.connect(_on_assist_analysis_review_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.start()
+
+    def _on_assist_analysis_prewarm_finished(todo_id: str, _request_id: str, payload: object) -> None:
+        _clear_pending_assist_analysis_key(payload)
+        todo_detail_panel.cache_assist_analysis_result(todo_id, payload)
+        latest = todo_store.get_todo(todo_id)
+        if latest is not None:
+            _start_assist_analysis_review(latest, payload)
+
+    def _on_assist_analysis_review_finished(todo_id: str, _request_id: str, payload: object) -> None:
+        _clear_pending_assist_analysis_key(payload)
+        if isinstance(payload, dict) and bool(payload.get("shouldUpdate", True)):
+            todo_detail_panel.cache_assist_analysis_result(todo_id, payload)
+
+    def _start_assist_analysis_prewarm(todo) -> None:
+        if todo is None:
+            return
+        payload = _build_assist_worker_payload(todo)
+        cache_key = str(payload["cacheKey"])
+        if cache_key in pending_assist_analysis_keys:
+            return
+        pending_assist_analysis_keys.add(cache_key)
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config_mgr.load()),
+            todo_id=todo.id,
+            request_id=str(payload["requestId"]),
+            payload=payload,
+            phase="initial",
+        )
+        assist_analysis_workers.append(worker)
+        worker.finished.connect(_on_assist_analysis_prewarm_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.start()
+
     def _start_stage_summary_worker(todo_id: str, request_id: str, mode: str, payload: dict[str, object]) -> None:
         config = config_mgr.load()
         worker = StageSummaryWorker(
@@ -806,6 +876,14 @@ def main() -> None:
         request_id = str(payload.get("requestId", "")).strip()
         if not request_id:
             return
+        cache_key = str(payload.get("cacheKey", "") or "").strip()
+        if not cache_key and isinstance(payload.get("todoPayload"), dict):
+            cache_key = build_assist_analysis_cache_key(todo_id, payload.get("todoPayload"))
+            payload = {**payload, "cacheKey": cache_key}
+        if cache_key and cache_key in pending_assist_analysis_keys:
+            return
+        if cache_key:
+            pending_assist_analysis_keys.add(cache_key)
         config = config_mgr.load()
         worker = AssistAnalysisWorker(
             llm_service=LLMService(config),
@@ -815,8 +893,10 @@ def main() -> None:
         )
         assist_analysis_workers.append(worker)
         worker.finished.connect(_on_assist_analysis_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _payload: _clear_pending_assist_analysis_key(_payload))
         worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
         worker.error.connect(_on_assist_analysis_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, key=cache_key: pending_assist_analysis_keys.discard(key) if key else None)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
         worker.start()
 

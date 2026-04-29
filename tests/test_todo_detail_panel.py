@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from aica.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.models import TicketSummaryFields
 from aica.todo_detail_panel import (
     TodoDetailPanel,
@@ -497,6 +498,114 @@ def test_toggle_assist_troubleshooting_requests_analysis_once() -> None:
     bridge.toggleAssistTroubleshooting()
 
     assert len(requested) == 1
+
+
+def test_open_detail_prewarm_requests_assist_analysis_when_cache_missing() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+
+    assert bridge.assistTroubleshootingVisible is False
+    assert bridge.assistAnalysisBusy is True
+    assert len(requested) == 1
+    assert requested[0][0] == "todo-1"
+    assert requested[0][1]["cacheKey"] == build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+
+
+def test_open_detail_prewarm_skips_when_assist_cache_exists() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+    bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "已有缓存建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+
+    assert requested == []
+    assert bridge.assistAnalysisSummary == "已有缓存建议"
+
+
+def test_toggle_assist_troubleshooting_uses_prewarmed_cache() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "预热完成的第一版建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "预热完成的第一版建议"
+    assert requested == []
+
+
+def test_review_cache_result_updates_only_when_marked_useful() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+    bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "第一版建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "review",
+            "shouldUpdate": False,
+            "cacheKey": cache_key,
+            "summary": "无增益第二版",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is False
+    assert bridge.assistAnalysisSummary == "第一版建议"
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "review",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "有增益第二版",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+    assert bridge.assistAnalysisSummary == "有增益第二版"
 
 
 def test_apply_assist_analysis_result_updates_structured_state() -> None:
