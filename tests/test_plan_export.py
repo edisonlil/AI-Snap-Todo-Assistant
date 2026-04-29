@@ -40,6 +40,16 @@ def test_build_plan_export_messages_uses_text_only_prompt() -> None:
 
     assert len(messages) == 2
     assert isinstance(messages[1].content, str)
+    assert "解决方案知识条目" in messages[1].content
+    assert "元数据" in messages[1].content
+    assert "产品线" in messages[1].content
+    assert "版本号" in messages[1].content
+    assert "功能点" in messages[1].content
+    assert "项目名" in messages[1].content
+    assert "问题描述" in messages[1].content
+    assert "解决过程" in messages[1].content
+    assert "问题结论" in messages[1].content
+    assert "复用建议" in messages[1].content
     assert "screenshot.png" in messages[1].content
     assert "data:image/" not in messages[1].content
 
