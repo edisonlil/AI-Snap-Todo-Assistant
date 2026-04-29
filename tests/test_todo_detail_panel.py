@@ -510,7 +510,7 @@ def test_open_detail_prewarm_requests_assist_analysis_when_cache_missing() -> No
     bridge.prewarmAssistAnalysisIfNeeded()
 
     assert bridge.assistTroubleshootingVisible is False
-    assert bridge.assistAnalysisBusy is True
+    assert bridge.assistAnalysisBusy is False
     assert len(requested) == 1
     assert requested[0][0] == "todo-1"
     assert requested[0][1]["cacheKey"] == build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
@@ -538,6 +538,32 @@ def test_open_detail_prewarm_skips_when_assist_cache_exists() -> None:
 
     assert requested == []
     assert bridge.assistAnalysisSummary == "已有缓存建议"
+
+
+def test_click_assist_waits_for_existing_open_detail_prewarm_request() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+    prewarm_request_id = str(requested[0][1]["requestId"])
+    bridge.toggleAssistTroubleshooting()
+
+    assert len(requested) == 1
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is True
+    assert bridge.apply_assist_analysis_result(
+        "todo-1",
+        prewarm_request_id,
+        {
+            "summary": "预热请求返回的建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "预热请求返回的建议"
 
 
 def test_toggle_assist_troubleshooting_uses_prewarmed_cache() -> None:

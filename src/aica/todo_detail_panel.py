@@ -2205,12 +2205,12 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot()
     def refreshAssistAnalysis(self) -> None:
-        self._request_assist_analysis(force=False)
+        self._request_assist_analysis(force=False, mark_requested=True, show_loading=True)
 
     def prewarmAssistAnalysisIfNeeded(self) -> None:
         self._prewarm_assist_analysis_if_needed()
 
-    def _request_assist_analysis(self, *, force: bool) -> None:
+    def _request_assist_analysis(self, *, force: bool, mark_requested: bool, show_loading: bool) -> None:
         if self._todo_id is None:
             return
         payload = self._build_payload()
@@ -2228,14 +2228,25 @@ class _TodoDetailBridge(QObject):
             self._assist_analysis_result["caseResults"] = self._normalize_assist_case_results(cached.get("caseResults"))
             self.dataChanged.emit()
             return
+        if self._assist_analysis_pending_cache_key == cache_key:
+            if mark_requested:
+                self._assist_analysis_requested_once = True
+            if show_loading:
+                self._assist_analysis_busy = True
+                self._assist_analysis_error = ""
+                self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
+                self.dataChanged.emit()
+            return
         request_id = str(uuid.uuid4())
-        self._assist_analysis_busy = True
+        self._assist_analysis_busy = bool(show_loading)
         self._assist_analysis_error = ""
-        self._assist_analysis_requested_once = True
+        if mark_requested:
+            self._assist_analysis_requested_once = True
         self._assist_analysis_pending_request_id = request_id
         self._assist_analysis_pending_cache_key = cache_key
-        self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
-        self.dataChanged.emit()
+        if show_loading:
+            self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
+            self.dataChanged.emit()
         self.assistAnalysisRequested.emit(
             self._todo_id,
             {
@@ -2253,7 +2264,7 @@ class _TodoDetailBridge(QObject):
             return
         if self._assist_analysis_pending_cache_key == cache_key:
             return
-        self._request_assist_analysis(force=True)
+        self._request_assist_analysis(force=True, mark_requested=False, show_loading=False)
 
     @pyqtSlot()
     def refreshStageSummary(self) -> None:
