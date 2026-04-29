@@ -726,6 +726,8 @@ def main() -> None:
     def _clear_pending_assist_analysis_key(payload: object) -> None:
         if not isinstance(payload, dict):
             return
+        if not bool(payload.get("isFinal", True)):
+            return
         cache_key = str(payload.get("cacheKey", "") or "").strip()
         if cache_key:
             pending_assist_analysis_keys.discard(cache_key)
@@ -830,14 +832,16 @@ def main() -> None:
             phase="review",
         )
         assist_analysis_workers.append(worker)
-        worker.finished.connect(_on_assist_analysis_review_finished)
-        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.result_ready.connect(_on_assist_analysis_review_finished)
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
         worker.start()
 
     def _on_assist_analysis_prewarm_finished(todo_id: str, _request_id: str, payload: object) -> None:
-        _clear_pending_assist_analysis_key(payload)
         todo_detail_panel.cache_assist_analysis_result(todo_id, payload)
+        _clear_pending_assist_analysis_key(payload)
+        if not isinstance(payload, dict) or not bool(payload.get("isFinal", True)):
+            return
         latest = todo_store.get_todo(todo_id)
         if latest is not None:
             _start_assist_analysis_review(latest, payload)
@@ -863,8 +867,8 @@ def main() -> None:
             phase="initial",
         )
         assist_analysis_workers.append(worker)
-        worker.finished.connect(_on_assist_analysis_prewarm_finished)
-        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.result_ready.connect(_on_assist_analysis_prewarm_finished)
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
         worker.start()
 
@@ -906,9 +910,9 @@ def main() -> None:
             payload=payload,
         )
         assist_analysis_workers.append(worker)
-        worker.finished.connect(_on_assist_analysis_finished)
-        worker.finished.connect(lambda _todo_id, _request_id, _payload: _clear_pending_assist_analysis_key(_payload))
-        worker.finished.connect(lambda _todo_id, _request_id, _payload, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.result_ready.connect(_on_assist_analysis_finished)
+        worker.result_ready.connect(lambda _todo_id, _request_id, _payload: _clear_pending_assist_analysis_key(_payload))
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
         worker.error.connect(_on_assist_analysis_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, key=cache_key: pending_assist_analysis_keys.discard(key) if key else None)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))

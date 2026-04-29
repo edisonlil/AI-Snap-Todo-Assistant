@@ -80,6 +80,7 @@ from .case_search import (
     build_case_search_queries,
     build_case_search_request,
     empty_case_result,
+    loading_case_result,
     rank_case_search_result,
 )
 from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
@@ -834,7 +835,7 @@ def _build_assist_analysis_user_prompt(todo: TodoItem) -> str:
 
 
 class AssistAnalysisWorker(QThread):
-    finished = pyqtSignal(str, str, object)
+    result_ready = pyqtSignal(str, str, object)
     error = pyqtSignal(str, str, str)
 
     def __init__(
@@ -865,19 +866,36 @@ class AssistAnalysisWorker(QThread):
                     todo,
                     phase="review",
                     should_update=True,
+                    is_final=True,
                 )
                 previous = self._payload.get("previousResult")
                 if not should_update_assist_analysis(previous, candidate):
-                    candidate = self._with_metadata({}, todo, phase="review", should_update=False)
+                    candidate = self._with_metadata({}, todo, phase="review", should_update=False, is_final=True)
                 result = candidate
             else:
-                result = self._with_metadata(
-                    self._build_initial_result(todo),
+                initial_result = self._with_metadata(
+                    self._build_assist_analysis_only_result(todo),
                     todo,
                     phase="initial",
                     should_update=True,
+                    is_final=False,
                 )
-            self.finished.emit(self._todo_id, self._request_id, result)
+                initial_result["caseResults"] = loading_case_result().to_payload()
+                self.result_ready.emit(self._todo_id, self._request_id, initial_result)
+
+                final_result = dict(initial_result)
+                try:
+                    final_result["caseResults"] = self._search_cases(todo)
+                except Exception as exc:  # noqa: BLE001
+                    final_result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+                result = self._with_metadata(
+                    final_result,
+                    todo,
+                    phase="initial",
+                    should_update=True,
+                    is_final=True,
+                )
+            self.result_ready.emit(self._todo_id, self._request_id, result)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._todo_id, self._request_id, str(exc))
 
@@ -895,6 +913,12 @@ class AssistAnalysisWorker(QThread):
             except Exception as exc:  # noqa: BLE001
                 result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
         return result
+
+    def _build_assist_analysis_only_result(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            return self._run_assist_analysis(todo)
+        except Exception:
+            return _local_assist_analysis_payload(todo)
 
     def _run_assist_analysis(self, todo: TodoItem) -> dict[str, object]:
         try:
@@ -917,10 +941,12 @@ class AssistAnalysisWorker(QThread):
         *,
         phase: str,
         should_update: bool,
+        is_final: bool,
     ) -> dict[str, object]:
         result = dict(payload or {})
         result["phase"] = phase
         result["shouldUpdate"] = bool(should_update)
+        result["isFinal"] = bool(is_final)
         result["cacheKey"] = build_assist_analysis_cache_key(
             todo.id,
             {

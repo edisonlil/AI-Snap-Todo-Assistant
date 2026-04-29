@@ -153,6 +153,9 @@ Rectangle {
             if (!todoDetailBridge) {
                 return "更像环境或参数差异问题，建议先补齐参数和日志，再决定是否升级。"
             }
+            if (todoDetailBridge.assistAnalysisSummary && todoDetailBridge.assistAnalysisSummary.length > 0) {
+                return todoDetailBridge.assistAnalysisSummary
+            }
             if (todoDetailBridge.assistAnalysisBusy) {
                 return "正在基于问题描述和时间线跟进记录整理问题分析摘要..."
             }

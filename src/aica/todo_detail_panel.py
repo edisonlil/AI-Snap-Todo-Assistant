@@ -2764,11 +2764,13 @@ class _TodoDetailBridge(QObject):
             return False
         if str(request_id or "").strip() != self._assist_analysis_pending_request_id:
             return False
-        self._assist_analysis_busy = False
-        self._assist_analysis_pending_request_id = ""
+        is_final = bool(dict(payload).get("isFinal", True)) if isinstance(payload, dict) else True
+        self._assist_analysis_busy = not is_final
+        if is_final:
+            self._assist_analysis_pending_request_id = ""
         self._assist_analysis_error = ""
         self._assist_analysis_result = self._normalize_full_assist_analysis_result(payload)
-        if self._assist_analysis_pending_cache_key:
+        if is_final and self._assist_analysis_pending_cache_key:
             self._assist_analysis_cache[self._assist_analysis_pending_cache_key] = dict(self._assist_analysis_result)
             self._assist_analysis_pending_cache_key = ""
         self.dataChanged.emit()
@@ -2787,17 +2789,19 @@ class _TodoDetailBridge(QObject):
                 cache_key = self._assist_analysis_cache_key()
             else:
                 return False
+        is_final = bool(payload.get("isFinal", True))
         normalized = self._normalize_full_assist_analysis_result(payload)
-        self._assist_analysis_cache[cache_key] = dict(normalized)
+        if is_final:
+            self._assist_analysis_cache[cache_key] = dict(normalized)
         if str(todo_id or "").strip() != str(self._todo_id or "").strip():
             return True
         if cache_key != self._assist_analysis_cache_key():
             return True
-        self._assist_analysis_busy = False
+        self._assist_analysis_busy = not is_final and bool(self._assist_analysis_pending_request_id)
         self._assist_analysis_error = ""
         self._assist_analysis_requested_once = True
         self._assist_analysis_result = normalized
-        if self._assist_analysis_pending_cache_key == cache_key:
+        if is_final and self._assist_analysis_pending_cache_key == cache_key:
             self._assist_analysis_pending_cache_key = ""
             self._assist_analysis_pending_request_id = ""
         self.dataChanged.emit()
