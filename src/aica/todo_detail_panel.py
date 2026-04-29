@@ -4140,6 +4140,19 @@ class TodoDetailPanel(QQuickView):
         self.hide()
         self.closed.emit()
 
+    def hide(self) -> None:
+        stage_summary_window = getattr(self, "_stage_summary_window", None)
+        if stage_summary_window is not None:
+            stage_summary_window.hide()
+        self._stage_summary_window_visible = False
+
+        assist_troubleshooting_window = getattr(self, "_assist_troubleshooting_window", None)
+        if assist_troubleshooting_window is not None:
+            assist_troubleshooting_window.hide()
+        self._assist_troubleshooting_window_visible = False
+
+        super().hide()
+
     def event(self, event):  # noqa: ANN001, ANN201
         event_type = getattr(event, "type", None)
         if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:

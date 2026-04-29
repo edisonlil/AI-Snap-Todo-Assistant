@@ -1018,6 +1018,23 @@ def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:
     assert hide_calls
 
 
+def test_hiding_detail_panel_hides_auxiliary_windows(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel._stage_summary_window_visible = True  # noqa: SLF001
+    panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
+
+    hide_calls: list[str] = []
+    monkeypatch.setattr(panel._stage_summary_window, "hide", lambda: hide_calls.append("stage"))
+    monkeypatch.setattr(panel._assist_troubleshooting_window, "hide", lambda: hide_calls.append("assist"))
+
+    panel.hide()
+
+    assert panel._stage_summary_window_visible is False
+    assert panel._assist_troubleshooting_window_visible is False
+    assert hide_calls == ["stage", "assist"]
+
+
 def test_show_todo_restores_cached_timeline_draft_after_panel_close(monkeypatch) -> None:
     panel = _build_panel(monkeypatch)
     first_todo = _build_todo("todo-1")
