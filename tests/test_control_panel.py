@@ -295,6 +295,18 @@ def test_task_bindings_use_readable_chinese_labels(monkeypatch: pytest.MonkeyPat
     assert {item["performanceSummary"] for item in bindings.values()} == {"暂无耗时样本"}
 
 
+def test_plan_export_model_options_include_text_only_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._analysis_metrics = SimpleNamespace(get_summary=lambda *_args: None)
+
+    options = bridge._build_model_options("plan_export", "siliconflow")  # noqa: SLF001
+
+    values = {item["value"] for item in options}
+    assert "qwen25-vl-72b" in values
+    assert "qwen3-8b" in values
+
+
 def test_model_options_use_middle_dot_metric_separator() -> None:
     label = control_panel._append_metric_suffix(
         "Qwen/Qwen2.5-VL-72B-Instruct (vision_chat, text_chat)",

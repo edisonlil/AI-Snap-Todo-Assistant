@@ -158,6 +158,20 @@ def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) ->
         return exc
 
 
+def _notify_plan_export_error(notification_bridge: AppNotificationBridge, message: str) -> None:
+    normalized = str(message or "").strip()
+    if not normalized:
+        return
+    notification_bridge.notify("error", normalized, 5200, "plan_export")
+
+
+def _notify_plan_export_success(notification_bridge: AppNotificationBridge, export_path: str) -> None:
+    normalized = str(export_path or "").strip()
+    if not normalized:
+        return
+    notification_bridge.notify("success", f"方案已导出到: {normalized}", 3600, "plan_export")
+
+
 def _show_build_expired_message(now: datetime | None = None) -> None:
     QMessageBox.critical(
         None,
@@ -471,13 +485,13 @@ def main() -> None:
         sender = app.sender()
         if isinstance(sender, PlanExportWorker):
             _cleanup_plan_export_worker(sender)
-        QMessageBox.information(None, "导出成功", f"方案已导出到:\n{export_path}")
+        _notify_plan_export_success(notification_bridge, export_path)
 
     def _on_plan_export_error(message: str) -> None:
         sender = app.sender()
         if isinstance(sender, PlanExportWorker):
             _cleanup_plan_export_worker(sender)
-        QMessageBox.warning(None, "导出失败", message)
+        _notify_plan_export_error(notification_bridge, message)
 
     def _on_todo_export_plan_requested(todo_id: str, payload: object) -> None:
         if not isinstance(payload, dict):

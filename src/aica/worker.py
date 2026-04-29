@@ -1,7 +1,6 @@
 ﻿"""AI workers: screenshot analysis and feedback optimization."""
 import base64
 import json
-import mimetypes
 import os
 import re
 import shutil
@@ -98,7 +97,6 @@ _PLAN_EXPORT_SYSTEM_PROMPT = (
     "你是一位资深的B端技术支持与实施专家，负责基于待办上下文输出可执行的处理方案。"
     "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
 )
-_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
 _STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
     "你是一位阶段总结整理助手。"
     "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
@@ -239,17 +237,6 @@ def _group_plan_export_attachment_entries(
             }
         )
     return grouped_entries
-
-
-def _encode_local_image_to_data_url(path: str) -> str:
-    source = Path(str(path or "")).expanduser()
-    if not source.is_file():
-        return ""
-    mime_type, _ = mimetypes.guess_type(str(source))
-    if not mime_type or not mime_type.startswith("image/"):
-        return ""
-    encoded = base64.b64encode(source.read_bytes()).decode("utf-8")
-    return f"data:{mime_type};base64,{encoded}"
 
 
 def _build_plan_export_timeline_lines(todo_payload: dict[str, object]) -> list[str]:
@@ -509,35 +496,9 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]
         f"当前摘要: {str(todo_payload.get('current_summary', '')).strip()}\n"
         f"时间线:\n{timeline_text}"
     )
-    user_content: str | list[ContentPart] = user_prompt
-    image_entries = [
-        entry
-        for entry in _iter_plan_export_attachment_entries(todo_payload)
-        if entry.get("kind") == "image" and entry.get("path")
-    ]
-    image_content: list[ContentPart] = []
-    for entry in image_entries[:_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS]:
-        data_url = _encode_local_image_to_data_url(entry.get("path", ""))
-        if not data_url:
-            continue
-        image_content.append(
-            ContentPart(
-                type="text",
-                text=(
-                    f"附件图片，时间节点 [{entry['timestamp']}]，"
-                    f"场景 {entry['scenario']}，文件名 {entry['name']}。"
-                    f"{(' 关联说明：' + entry['content']) if entry['content'] else ''}"
-                ),
-            )
-        )
-        image_content.append(ContentPart(type="image_data_url", data_url=data_url))
-
-    if image_content:
-        user_content = [ContentPart(type="text", text=user_prompt), *image_content]
-
     return [
         Message(role="system", content=_PLAN_EXPORT_SYSTEM_PROMPT),
-        Message(role="user", content=user_content),
+        Message(role="user", content=user_prompt),
     ]
 
 

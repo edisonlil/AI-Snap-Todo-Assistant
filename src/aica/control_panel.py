@@ -510,7 +510,7 @@ _SECTION_VIEW_META = {
 
 
 def _required_capability(task_name: str) -> str:
-    if task_name == "context_summary":
+    if task_name in {"context_summary", "plan_export"}:
         return "text_chat"
     return "vision_chat"
 
