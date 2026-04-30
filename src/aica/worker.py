@@ -270,6 +270,63 @@ def build_plan_export_timeline_markdown(todo_payload: dict[str, object]) -> str:
     return "## 时间线回顾\n\n" + "\n".join(f"- {line}" for line in timeline_lines)
 
 
+def _plan_export_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _build_plan_export_metadata_lines(
+    summary_fields: dict[str, object],
+    todo_payload: dict[str, object],
+) -> list[str]:
+    project_link = todo_payload.get("project_link", {})
+    project_snapshot: dict[str, object] = {}
+    project_status = ""
+    project_reason = ""
+    project_alias = ""
+    if isinstance(project_link, dict):
+        project_snapshot_payload = project_link.get("project_snapshot", {})
+        if isinstance(project_snapshot_payload, dict):
+            project_snapshot = project_snapshot_payload
+        project_status = _plan_export_text(project_link.get("match_status"))
+        project_reason = _plan_export_text(project_link.get("match_reason"))
+        project_alias = _plan_export_text(project_link.get("matched_alias"))
+
+    def _summary_or_snapshot(summary_key: str, snapshot_key: str = "") -> str:
+        value = _plan_export_text(summary_fields.get(summary_key))
+        if value:
+            return value
+        return _plan_export_text(project_snapshot.get(snapshot_key or summary_key))
+
+    product_line = _summary_or_snapshot("product_line")
+    ticket_version = _summary_or_snapshot("ticket_version", "product_version")
+    lines = [
+        f"工单标题: {_plan_export_text(todo_payload.get('title'))}",
+        f"群聊名称: {_plan_export_text(summary_fields.get('group_name'))}",
+        f"环境: {_plan_export_text(summary_fields.get('environment'))}",
+        f"产品线: {product_line}",
+        f"版本号: {ticket_version}",
+        f"功能点: {_plan_export_text(summary_fields.get('feature_point'))}",
+        f"工单类型: {_plan_export_text(summary_fields.get('ticket_type'))}",
+        f"根因分类: {_plan_export_text(summary_fields.get('root_cause'))}",
+        f"根因说明: {_plan_export_text(summary_fields.get('root_cause_desc'))}",
+    ]
+    if project_snapshot or project_status:
+        lines.extend(
+            [
+                f"关联项目状态: {project_status}",
+                f"项目名: {_plan_export_text(project_snapshot.get('project_name'))}",
+                f"项目编号: {_plan_export_text(project_snapshot.get('task_order_no'))}",
+                f"项目客户: {_plan_export_text(project_snapshot.get('customer_name'))}",
+                f"项目经理: {_plan_export_text(project_snapshot.get('project_manager'))}",
+                f"项目级别: {_plan_export_text(project_snapshot.get('project_level'))}",
+                f"项目别名: {project_alias}",
+                f"项目匹配说明: {project_reason}",
+            ]
+        )
+    lines.append(f"当前摘要: {_plan_export_text(todo_payload.get('current_summary'))}")
+    return lines
+
+
 class _BaseVisionWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -467,18 +524,13 @@ class _BaseVisionWorker(QThread):
 def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]:
     summary_fields = todo_payload.get("summary_fields")
     if isinstance(summary_fields, dict):
-        group_name = str(summary_fields.get("group_name", "")).strip()
-        environment = str(summary_fields.get("environment", "")).strip()
-        product_line = str(summary_fields.get("product_line", "")).strip()
-        ticket_type = str(summary_fields.get("ticket_type", "")).strip()
+        normalized_summary_fields = summary_fields
     else:
-        group_name = ""
-        environment = ""
-        product_line = ""
-        ticket_type = ""
+        normalized_summary_fields = {}
 
     timeline_lines = _build_plan_export_timeline_lines(todo_payload)
     timeline_text = "\n".join(timeline_lines) if timeline_lines else "暂无时间线记录"
+    metadata_text = "\n".join(_build_plan_export_metadata_lines(normalized_summary_fields, todo_payload))
     user_prompt = (
         "请基于以下待办信息，重新编写一份可直接导出的 Markdown 解决方案知识条目。\n"
         "只输出 Markdown 正文，不要解释，不要输出代码块围栏。\n\n"
@@ -510,12 +562,7 @@ def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]
         "2. 重点沉淀“是什么问题、怎么分析、怎么解决、结论是什么”，不要写成项目推进计划。\n"
         "3. 不要编造待办、时间线和附件中没有的信息；信息缺失时标记未提供、未明确或待确认。\n"
         "4. Markdown 层级保持稳定，字段名称尽量固定，便于后续解析和检索。\n\n"
-        f"待办标题: {str(todo_payload.get('title', '')).strip()}\n"
-        f"群聊名称: {group_name}\n"
-        f"环境: {environment}\n"
-        f"产品线: {product_line}\n"
-        f"工单类型: {ticket_type}\n"
-        f"当前摘要: {str(todo_payload.get('current_summary', '')).strip()}\n"
+        f"元数据:\n{metadata_text}\n"
         f"时间线:\n{timeline_text}"
     )
     return [

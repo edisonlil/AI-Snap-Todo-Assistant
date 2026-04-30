@@ -313,7 +313,7 @@ from .ticket_field_resolver import (
     resolve_product_line,
 )
 from .text_sanitize import sanitize_text, strip_invalid_surrogates
-from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
+from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -709,6 +709,8 @@ class _TodoDetailBridge(QObject):
         self._project_name = ""
         self._project_task_order_no = ""
         self._project_manager = ""
+        self._ticket_version = ""
+        self._project_link = TodoProjectLink()
         self._sync_integration_id = ""
         self._sync_status = "未同步"
         self._sync_status_detail = "当前待办还没有外部绑定。"
@@ -1347,6 +1349,7 @@ class _TodoDetailBridge(QObject):
         self._root_cause_desc_source = str(todo.summary_fields.root_cause_desc_source or "").strip()
         self._root_cause = str(todo.summary_fields.root_cause or "").strip()
         self._root_cause_source = str(todo.summary_fields.root_cause_source or "").strip()
+        self._ticket_version = str(todo.summary_fields.ticket_version or "").strip()
         self._current_summary = todo.current_summary.strip()
         self._conclusion_content = str(todo.conclusion.content or "").strip()
         self._conclusion_updated_at = str(todo.conclusion.updated_at or "").strip()
@@ -1393,6 +1396,7 @@ class _TodoDetailBridge(QObject):
         self._project_name = str(todo.project_link.project_snapshot.get("project_name") or "").strip()
         self._project_task_order_no = str(todo.project_link.project_snapshot.get("task_order_no") or "").strip()
         self._project_manager = str(todo.project_link.project_snapshot.get("project_manager") or "").strip()
+        self._project_link = TodoProjectLink.from_dict(todo.project_link.to_dict())
         self._load_environment_access(todo.project_link.project_id)
         self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
@@ -3244,7 +3248,9 @@ class _TodoDetailBridge(QObject):
                 root_cause_desc_source=self._root_cause_desc_source,
                 root_cause=self._root_cause.strip(),
                 root_cause_source=self._root_cause_source,
+                ticket_version=self._ticket_version.strip(),
             ).to_dict(),
+            "project_link": self._project_link.to_dict(),
             "conclusion": {
                 "content": self._conclusion_content.strip(),
                 "updatedAt": self._conclusion_updated_at,

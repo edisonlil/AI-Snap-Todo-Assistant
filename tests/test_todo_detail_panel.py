@@ -15,7 +15,7 @@ from aica.todo_detail_panel import (
     _StageSummaryWindow,
     _TodoDetailBridge,
 )
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
 def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
@@ -53,6 +53,14 @@ def _build_todo(todo_id: str = "todo-1") -> TodoItem:
         conclusion=TodoConclusion(),
         timeline=[],
     )
+
+
+class _CaptureSignal:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def emit(self, *args: object) -> None:
+        self.calls.append(args)
 
 
 class _FakeAvailableGeometry:
@@ -144,6 +152,38 @@ def test_add_timeline_entry_moves_draft_attachments_into_new_event(monkeypatch) 
     assert event["attachmentCount"] == 1
     assert moved_targets == [("/draft/note.txt", event["id"])]
     assert event["attachments"][0]["path"] == f"/final/{event['id']}/note.txt"
+
+
+def test_export_plan_payload_keeps_ticket_version_and_project_link(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.summary_fields.ticket_version = "release_dc_v7"
+    todo.summary_fields.product_line = "Collab"
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="matched",
+        matched_alias="Project A support",
+        project_snapshot={
+            "project_name": "Project A",
+            "task_order_no": "TASK-1001",
+            "product_version": "release_dc_v7",
+            "project_manager": "Alice",
+        },
+    )
+    capture_signal = _CaptureSignal()
+    monkeypatch.setattr(bridge, "exportPlanRequested", capture_signal)
+
+    bridge.set_todo(todo)
+    bridge.exportPlan()
+
+    assert capture_signal.calls
+    todo_id, payload = capture_signal.calls[0]
+    assert todo_id == todo.id
+    assert payload["summary_fields"]["ticket_version"] == "release_dc_v7"
+    assert payload["project_link"]["match_status"] == "matched"
+    assert payload["project_link"]["project_snapshot"]["project_name"] == "Project A"
+    assert payload["project_link"]["project_snapshot"]["product_version"] == "release_dc_v7"
 
 
 def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> None:

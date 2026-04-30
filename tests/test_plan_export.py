@@ -54,6 +54,42 @@ def test_build_plan_export_messages_uses_text_only_prompt() -> None:
     assert "data:image/" not in messages[1].content
 
 
+def test_build_plan_export_messages_includes_project_backed_metadata() -> None:
+    payload = {
+        "title": "login fails",
+        "current_summary": "user cannot login",
+        "summary_fields": {
+            "group_name": "Project A support",
+            "environment": "prod",
+            "product_line": "Collab",
+            "ticket_type": "bug",
+            "feature_point": "SSO",
+        },
+        "project_link": {
+            "match_status": "matched",
+            "matched_alias": "Project A support",
+            "project_snapshot": {
+                "project_name": "Project A",
+                "task_order_no": "TASK-1001",
+                "customer_name": "Customer A",
+                "product_version": "release_dc_v7",
+                "project_manager": "Alice",
+                "project_level": "P1",
+            },
+        },
+        "timeline": [],
+    }
+
+    messages = build_plan_export_messages(payload)
+    prompt = str(messages[1].content)
+
+    assert "Project A" in prompt
+    assert "TASK-1001" in prompt
+    assert "release_dc_v7" in prompt
+    assert "Alice" in prompt
+    assert "SSO" in prompt
+
+
 def test_normalize_task_bindings_keeps_text_only_plan_export_model() -> None:
     providers = [
         ProviderConfig(
