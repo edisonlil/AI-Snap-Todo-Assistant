@@ -84,6 +84,10 @@ def _safe_segment(value: object, *, fallback: str = _PATH_PLACEHOLDER) -> str:
     return text or fallback
 
 
+def _wiki_index_filename(product_line: str) -> str:
+    return f"{product_line} Wiki 索引.md"
+
+
 def _ticket_type_for_archive(todo: TodoItem) -> str:
     summary = "\n".join(part for part in (todo.title, todo.current_summary) if str(part or "").strip())
     return normalize_ticket_type(todo.summary_fields.ticket_type, summary_text=summary)
@@ -109,7 +113,7 @@ def build_knowledge_archive_paths(archive_root: Path, todo: TodoItem) -> Knowled
     ticket_type = _safe_segment(_ticket_type_for_archive(todo), fallback="未分类")
     note_dir = archive_root / product_line / version / ticket_type
     note_path = note_dir / f"{_build_note_stem(todo)}.md"
-    wiki_index_path = archive_root / product_line / _WIKI_DIRNAME / "index.md"
+    wiki_index_path = archive_root / product_line / _WIKI_DIRNAME / _wiki_index_filename(product_line)
     return KnowledgeArchivePaths(
         archive_root=archive_root,
         product_line=product_line,
@@ -223,7 +227,6 @@ def _build_archive_metadata_lines(todo_payload: dict[str, object]) -> list[str]:
         f"版本号: {ticket_version}",
         f"功能点: {feature_point}",
         f"工单类型: {ticket_type}",
-        f"环境: {_clean_text(summary_fields.get('environment'))}",
         f"项目名: {_clean_text(project_snapshot.get('project_name'))}",
         f"项目编号: {_clean_text(project_snapshot.get('task_order_no'))}",
         f"项目客户: {_clean_text(project_snapshot.get('customer_name'))}",
@@ -275,7 +278,7 @@ def build_knowledge_archive_messages(todo_payload: dict[str, object]) -> list[Me
         "- 涉及模块：...\n"
         "- 最终结论：...\n"
         "## 基本信息\n\n"
-        "- 用表格记录：产品线、版本号、功能点、项目名、环境、工单类型、根因分类。\n"
+        "- 用表格记录：产品线、版本号、功能点、项目名、工单类型、根因分类。\n"
         "## 问题现象\n\n"
         "## 定位过程\n\n"
         "## 解决方案\n\n"
@@ -310,7 +313,6 @@ def _metadata_table_lines(todo_payload: dict[str, object]) -> list[str]:
         f"| 版本号 | {_markdown_escape_cell(summary_fields.get('ticket_version'))} |",
         f"| 功能点 | {_markdown_escape_cell(summary_fields.get('feature_point'), fallback=_UNSPECIFIED_FEATURE)} |",
         f"| 项目名 | {_markdown_escape_cell(project_snapshot.get('project_name'))} |",
-        f"| 环境 | {_markdown_escape_cell(summary_fields.get('environment'))} |",
         f"| 工单类型 | {_markdown_escape_cell(ticket_type, fallback='未分类')} |",
         f"| 根因分类 | {_markdown_escape_cell(summary_fields.get('root_cause'))} |",
     ]
@@ -537,7 +539,6 @@ def build_knowledge_frontmatter(todo: TodoItem) -> str:
         f"feature_point: {_yaml_scalar(todo.summary_fields.feature_point, fallback=_UNSPECIFIED_FEATURE)}",
         f"root_cause: {_yaml_scalar(todo.summary_fields.root_cause)}",
         f"root_cause_desc: {_yaml_scalar(todo.summary_fields.root_cause_desc)}",
-        f"environment: {_yaml_scalar(todo.summary_fields.environment)}",
         f"project_name: {_yaml_scalar(project_snapshot.get('project_name'))}",
         f"project_task_order_no: {_yaml_scalar(project_snapshot.get('task_order_no'))}",
         f"completed_at: {_yaml_scalar(todo.completed_at or todo.updated_at)}",
@@ -671,7 +672,7 @@ def rebuild_product_line_wiki_index(archive_root: Path, product_line: str) -> Pa
                     updated_label = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
                     lines.append(f"- [{title}]({relative_path}) · 更新 {updated_label}")
                 lines.append("")
-    index_path = wiki_dir / f"# {product_line} Wiki 索引"
+    index_path = wiki_dir / _wiki_index_filename(product_line)
     index_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return index_path
 

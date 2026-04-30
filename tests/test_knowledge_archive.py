@@ -95,6 +95,8 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert "aica_9f32d1ab" not in content
     assert "group_name:" not in content
     assert "公系统升级-使用沟通群" not in content
+    assert "environment:" not in content
+    assert "生产" not in content
     assert "product_line: \"WPS协作\"" in content
     assert "ticket_type: \"排查类\"" in content
     assert f"title: \"{todo.title}\"" in content
@@ -116,7 +118,7 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert not (note_path.parent / f"{note_path.stem}_assets").exists()
     assert not (note_path.parent / "assets" / "screenshot_1.png").exists()
 
-    index_path = temp_dir / "WPS协作" / "_wiki" / "index.md"
+    index_path = temp_dir / "WPS协作" / "_wiki" / "WPS协作 Wiki 索引.md"
     index_content = index_path.read_text(encoding="utf-8")
     assert note_path.name in index_content
     assert "排查类" in index_content
@@ -124,6 +126,8 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert len(llm.calls) == 1
     user_prompt = str(llm.calls[0]["messages"][1].content)
     assert "公系统升级-使用沟通群" not in user_prompt
+    assert "环境:" not in user_prompt
+    assert "生产" not in user_prompt
 
 
 def test_knowledge_archive_event_handler_skips_operation_todos() -> None:
