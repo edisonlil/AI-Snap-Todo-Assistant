@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -6,16 +6,16 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
+from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import (
+from aica.todo.detail_panel import (
     TodoDetailPanel,
     _AssistTroubleshootingWindow,
     _resolve_neighbor_panel_x,
     _StageSummaryWindow,
     _TodoDetailBridge,
 )
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
 def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
@@ -30,7 +30,7 @@ def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
 
 def _build_panel(monkeypatch) -> TodoDetailPanel:
     monkeypatch.setattr(
-        "aica.todo_detail_panel.SQLiteProjectEnvironmentRepository",
+        "aica.todo.detail_panel.SQLiteProjectEnvironmentRepository",
         lambda: SimpleNamespace(
             list_project_environments=lambda _project_id: [],
             list_effective_environments=lambda _project_id: [],
@@ -811,15 +811,15 @@ def test_stage_summary_window_sync_uses_default_width_and_preferred_height(monke
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 700,
     )
     monkeypatch.setattr(
@@ -853,15 +853,15 @@ def test_stage_summary_window_manual_resize_persists_until_hidden(monkeypatch) -
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 650,
     )
     monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
@@ -899,15 +899,15 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 650,
     )
 
@@ -963,15 +963,15 @@ def test_assist_troubleshooting_window_sync_uses_default_width_and_preferred_hei
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 710,
     )
     monkeypatch.setattr(
@@ -1005,15 +1005,15 @@ def test_assist_troubleshooting_window_manual_resize_and_drag_persist_until_hidd
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 640,
     )
 
@@ -1125,7 +1125,7 @@ def test_show_todo_preserve_position_keeps_current_location(monkeypatch) -> None
     move_calls: list[tuple[int, int, object]] = []
 
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(panel, "_reposition", lambda anchor_rect=None: reposition_calls.append(anchor_rect))
@@ -1144,11 +1144,11 @@ def test_show_todo_preserve_position_clamps_current_location_within_screen(monke
     available = _FakeAvailableGeometry(width=800, height=900)
 
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(

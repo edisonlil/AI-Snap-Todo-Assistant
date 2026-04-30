@@ -8,14 +8,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
 from aica.llm.service import LLMService
-from aica.log_analysis_attachments import build_default_attachment_handler_registry
-from aica.log_analysis_agent import DefaultLogAnalysisAgent
-from aica.log_analysis_commands import format_log_analysis_focus, parse_log_analysis_command
-from aica.log_analysis_consumers import TimelineLogAnalysisPresenter
-from aica.log_analysis_models import CollectedEvidencePart, EvidenceBundle, InvestigationContextSummary, LogAnalysisRequest, LogAnalysisTask
+from aica.log_analysis.attachments import build_default_attachment_handler_registry
+from aica.log_analysis.agent import DefaultLogAnalysisAgent
+from aica.log_analysis.commands import format_log_analysis_focus, parse_log_analysis_command
+from aica.log_analysis.consumers import TimelineLogAnalysisPresenter
+from aica.log_analysis.models import CollectedEvidencePart, EvidenceBundle, InvestigationContextSummary, LogAnalysisRequest, LogAnalysisTask
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _TodoDetailBridge
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.detail_panel import _TodoDetailBridge
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
 
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:
     return TodoItem(

@@ -1,4 +1,4 @@
-"""Storage contracts for Todo, project, and binding persistence."""
+﻿"""Storage contracts for Todo, project, and binding persistence."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from aica.log_analysis_models import LogAnalysisTask
+    from aica.log_analysis.models import LogAnalysisTask
     from aica.environment_access import (
         EnvironmentAccessEntryRecord,
         ProjectEnvironmentBundle,
         ProjectEnvironmentRecord,
     )
     from aica.models import TicketSnapshot, TicketSummaryFields
-    from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
+    from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
 def _now_iso() -> str:

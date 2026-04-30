@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -6,15 +6,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
-from aica.context_summary_agent import DefaultContextSummaryAgent
-from aica.context_summary_models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
-from aica.context_summary_service import ContextSummaryService, format_summary_for_analysis_context
+from aica.context_summary.agent import DefaultContextSummaryAgent
+from aica.context_summary.models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
+from aica.context_summary.service import ContextSummaryService, format_summary_for_analysis_context
 from aica.control_panel_state import TASK_NAMES
 from aica.llm.service import LLMService
-from aica.log_analysis_commands import parse_log_analysis_command
-from aica.log_analysis_context import summarize_investigation_context
+from aica.log_analysis.commands import parse_log_analysis_command
+from aica.log_analysis.context import summarize_investigation_context
 from aica.models import TicketSummaryFields
-from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 from aica.worker import StageSummaryWorker, _rewrite_stage_summary_locally, _stage_summary_rewrite_instruction
 
 

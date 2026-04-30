@@ -1,4 +1,4 @@
-"""Qt worker wrapper for log analysis tasks."""
+﻿"""Qt worker wrapper for log analysis tasks."""
 import os
 import sys
 
@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover
     def pyqtSignal(*_args, **_kwargs):  # type: ignore[no-redef]
         return None
 
-from .log_analysis_orchestrator import LogAnalysisOrchestrator
+from .orchestrator import LogAnalysisOrchestrator
 
 
 class LogAnalysisWorker(QThread):

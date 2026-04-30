@@ -1,4 +1,4 @@
-"""QML-backed confirmation dialog for ticket snapshots."""
+﻿"""QML-backed confirmation dialog for ticket snapshots."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
-from aica.analysis_metrics import AnalysisRunStats
+from aica.analysis.metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.runtime import RUNTIME_CAPABILITIES

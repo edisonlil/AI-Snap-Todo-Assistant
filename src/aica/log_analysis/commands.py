@@ -1,10 +1,10 @@
-"""Slash command parsing for async log analysis."""
+﻿"""Slash command parsing for async log analysis."""
 from __future__ import annotations
 
 import re
 
-from .log_analysis_models import LogAnalysisCommand
-from .text_sanitize import sanitize_text
+from .models import LogAnalysisCommand
+from ..text_sanitize import sanitize_text
 
 
 _COMMAND_PREFIX = "/分析日志"

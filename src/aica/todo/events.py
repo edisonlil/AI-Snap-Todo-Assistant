@@ -1,4 +1,4 @@
-"""Todo domain events, external integrations, and binding persistence."""
+﻿"""Todo domain events, external integrations, and binding persistence."""
 from __future__ import annotations
 
 import json
@@ -13,18 +13,18 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
-from .paths import (
+from ..paths import (
     error_log_file as default_error_log_file,
     integrations_file as default_integrations_file,
 )
-from .storage.sqlite.repositories import SQLiteBindingRepository
-from .text_sanitize import (
+from ..storage.sqlite.repositories import SQLiteBindingRepository
+from ..text_sanitize import (
     find_invalid_surrogate_paths,
     sanitize_json_like,
     sanitize_text,
     strip_invalid_surrogates,
 )
-from .todo_store import TimelineAttachment, TimelineEvent, TodoItem
+from .store import TimelineAttachment, TimelineEvent, TodoItem
 
 
 def _now_iso() -> str:

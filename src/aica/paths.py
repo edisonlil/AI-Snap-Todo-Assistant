@@ -142,6 +142,10 @@ def todo_attachments_dir() -> Path:
     return app_data_dir() / "todo_attachments"
 
 
+def knowledge_base_dir() -> Path:
+    return app_data_dir() / "knowledge_base"
+
+
 def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 

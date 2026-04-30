@@ -1,4 +1,4 @@
-"""Attachment handler registry and evidence collection for log analysis."""
+﻿"""Attachment handler registry and evidence collection for log analysis."""
 from __future__ import annotations
 
 import json
@@ -8,9 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Protocol
 
-from .log_analysis_models import CollectedEvidencePart, EvidenceBundle
-from .text_sanitize import sanitize_text
-from .todo_models import TimelineAttachment
+from .models import CollectedEvidencePart, EvidenceBundle
+from ..text_sanitize import sanitize_text
+from ..todo.models import TimelineAttachment
 
 
 _TEXT_LOG_SUFFIXES = {".log", ".txt", ".json", ".trace"}

@@ -1,4 +1,4 @@
-"""User rule storage and prompt debug persistence for screenshot analysis."""
+﻿"""User rule storage and prompt debug persistence for screenshot analysis."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from aica.analysis_intent import (
+from aica.analysis.intent import (
     SCENE_API_DETAIL,
     SCENE_CHAT_FEEDBACK,
     SCENE_CUSTOM,

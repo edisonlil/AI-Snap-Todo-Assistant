@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -11,12 +11,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import aica.control_panel as control_panel  # noqa: E402
-from aica.analysis_metrics import ModelLatencySummary  # noqa: E402
+from aica.analysis.metrics import ModelLatencySummary  # noqa: E402
 from aica.config import ConfigManager  # noqa: E402
 from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentBundle, ProjectEnvironmentRecord  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.otp_secret_extractor import OtpSecretExtractResult  # noqa: E402
-from aica.todo_models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
+from aica.todo.models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
 class _Clipboard:

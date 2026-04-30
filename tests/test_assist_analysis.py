@@ -1,17 +1,17 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.assist_analysis import (  # noqa: E402
+from aica.todo.assist_analysis import (  # noqa: E402
     build_assist_todo_payload,
     should_update_assist_analysis,
 )
 from aica.case_search import CaseSearchItem, CaseSearchResult  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
-from aica.todo_models import TodoItem  # noqa: E402
+from aica.todo.models import TodoItem  # noqa: E402
 from aica.worker import AssistAnalysisWorker  # noqa: E402
 
 

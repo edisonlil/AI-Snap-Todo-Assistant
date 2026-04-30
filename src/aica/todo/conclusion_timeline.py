@@ -1,8 +1,8 @@
-"""Helpers for keeping Todo conclusions and conclusion timeline cards in sync."""
+﻿"""Helpers for keeping Todo conclusions and conclusion timeline cards in sync."""
 from __future__ import annotations
 
-from .text_sanitize import sanitize_text
-from .todo_models import TimelineEvent, TodoConclusion
+from ..text_sanitize import sanitize_text
+from .models import TimelineEvent, TodoConclusion
 
 _CONCLUSION_KIND = "conclusion"
 _CONCLUSION_SCENARIO = "结论更新"

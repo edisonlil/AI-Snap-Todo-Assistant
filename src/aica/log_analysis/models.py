@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from .text_sanitize import sanitize_text
+from ..text_sanitize import sanitize_text
 
 
 def _now_iso() -> str:

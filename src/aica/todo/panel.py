@@ -1,4 +1,4 @@
-"""QML-backed top-right floating panel for active todos."""
+﻿"""QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
 from PyQt6.QtCore import QObject, QRect, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
@@ -6,9 +6,9 @@ from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
 
-from .paths import asset_file, qml_dir
-from .runtime import RUNTIME_CAPABILITIES
-from .todo_store import TodoItem
+from ..paths import asset_file, qml_dir
+from ..runtime import RUNTIME_CAPABILITIES
+from .store import TodoItem
 
 
 def _screen_for_point(point):

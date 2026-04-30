@@ -297,23 +297,23 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def getSaveFileName(*_args, **_kwargs):
             return "", ""
 
-from .app_notifications import AppNotificationBridge
+from ..app_notifications import AppNotificationBridge
 from .assist_analysis import build_assist_analysis_cache_key
 from .conclusion_timeline import build_conclusion_timeline_content
-from .environment_access import EnvironmentAccessService
-from .log_analysis_commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
-from .models import TicketSummaryFields
-from .paths import todo_attachments_dir
-from .runtime import RUNTIME_CAPABILITIES
-from .storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
-from .ticket_enrichment import ROOT_CAUSE_OPTIONS
-from .ticket_field_resolver import (
+from ..environment_access import EnvironmentAccessService
+from ..log_analysis.commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
+from ..models import TicketSummaryFields
+from ..paths import qml_dir, todo_attachments_dir
+from ..runtime import RUNTIME_CAPABILITIES
+from ..storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
+from ..ticket_enrichment import ROOT_CAUSE_OPTIONS
+from ..ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
     resolve_product_line,
 )
-from .text_sanitize import sanitize_text, strip_invalid_surrogates
-from .todo_store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
+from ..text_sanitize import sanitize_text, strip_invalid_surrogates
+from .store import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 _EMPTY_TEXT = "未填写"
 _DEFAULT_TODO_TITLE = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -2869,7 +2869,12 @@ class _TodoDetailBridge(QObject):
     def _load_environment_access(self, project_id: str) -> None:
         self._environment_access_popover_open = False
         normalized_project_id = str(project_id or "").strip()
-        bundles = self._environment_access_service.list_effective_environments(normalized_project_id)
+        if hasattr(self._environment_access_service, "list_effective_environments"):
+            bundles = self._environment_access_service.list_effective_environments(normalized_project_id)
+        elif hasattr(self._environment_access_service, "list_project_environments"):
+            bundles = self._environment_access_service.list_project_environments(normalized_project_id)
+        else:
+            bundles = []
         visible_entries_by_environment = {
             bundle.environment.id: [
                 entry
@@ -2908,7 +2913,11 @@ class _TodoDetailBridge(QObject):
                         "username": entry.username,
                         "requiresOtp": bool(entry.requires_otp),
                         "hasTarget": bool(entry.url_or_host.strip()),
-                        "hasPassword": bool(self._environment_access_service.get_password(entry.id)),
+                        "hasPassword": bool(
+                            self._environment_access_service.get_password(entry.id)
+                            if hasattr(self._environment_access_service, "get_password")
+                            else False
+                        ),
                         "hasOtpSecret": bool(str(entry.otp_secret_encrypted or "").strip()),
                         "note": entry.note,
                         "loginActivated": False,
@@ -3340,7 +3349,7 @@ class _StageSummaryWindow(QQuickView):
         self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
         self.setSource(
             QUrl.fromLocalFile(
-                str(Path(__file__).with_name("qml").joinpath("StageSummaryWindow.qml"))
+                str(qml_dir() / "StageSummaryWindow.qml")
             )
         )
         self._ensure_qml_loaded()
@@ -3597,7 +3606,7 @@ class _AssistTroubleshootingWindow(QQuickView):
         self.rootContext().setContextProperty("assistTroubleshootingWindowBridge", self)
         self.setSource(
             QUrl.fromLocalFile(
-                str(Path(__file__).with_name("qml").joinpath("AssistTroubleshootingWindow.qml"))
+                str(qml_dir() / "AssistTroubleshootingWindow.qml")
             )
         )
         self._ensure_qml_loaded()
@@ -3859,7 +3868,7 @@ class TodoDetailPanel(QQuickView):
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.setSource(
             QUrl.fromLocalFile(
-                str(Path(__file__).with_name("qml").joinpath("TodoDetailPanel.qml"))
+                str(qml_dir() / "TodoDetailPanel.qml")
             )
         )
         self._ensure_qml_loaded()

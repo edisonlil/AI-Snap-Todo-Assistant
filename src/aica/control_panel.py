@@ -1,4 +1,4 @@
-"""QML-backed application control panel."""
+﻿"""QML-backed application control panel."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -250,8 +250,8 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def setSpacing(self, *_args, **_kwargs):
             return None
 
-from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
-from aica.analysis_rules import (
+from aica.analysis.metrics import AnalysisMetricsStore, ModelLatencySummary
+from aica.analysis.rules import (
     AnalysisRulesManager,
     PromptDebugStore,
     SceneAnalysisRule,
@@ -311,8 +311,8 @@ from aica.storage.adapters import now_iso
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
-from aica.todo_models import TodoItem, TodoStatus
-from aica.todo_store import TodoStore
+from aica.todo.models import TodoItem, TodoStatus
+from aica.todo.store import TodoStore
 
 _QT_KEY_ESCAPE = 0x01000000
 _QT_KEY_TAB = 0x01000001

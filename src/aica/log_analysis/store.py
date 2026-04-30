@@ -1,10 +1,10 @@
-"""Compatibility wrapper for log analysis task persistence."""
+﻿"""Compatibility wrapper for log analysis task persistence."""
 from __future__ import annotations
 
 from typing import Any
 
-from .log_analysis_models import LogAnalysisTask
-from .storage.sqlite.repositories import SQLiteLogAnalysisTaskRepository
+from .models import LogAnalysisTask
+from ..storage.sqlite.repositories import SQLiteLogAnalysisTaskRepository
 
 
 class LogAnalysisTaskStore:

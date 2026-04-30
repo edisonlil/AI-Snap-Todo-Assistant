@@ -1,10 +1,10 @@
-"""Prompt strategy builder for intent-driven screenshot analysis."""
+﻿"""Prompt strategy builder for intent-driven screenshot analysis."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .analysis_rules import AnalysisRuleConfig, SceneAnalysisRule, UserRuleConfig
-from .analysis_intent import (
+from .rules import AnalysisRuleConfig, SceneAnalysisRule, UserRuleConfig
+from .intent import (
     AnalysisIntent,
     CAPTURE_MODE_SEQUENCE,
     SCENE_API_DETAIL,

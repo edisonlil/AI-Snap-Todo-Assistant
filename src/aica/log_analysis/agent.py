@@ -1,20 +1,20 @@
-"""Structured log analysis agent with request-chain attribution and LLM fallback."""
+﻿"""Structured log analysis agent with request-chain attribution and LLM fallback."""
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
 
-from .llm.service import LLMService
-from .llm.types import Message
-from .log_analysis_models import (
+from ..llm.service import LLMService
+from ..llm.types import Message
+from .models import (
     EvidenceBundle,
     InvestigationContextSummary,
     LogAnalysisProducedResult,
     LogAnalysisRequest,
     LogAnalysisResultPayload,
 )
-from .text_sanitize import sanitize_text
+from ..text_sanitize import sanitize_text
 
 
 _TRACE_RE = re.compile(

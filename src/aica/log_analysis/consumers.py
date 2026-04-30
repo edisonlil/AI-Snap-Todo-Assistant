@@ -1,11 +1,11 @@
-"""Consumers and presenters for structured log analysis output."""
+﻿"""Consumers and presenters for structured log analysis output."""
 from __future__ import annotations
 
 import re
 
-from .log_analysis_models import LogAnalysisConsumeContext, LogAnalysisProducedResult, LogAnalysisResultConsumer
-from .text_sanitize import sanitize_text
-from .todo_models import TimelineEvent
+from .models import LogAnalysisConsumeContext, LogAnalysisProducedResult, LogAnalysisResultConsumer
+from ..text_sanitize import sanitize_text
+from ..todo.models import TimelineEvent
 
 
 _URL_RE = re.compile(r"https?://\S+|//\S+")

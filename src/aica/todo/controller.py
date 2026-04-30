@@ -1,20 +1,20 @@
-"""Application-facing coordination for Todo state and workflows."""
+﻿"""Application-facing coordination for Todo state and workflows."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 import re
 
 from .conclusion_timeline import sync_conclusion_timeline
-from .models import (
+from ..models import (
     TicketSnapshot,
     TicketSummaryFields,
     merge_timeline_with_evidence,
     merge_summary_fields_for_append,
 )
-from .storage.contracts import TodoRepository
-from .ticket_enrichment import TicketEnrichmentService
-from .todo_events import TodoDomainEvent, TodoEventPublisher
-from .todo_store import TimelineEvent, TodoConclusion, TodoItem
+from ..storage.contracts import TodoRepository
+from ..ticket_enrichment import TicketEnrichmentService
+from .events import TodoDomainEvent, TodoEventPublisher
+from .store import TimelineEvent, TodoConclusion, TodoItem
 
 
 @dataclass(frozen=True)

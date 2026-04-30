@@ -11,7 +11,7 @@ from typing import Any
 from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
 from aica.project_management import is_project_active
-from aica.log_analysis_models import LogAnalysisTask
+from aica.log_analysis.models import LogAnalysisTask
 from aica.storage.adapters import (
     build_project_link,
     build_todo_item,
@@ -23,7 +23,7 @@ from aica.storage.adapters import (
 )
 from aica.storage.contracts import ProjectMatchResult, ProjectRecord
 from aica.text_sanitize import sanitize_text
-from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
 SCHEMA_VERSION = "12"

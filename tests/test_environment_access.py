@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -18,9 +18,9 @@ from aica.environment_access import (  # noqa: E402
 from aica.storage.contracts import ProjectRecord  # noqa: E402
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository  # noqa: E402
 from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator  # noqa: E402
-import aica.todo_detail_panel as todo_detail_panel  # noqa: E402
-from aica.todo_detail_panel import _TodoDetailBridge  # noqa: E402
-from aica.todo_models import TodoItem, TodoProjectLink  # noqa: E402
+import aica.todo.detail_panel as todo_detail_panel  # noqa: E402
+from aica.todo.detail_panel import _TodoDetailBridge  # noqa: E402
+from aica.todo.models import TodoItem, TodoProjectLink  # noqa: E402
 
 
 class _Clipboard:

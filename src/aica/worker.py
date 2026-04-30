@@ -69,11 +69,11 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def end(self):
             return None
 
-from .analysis_rules import AnalysisRulesManager, PromptDebugStore
-from .analysis_intent import AnalysisIntent, build_analysis_intent
-from .analysis_metrics import AnalysisRunStats
-from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
-from .assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
+from .analysis.rules import AnalysisRulesManager, PromptDebugStore
+from .analysis.intent import AnalysisIntent, build_analysis_intent
+from .analysis.metrics import AnalysisRunStats
+from .analysis.strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .todo.assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
 from .case_search import (
     CaseSearchProvider,
     KDocsSseCaseSearchProvider,
@@ -83,15 +83,15 @@ from .case_search import (
     loading_case_result,
     rank_case_search_result,
 )
-from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
-from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
+from .context_summary.models import ContextSummaryRequest, build_context_summary_request_for_todo
+from .context_summary.service import ContextSummaryService, format_summary_for_analysis_context
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
 from .models import TicketSummaryFields
 from .parser import ResultParser
 from .text_sanitize import sanitize_text
-from .todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
+from .todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _PLAN_EXPORT_SYSTEM_PROMPT = (

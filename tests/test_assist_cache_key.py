@@ -1,13 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload  # noqa: E402
+from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem  # noqa: E402
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem  # noqa: E402
 
 
 def _build_todo(*, timeline: list[TimelineEvent]) -> TodoItem:

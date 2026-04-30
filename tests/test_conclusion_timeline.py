@@ -1,12 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.conclusion_timeline import build_conclusion_timeline_content, sync_conclusion_timeline
-from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion
+from aica.todo.conclusion_timeline import build_conclusion_timeline_content, sync_conclusion_timeline
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion
 
 
 def test_build_conclusion_timeline_content_keeps_attachments_out_of_text() -> None:

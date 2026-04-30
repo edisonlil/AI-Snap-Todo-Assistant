@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .runtime import RUNTIME_CAPABILITIES
-from .analysis_intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
+from .analysis.intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .focus_hint_dialog import FocusHintDialog
 
 

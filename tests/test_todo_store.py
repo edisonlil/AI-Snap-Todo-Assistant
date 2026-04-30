@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timedelta
 import os
@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
-from aica.todo_models import TodoStatus
+from aica.todo.models import TodoStatus
 
 
 def _make_db_path(name: str) -> Path:

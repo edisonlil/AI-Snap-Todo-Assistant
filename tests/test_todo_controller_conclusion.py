@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
@@ -7,8 +7,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_controller import TodoController
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.controller import TodoController
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
 
 
 class _Store:

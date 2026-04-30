@@ -1,11 +1,11 @@
-"""Shared models for context-summary infrastructure."""
+﻿"""Shared models for context-summary infrastructure."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol
 
-from .text_sanitize import sanitize_text
-from .todo_models import TimelineAttachment, TimelineEvent, TodoItem
+from ..text_sanitize import sanitize_text
+from ..todo.models import TimelineAttachment, TimelineEvent, TodoItem
 
 ContextSummaryGoal = Literal[
     "append_screenshot_context",

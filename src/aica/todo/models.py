@@ -7,8 +7,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from .models import TicketSummaryFields
-from .text_sanitize import sanitize_text
+from ..models import TicketSummaryFields
+from ..text_sanitize import sanitize_text
 
 
 class TodoStatus(StrEnum):

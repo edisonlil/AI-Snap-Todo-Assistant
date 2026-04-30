@@ -1,4 +1,4 @@
-"""AICA entrypoint: initialize app and connect the main workflow."""
+﻿"""AICA entrypoint: initialize app and connect the main workflow."""
 from __future__ import annotations
 
 import ctypes
@@ -14,22 +14,23 @@ from PyQt6.QtCore import QRect, QTimer, Qt
 from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
-from aica.analysis_flow import AnalysisFlowCoordinator
-from aica.analysis_metrics import AnalysisMetricsStore
+from aica.analysis.flow import AnalysisFlowCoordinator
+from aica.analysis.metrics import AnalysisMetricsStore
 from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
-from aica.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
+from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
-from aica.context_summary_models import build_context_summary_request_for_todo
+from aica.context_summary.models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
+from aica.knowledge_archive import KnowledgeArchiveEventHandler
 from aica.llm.service import LLMService, ModelResolutionError
-from aica.log_analysis_models import LogAnalysisTask
-from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
-from aica.log_analysis_store import LogAnalysisTaskStore
-from aica.log_analysis_worker import LogAnalysisWorker
+from aica.log_analysis.models import LogAnalysisTask
+from aica.log_analysis.orchestrator import LogAnalysisOrchestrator
+from aica.log_analysis.store import LogAnalysisTaskStore
+from aica.log_analysis.worker import LogAnalysisWorker
 from aica.loading_dialog import LoadingDialog
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
@@ -46,12 +47,12 @@ from aica.ticket_enrichment import (
     summarize_enrichment_errors,
 )
 from aica.ticket_enrichment_worker import TicketEnrichmentWorker
-from aica.todo_controller import TodoController
-from aica.todo_detail_panel import TodoDetailPanel
-from aica.todo_detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
-from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
-from aica.todo_panel import TodoPanel
-from aica.todo_store import TodoConclusion, TodoStore
+from aica.todo.controller import TodoController
+from aica.todo.detail_panel import TodoDetailPanel
+from aica.todo.detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
+from aica.todo.events import ScriptEventHandler, TodoBindingStore, TodoEventBus
+from aica.todo.panel import TodoPanel
+from aica.todo.store import TodoConclusion, TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
@@ -217,7 +218,13 @@ def main() -> None:
     log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
     todo_event_bus = TodoEventBus(
-        handlers=[ScriptEventHandler(binding_store=binding_store)],
+        handlers=[
+            ScriptEventHandler(binding_store=binding_store),
+            KnowledgeArchiveEventHandler(
+                todo_store=todo_store,
+                runtime_config_provider=lambda: _build_runtime_config(config_mgr.load()),
+            ),
+        ],
         binding_store=binding_store,
     )
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
