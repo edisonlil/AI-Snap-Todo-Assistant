@@ -1717,6 +1717,15 @@ Rectangle {
                                         }
 
                                         Text {
+                                            Layout.fillWidth: true
+                                            text: "知识库归档会自动保存在数据目录下的 knowledge_base 子目录，修改数据目录后会随本地数据一起迁移。"
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
                                             text: "数据目录"
                                             color: root.titleInk
                                             font.family: root.uiFont

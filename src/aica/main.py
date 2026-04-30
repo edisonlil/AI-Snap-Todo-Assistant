@@ -12,7 +12,7 @@ import uuid
 
 from PyQt6.QtCore import QRect, QTimer, Qt
 from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
 from aica.analysis.metrics import AnalysisMetricsStore
@@ -58,9 +58,7 @@ from aica.worker import (
     AIWorker,
     AssistAnalysisWorker,
     MultiCaptureAIWorker,
-    PlanExportWorker,
     StageSummaryWorker,
-    build_plan_export_filename,
 )
 
 
@@ -159,20 +157,6 @@ def _start_hotkey_listener(hotkey_mgr: HotkeyManager, startup_log_file: Path) ->
         return exc
 
 
-def _notify_plan_export_error(notification_bridge: AppNotificationBridge, message: str) -> None:
-    normalized = str(message or "").strip()
-    if not normalized:
-        return
-    notification_bridge.notify("error", normalized, 5200, "plan_export")
-
-
-def _notify_plan_export_success(notification_bridge: AppNotificationBridge, export_path: str) -> None:
-    normalized = str(export_path or "").strip()
-    if not normalized:
-        return
-    notification_bridge.notify("success", f"方案已导出到: {normalized}", 3600, "plan_export")
-
-
 def _show_build_expired_message(now: datetime | None = None) -> None:
     QMessageBox.critical(
         None,
@@ -236,7 +220,6 @@ def main() -> None:
 
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
-    plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
     assist_analysis_workers: list[AssistAnalysisWorker] = []
@@ -384,11 +367,6 @@ def main() -> None:
     def _queue_current_capture() -> bool:
         return capture_ui.queue_current_capture()
 
-    def _cleanup_plan_export_worker(worker: PlanExportWorker) -> None:
-        if worker in plan_export_workers:
-            plan_export_workers.remove(worker)
-        worker.deleteLater()
-
     def _build_runtime_config(config):
         llm_service = LLMService(config)
         analysis_ref = llm_service.resolve_task_model("analysis").reference
@@ -486,49 +464,6 @@ def main() -> None:
         worker.finished.connect(lambda _todo_id, _request_id, _outcome, current=worker: _cleanup_ticket_enrichment_worker(current))
         worker.error.connect(_on_ticket_enrichment_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_ticket_enrichment_worker(current))
-        worker.start()
-
-    def _on_plan_export_finished(export_path: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, PlanExportWorker):
-            _cleanup_plan_export_worker(sender)
-        _notify_plan_export_success(notification_bridge, export_path)
-
-    def _on_plan_export_error(message: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, PlanExportWorker):
-            _cleanup_plan_export_worker(sender)
-        _notify_plan_export_error(notification_bridge, message)
-
-    def _on_todo_export_plan_requested(todo_id: str, payload: object) -> None:
-        if not isinstance(payload, dict):
-            return
-        config = _ensure_api_key_configured()
-        if config is None:
-            return
-
-        default_name = build_plan_export_filename(str(payload.get("title", "")))
-        export_path, _ = QFileDialog.getSaveFileName(
-            None,
-            "导出方案",
-            default_name,
-            "Markdown 文件 (*.md)",
-        )
-        if not export_path:
-            return
-        if not export_path.lower().endswith(".md"):
-            export_path = f"{export_path}.md"
-
-        worker = PlanExportWorker(
-            config.llm_service,
-            config.llm_service.describe_task_model("plan_export"),
-            config.plan_export_timeout_seconds,
-            payload,
-            export_path,
-        )
-        plan_export_workers.append(worker)
-        worker.finished.connect(_on_plan_export_finished)
-        worker.error.connect(_on_plan_export_error)
         worker.start()
 
     result_flow = ResultFlowCoordinator(
@@ -968,7 +903,6 @@ def main() -> None:
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
-    todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
     todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
     todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)

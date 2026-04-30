@@ -1,5 +1,6 @@
 ﻿"""AI workers: screenshot analysis and feedback optimization."""
 import base64
+import filecmp
 import json
 import os
 import re
@@ -601,9 +602,21 @@ def _copy_plan_export_attachment(path: str, asset_dir: Path) -> Path | None:
         return None
     asset_dir.mkdir(parents=True, exist_ok=True)
     target = asset_dir / source.name
+    if target.exists():
+        try:
+            if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                return target
+        except OSError:
+            pass
     counter = 1
     while target.exists():
         target = asset_dir / f"{source.stem}_{counter}{source.suffix}"
+        if target.exists():
+            try:
+                if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                    return target
+            except OSError:
+                pass
         counter += 1
     shutil.copy2(source, target)
     return target
@@ -626,7 +639,7 @@ def append_plan_export_timeline_visual_section(
     if not grouped_entries:
         return markdown
 
-    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    asset_dir = export_path.parent / "assets"
     section_lines = ["## 时间线图示", ""]
     has_content = False
 
@@ -675,7 +688,7 @@ def append_plan_export_attachment_section(
     if not attachment_entries:
         return markdown
 
-    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    asset_dir = export_path.parent / "assets"
     section_lines = ["## 附件图示", ""]
     has_content = False
 
@@ -700,12 +713,6 @@ def append_plan_export_attachment_section(
     if "## 附件图示" in normalized:
         return normalized
     return f"{normalized}\n\n{attachment_markdown}".strip()
-
-
-def build_plan_export_filename(title: str) -> str:
-    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(title or "").strip())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
-    return f"{cleaned or '待办处理方案'}.md"
 
 
 def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
@@ -1184,60 +1191,6 @@ class StageSummaryWorker(QThread):
                 self._result_notice = "模型重写失败，已回退本地整理"
                 return fallback
             raise RuntimeError("模型重写失败") from exc
-
-
-class PlanExportWorker(_BaseVisionWorker):
-    finished = pyqtSignal(str)
-    error = pyqtSignal(str)
-
-    def __init__(
-        self,
-        llm_service: LLMService,
-        model_label: str,
-        timeout: int,
-        todo_payload: dict[str, object],
-        export_path: str,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._llm_service = llm_service
-        self._model = model_label
-        self._timeout = timeout
-        self._todo_payload = todo_payload
-        self._export_path = export_path
-
-    def run(self) -> None:
-        try:
-            raw_markdown = self._run_llm_task(
-                "plan_export",
-                messages=build_plan_export_messages(self._todo_payload),
-                temperature=0.2,
-                timeout=min(self._timeout, 30),
-            )
-            markdown = ensure_plan_export_timeline_section(
-                normalize_markdown_content(raw_markdown),
-                self._todo_payload,
-            )
-            if not markdown:
-                raise ValueError("生成的方案内容为空")
-            export_file = Path(self._export_path)
-            export_file.parent.mkdir(parents=True, exist_ok=True)
-            markdown = append_plan_export_timeline_visual_section(
-                markdown,
-                self._todo_payload,
-                export_file,
-            )
-            markdown = append_plan_export_attachment_section(
-                markdown,
-                self._todo_payload,
-                export_file,
-            )
-            export_file.write_text(markdown, encoding="utf-8")
-            self.finished.emit(str(export_file))
-        except LLMServiceError as exc:
-            self.error.emit(f"导出方案失败，模型调用错误: {exc}")
-        except Exception as exc:
-            self.error.emit(f"导出方案失败: {exc}")
 
 
 class AIWorker(_BaseVisionWorker):

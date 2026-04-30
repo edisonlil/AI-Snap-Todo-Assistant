@@ -86,17 +86,35 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert "WPS协作" in note_path.as_posix()
     assert "未提供" in note_path.as_posix()
     assert "排查类" in note_path.as_posix()
+    assert note_path.name == f"{todo.title}.md"
+    assert "9f32d1ab" not in note_path.name
+    assert not note_path.name.startswith("aica_")
 
     content = note_path.read_text(encoding="utf-8")
+    assert f"\n# {todo.title}" not in content
+    assert "aica_9f32d1ab" not in content
     assert "group_name:" not in content
     assert "公系统升级-使用沟通群" not in content
     assert "product_line: \"WPS协作\"" in content
     assert "ticket_type: \"排查类\"" in content
-    assert "## 时间线回顾" in content
-    assert f"{note_path.stem}_assets/screenshot.png" in content
+    assert f"title: \"{todo.title}\"" in content
+    assert "## 问题概览" in content
+    assert "## 问题概览\n\n-" in content
+    assert "## 基本信息" in content
+    assert "## 基本信息\n\n|" in content
+    assert "## 解决方案" in content
+    assert "## 解决方案\n\n-" in content
+    assert "## 关联证据" in content
+    assert "### 证据 1：客户反馈" in content
+    assert "## 时间线回顾" not in content
+    assert "## 时间线图示" not in content
+    assert "## 附件图示" not in content
+    assert "assets/screenshot.png" in content
 
-    copied_attachment = note_path.parent / f"{note_path.stem}_assets" / "screenshot.png"
+    copied_attachment = note_path.parent / "assets" / "screenshot.png"
     assert copied_attachment.exists()
+    assert not (note_path.parent / f"{note_path.stem}_assets").exists()
+    assert not (note_path.parent / "assets" / "screenshot_1.png").exists()
 
     index_path = temp_dir / "WPS协作" / "_wiki" / "index.md"
     index_content = index_path.read_text(encoding="utf-8")

@@ -1095,6 +1095,11 @@ class _ControlPanelBridge(QObject):
                 "description": self._data_dir,
             },
             {
+                "id": "knowledge_base_dir",
+                "title": "知识库归档目录",
+                "description": str(Path(self._data_dir).expanduser() / "knowledge_base"),
+            },
+            {
                 "id": "feedback_dir",
                 "title": "反馈目录",
                 "description": str(feedback_dir()),
@@ -1773,6 +1778,7 @@ class _ControlPanelBridge(QObject):
     def openLocation(self, location_id: str) -> None:
         mapping = {
             "data_dir": app_data_dir(),
+            "knowledge_base_dir": Path(self._data_dir).expanduser() / "knowledge_base",
             "feedback_dir": feedback_dir(),
             "analysis_rules_dir": analysis_rules_file().parent,
             "prompt_debug_dir": prompt_debug_dir(),

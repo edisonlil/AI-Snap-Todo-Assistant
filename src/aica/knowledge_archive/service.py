@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import filecmp
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,17 +12,12 @@ from os.path import relpath
 from typing import Protocol
 
 from ..llm.types import Message
-from ..models import summarize_issue_title
 from ..paths import error_log_file, knowledge_base_dir
 from ..text_sanitize import sanitize_text
 from ..ticket_field_resolver import normalize_ticket_type
 from ..todo.events import TodoDomainEvent, TodoDomainEventType, TodoEventHandler
 from ..todo.models import TodoItem, TodoStatus
 from ..worker import (
-    append_plan_export_attachment_section,
-    append_plan_export_timeline_visual_section,
-    build_plan_export_timeline_markdown,
-    ensure_plan_export_timeline_section,
     normalize_markdown_content,
 )
 
@@ -31,7 +28,6 @@ _UNSPECIFIED_FEATURE = "未明确"
 _WIKI_DIRNAME = "_wiki"
 _OPERATION_TICKET_TYPE = "操作类"
 _INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_ARCHIVE_TITLE_PREFIX = "aica"
 
 
 class TodoReader(Protocol):
@@ -99,21 +95,12 @@ def should_archive_todo(todo: TodoItem) -> bool:
     return _ticket_type_for_archive(todo) != _OPERATION_TICKET_TYPE
 
 
-def _short_todo_id(todo_id: str) -> str:
-    normalized = re.sub(r"[^A-Za-z0-9_-]", "", str(todo_id or "").strip())
-    if not normalized:
-        return "unknown"
-    return normalized[:8]
-
-
-def _short_title(todo: TodoItem) -> str:
-    title_source = todo.current_summary.strip() or todo.title.strip() or "未分类任务"
-    title = summarize_issue_title(title_source, fallback="未分类任务", max_length=30)
-    return _safe_segment(title, fallback="未分类任务")
+def _archive_title(todo: TodoItem) -> str:
+    return _clean_text(todo.title, fallback="未分类任务")
 
 
 def _build_note_stem(todo: TodoItem) -> str:
-    return f"{_ARCHIVE_TITLE_PREFIX}_{_short_todo_id(todo.id)}_{_short_title(todo)}"
+    return _safe_segment(_archive_title(todo), fallback="未分类任务")
 
 
 def build_knowledge_archive_paths(archive_root: Path, todo: TodoItem) -> KnowledgeArchivePaths:
@@ -203,6 +190,22 @@ def _attachment_kind(name: str) -> str:
     return ""
 
 
+def _format_archive_timestamp(value: object) -> str:
+    text = sanitize_text(value).strip()
+    if not text:
+        return _UNKNOWN_TEXT
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return text.replace("T", " ")
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def _markdown_escape_cell(value: object, *, fallback: str = _TEXT_PLACEHOLDER) -> str:
+    return _clean_text(value, fallback=fallback).replace("|", "\\|").replace("\n", "<br>")
+
+
 def _build_archive_metadata_lines(todo_payload: dict[str, object]) -> list[str]:
     summary_fields = dict(todo_payload.get("summary_fields", {}) or {})
     project_link = dict(todo_payload.get("project_link", {}) or {})
@@ -233,27 +236,52 @@ def _build_archive_metadata_lines(todo_payload: dict[str, object]) -> list[str]:
 
 
 def build_knowledge_archive_messages(todo_payload: dict[str, object]) -> list[Message]:
-    timeline_lines = build_plan_export_timeline_markdown(todo_payload).replace("## 时间线回顾", "").strip()
+    timeline_lines: list[str] = []
+    timeline_items = todo_payload.get("timeline", [])
+    if isinstance(timeline_items, list):
+        for item in timeline_items:
+            if not isinstance(item, dict):
+                continue
+            timestamp = _format_archive_timestamp(item.get("timestamp"))
+            scenario = _clean_text(item.get("scenario"), fallback="系统记录")
+            content = _clean_optional_text(item.get("content"))
+            attachments = item.get("attachments", [])
+            attachment_names: list[str] = []
+            if isinstance(attachments, list):
+                for attachment in attachments:
+                    if isinstance(attachment, dict):
+                        name = _clean_optional_text(attachment.get("name"))
+                        if name:
+                            attachment_names.append(name)
+            attachment_text = f"；附件：{'、'.join(attachment_names)}" if attachment_names else ""
+            if content:
+                timeline_lines.append(f"- [{timestamp}] {scenario}: {content}{attachment_text}")
     metadata_text = "\n".join(_build_archive_metadata_lines(todo_payload))
+    timeline_text = "\n".join(timeline_lines) or "- 暂无有效排查记录"
     user_prompt = (
         "请基于以下工单信息，整理成适合本地知识库归档的 Markdown 解决方案文档。\n"
         "只输出 Markdown 正文，不要解释，不要输出代码块围栏。\n\n"
         "写作目标：\n"
-        "1. 文档用于沉淀已处理工单的解决经验，重点是问题现象、定位过程、最终结论、复用建议。\n"
-        "2. 不要记录群聊名称、沟通过程话术或泛化管理动作。\n"
-        "3. 没有提供的信息统一写“未提供”“未明确”或“待确认”，不要猜测。\n"
-        "4. 文档结构稳定，便于后续作为本地 wiki 和检索知识库继续加工。\n\n"
-        "推荐结构：\n"
-        "# 解决方案标题\n"
-        "## 元数据\n"
-        "- 用表格记录：产品线、版本号、功能点、项目名、环境、工单类型。\n"
-        "## 问题描述\n"
-        "## 解决过程\n"
-        "## 问题结论\n"
-        "## 复用建议\n"
-        "## 时间线回顾\n\n"
+        "1. 文档用于后续遇到类似问题时检索、定位和复用解决思路，不是工单流水账。\n"
+        "2. 重点沉淀问题现象、关键错误、定位过程、解决方案、最终结论。\n"
+        "3. 不要写当前状态、影响范围、原始时间线、聊天过程、群聊名称或泛化管理动作。\n"
+        "4. 不要输出“时间线回顾”“时间线图示”“附件图示”“关联证据”章节；关联证据会由程序统一追加。\n"
+        "5. 没有提供的信息统一写“未提供”“未明确”或“待确认”，不要猜测。\n"
+        "6. 不要把“问题恢复”本身写成解决方案，除非存在明确处理动作。\n\n"
+        "固定结构（不要输出一级标题，正文从二级标题开始）：\n"
+        "## 问题概览\n\n"
+        "- 问题现象：...\n"
+        "- 关键错误：...\n"
+        "- 涉及模块：...\n"
+        "- 最终结论：...\n"
+        "## 基本信息\n\n"
+        "- 用表格记录：产品线、版本号、功能点、项目名、环境、工单类型、根因分类。\n"
+        "## 问题现象\n\n"
+        "## 定位过程\n\n"
+        "## 解决方案\n\n"
+        "## 最终结论\n\n"
         f"元数据:\n{metadata_text}\n\n"
-        f"时间线:\n{timeline_lines or '- 暂无时间线记录'}"
+        f"排查记录:\n{timeline_text}"
     )
     return [
         Message(
@@ -278,38 +306,201 @@ def _metadata_table_lines(todo_payload: dict[str, object]) -> list[str]:
     return [
         "| 字段 | 内容 |",
         "| --- | --- |",
-        f"| 产品线 | {_clean_text(summary_fields.get('product_line'))} |",
-        f"| 版本号 | {_clean_text(summary_fields.get('ticket_version'))} |",
-        f"| 功能点 | {_clean_text(summary_fields.get('feature_point'), fallback=_UNSPECIFIED_FEATURE)} |",
-        f"| 项目名 | {_clean_text(project_snapshot.get('project_name'))} |",
-        f"| 环境 | {_clean_text(summary_fields.get('environment'))} |",
-        f"| 工单类型 | {_clean_text(ticket_type, fallback='未分类')} |",
+        f"| 产品线 | {_markdown_escape_cell(summary_fields.get('product_line'))} |",
+        f"| 版本号 | {_markdown_escape_cell(summary_fields.get('ticket_version'))} |",
+        f"| 功能点 | {_markdown_escape_cell(summary_fields.get('feature_point'), fallback=_UNSPECIFIED_FEATURE)} |",
+        f"| 项目名 | {_markdown_escape_cell(project_snapshot.get('project_name'))} |",
+        f"| 环境 | {_markdown_escape_cell(summary_fields.get('environment'))} |",
+        f"| 工单类型 | {_markdown_escape_cell(ticket_type, fallback='未分类')} |",
+        f"| 根因分类 | {_markdown_escape_cell(summary_fields.get('root_cause'))} |",
     ]
 
 
 def _build_archive_fallback_markdown(todo_payload: dict[str, object]) -> str:
-    title = _clean_text(todo_payload.get("title"))
     conclusion_content = _clean_text(
         dict(todo_payload.get("conclusion", {}) or {}).get("content"),
         fallback="暂无明确结论",
     )
     summary = _clean_text(todo_payload.get("current_summary"))
     metadata_block = "\n".join(_metadata_table_lines(todo_payload))
-    timeline_block = build_plan_export_timeline_markdown(todo_payload).strip()
     return (
-        f"# {title}\n\n"
-        "## 元数据\n\n"
+        "## 问题概览\n\n"
+        f"- 问题现象：{summary}\n"
+        "- 关键错误：未明确\n"
+        "- 涉及模块：未明确\n"
+        f"- 最终结论：{conclusion_content}\n\n"
+        "## 基本信息\n\n"
         f"{metadata_block}\n\n"
-        "## 问题描述\n\n"
+        "## 问题现象\n\n"
         f"{summary}\n\n"
-        "## 解决过程\n\n"
-        "- 详见时间线回顾中的排查与处理记录。\n\n"
-        "## 问题结论\n\n"
-        f"{conclusion_content}\n\n"
-        "## 复用建议\n\n"
-        "- 后续遇到相似问题时，优先根据标题、功能点、错误现象和时间线中的关键动作进行检索。\n\n"
-        f"{timeline_block}"
+        "## 定位过程\n\n"
+        "- 根据工单记录中的错误现象、关键错误和附件证据进行定位；如信息不足，需结合复现时间和相关服务日志继续确认。\n\n"
+        "## 解决方案\n\n"
+        "- 后续遇到相似问题时，优先根据标题、功能点、错误现象、错误码和关键日志进行检索。\n"
+        "- 若当前记录未包含明确处理动作，应补充复现条件、请求时间、接口返回和相关服务日志后再定位。\n\n"
+        "## 最终结论\n\n"
+        f"{conclusion_content}"
     ).strip()
+
+
+def _strip_archive_body_title(markdown: str) -> str:
+    normalized = str(markdown or "").strip()
+    if not normalized:
+        return ""
+    return re.sub(r"^#\s+.*(?:\r?\n)+", "", normalized, count=1).strip()
+
+
+def _ensure_archive_heading_spacing(markdown: str) -> str:
+    lines = str(markdown or "").strip().splitlines()
+    if not lines:
+        return ""
+    output: list[str] = []
+    for index, line in enumerate(lines):
+        output.append(line)
+        if re.match(r"^##\s+\S", line):
+            next_line = lines[index + 1] if index + 1 < len(lines) else ""
+            if next_line.strip():
+                output.append("")
+    return "\n".join(output).strip()
+
+
+def _normalize_archive_body(markdown: str) -> str:
+    return _ensure_archive_heading_spacing(_strip_archive_body_title(markdown))
+
+
+def _has_archive_required_sections(markdown: str) -> bool:
+    normalized = str(markdown or "")
+    required = ("问题概览", "基本信息", "问题现象", "定位过程", "解决方案", "最终结论")
+    return all(re.search(rf"^##\s+{re.escape(title)}\s*$", normalized, re.MULTILINE) for title in required)
+
+
+def _strip_archive_generated_sections(markdown: str) -> str:
+    normalized = str(markdown or "").strip()
+    if not normalized:
+        return ""
+    forbidden = ("时间线回顾", "时间线图示", "附件图示", "关联证据")
+    heading_re = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+    matches = list(heading_re.finditer(normalized))
+    if not matches:
+        return normalized
+    chunks: list[str] = []
+    cursor = 0
+    for index, match in enumerate(matches):
+        title = match.group(1).strip()
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+        if any(title == item or title.startswith(item) for item in forbidden):
+            chunks.append(normalized[cursor:match.start()])
+            cursor = next_start
+    chunks.append(normalized[cursor:])
+    return "\n\n".join(part.strip() for part in chunks if part.strip()).strip()
+
+
+def _copy_archive_attachment(source_path: str, asset_dir: Path) -> Path | None:
+    source = Path(str(source_path or "")).expanduser()
+    if not source.is_file():
+        return None
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    target = asset_dir / source.name
+    if target.exists():
+        try:
+            if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                return target
+        except OSError:
+            pass
+    counter = 1
+    while target.exists():
+        target = asset_dir / f"{source.stem}_{counter}{source.suffix}"
+        if target.exists():
+            try:
+                if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                    return target
+            except OSError:
+                pass
+        counter += 1
+    shutil.copy2(source, target)
+    return target
+
+
+def _iter_archive_evidence_entries(todo_payload: dict[str, object]) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+
+    def _add_entries(container: dict[str, object], *, default_scenario: str, default_timestamp: object = "") -> None:
+        attachments = container.get("attachments", [])
+        if not isinstance(attachments, list):
+            return
+        timestamp = _format_archive_timestamp(container.get("timestamp") or container.get("updatedAt") or default_timestamp)
+        scenario = _clean_text(container.get("scenario"), fallback=default_scenario)
+        content = _clean_optional_text(container.get("content"))
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            name = _clean_optional_text(attachment.get("name"))
+            path = _clean_optional_text(attachment.get("path"))
+            kind = _clean_optional_text(attachment.get("kind")) or _attachment_kind(name)
+            if not name or not path:
+                continue
+            key = str(Path(path).expanduser()).lower()
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            entries.append(
+                {
+                    "timestamp": timestamp,
+                    "scenario": scenario,
+                    "content": content,
+                    "name": name,
+                    "path": path,
+                    "kind": kind,
+                }
+            )
+
+    timeline = todo_payload.get("timeline", [])
+    if isinstance(timeline, list):
+        for item in timeline:
+            if isinstance(item, dict):
+                _add_entries(item, default_scenario="工单记录")
+    conclusion = todo_payload.get("conclusion", {})
+    if isinstance(conclusion, dict):
+        _add_entries(conclusion, default_scenario="问题结论")
+    return entries
+
+
+def _render_evidence_attachment(entry: dict[str, str], relative_path: str) -> str:
+    name = entry.get("name", "附件")
+    if entry.get("kind") == "image":
+        return f"![{name}]({relative_path})"
+    return f"[{name}]({relative_path})"
+
+
+def append_archive_evidence_section(markdown: str, todo_payload: dict[str, object], note_path: Path) -> str:
+    entries = _iter_archive_evidence_entries(todo_payload)
+    if not entries:
+        return _strip_archive_generated_sections(markdown)
+    asset_dir = note_path.parent / "assets"
+    lines = ["## 关联证据", ""]
+    evidence_index = 1
+    for entry in entries:
+        copied = _copy_archive_attachment(entry.get("path", ""), asset_dir)
+        if copied is None:
+            continue
+        relative_path = copied.relative_to(note_path.parent).as_posix()
+        scenario = _clean_text(entry.get("scenario"), fallback="证据材料")
+        lines.append(f"### 证据 {evidence_index}：{scenario}")
+        lines.append("")
+        lines.append(f"- 时间：{_clean_text(entry.get('timestamp'))}")
+        lines.append(f"- 来源：{scenario}")
+        if entry.get("content"):
+            lines.append(f"- 说明：{_clean_text(entry.get('content'))}")
+        lines.append("")
+        lines.append(_render_evidence_attachment(entry, relative_path))
+        lines.append("")
+        evidence_index += 1
+    if evidence_index == 1:
+        return _strip_archive_generated_sections(markdown)
+    normalized = _strip_archive_generated_sections(markdown)
+    evidence_markdown = "\n".join(lines).strip()
+    return f"{normalized}\n\n{evidence_markdown}".strip()
 
 
 def _yaml_scalar(value: object, *, fallback: str = _TEXT_PLACEHOLDER) -> str:
@@ -339,7 +530,7 @@ def build_knowledge_frontmatter(todo: TodoItem) -> str:
     lines = [
         "---",
         f"todo_id: {_yaml_scalar(todo.id)}",
-        f"title: {_yaml_scalar(_short_title(todo), fallback='未分类任务')}",
+        f"title: {_yaml_scalar(_archive_title(todo), fallback='未分类任务')}",
         f"product_line: {_yaml_scalar(todo.summary_fields.product_line)}",
         f"ticket_version: {_yaml_scalar(todo.summary_fields.ticket_version)}",
         f"ticket_type: {_yaml_scalar(_ticket_type_for_archive(todo), fallback='未分类')}",
@@ -371,15 +562,12 @@ def _render_archive_body(todo_payload: dict[str, object], llm_service: object | 
                 temperature=0.2,
                 timeout=min(max(1, int(timeout or 30)), 30),
             )
-            normalized = ensure_plan_export_timeline_section(
-                normalize_markdown_content(str(raw_markdown or "")),
-                todo_payload,
-            )
-            if normalized:
-                return normalized
+            normalized = normalize_markdown_content(str(raw_markdown or ""))
+            if normalized and _has_archive_required_sections(normalized):
+                return _normalize_archive_body(normalized)
         except Exception as exc:  # noqa: BLE001
             _append_archive_log(f"LLM archive generation failed for todo {todo_payload.get('id', '')}: {exc}")
-    return _build_archive_fallback_markdown(todo_payload)
+    return _normalize_archive_body(_build_archive_fallback_markdown(todo_payload))
 
 
 def archive_completed_todo(
@@ -396,8 +584,7 @@ def archive_completed_todo(
     todo_payload = _todo_to_payload(todo)
     body = _render_archive_body(todo_payload, llm_service, timeout_seconds)
     paths.note_path.parent.mkdir(parents=True, exist_ok=True)
-    body = append_plan_export_timeline_visual_section(body, todo_payload, paths.note_path)
-    body = append_plan_export_attachment_section(body, todo_payload, paths.note_path)
+    body = append_archive_evidence_section(body, todo_payload, paths.note_path)
     markdown = f"{build_knowledge_frontmatter(todo)}\n\n{body.strip()}\n"
     paths.note_path.write_text(markdown, encoding="utf-8")
     rebuild_product_line_wiki_index(root, paths.product_line)
@@ -462,8 +649,6 @@ def rebuild_product_line_wiki_index(archive_root: Path, product_line: str) -> Pa
         entries.setdefault(version, {}).setdefault(ticket_type, []).append(path)
 
     lines = [
-        f"# {product_line} Wiki 索引",
-        "",
         "> 自动生成，请勿手动编辑。",
         "",
     ]
@@ -486,7 +671,7 @@ def rebuild_product_line_wiki_index(archive_root: Path, product_line: str) -> Pa
                     updated_label = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
                     lines.append(f"- [{title}]({relative_path}) · 更新 {updated_label}")
                 lines.append("")
-    index_path = wiki_dir / "index.md"
+    index_path = wiki_dir / f"# {product_line} Wiki 索引"
     index_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return index_path
 

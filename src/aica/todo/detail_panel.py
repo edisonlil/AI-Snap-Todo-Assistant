@@ -660,7 +660,6 @@ class _TodoDetailBridge(QObject):
     closeRequested = pyqtSignal()
     completeRequested = pyqtSignal(str)
     deleteRequested = pyqtSignal(str)
-    exportPlanRequested = pyqtSignal(str, object)
     stageSummaryRequested = pyqtSignal(str, object)
     stageSummaryRewriteRequested = pyqtSignal(str, object)
     assistAnalysisRequested = pyqtSignal(str, object)
@@ -3228,89 +3227,6 @@ class _TodoDetailBridge(QObject):
             return
         self.deleteRequested.emit(self._todo_id)
 
-    @pyqtSlot()
-    def exportPlan(self) -> None:
-        if self._todo_id is None:
-            return
-        payload = {
-            "title": self._title.strip(),
-            "current_summary": self._current_summary.strip(),
-            "summary_fields": TicketSummaryFields(
-                group_name=_clean_text(self._group_name),
-                environment=_clean_text(self._environment),
-                product_line=resolve_product_line(raw_value=self._product_line),
-                ticket_type=normalize_ticket_type(
-                    self._ticket_type,
-                    summary_text="\n".join(
-                        part
-                        for part in (
-                            self._title.strip(),
-                            self._current_summary.strip(),
-                            *(item.get("content", "").strip() for item in self._timeline),
-                        )
-                        if part
-                    ),
-                ),
-                feature_point=self._feature_point.strip(),
-                feature_point_source=self._feature_point_source,
-                root_cause_desc=self._root_cause_desc.strip(),
-                root_cause_desc_source=self._root_cause_desc_source,
-                root_cause=self._root_cause.strip(),
-                root_cause_source=self._root_cause_source,
-                ticket_version=self._ticket_version.strip(),
-            ).to_dict(),
-            "project_link": self._project_link.to_dict(),
-            "conclusion": {
-                "content": self._conclusion_content.strip(),
-                "updatedAt": self._conclusion_updated_at,
-                "attachments": [
-                    {
-                        "id": str(attachment.get("id", "")),
-                        "name": str(attachment.get("name", "")).strip(),
-                        "path": str(attachment.get("path", "")).strip(),
-                        "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
-                        "kind": str(attachment.get("kind", "")),
-                        "isImage": bool(attachment.get("isImage", False)),
-                        "isVideo": bool(attachment.get("isVideo", False)),
-                        "isPreviewable": bool(attachment.get("isPreviewable", False)),
-                        "fileUrl": str(attachment.get("fileUrl", "")),
-                    }
-                    for attachment in self._conclusion_attachments
-                    if isinstance(attachment, dict)
-                ],
-            },
-            "timeline": [
-                {
-                    "id": item["id"],
-                    "timestamp": item["timestamp"],
-                    "created_at": str(item.get("created_at", item.get("timestamp", "")) or ""),
-                    "kind": item.get("kind", "analysis"),
-                    "scenario": item.get("scenario", ""),
-                    "type": item.get("type", _TIMELINE_EVENT_TYPE_DEFAULT),
-                    "payload": _clone_dict(item.get("payload", {})),
-                    "status": str(item.get("status", "") or ""),
-                    "content": item.get("content", "").strip(),
-                    "attachments": [
-                        {
-                            "id": str(attachment.get("id", "")),
-                            "name": str(attachment.get("name", "")).strip(),
-                            "path": str(attachment.get("path", "")).strip(),
-                            "sizeBytes": int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
-                            "kind": str(attachment.get("kind", "")),
-                            "isImage": bool(attachment.get("isImage", False)),
-                            "isVideo": bool(attachment.get("isVideo", False)),
-                            "isPreviewable": bool(attachment.get("isPreviewable", False)),
-                            "fileUrl": str(attachment.get("fileUrl", "")),
-                        }
-                        for attachment in item.get("attachments", [])
-                        if isinstance(attachment, dict)
-                    ],
-                }
-                for item in reversed(self._timeline)
-            ],
-        }
-        self.exportPlanRequested.emit(self._todo_id, payload)
-
 
 class _StageSummaryWindow(QQuickView):
     _MIN_PANEL_WIDTH = 380
@@ -3833,7 +3749,6 @@ class TodoDetailPanel(QQuickView):
     closed = pyqtSignal()
     complete_requested = pyqtSignal(str)
     delete_requested = pyqtSignal(str)
-    export_plan_requested = pyqtSignal(str, object)
     stage_summary_requested = pyqtSignal(str, object)
     stage_summary_rewrite_requested = pyqtSignal(str, object)
     assist_analysis_requested = pyqtSignal(str, object)
@@ -3899,7 +3814,6 @@ class TodoDetailPanel(QQuickView):
         self._bridge.closeRequested.connect(self._close_panel)
         self._bridge.completeRequested.connect(self.complete_requested)
         self._bridge.deleteRequested.connect(self.delete_requested)
-        self._bridge.exportPlanRequested.connect(self.export_plan_requested)
         self._bridge.stageSummaryRequested.connect(self.stage_summary_requested)
         self._bridge.stageSummaryRewriteRequested.connect(self.stage_summary_rewrite_requested)
         self._bridge.assistAnalysisRequested.connect(self.assist_analysis_requested)

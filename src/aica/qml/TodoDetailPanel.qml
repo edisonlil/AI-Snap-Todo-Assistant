@@ -494,31 +494,6 @@ Rectangle {
                     spacing: 10
 
                     Rectangle {
-                        width: exportText.implicitWidth + 24
-                        height: 32
-                        radius: 16
-                        color: "#FFFFFF"
-                        border.width: 1
-                        border.color: root.fieldLine
-
-                        Text {
-                            id: exportText
-                            anchors.centerIn: parent
-                            text: "导出方案"
-                            color: root.bodyInk
-                            font.family: root.uiFont
-                            font.pixelSize: 12
-                            font.weight: 700
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: todoDetailBridge.exportPlan()
-                        }
-                    }
-
-                    Rectangle {
                         width: closeText.implicitWidth + 24
                         height: 32
                         radius: 16

@@ -405,12 +405,15 @@ def test_control_panel_readable_chinese_copy_and_locations(monkeypatch: pytest.M
     assert "产品: 文档中台/V7" in copy_text
     assert [item["title"] for item in bridge.locations] == [
         "本地数据目录",
+        "知识库归档目录",
         "反馈目录",
         "分析规则文件",
         "Prompt 调试目录",
         "错误日志目录",
         "脚本集成配置目录",
     ]
+    locations = {item["id"]: item for item in bridge.locations}
+    assert locations["knowledge_base_dir"]["description"].endswith("knowledge_base")
 
 
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
