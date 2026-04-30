@@ -28,6 +28,7 @@ _UNSPECIFIED_FEATURE = "未明确"
 _WIKI_DIRNAME = "_wiki"
 _OPERATION_TICKET_TYPE = "操作类"
 _INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_URL_RE = re.compile(r"https?://[^\s<>\"]+")
 
 
 class TodoReader(Protocol):
@@ -271,6 +272,7 @@ def build_knowledge_archive_messages(todo_payload: dict[str, object]) -> list[Me
         "4. 不要输出“时间线回顾”“时间线图示”“附件图示”“关联证据”章节；关联证据会由程序统一追加。\n"
         "5. 没有提供的信息统一写“未提供”“未明确”或“待确认”，不要猜测。\n"
         "6. 不要把“问题恢复”本身写成解决方案，除非存在明确处理动作。\n\n"
+        "7. 结论和排查记录中的链接、参考文档、错误码、索引名、配置名、接口名等关键信息必须原样保留，并写入解决方案或最终结论，不要只做概括。\n\n"
         "固定结构（不要输出一级标题，正文从二级标题开始）：\n"
         "## 问题概览\n\n"
         "- 问题现象：...\n"
@@ -395,6 +397,63 @@ def _strip_archive_generated_sections(markdown: str) -> str:
             cursor = next_start
     chunks.append(normalized[cursor:])
     return "\n\n".join(part.strip() for part in chunks if part.strip()).strip()
+
+
+def _extract_urls(text: str) -> list[str]:
+    urls: list[str] = []
+    for match in _URL_RE.finditer(text):
+        url = match.group(0).rstrip("。.,，；;：:)）]")
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _collect_key_reference_lines(todo_payload: dict[str, object]) -> list[tuple[str, list[str]]]:
+    references: list[tuple[str, list[str]]] = []
+    seen_urls: set[str] = set()
+
+    def add_reference(label: str, content: object) -> None:
+        text = _clean_optional_text(content)
+        if not text:
+            return
+        urls = [url for url in _extract_urls(text) if url not in seen_urls]
+        if not urls:
+            return
+        seen_urls.update(urls)
+        references.append((f"{label}：{text}", urls))
+
+    conclusion = dict(todo_payload.get("conclusion", {}) or {})
+    add_reference("问题结论", conclusion.get("content"))
+
+    timeline_items = todo_payload.get("timeline", [])
+    if isinstance(timeline_items, list):
+        for item in timeline_items:
+            if not isinstance(item, dict):
+                continue
+            timestamp = _format_archive_timestamp(item.get("timestamp"))
+            scenario = _clean_text(item.get("scenario"), fallback="工单记录")
+            add_reference(f"{timestamp} {scenario}", item.get("content"))
+
+    return references
+
+
+def _ensure_key_references_in_solution(markdown: str, todo_payload: dict[str, object]) -> str:
+    references = [
+        line
+        for line, urls in _collect_key_reference_lines(todo_payload)
+        if any(url not in markdown for url in urls)
+    ]
+    if not references:
+        return markdown
+
+    block = "\n\n### 关键参考信息\n\n" + "\n".join(f"- {line}" for line in references)
+    solution_heading = re.search(r"^##\s+解决方案\s*$", markdown, re.MULTILINE)
+    if solution_heading is None:
+        return f"{markdown.rstrip()}{block}"
+
+    next_heading = re.search(r"^##\s+\S.*$", markdown[solution_heading.end():], re.MULTILINE)
+    insert_at = len(markdown) if next_heading is None else solution_heading.end() + next_heading.start()
+    return f"{markdown[:insert_at].rstrip()}{block}\n\n{markdown[insert_at:].lstrip()}".strip()
 
 
 def _copy_archive_attachment(source_path: str, asset_dir: Path) -> Path | None:
@@ -584,6 +643,7 @@ def archive_completed_todo(
     paths = build_knowledge_archive_paths(root, todo)
     todo_payload = _todo_to_payload(todo)
     body = _render_archive_body(todo_payload, llm_service, timeout_seconds)
+    body = _ensure_key_references_in_solution(body, todo_payload)
     paths.note_path.parent.mkdir(parents=True, exist_ok=True)
     body = append_archive_evidence_section(body, todo_payload, paths.note_path)
     markdown = f"{build_knowledge_frontmatter(todo)}\n\n{body.strip()}\n"

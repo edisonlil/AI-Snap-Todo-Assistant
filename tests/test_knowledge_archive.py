@@ -130,6 +130,47 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert "生产" not in user_prompt
 
 
+def test_archive_completed_todo_preserves_key_links_from_conclusion_and_timeline() -> None:
+    base_dir = Path.cwd() / ".tmp"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = base_dir / f"knowledge-archive-{uuid.uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    todo = _build_todo()
+    todo.conclusion.content = "该问题由 es 的分词器导致，参考文档：https://365.kdocs.cn/l/cq1fvvOs4kUo"
+    todo.timeline[0].content = "需调整 es 索引模板，模板链接：https://365.kdocs.cn/l/timelineDoc"
+    llm = _RecordingLLM(
+        "## 问题概览\n\n"
+        "- 问题现象：组合字符无法检索。\n"
+        "- 关键错误：dd2025 无法命中。\n"
+        "- 涉及模块：Elasticsearch 索引。\n"
+        "- 最终结论：需要调整分词器。\n\n"
+        "## 基本信息\n\n"
+        "| 字段 | 内容 |\n"
+        "| --- | --- |\n"
+        "| 产品线 | WPS协作 |\n\n"
+        "## 问题现象\n\n"
+        "组合字符无法检索。\n\n"
+        "## 定位过程\n\n"
+        "- 检查索引模板和分词器配置。\n\n"
+        "## 解决方案\n\n"
+        "1. 修改索引模板。\n"
+        "2. 重建索引。\n\n"
+        "## 最终结论\n\n"
+        "需要调整分词器配置。"
+    )
+
+    note_path = archive_completed_todo(todo, llm_service=llm, archive_root=temp_dir)
+
+    assert note_path is not None
+    content = note_path.read_text(encoding="utf-8")
+    assert "### 关键参考信息" in content
+    assert "https://365.kdocs.cn/l/cq1fvvOs4kUo" in content
+    assert "https://365.kdocs.cn/l/timelineDoc" in content
+    assert "参考文档" in content
+    assert "模板链接" in content
+    assert content.index("## 解决方案") < content.index("### 关键参考信息") < content.index("## 最终结论")
+
+
 def test_knowledge_archive_event_handler_skips_operation_todos() -> None:
     base_dir = Path.cwd() / ".tmp"
     base_dir.mkdir(parents=True, exist_ok=True)
