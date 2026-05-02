@@ -4,7 +4,7 @@ import { docsPages, siteMeta } from "./site.config.js";
 import { buildDocsSidebar, buildFooter, buildHeader, renderBlocks } from "./shared.js";
 
 const pageKey = document.body.dataset.page || "index";
-const page = docsPages[pageKey];
+const page = docsPages[pageKey] || docsPages.index;
 const app = document.querySelector("#app");
 
 document.title = `${page.title} · ${siteMeta.brand} 文档`;

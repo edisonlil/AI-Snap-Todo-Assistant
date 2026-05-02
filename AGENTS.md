@@ -3,6 +3,9 @@
 ## Project Structure & Module Organization
 Primary application code lives in `src/aica/`. Core entry and workflow modules include `main.py`, `overlay.py`, `toolbar.py`, `worker.py`, `config.py`, `prompts.py`, and `single_instance.py`. Supporting UI and Todo-related modules also live in `src/aica/`. Tests are in `tests/` and follow the `test_<module>.py` pattern, for example `test_overlay.py` and `test_todo_store.py`. Packaged assets are stored in `assets/`. Build metadata and PyInstaller specs are at the repo root: `aica.spec`, `aica_onefile.spec`, and `aica_version_info.txt`. Treat `build/`, `dist/`, `dist_onefile/`, and `__pycache__/` as generated output.
 
+## Product Naming
+The official customer-facing product name is `Chattodo`. Use `Chattodo` in product documentation, customer-facing copy, marketing text, and newly written UI text. Treat `AI Snap Todo Assistant` as a legacy descriptive repository name, not the official product name. Keep existing engineering identifiers such as `aica`, `AICA.app`, file paths, package names, and config directories unchanged unless a task explicitly requests a technical rename.
+
 ## Build, Test, and Development Commands
 - `python .\run_aica.py`: run the app locally from source.
 - `python -m compileall src\aica run_aica.py`: quick syntax and import smoke check.

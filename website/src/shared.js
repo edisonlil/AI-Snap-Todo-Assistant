@@ -11,6 +11,7 @@ export function pageLink(path) {
 export function buildHeader(current) {
   const docsHref = current === "home" ? "./docs/index.html" : "../docs/index.html";
   const homeHref = current === "home" ? "./index.html" : "../index.html";
+  const workflowHref = current === "home" ? "#workflow" : "../index.html#workflow";
   const featureHref = current === "home" ? "#features" : "../index.html#features";
   const downloadHref =
     current === "home" ? "./docs/installation.html#download" : "./installation.html#download";
@@ -25,6 +26,7 @@ export function buildHeader(current) {
         </span>
       </a>
       <nav class="top-nav" aria-label="主导航">
+        <a href="${workflowHref}">产品流程</a>
         <a href="${featureHref}">产品特性</a>
         <a href="${docsHref}">使用文档</a>
         <a href="${downloadHref}">下载/获取</a>
@@ -40,7 +42,6 @@ export function buildFooter() {
         <strong>${siteMeta.brand}</strong>
         <p>${siteMeta.description}</p>
       </div>
-      <p>${siteMeta.footerNote}</p>
     </footer>
   `;
 }
@@ -50,8 +51,8 @@ export function buildDocsSidebar(currentKey) {
     <aside class="docs-sidebar">
       <div class="docs-sidebar-head">
         <span class="eyebrow">Documentation</span>
-        <h2>基础用户文档</h2>
-        <p>先完成安装、配置和第一条待办闭环，再逐步引入更复杂的团队流程。</p>
+        <h2>完整用户文档</h2>
+        <p>按截图、工单、时间线、排查、归档和同步的真实流程阅读。</p>
       </div>
       <nav class="docs-sidebar-nav" aria-label="文档导航">
         ${docsNav
@@ -77,6 +78,19 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+export function renderInline(value) {
+  return String(value)
+    .split(/(`[^`]+`)/g)
+    .map((part) => {
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+      }
+
+      return escapeHtml(part);
+    })
+    .join("");
+}
+
 export function renderBlocks(blocks) {
   return blocks
     .map((block) => {
@@ -85,7 +99,7 @@ export function renderBlocks(blocks) {
       }
 
       if (block.type === "list") {
-        return `<ul class="prose-list">${block.items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+        return `<ul class="prose-list">${block.items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</ul>`;
       }
 
       if (block.type === "code") {
@@ -97,11 +111,46 @@ export function renderBlocks(blocks) {
         `;
       }
 
+      if (block.type === "steps") {
+        return `
+          <ol class="steps-list">
+            ${block.items
+              .map(
+                (item, index) => `
+                  <li>
+                    <span>${String(index + 1).padStart(2, "0")}</span>
+                    <p>${renderInline(item)}</p>
+                  </li>
+                `,
+              )
+              .join("")}
+          </ol>
+        `;
+      }
+
+      if (block.type === "workflow") {
+        return `
+          <div class="doc-workflow">
+            ${block.items
+              .map(
+                (item) => `
+                  <article>
+                    <span>${item.step}</span>
+                    <h3>${item.title}</h3>
+                    <p>${item.body}</p>
+                  </article>
+                `,
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
       if (block.type === "callout") {
         return `
           <div class="callout callout-${block.tone || "muted"}">
-            <strong>${block.title}</strong>
-            <p>${block.text}</p>
+            <strong>${renderInline(block.title)}</strong>
+            <p>${renderInline(block.text)}</p>
           </div>
         `;
       }
@@ -113,8 +162,8 @@ export function renderBlocks(blocks) {
               .map(
                 (item) => `
                   <details class="faq-item">
-                    <summary>${item.question}</summary>
-                    <p>${item.answer}</p>
+                    <summary>${renderInline(item.question)}</summary>
+                    <p>${renderInline(item.answer)}</p>
                   </details>
                 `,
               )
