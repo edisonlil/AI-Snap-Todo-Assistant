@@ -960,6 +960,11 @@ class _TodoDetailBridge(QObject):
         value = self._assist_analysis_result.get("caseResults")
         return dict(value or {}) if isinstance(value, dict) else self._empty_assist_case_results(status="loading")
 
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def assistErrorCodeResults(self):  # noqa: ANN201
+        value = self._assist_analysis_result.get("errorCodeResults")
+        return dict(value or {}) if isinstance(value, dict) else self._empty_assist_error_code_results(status="loading")
+
     @pyqtProperty(str, notify=dataChanged)
     def projectMatchStatus(self) -> str:
         return self._project_match_status
@@ -2229,6 +2234,7 @@ class _TodoDetailBridge(QObject):
             self._assist_analysis_pending_cache_key = ""
             self._assist_analysis_result = self._normalize_assist_analysis_result(cached)
             self._assist_analysis_result["caseResults"] = self._normalize_assist_case_results(cached.get("caseResults"))
+            self._assist_analysis_result["errorCodeResults"] = self._normalize_assist_error_code_results(cached.get("errorCodeResults"))
             self.dataChanged.emit()
             return
         if self._assist_analysis_pending_cache_key == cache_key:
@@ -2238,6 +2244,7 @@ class _TodoDetailBridge(QObject):
                 self._assist_analysis_busy = True
                 self._assist_analysis_error = ""
                 self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
+                self._assist_analysis_result["errorCodeResults"] = self._empty_assist_error_code_results(status="loading")
                 self.dataChanged.emit()
             return
         request_id = str(uuid.uuid4())
@@ -2249,6 +2256,7 @@ class _TodoDetailBridge(QObject):
         self._assist_analysis_pending_cache_key = cache_key
         if show_loading:
             self._assist_analysis_result["caseResults"] = self._empty_assist_case_results(status="loading")
+            self._assist_analysis_result["errorCodeResults"] = self._empty_assist_error_code_results(status="loading")
             self.dataChanged.emit()
         self.assistAnalysisRequested.emit(
             self._todo_id,
@@ -2602,6 +2610,22 @@ class _TodoDetailBridge(QObject):
         }
 
     @staticmethod
+    def _empty_assist_error_code_results(status: str = "empty", error_message: str = "") -> dict[str, object]:
+        return {
+            "status": status,
+            "title": "错误码说明",
+            "countLabel": "查询中" if status == "loading" else "暂无错误码说明",
+            "count": "查询中" if status == "loading" else "暂无错误码说明",
+            "emptyText": (
+                "正在查询错误码说明..."
+                if status == "loading"
+                else "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体"
+            ),
+            "items": [],
+            "errorMessage": sanitize_text(error_message).strip(),
+        }
+
+    @staticmethod
     def _normalize_assist_case_results(payload: object) -> dict[str, object]:
         if not isinstance(payload, dict):
             return _TodoDetailBridge._empty_assist_case_results()
@@ -2658,6 +2682,57 @@ class _TodoDetailBridge(QObject):
         }
 
     @staticmethod
+    def _normalize_assist_error_code_results(payload: object) -> dict[str, object]:
+        if not isinstance(payload, dict):
+            return _TodoDetailBridge._empty_assist_error_code_results()
+        items: list[dict[str, str]] = []
+        raw_items = payload.get("items", [])
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                code = sanitize_text(item.get("code")).strip()
+                title = sanitize_text(item.get("title")).strip()
+                desc = sanitize_text(item.get("desc")).strip()
+                text = sanitize_text(item.get("text")).strip()
+                source = sanitize_text(item.get("source")).strip()
+                category = sanitize_text(item.get("category")).strip()
+                display_title = title or code
+                if display_title:
+                    items.append(
+                        {
+                            "code": code,
+                            "title": display_title,
+                            "desc": desc,
+                            "text": text or desc or display_title,
+                            "source": source,
+                            "category": category,
+                        }
+                    )
+                if len(items) >= 5:
+                    break
+        status = sanitize_text(payload.get("status")).strip() or ("success" if items else "empty")
+        if not items and status == "success":
+            status = "empty"
+        count_label = sanitize_text(payload.get("countLabel") or payload.get("count")).strip()
+        if not count_label:
+            count_label = f"命中 {len(items)} 条说明" if items else "暂无错误码说明"
+        empty_text = sanitize_text(payload.get("emptyText")).strip() or (
+            "正在查询错误码说明..."
+            if status == "loading"
+            else "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体"
+        )
+        return {
+            "status": status,
+            "title": sanitize_text(payload.get("title")).strip() or "错误码说明",
+            "countLabel": count_label,
+            "count": count_label,
+            "emptyText": empty_text,
+            "items": items,
+            "errorMessage": sanitize_text(payload.get("errorMessage")).strip(),
+        }
+
+    @staticmethod
     def _normalize_assist_analysis_result(payload: object) -> dict[str, object]:
         data = dict(payload or {}) if isinstance(payload, dict) else {}
         information = dict(data.get("informationStatus") or {}) if isinstance(data.get("informationStatus"), dict) else {}
@@ -2700,6 +2775,10 @@ class _TodoDetailBridge(QObject):
             result["caseResults"] = cls._normalize_assist_case_results(payload.get("caseResults"))
         else:
             result["caseResults"] = cls._empty_assist_case_results()
+        if isinstance(payload, dict) and "errorCodeResults" in payload:
+            result["errorCodeResults"] = cls._normalize_assist_error_code_results(payload.get("errorCodeResults"))
+        else:
+            result["errorCodeResults"] = cls._empty_assist_error_code_results()
         return result
 
     def _reset_assist_analysis_state(self) -> None:

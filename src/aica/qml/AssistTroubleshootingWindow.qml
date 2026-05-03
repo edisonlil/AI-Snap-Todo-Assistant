@@ -102,7 +102,7 @@ Rectangle {
             },
             "doc": {
                 "title": "官方文档",
-                "count": "模拟 2 条结果",
+                "count": "示例 2 条结果",
                 "items": [
                     {
                         "title": "签章预览坐标与缩放说明",
@@ -118,19 +118,9 @@ Rectangle {
             },
             "err": {
                 "title": "错误码说明",
-                "count": "模拟 2 条结果",
-                "items": [
-                    {
-                        "title": "400000007",
-                        "desc": "参数校验失败，检查必填字段与格式。",
-                        "text": "【错误码】400000007 参数校验失败，需检查必填字段与格式。"
-                    },
-                    {
-                        "title": "15041",
-                        "desc": "文档创建失败，可能与权限或模板异常相关。",
-                        "text": "【错误码】15041 文档创建失败，需检查权限与模板。"
-                    }
-                ]
+                "count": "暂无错误码说明",
+                "emptyText": "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体",
+                "items": []
             },
             "step": {
                 "title": "验证步骤",
@@ -221,9 +211,23 @@ Rectangle {
             }
         }
 
+        function errorCodeResults() {
+            var results = todoDetailBridge ? (todoDetailBridge.assistErrorCodeResults || ({})) : ({})
+            var items = results.items || []
+            return {
+                "title": results.title || "错误码说明",
+                "count": results.countLabel || results.count || (items.length > 0 ? ("命中 " + items.length + " 条说明") : "暂无错误码说明"),
+                "emptyText": results.emptyText || "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体",
+                "items": items
+            }
+        }
+
         function currentResults() {
             if (selectedKey === "case") {
                 return caseResults()
+            }
+            if (selectedKey === "err") {
+                return errorCodeResults()
             }
             return resultData[selectedKey] || resultData["case"]
         }

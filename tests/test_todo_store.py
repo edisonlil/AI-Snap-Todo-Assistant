@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
-from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
+from aica.storage.sqlite.repositories import SCHEMA_VERSION, SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
 from aica.todo.models import TodoStatus
 
 
@@ -189,3 +189,28 @@ def test_schema_migration_adds_completed_at_column() -> None:
         }
 
     assert "completed_at" in columns
+
+
+def test_schema_migration_creates_error_codes_table_and_updates_version() -> None:
+    db_path = _make_db_path("error-codes-schema")
+
+    SQLiteStorageMigrator(db_path).ensure_schema()
+
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        indexes = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
+        version = connection.execute(
+            "SELECT value FROM schema_meta WHERE key='schema_version'"
+        ).fetchone()[0]
+
+    assert SCHEMA_VERSION == "13"
+    assert version == "13"
+    assert "error_codes" in tables
+    assert "idx_error_codes_category" in indexes
+    assert "idx_error_codes_last_seen" in indexes

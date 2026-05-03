@@ -86,6 +86,7 @@ from .case_search import (
 )
 from .context_summary.models import ContextSummaryRequest, build_context_summary_request_for_todo
 from .context_summary.service import ContextSummaryService, format_summary_for_analysis_context
+from .error_codes import ErrorCodeLookupService
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
@@ -922,6 +923,7 @@ class AssistAnalysisWorker(QThread):
         payload: dict[str, object],
         phase: str = "initial",
         case_search_provider: CaseSearchProvider | None = None,
+        error_code_lookup_service: ErrorCodeLookupService | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -931,6 +933,7 @@ class AssistAnalysisWorker(QThread):
         self._payload = dict(payload or {})
         self._phase = str(phase or "initial").strip() or "initial"
         self._case_search_provider = case_search_provider or KDocsSseCaseSearchProvider()
+        self._error_code_lookup_service = error_code_lookup_service
 
     def run(self) -> None:
         try:
@@ -956,6 +959,7 @@ class AssistAnalysisWorker(QThread):
                     is_final=False,
                 )
                 initial_result["caseResults"] = loading_case_result().to_payload()
+                initial_result["errorCodeResults"] = self._lookup_error_codes(todo)
                 self.result_ready.emit(self._todo_id, self._request_id, initial_result)
 
                 final_result = dict(initial_result)
@@ -976,9 +980,10 @@ class AssistAnalysisWorker(QThread):
 
     def _build_initial_result(self, todo: TodoItem) -> dict[str, object]:
         result: dict[str, object] = {}
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             analysis_future = executor.submit(self._run_assist_analysis, todo)
             cases_future = executor.submit(self._search_cases, todo)
+            error_codes_future = executor.submit(self._lookup_error_codes, todo)
             try:
                 result = analysis_future.result()
             except Exception:
@@ -987,13 +992,19 @@ class AssistAnalysisWorker(QThread):
                 result["caseResults"] = cases_future.result()
             except Exception as exc:  # noqa: BLE001
                 result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+            try:
+                result["errorCodeResults"] = error_codes_future.result()
+            except Exception:
+                result["errorCodeResults"] = self._empty_error_code_result()
         return result
 
     def _build_assist_analysis_only_result(self, todo: TodoItem) -> dict[str, object]:
         try:
-            return self._run_assist_analysis(todo)
+            result = self._run_assist_analysis(todo)
         except Exception:
-            return _local_assist_analysis_payload(todo)
+            result = _local_assist_analysis_payload(todo)
+        result["errorCodeResults"] = self._lookup_error_codes(todo)
+        return result
 
     def _run_assist_analysis(self, todo: TodoItem) -> dict[str, object]:
         try:
@@ -1046,6 +1057,25 @@ class AssistAnalysisWorker(QThread):
             return rank_case_search_result(self._llm_service, request, result, max_results=5).to_payload()
         except Exception as exc:  # noqa: BLE001
             return empty_case_result(error_message=str(exc)).to_payload()
+
+    def _lookup_error_codes(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            service = self._error_code_lookup_service or ErrorCodeLookupService()
+            return service.lookup_for_todo(todo)
+        except Exception:
+            return self._empty_error_code_result()
+
+    @staticmethod
+    def _empty_error_code_result() -> dict[str, object]:
+        return {
+            "status": "empty",
+            "title": "错误码说明",
+            "countLabel": "暂无错误码说明",
+            "count": "暂无错误码说明",
+            "emptyText": "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体",
+            "items": [],
+            "errorMessage": "",
+        }
 
 
 def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:

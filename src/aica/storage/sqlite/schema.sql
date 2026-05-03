@@ -99,6 +99,29 @@ ON log_analysis_tasks(todo_id, timeline_entry_id);
 CREATE INDEX IF NOT EXISTS idx_log_analysis_tasks_status_updated
 ON log_analysis_tasks(status, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS error_codes (
+  code TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  meaning TEXT NOT NULL DEFAULT '',
+  suggestion TEXT NOT NULL DEFAULT '',
+  source_name TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'online_doc',
+  source_url TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  raw_payload_json TEXT NOT NULL DEFAULT '{}',
+  cache_status TEXT NOT NULL DEFAULT 'fresh',
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_error_codes_category
+ON error_codes(category);
+
+CREATE INDEX IF NOT EXISTS idx_error_codes_last_seen
+ON error_codes(last_seen_at DESC);
+
 CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
   id TEXT PRIMARY KEY,
   todo_id TEXT NOT NULL,

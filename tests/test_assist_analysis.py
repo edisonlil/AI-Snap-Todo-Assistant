@@ -9,10 +9,13 @@ from aica.todo.assist_analysis import (  # noqa: E402
     build_assist_todo_payload,
     should_update_assist_analysis,
 )
+from aica.error_codes import ErrorCodeLookupService  # noqa: E402
+from aica.storage.sqlite.error_code_repository import ErrorCodeRecord, SQLiteErrorCodeRepository  # noqa: E402
 from aica.case_search import CaseSearchItem, CaseSearchResult  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.todo.models import TodoItem  # noqa: E402
 from aica.worker import AssistAnalysisWorker  # noqa: E402
+import tempfile
 
 
 class _LLM:
@@ -130,3 +133,39 @@ def test_assist_analysis_worker_emits_partial_result_before_case_search_finishes
     assert recorder.items[1]["isFinal"] is True
     assert recorder.items[1]["summary"] == "Fast summary"
     assert recorder.items[1]["caseResults"]["status"] != "loading"
+
+
+def test_initial_assist_analysis_includes_error_code_results_when_case_search_fails() -> None:
+    todo = TodoItem(
+        id="todo-1",
+        title="文档中台错误",
+        current_summary="用户反馈错误码 15041",
+        summary_fields=TicketSummaryFields(),
+    )
+    repository = SQLiteErrorCodeRepository(Path(tempfile.mkdtemp()) / "aica.db")
+    repository.upsert_many(
+        [
+            ErrorCodeRecord(
+                code="15041",
+                title="EditNoAvailableWpsService",
+                message="文字组件服务所有节点均已下线",
+                meaning="无可用服务节点",
+                suggestion="检查 editserver 节点状态",
+                source_name="文档中台错误码说明",
+            )
+        ]
+    )
+    worker = AssistAnalysisWorker(
+        llm_service=_LLM(),
+        todo_id=todo.id,
+        request_id="req-3",
+        payload={"todoPayload": build_assist_todo_payload(todo)},
+        case_search_provider=_FailingCaseProvider(),
+        error_code_lookup_service=ErrorCodeLookupService(repository=repository),
+    )
+
+    result = worker._build_initial_result(todo)  # noqa: SLF001
+
+    assert result["caseResults"]["status"] == "error"
+    assert result["errorCodeResults"]["status"] == "success"
+    assert result["errorCodeResults"]["items"][0]["code"] == "15041"

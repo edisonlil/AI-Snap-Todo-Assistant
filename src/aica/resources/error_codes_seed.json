@@ -1,0 +1,1114 @@
+{
+  "records": [
+    {
+      "code": "0",
+      "title": "OK",
+      "message": "成功",
+      "meaning": "成功",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "通用"
+    },
+    {
+      "code": "10000",
+      "title": "Unknown",
+      "message": "未知或未能识别错误",
+      "meaning": "文档中台未能识别具体错误类型。",
+      "suggestion": "补充 request_id、发生时间和服务端日志继续定位。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "通用"
+    },
+    {
+      "code": "11000",
+      "title": "StorageError",
+      "message": "存储通用错误码",
+      "meaning": "存储通用错误码",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11001",
+      "title": "StorageRequestTimeout",
+      "message": "请求调用对象存储服务时出现网络错误或超时",
+      "meaning": "请求调用对象存储服务时出现网络错误或超时",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11002",
+      "title": "StorageBackendStore5XX",
+      "message": "请求对象存储服务时,对象存储返回5xx响应",
+      "meaning": "请求对象存储服务时,对象存储返回5xx响应",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11003",
+      "title": "StorageInvalidAccessKey",
+      "message": "请求对象存储时使用的Access Key不正确",
+      "meaning": "请求对象存储时使用的Access Key不正确",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11004",
+      "title": "StorageSignatureNotMatch",
+      "message": "请求对象存储时返回签名错误",
+      "meaning": "请求对象存储时返回签名错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11005",
+      "title": "StorageAccessDenied",
+      "message": "请求对象存储时访问被拒绝,可能由于 AccessKey 无权限操作某资源",
+      "meaning": "请求对象存储时访问被拒绝,可能由于 AccessKey 无权限操作某资源",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "11006",
+      "title": "StorageBucketNotExists",
+      "message": "请求对象存储桶Bucket不存在",
+      "meaning": "请求对象存储桶Bucket不存在",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对象存储"
+    },
+    {
+      "code": "12000",
+      "title": "RedisErrorredis",
+      "message": "通用错误码",
+      "meaning": "通用错误码",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "12001",
+      "title": "RedisDialTimeout",
+      "message": "通过lookup地址发现redis服务节点后与 redis节点建立tcp超时",
+      "meaning": "通过lookup地址发现redis服务节点后与 redis节点建立tcp超时",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "12002",
+      "title": "RedisDialLookupError",
+      "message": "通过lookup地址发现redis服务节点时, lookup接口报错",
+      "meaning": "通过lookup地址发现redis服务节点时, lookup接口报错",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "12003",
+      "title": "RedisNetError",
+      "message": "调用redis时出现网络错误",
+      "meaning": "调用redis时出现网络错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "12004",
+      "title": "RedisDnsError",
+      "message": "调用redis时出现dns解析错误",
+      "meaning": "调用redis时出现dns解析错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "12005",
+      "title": "RedisLuaScriptErrorredis",
+      "message": "执行lua脚本报错",
+      "meaning": "执行lua脚本报错",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "Redis"
+    },
+    {
+      "code": "13000",
+      "title": "SqlError",
+      "message": "数据库通用错误码",
+      "meaning": "数据库通用错误码",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13002",
+      "title": "SqlNoSuchTableSQL",
+      "message": "执行报错:没有这张表",
+      "meaning": "执行报错:没有这张表",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13003",
+      "title": "SqlAccessDeniedError",
+      "message": "帐号密码错误或权限不允许",
+      "meaning": "帐号密码错误或权限不允许",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13004",
+      "title": "SqlBadFieldErrorSQL",
+      "message": "执行报错:没有这个字段",
+      "meaning": "执行报错:没有这个字段",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13005",
+      "title": "SqlParseErrorSQL",
+      "message": "执行报错:语法出错",
+      "meaning": "执行报错:语法出错",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13006",
+      "title": "SqlDialTimeoutSQL",
+      "message": "节点连接超时:网络或数据库异常",
+      "meaning": "节点连接超时:网络或数据库异常",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "13007",
+      "title": "SqlDupFieldErrorSQL",
+      "message": "执行报错:字段重复Duplicate Entry",
+      "meaning": "执行报错:字段重复Duplicate Entry",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "数据库"
+    },
+    {
+      "code": "14000",
+      "title": "GrpcErrorRPC",
+      "message": "错误-未知/未能识别错误",
+      "meaning": "错误-未知/未能识别错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "RPC"
+    },
+    {
+      "code": "15000",
+      "title": "EditError",
+      "message": "编辑服务错误-未知/未能识别错误",
+      "meaning": "编辑服务错误-未知/未能识别错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15001",
+      "title": "EditGRPCUnavailable",
+      "message": "编辑服务崩溃、下线或者网络异常",
+      "meaning": "编辑服务崩溃、下线或者网络异常",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15002",
+      "title": "EditSessionNotExists",
+      "message": "编辑会话不存在/未注册",
+      "meaning": "编辑会话不存在/未注册",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15003",
+      "title": "EditCoreResponseEmpty",
+      "message": "编辑内核响应为空",
+      "meaning": "编辑内核响应为空",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15004",
+      "title": "EditCoreEditCrash",
+      "message": "编辑内核编辑中崩溃",
+      "meaning": "编辑内核编辑中崩溃",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15005",
+      "title": "EditCoreSaveFailed",
+      "message": "编辑内核保存失败",
+      "meaning": "编辑内核保存失败",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15006",
+      "title": "EditCoreSaveEmpty",
+      "message": "编辑内核保存空数据",
+      "meaning": "编辑内核保存空数据",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15007",
+      "title": "EditCoreOpenCrash",
+      "message": "编辑内核打开崩溃",
+      "meaning": "编辑内核打开崩溃",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15008",
+      "title": "EditCoreOperationCtxDeadline",
+      "message": "编辑内核操作超时",
+      "meaning": "编辑内核操作超时",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15040",
+      "title": "EditNoAvailableEtService",
+      "message": "表格组件服务所有节点均已下线",
+      "meaning": "editserver 表格组件无可用服务节点。",
+      "suggestion": "检查表格组件节点状态并评估扩容。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15041",
+      "title": "EditNoAvailableWpsService",
+      "message": "文字组件服务所有节点均已下线",
+      "meaning": "editserver 文字组件无可用服务节点，可能由过载保护、节点或 pod 下线导致。",
+      "suggestion": "检查 editserver 文字组件节点状态，确认是否触发过载保护，必要时扩容。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15042",
+      "title": "EditNoAvailableWppService",
+      "message": "演示组件服务所有节点均已下线",
+      "meaning": "editserver 演示组件无可用服务节点。",
+      "suggestion": "检查演示组件节点状态并评估扩容。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15043",
+      "title": "EditNoAvailablePdfService",
+      "message": "PDF 组件服务所有节点均已下线",
+      "meaning": "PDF 组件无可用服务节点。",
+      "suggestion": "检查 PDF 组件节点状态并评估扩容。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15044",
+      "title": "EditServiceVersionNot",
+      "message": "Matcheditserver编辑服务版本不匹配,请联系部署 同学检查",
+      "meaning": "Matcheditserver编辑服务版本不匹配,请联系部署 同学检查",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15045",
+      "title": "EditRpcConnectTimeoutgrpc",
+      "message": "连接服务节点timeout,需检查服务节 点间网络连通性以及节点是否正常运行",
+      "meaning": "连接服务节点timeout,需检查服务节 点间网络连通性以及节点是否正常运行",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15046",
+      "title": "EditNoAvailableOtlServiceot",
+      "message": "组件无可用服务节点,需扩容",
+      "meaning": "组件无可用服务节点,需扩容",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15047",
+      "title": "EditNoAvailableDbServ",
+      "message": "icedbsheet组件无可用服务节点,需扩容",
+      "meaning": "icedbsheet组件无可用服务节点,需扩容",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15048",
+      "title": "EditNoAvailableWbService",
+      "message": "白板组件无可用服务节点,需扩容",
+      "meaning": "白板组件无可用服务节点,需扩容",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15050",
+      "title": "EditRequestURLInvalid",
+      "message": "编辑服务请求下载外部资源文件错误",
+      "meaning": "编辑服务请求下载外部资源文件错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15051",
+      "title": "EditRequestTimeout",
+      "message": "编辑服务请求下载文件超时",
+      "meaning": "编辑服务请求下载文件超时",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15052",
+      "title": "EditDownloadTimeout",
+      "message": "编辑服务下载文件超时",
+      "meaning": "编辑服务下载文件超时",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15053",
+      "title": "EditDownloadNetError",
+      "message": "编辑服务下载文件网络错误",
+      "meaning": "编辑服务下载文件网络错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15054",
+      "title": "EditDownloadParallelExceed",
+      "message": "编辑服务下载文件超过并行限制,需检查网络 带宽",
+      "meaning": "编辑服务下载文件超过并行限制,需检查网络 带宽",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15055",
+      "title": "EditDownloadChecksu",
+      "message": "mMismatch下载文件指定的digest与计算出来的不一致",
+      "meaning": "mMismatch下载文件指定的digest与计算出来的不一致",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15056",
+      "title": "EditDownloadSizeMismatch",
+      "message": "下载文件指定的大小与content-length不一 致或者实际读取的内容比指定的大",
+      "meaning": "下载文件指定的大小与content-length不一 致或者实际读取的内容比指定的大",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15057",
+      "title": "EditDownloadX509Expired",
+      "message": "编辑下载文档时,文档下载地址TLS证书过期",
+      "meaning": "编辑下载文档时,文档下载地址TLS证书过期",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15058",
+      "title": "EditDownloadX509Invalid",
+      "message": "编辑下载文档时,文档下载地址TLS证书无效 (但不是过期、域名不匹配等)",
+      "meaning": "编辑下载文档时,文档下载地址TLS证书无效 (但不是过期、域名不匹配等)",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15059",
+      "title": "EditDownloadX509UnknownAuth",
+      "message": "编辑下载文档时,文档下载地址TLS证书本身 有问题,unknown authority自签的证书会走 这里",
+      "meaning": "编辑下载文档时,文档下载地址TLS证书本身 有问题,unknown authority自签的证书会走 这里",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15060",
+      "title": "EditDownloadNotFound",
+      "message": "编辑下载文档时,文档下载地址资源不存在",
+      "meaning": "编辑下载文档时,文档下载地址资源不存在",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15061",
+      "title": "EditIOError",
+      "message": "系统IO错误,EIO: input/output error",
+      "meaning": "系统IO错误,EIO: input/output error",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15062",
+      "title": "EditDiskFull",
+      "message": "系统磁盘满",
+      "meaning": "编辑服务所在节点磁盘空间不足。",
+      "suggestion": "检查磁盘分区并扩容或清理空间。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "15080",
+      "title": "WALWriteFailedwal",
+      "message": "组件同步写入失败",
+      "meaning": "组件同步写入失败",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "编辑服务"
+    },
+    {
+      "code": "16001",
+      "title": "RequestTimeToOfewed",
+      "message": "微服务之间的请求时⻓超过15分钟",
+      "meaning": "微服务之间的请求时⻓超过15分钟",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "服务限制"
+    },
+    {
+      "code": "16002",
+      "title": "ExceedMaxOnlineFiles",
+      "message": "超过授权的集群最大文件数量",
+      "meaning": "超过授权的集群最大文件数量",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "服务限制"
+    },
+    {
+      "code": "16003",
+      "title": "ExceedMaxOnlineUsers",
+      "message": "超过授权的集群最大用戶数量",
+      "meaning": "超过授权的集群最大用戶数量",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "服务限制"
+    },
+    {
+      "code": "17000",
+      "title": "MultiAppInvalidAppID",
+      "message": "多应用ID不合法",
+      "meaning": "多应用ID不合法",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "多应用"
+    },
+    {
+      "code": "17001",
+      "title": "MultiAppIDNotExisted",
+      "message": "多应用ID不存在",
+      "meaning": "多应用ID不存在",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "多应用"
+    },
+    {
+      "code": "18001",
+      "title": "MultiDownloadNotSupport",
+      "message": "文件服务器不支持并发下载",
+      "meaning": "文件服务器不支持并发下载",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "下载服务"
+    },
+    {
+      "code": "20001",
+      "title": "ProviderResponse500",
+      "message": "业务方对接模块返回异常错误码500",
+      "meaning": "业务方对接模块返回异常错误码500",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20002",
+      "title": "ProviderResponse502",
+      "message": "业务方对接模块返回异常错误码502",
+      "meaning": "业务方对接模块返回异常错误码502",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20003",
+      "title": "ProviderResponse503",
+      "message": "业务方对接模块返回异常错误码503",
+      "meaning": "业务方对接模块返回异常错误码503",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20004",
+      "title": "ProviderResponse504",
+      "message": "业务方对接模块返回异常错误码504",
+      "meaning": "业务方对接模块返回异常错误码504",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20005",
+      "title": "ProviderResponse5xx",
+      "message": "业务方对接模块返回异常错误码5xx",
+      "meaning": "业务方对接模块返回异常错误码5xx",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20010",
+      "title": "ProviderResponse4xx",
+      "message": "业务方对接模块返回异常错误码4xx",
+      "meaning": "业务方对接模块返回异常错误码4xx",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20011",
+      "title": "ProviderNetTimeout",
+      "message": "网络部分底层错误,参考net.OpError错误",
+      "meaning": "网络部分底层错误,参考net.OpError错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20012",
+      "title": "ProviderDNSError",
+      "message": "网络部分底层错误,参考net.DNSError错误",
+      "meaning": "网络部分底层错误,参考net.DNSError错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20013",
+      "title": "ProviderNetError",
+      "message": "网络通用错误",
+      "meaning": "调用业务方对接接口时出现网络异常。",
+      "suggestion": "检查业务方地址、DNS、网络策略和连接日志。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20021",
+      "title": "ProviderRequestURLInvalid",
+      "message": "业务方对接模块请求部分错误,参考 http.NewRequest",
+      "meaning": "业务方对接模块请求部分错误,参考 http.NewRequest",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20022",
+      "title": "ProviderResponseBadJSON",
+      "message": "业务对接模块返回 JSON 异常",
+      "meaning": "业务方回调响应不是约定 JSON 或字段结构异常。",
+      "suggestion": "检查业务方接口返回体和 Content-Type。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20023",
+      "title": "ProviderRequestTimeout",
+      "message": "业务对接模块请求超时",
+      "meaning": "文档中台请求业务方对接接口时超时。",
+      "suggestion": "检查业务方接口耗时、网络连通性和回调服务日志。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20050",
+      "title": "ProviderFileFormatError",
+      "message": "业务对接模块返回文件结构体错误",
+      "meaning": "业务对接模块返回文件结构体错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20051",
+      "title": "ProviderFileInfoError",
+      "message": "业务对接模块返回文件信息错误",
+      "meaning": "业务对接模块返回文件信息错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20052",
+      "title": "ProviderUserStructError",
+      "message": "业务对接模块返回用戶结构体错误",
+      "meaning": "业务对接模块返回用戶结构体错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20053",
+      "title": "ProviderUserInfoError",
+      "message": "业务对接模块返回用戶信息错误",
+      "meaning": "业务对接模块返回用戶信息错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20054",
+      "title": "ProviderResponseVersionErr",
+      "message": "业务对接模块返回文件版本错误",
+      "meaning": "业务对接模块返回文件版本错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20055",
+      "title": "ProviderResponseTimeErr",
+      "message": "业务对接模块返回时间戳大于10位",
+      "meaning": "业务对接模块返回时间戳大于10位",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20056",
+      "title": "ProviderResponseCacheTimeErr",
+      "message": "业务对接模块返回缓存时间错误",
+      "meaning": "业务对接模块返回缓存时间错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20057",
+      "title": "MultiUploadMismatch",
+      "message": "并发上传文档错误",
+      "meaning": "并发上传文档错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20058",
+      "title": "MultiDownloadNotSupport",
+      "message": "文件服务器不支持并发下载",
+      "meaning": "文件服务器不支持并发下载",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20061",
+      "title": "UserAcIFomatError",
+      "message": "返回acl信息为空",
+      "meaning": "返回acl信息为空",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20063",
+      "title": "WaterMarkInfoError",
+      "message": "返回水印信息错误",
+      "meaning": "返回水印信息错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "20064",
+      "title": "WaterMarkFormatError",
+      "message": "返回水印信息结构体错误",
+      "meaning": "返回水印信息结构体错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方对接"
+    },
+    {
+      "code": "21000",
+      "title": "ApiDownloadParallelLimit",
+      "message": "由于网速限制导致下载超过并行下载限制",
+      "meaning": "由于网速限制导致下载超过并行下载限制",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "API 下载"
+    },
+    {
+      "code": "23001",
+      "title": "AIPlatformInvalidScene",
+      "message": "调用方传入Scene无效",
+      "meaning": "调用方传入Scene无效",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "AI 平台"
+    },
+    {
+      "code": "23002",
+      "title": "APIPlatformProviderNo",
+      "message": "tSupportScene对应配置里底层提供商不支持这个接口",
+      "meaning": "tSupportScene对应配置里底层提供商不支持这个接口",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "AI 平台"
+    },
+    {
+      "code": "24000",
+      "title": "ProviderCustomError",
+      "message": "对接回调接口返回自定义错误",
+      "meaning": "对接回调接口返回自定义错误",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方回调"
+    },
+    {
+      "code": "24001",
+      "title": "ProviderConventionError",
+      "message": "对接回调接口返回约定错误码",
+      "meaning": "对接回调接口返回约定错误码",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方回调"
+    },
+    {
+      "code": "24002",
+      "title": "ProviderUnknownError",
+      "message": "对接回调接口故障未返回约定错误码 三、预览编辑回调错误码说明 四、排查示例 若出现错误码20052,问题原因为“业务对接模块返回用戶结构体错误”,排查方向: ◦检查所有对接接口返回的userid是否符合⻓度要求; ◦检查接口是否有返回creator、modifier这些用戶id字段。 若预览编辑回调时返回错误码40002,表示“token过期”,需重新获取有效token。错误码 信息 含义",
+      "meaning": "对接回调接口故障未返回约定错误码 三、预览编辑回调错误码说明 四、排查示例 若出现错误码20052,问题原因为“业务对接模块返回用戶结构体错误”,排查方向: ◦检查所有对接接口返回的userid是否符合⻓度要求; ◦检查接口是否有返回creator、modifier这些用戶id字段。 若预览编辑回调时返回错误码40002,表示“token过期”,需重新获取有效token。错误码 信息 含义",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "业务方回调"
+    },
+    {
+      "code": "40002",
+      "title": "SessionExpiredtoken",
+      "message": "过期",
+      "meaning": "过期",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40003",
+      "title": "PermissionDenied",
+      "message": "用户无权限访问",
+      "meaning": "当前用户或调用方没有资源访问权限。",
+      "suggestion": "检查用户权限、空间权限和 token 身份。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40004",
+      "title": "NotExists",
+      "message": "资源不存在",
+      "meaning": "资源不存在",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40005",
+      "title": "InvalidArgument",
+      "message": "参数错误",
+      "meaning": "接口入参不符合约定。",
+      "suggestion": "核对请求参数、字段类型和必填字段。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40006",
+      "title": "SpaceFull",
+      "message": "保存空间已满",
+      "meaning": "保存空间已满",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40007",
+      "title": "CustomMsg",
+      "message": "自定义错误提示,前端⻚面将显示此错误内 容,在回调错误响应中的hint字段中自定义 错误提示,该错误提示不支持多语言",
+      "meaning": "自定义错误提示,前端⻚面将显示此错误内 容,在回调错误响应中的hint字段中自定义 错误提示,该错误提示不支持多语言",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40008",
+      "title": "FnameConflict",
+      "message": "文件重命名冲突",
+      "meaning": "文件重命名冲突",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "50001",
+      "title": "ServerError",
+      "message": "对接系统错误",
+      "meaning": "业务对接系统内部错误。",
+      "suggestion": "结合 request_id 查询业务方服务端日志。",
+      "source_name": "文档中台错误码说明",
+      "source_type": "online_doc",
+      "category": "对接返回"
+    },
+    {
+      "code": "40000001",
+      "title": "InvalidRequest",
+      "message": "无效请求",
+      "meaning": "OAuth2 请求不合法。",
+      "suggestion": "检查请求参数和授权流程。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40000005",
+      "title": "InvalidScope",
+      "message": "授权范围无效",
+      "meaning": "请求的 scope 不被支持或不在授权范围内。",
+      "suggestion": "核对应用配置中的授权范围。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40000999",
+      "title": "ClientError",
+      "message": "客户端错误",
+      "meaning": "OAuth2 客户端请求异常。",
+      "suggestion": "检查客户端参数、签名和请求体。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100002",
+      "title": "UnauthorizedClient",
+      "message": "客户端未授权",
+      "meaning": "当前客户端无权执行该授权请求。",
+      "suggestion": "检查应用授权配置和 client 信息。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100004",
+      "title": "UnsupportedResponseType",
+      "message": "UnsupportedResponseType",
+      "meaning": "UnsupportedResponseType",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100008",
+      "title": "InvalidClient",
+      "message": "客户端无效",
+      "meaning": "client_id 或 client_secret 不正确。",
+      "suggestion": "核对应用凭据。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100009",
+      "title": "InvalidGrant",
+      "message": "InvalidGrant",
+      "meaning": "InvalidGrant",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100010",
+      "title": "UnsupportedGrantType",
+      "message": "UnsupportedGrantType",
+      "meaning": "UnsupportedGrantType",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40100011",
+      "title": "InvalidToken",
+      "message": "InvalidToken",
+      "meaning": "InvalidToken",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40300003",
+      "title": "AccessDenied",
+      "message": "访问被拒绝",
+      "meaning": "当前用户或应用缺少访问权限。",
+      "suggestion": "检查授权用户、应用权限和资源访问范围。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "40300010",
+      "title": "InsufficientScope",
+      "message": "InsufficientScope",
+      "meaning": "InsufficientScope",
+      "suggestion": "结合错误码、request_id、发生时间和接口返回体继续排查。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    },
+    {
+      "code": "400000007",
+      "title": "InvalidRequest",
+      "message": "无效请求",
+      "meaning": "OAuth2 通用错误，通常表示请求参数、格式或必填字段不符合要求。",
+      "suggestion": "检查接口请求参数、必填字段、字段格式和授权流程配置。",
+      "source_name": "通用错误码说明文档",
+      "source_type": "online_doc",
+      "category": "OAuth2"
+    }
+  ]
+}
