@@ -16,3 +16,6 @@ logs/
 manual_verification_tmp/
 .tmp_test/
 *.db
+
+# Local Netlify folder
+.netlify

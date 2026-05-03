@@ -1,4 +1,5 @@
 import { docsNav, siteMeta } from "./site.config.js";
+import logoUrl from "../images/aica_icon.png";
 
 export function getBasePath() {
   return document.body.dataset.base || ".";
@@ -18,18 +19,18 @@ export function buildHeader(current) {
 
   return `
     <header class="site-header">
-      <a class="brand-lockup" href="${homeHref}">
-        <span class="brand-orb"></span>
+      <a class="brand-lockup" href="${homeHref}" aria-label="${siteMeta.brand} 首页">
+        <img class="brand-logo" src="${logoUrl}" alt="" aria-hidden="true" />
         <span>
           <strong>${siteMeta.brand}</strong>
           <small>${siteMeta.badge}</small>
         </span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="${workflowHref}">产品流程</a>
-        <a href="${featureHref}">产品特性</a>
-        <a href="${docsHref}">使用文档</a>
-        <a href="${downloadHref}">下载/获取</a>
+        <a href="${workflowHref}">工作流</a>
+        <a href="${featureHref}">能力</a>
+        <a href="${docsHref}">文档</a>
+        <a href="${downloadHref}">下载</a>
       </nav>
     </header>
   `;
@@ -38,12 +39,33 @@ export function buildHeader(current) {
 export function buildFooter() {
   return `
     <footer class="site-footer">
-      <div>
-        <strong>${siteMeta.brand}</strong>
-        <p>${siteMeta.description}</p>
-      </div>
+      <strong>${siteMeta.brand}</strong>
+      <p>${siteMeta.description}</p>
     </footer>
   `;
+}
+
+const docsNavTree = [
+  {
+    title: "开始",
+    items: ["index", "getting-started", "installation", "configuration"],
+  },
+  {
+    title: "问题处理流程",
+    items: ["capture-todos", "timeline-attachments", "assist-troubleshooting", "log-analysis"],
+  },
+  {
+    title: "团队能力",
+    items: ["project-environments", "knowledge-archive", "external-sync"],
+  },
+  {
+    title: "支持",
+    items: ["features", "faq"],
+  },
+];
+
+function getDocNavItem(key) {
+  return docsNav.find((item) => item.key === key);
 }
 
 export function buildDocsSidebar(currentKey) {
@@ -51,16 +73,30 @@ export function buildDocsSidebar(currentKey) {
     <aside class="docs-sidebar">
       <div class="docs-sidebar-head">
         <span class="eyebrow">Documentation</span>
-        <h2>完整用户文档</h2>
-        <p>按截图、工单、时间线、排查、归档和同步的真实流程阅读。</p>
+        <h2>Chattodo 文档</h2>
       </div>
-      <nav class="docs-sidebar-nav" aria-label="文档导航">
-        ${docsNav
+      <nav class="docs-sidebar-nav docs-tree" aria-label="文档导航">
+        ${docsNavTree
           .map(
-            (item) => `
-              <a class="${item.key === currentKey ? "active" : ""}" href="./${item.href}">
-                <span>${item.title}</span>
-              </a>
+            (group) => `
+              <section class="docs-tree-group">
+                <h3>${group.title}</h3>
+                <ul>
+                  ${group.items
+                    .map(getDocNavItem)
+                    .filter(Boolean)
+                    .map(
+                      (item) => `
+                        <li>
+                          <a class="${item.key === currentKey ? "active" : ""}" href="./${item.href}">
+                            <span>${item.title}</span>
+                          </a>
+                        </li>
+                      `,
+                    )
+                    .join("")}
+                </ul>
+              </section>
             `,
           )
           .join("")}
