@@ -893,6 +893,45 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
     assert window.y() == 204
 
 
+def test_stage_summary_window_screen_change_restores_synced_size(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _StageSummaryWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 510 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 700,
+    )
+    monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.resize(900, 700)
+    window._handle_screen_changed(None)  # noqa: SLF001
+
+    assert window.width() == 443
+    assert window.height() == 510
+
+
 def test_toggle_assist_troubleshooting_does_not_save_detail_payload() -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())
@@ -1003,6 +1042,16 @@ def test_assist_troubleshooting_window_manual_resize_and_drag_persist_until_hidd
     assert window.height() == 460
     assert window.x() == 640
     assert window.y() == 204
+
+
+def test_detail_panel_screen_change_restores_default_size(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+
+    panel.resize(900, 900)
+    panel._handle_screen_changed(None)  # noqa: SLF001
+
+    assert panel.width() == 396
+    assert panel.height() == 724
 
 
 def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:

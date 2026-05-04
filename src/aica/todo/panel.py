@@ -1,7 +1,7 @@
 ﻿"""QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QRect, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QRect, QSize, Qt, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
 from PyQt6.QtWidgets import QApplication
@@ -195,6 +195,8 @@ class TodoPanel(QQuickView):
         self._max_expanded_rows = 6
         self._minimized_height = 50
         self._panel_width = 286
+        self._target_panel_size = QSize(self._panel_width, 194)
+        self._last_screen_name = ""
         self._drag_offset = None
         self._custom_position = None
         self._snap_margin = 18
@@ -206,6 +208,7 @@ class TodoPanel(QQuickView):
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
         self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TodoPanel.qml")))
+        self.screenChanged.connect(self._handle_screen_changed)
 
         self._bridge.todoSelected.connect(self.todo_selected)
         self._bridge.todoCompleted.connect(self.todo_completed)
@@ -218,7 +221,7 @@ class TodoPanel(QQuickView):
         self._bridge.dragEnded.connect(self._end_drag)
         self._bridge.pinnedChanged.connect(self._handle_pinned_changed)
 
-        self.resize(self._panel_width, 194)
+        self._set_fixed_panel_size(self._panel_width, 194)
         self.hide()
 
     def set_todos(self, todos: list[TodoItem], selected_id: str | None) -> None:
@@ -245,9 +248,26 @@ class TodoPanel(QQuickView):
                 + visible_count * self._row_height
                 + max(0, visible_count - 1) * self._row_gap
             )
-        self.resize(self._panel_width, height)
-        if self.isVisible():
+        self._set_fixed_panel_size(self._panel_width, height)
+        if self.isVisible() and self._drag_offset is None:
             self._reposition()
+
+    def _set_fixed_panel_size(self, width: int, height: int) -> None:
+        size = QSize(max(1, int(width)), max(1, int(height)))
+        self._target_panel_size = size
+        self._apply_fixed_panel_size(size)
+
+    def _apply_fixed_panel_size(self, size: QSize) -> None:
+        self.setMinimumSize(size)
+        self.setMaximumSize(size)
+        self.resize(size)
+        root_object = self.rootObject()
+        if root_object is not None:
+            root_object.setProperty("width", size.width())
+            root_object.setProperty("height", size.height())
+
+    def _restore_fixed_panel_size(self) -> None:
+        self._apply_fixed_panel_size(self._target_panel_size)
 
     @property
     def pinned(self) -> bool:
@@ -317,6 +337,7 @@ class TodoPanel(QQuickView):
             available.bottom() - self.height() - self._snap_margin,
         )
         self.setPosition(x, y)
+        self._repair_size_if_screen_changed()
         self._custom_position = self.position()
         self.geometry_changed.emit()
 
@@ -324,6 +345,7 @@ class TodoPanel(QQuickView):
         if self._drag_offset is None:
             return
         self._drag_offset = None
+        self._restore_fixed_panel_size()
         screen = _screen_for_point(QCursor.pos())
         if screen is None:
             return
@@ -345,3 +367,14 @@ class TodoPanel(QQuickView):
         self.setPosition(x, y)
         self._custom_position = self.position()
         self.geometry_changed.emit()
+
+    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
+        QTimer.singleShot(0, self._restore_fixed_panel_size)
+
+    def _repair_size_if_screen_changed(self) -> None:
+        screen = _screen_for_point(QCursor.pos())
+        screen_name = screen.name() if screen is not None else ""
+        if screen_name == self._last_screen_name:
+            return
+        self._last_screen_name = screen_name
+        self._restore_fixed_panel_size()

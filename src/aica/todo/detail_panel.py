@@ -631,6 +631,13 @@ def _resolve_available_geometry(screen_or_geometry):
     return screen_or_geometry
 
 
+def _connect_screen_changed(window, callback) -> None:  # noqa: ANN001
+    screen_changed = getattr(window, "screenChanged", None)
+    connect = getattr(screen_changed, "connect", None)
+    if callable(connect):
+        connect(callback)
+
+
 def _is_openable_target(value: str) -> bool:
     text = str(value or "").strip()
     if not text:
@@ -3335,6 +3342,8 @@ class _StageSummaryWindow(QQuickView):
         self._pinned = False
         self._manual_size_override = False
         self._manual_position_override = False
+        self._target_panel_width = panel_width
+        self._target_panel_height = panel_height
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -3348,7 +3357,8 @@ class _StageSummaryWindow(QQuickView):
             )
         )
         self._ensure_qml_loaded()
-        self.resize(self._panel_width, self._preferred_panel_height())
+        _connect_screen_changed(self, self._handle_screen_changed)
+        self._set_tracked_panel_size(self._panel_width, self._preferred_panel_height())
         self.hide()
 
     def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
@@ -3517,7 +3527,7 @@ class _StageSummaryWindow(QQuickView):
         else:
             width = self._panel_width
             height = self._preferred_panel_height(available.height())
-        self.resize(width, height)
+        self._set_tracked_panel_size(width, height)
         if self._manual_position_override and self.isVisible():
             current_screen = _screen_for_point(QPoint(self.x(), self.y()))
             self._move_within_screen(self.x(), self.y(), current_screen or screen)
@@ -3537,6 +3547,17 @@ class _StageSummaryWindow(QQuickView):
         self._manual_size_override = False
         self._manual_position_override = False
         super().hide()
+
+    def _set_tracked_panel_size(self, width: int, height: int) -> None:
+        self._target_panel_width = max(1, int(width))
+        self._target_panel_height = max(1, int(height))
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _restore_tracked_panel_size(self) -> None:
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
+        QTimer.singleShot(0, self._restore_tracked_panel_size)
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
@@ -3592,6 +3613,8 @@ class _AssistTroubleshootingWindow(QQuickView):
         self._pinned = False
         self._manual_size_override = False
         self._manual_position_override = False
+        self._target_panel_width = panel_width
+        self._target_panel_height = panel_height
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -3605,7 +3628,8 @@ class _AssistTroubleshootingWindow(QQuickView):
             )
         )
         self._ensure_qml_loaded()
-        self.resize(self._panel_width, self._preferred_panel_height())
+        _connect_screen_changed(self, self._handle_screen_changed)
+        self._set_tracked_panel_size(self._panel_width, self._preferred_panel_height())
         self.hide()
 
     def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
@@ -3774,7 +3798,7 @@ class _AssistTroubleshootingWindow(QQuickView):
         else:
             width = self._panel_width
             height = self._preferred_panel_height(available.height())
-        self.resize(width, height)
+        self._set_tracked_panel_size(width, height)
         if self._manual_position_override and self.isVisible():
             current_screen = _screen_for_point(QPoint(self.x(), self.y()))
             self._move_within_screen(self.x(), self.y(), current_screen or screen)
@@ -3794,6 +3818,17 @@ class _AssistTroubleshootingWindow(QQuickView):
         self._manual_size_override = False
         self._manual_position_override = False
         super().hide()
+
+    def _set_tracked_panel_size(self, width: int, height: int) -> None:
+        self._target_panel_width = max(1, int(width))
+        self._target_panel_height = max(1, int(height))
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _restore_tracked_panel_size(self) -> None:
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
+        QTimer.singleShot(0, self._restore_tracked_panel_size)
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
@@ -3855,6 +3890,8 @@ class TodoDetailPanel(QQuickView):
         self._assist_troubleshooting_window_visible = False
         self._pinned = False
         self._auto_collapse_hold_count = 0
+        self._target_panel_width = self._panel_width
+        self._target_panel_height = self._panel_height
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -3901,8 +3938,9 @@ class TodoDetailPanel(QQuickView):
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
         self._bridge.dataChanged.connect(self._sync_stage_summary_window)
         self._bridge.assistTroubleshootingChanged.connect(self._sync_assist_troubleshooting_window)
+        _connect_screen_changed(self, self._handle_screen_changed)
 
-        self.resize(self._panel_width, self._panel_height)
+        self._set_tracked_panel_size(self._panel_width, self._panel_height)
         self.hide()
 
     def _hold_auto_collapse(self) -> None:
@@ -4002,7 +4040,7 @@ class TodoDetailPanel(QQuickView):
         self._stage_summary_window_visible = False
         self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
-        self.resize(self._panel_width, self._panel_height)
+        self._set_tracked_panel_size(self._panel_width, self._panel_height)
         self._bridge.prewarmAssistAnalysisIfNeeded()
         if preserve_position and self.isVisible():
             screen = _screen_for_point(QPoint(self.x(), self.y()))
@@ -4107,6 +4145,17 @@ class TodoDetailPanel(QQuickView):
 
     def _finish_panel_drag(self) -> None:
         self._drag_active = False
+
+    def _set_tracked_panel_size(self, width: int, height: int) -> None:
+        self._target_panel_width = max(1, int(width))
+        self._target_panel_height = max(1, int(height))
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _restore_tracked_panel_size(self) -> None:
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
+        QTimer.singleShot(0, self._restore_tracked_panel_size)
 
     def _move_within_screen(self, x: int, y: int, screen) -> None:
         available = _resolve_available_geometry(screen)
