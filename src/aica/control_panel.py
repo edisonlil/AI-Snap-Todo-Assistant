@@ -534,6 +534,20 @@ def _option_payload(value: str, text: str) -> dict[str, str]:
     }
 
 
+def _model_option_payload(
+    model: ProviderModelConfig,
+    summary: ModelLatencySummary | None,
+) -> dict[str, str]:
+    details = ", ".join(model.capabilities)
+    if summary is not None and not summary.is_empty:
+        details = f"{details} · {summary.to_display_text()}" if details else summary.to_display_text()
+    return {
+        "value": model.id,
+        "text": model.name,
+        "details": details,
+    }
+
+
 def _normalize_model_text(value: str) -> str:
     return str(value or "").strip()
 
@@ -1132,12 +1146,9 @@ class _ControlPanelBridge(QObject):
             return []
         capability = _required_capability(task_name)
         options = [
-            _option_payload(
-                model.id,
-                _append_metric_suffix(
-                    f"{model.name} ({', '.join(model.capabilities)})",
-                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
-                ),
+            _model_option_payload(
+                model,
+                self._analysis_metrics.get_summary(task_name, provider.id, model.id),
             )
             for model in provider.models
             if capability in model.capabilities
@@ -1145,12 +1156,9 @@ class _ControlPanelBridge(QObject):
         if options:
             return options
         return [
-            _option_payload(
-                model.id,
-                _append_metric_suffix(
-                    f"{model.name} ({', '.join(model.capabilities)})",
-                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
-                ),
+            _model_option_payload(
+                model,
+                self._analysis_metrics.get_summary(task_name, provider.id, model.id),
             )
             for model in provider.models
         ]

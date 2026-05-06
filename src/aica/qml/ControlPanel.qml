@@ -474,6 +474,8 @@ Rectangle {
                 var option = comboRoot.model[index]
                 if (root.fuzzyMatch(option.text, keyword) || root.fuzzyMatch(option.value, keyword)) {
                     matches.push(option)
+                } else if (root.fuzzyMatch(option.details || "", keyword)) {
+                    matches.push(option)
                 }
             }
             return matches
