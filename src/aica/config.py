@@ -127,7 +127,7 @@ class FeaturePointProviderConfig:
     enabled: bool = True
     provider: str = "http"
     base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
-    api_key: str = ""
+    api_key: str = "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY"
     timeout_seconds: int = 500
 
     @classmethod
