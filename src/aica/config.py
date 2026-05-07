@@ -138,7 +138,7 @@ class FeaturePointProviderConfig:
             enabled=bool(data.get("enabled", False)),
             provider=str(data.get("provider", "http")).strip() or "http",
             base_url=str(data.get("base_url", "")).strip(),
-            api_key=str(data.get("api_key", "")).strip(),
+            api_key=str(data.get("api_key", "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY")).strip(),
             timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 5),
         )
 

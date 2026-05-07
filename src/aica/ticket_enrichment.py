@@ -124,6 +124,7 @@ class HttpFeaturePointProvider:
         payload = {
             "product_line": sanitize_text(product_line),
             "problem_desc": sanitize_text(problem_desc),
+            "use_keywords_recall": False
         }
         try:
             response = requests.post(
