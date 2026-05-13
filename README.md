@@ -31,7 +31,7 @@
 ## 运行环境
 
 - Windows 10 或更高版本
-- macOS 13 或更高版本（当前以 Apple Silicon 为主）
+- macOS 13 或更高版本（支持 Apple Silicon 与 Intel）
 - Python 3.10+
 - 可访问模型供应商接口
   - `openai_compatible`
@@ -293,6 +293,31 @@ macOS `.app`：
 ./scripts/build_macos_app.sh
 ```
 
+Intel Mac 原生 `x86_64` `.app`：
+
+```bash
+./scripts/build_macos_app.sh --target-arch x86_64
+```
+
+Apple Silicon 原生 `arm64` `.app`：
+
+```bash
+./scripts/build_macos_app.sh --target-arch arm64
+```
+
+通用 `universal2` `.app`：
+
+```bash
+./scripts/build_macos_app.sh --target-arch universal2
+```
+
+补充说明：
+
+- 在 Intel Mac 上打 Intel 包时，直接使用本机 Python 环境执行即可。
+- 在 Apple Silicon 机器上如果要打 `x86_64` 包，需要先准备 `x86_64` Python 环境（通常通过 Rosetta）。
+- 打 `universal2` 包时，Python 解释器和关键依赖需要同时提供 `universal2` 兼容轮子，否则 PyInstaller 可能无法合并成通用包。
+- 可通过 `./scripts/build_macos_app.sh --python /path/to/python` 指定用于打包的 Python。
+
 ## macOS 权限说明
 
 - 首次在 macOS 使用全局截图热键时，可能需要在“系统设置 > 隐私与安全性”中为终端或打包后的 `AICA.app` 开启“辅助功能”和“输入监听”权限。
@@ -305,6 +330,13 @@ macOS `.app`：
 ## Changelog
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
+
+### 2026-05-13
+
+- macOS Intel 打包支持补强：
+  - 更新 macOS 构建脚本，支持显式指定 `arm64`、`x86_64` 与 `universal2` 目标架构
+  - 增加构建前架构输出与兼容性提示，降低在 Apple Silicon 上误打 Intel 包的风险
+  - 补充 README 中的 Intel Mac 与通用包构建说明，明确不同机器上的打包前提
 
 ### 2026-04-29
 
