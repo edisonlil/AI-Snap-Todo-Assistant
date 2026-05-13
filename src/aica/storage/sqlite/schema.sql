@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   current_summary TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
   group_name TEXT NOT NULL DEFAULT '',
   environment TEXT NOT NULL DEFAULT '',
   product_line TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS todos (
 
 CREATE INDEX IF NOT EXISTS idx_todos_status_updated
 ON todos(status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_todos_open_sort_order
+ON todos(status, sort_order, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_todos_group_name
 ON todos(group_name);

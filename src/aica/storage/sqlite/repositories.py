@@ -26,7 +26,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "13"
+SCHEMA_VERSION = "14"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -151,6 +151,7 @@ class SQLiteStorageMigrator:
             if not _has_column(connection, "log_analysis_tasks", column_name):
                 connection.execute(f"ALTER TABLE log_analysis_tasks ADD COLUMN {column_name} {column_def}")
         todo_columns = {
+            "sort_order": "INTEGER NOT NULL DEFAULT 0",
             "product_line": "TEXT NOT NULL DEFAULT ''",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
             "ach_filled_at": "TEXT NOT NULL DEFAULT ''",
@@ -167,6 +168,28 @@ class SQLiteStorageMigrator:
         for column_name, column_def in todo_columns.items():
             if not _has_column(connection, "todos", column_name):
                 connection.execute(f"ALTER TABLE todos ADD COLUMN {column_name} {column_def}")
+        if not _has_column(connection, "todos", "sort_order"):
+            return
+        connection.execute(
+            """
+            UPDATE todos
+            SET sort_order = COALESCE(
+              (
+                SELECT COUNT(*)
+                FROM todos AS newer
+                WHERE newer.status = todos.status
+                  AND (
+                    newer.updated_at > todos.updated_at
+                    OR (newer.updated_at = todos.updated_at AND newer.id > todos.id)
+                  )
+              ),
+              0
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_todos_open_sort_order ON todos(status, sort_order, updated_at DESC)"
+        )
         self._migrate_project_environments_scope(connection)
         connection.execute(
             """
