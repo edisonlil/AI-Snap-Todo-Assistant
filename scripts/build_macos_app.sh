@@ -108,12 +108,13 @@ image.save(
 PY
 fi
 
-PYINSTALLER_ARGS=(--noconfirm --clean)
 if [[ -n "$TARGET_ARCH" ]]; then
-  PYINSTALLER_ARGS+=(--target-arch "$TARGET_ARCH")
+  export AICA_TARGET_ARCH="$TARGET_ARCH"
+else
+  unset AICA_TARGET_ARCH || true
 fi
 
-"$PYTHON_BIN" -m PyInstaller "${PYINSTALLER_ARGS[@]}" aica_macos.spec
+"$PYTHON_BIN" -m PyInstaller --noconfirm --clean aica_macos.spec
 
 echo
 echo "Build complete: dist/AICA.app"

@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from pathlib import Path
 
 from PyInstaller.building.osx import BUNDLE
@@ -6,6 +7,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPEC).resolve().parent
+target_arch = os.environ.get("AICA_TARGET_ARCH", "").strip() or None
 hiddenimports = collect_submodules("pynput") + collect_submodules("pyperclip")
 icon_path = project_root / "assets" / "aica_icon.icns"
 datas = [
@@ -49,6 +51,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    target_arch=target_arch,
 )
 
 coll = COLLECT(
