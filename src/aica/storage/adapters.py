@@ -1,4 +1,4 @@
-"""Helpers that bridge SQLite rows and existing Todo domain models."""
+﻿"""Helpers that bridge SQLite rows and existing Todo domain models."""
 from __future__ import annotations
 
 import json
@@ -17,7 +17,7 @@ from aica.models import (
     merge_timeline_with_evidence,
 )
 from aica.text_sanitize import sanitize_text
-from aica.todo_models import (
+from aica.todo.models import (
     TimelineAttachment,
     TimelineEvent,
     TodoConclusion,

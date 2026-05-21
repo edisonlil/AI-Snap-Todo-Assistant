@@ -1,6 +1,7 @@
 """Task-oriented LLM service."""
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -42,6 +43,16 @@ class ResolvedTaskModel:
     fallback_used: bool = False
 
 
+_THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.IGNORECASE | re.DOTALL)
+_UNCLOSED_THINK_PATTERN = re.compile(r"<think\b[^>]*>.*\Z", re.IGNORECASE | re.DOTALL)
+
+
+def strip_thinking_blocks(text: str) -> str:
+    stripped = _THINK_BLOCK_PATTERN.sub("", str(text or ""))
+    stripped = _UNCLOSED_THINK_PATTERN.sub("", stripped)
+    return stripped.strip()
+
+
 class LLMService:
     def __init__(self, config: AppConfig):
         self._config = config
@@ -53,12 +64,14 @@ class LLMService:
         messages: list[Message],
         temperature: float = 0.3,
         timeout: int | None = None,
+        include_thinking: bool = False,
     ) -> str:
         return self.run_task_detailed(
             task_name,
             messages=messages,
             temperature=temperature,
             timeout=timeout,
+            include_thinking=include_thinking,
         ).text
 
     def run_task_detailed(
@@ -68,6 +81,7 @@ class LLMService:
         messages: list[Message],
         temperature: float = 0.3,
         timeout: int | None = None,
+        include_thinking: bool = False,
     ) -> TaskRunResult:
         resolved = self.resolve_task_model(task_name)
         provider = create_provider(resolved.reference.provider_kind)
@@ -83,8 +97,11 @@ class LLMService:
                 max_attempts=max_attempts,
             )
             latency_ms = round((time.perf_counter() - started_at) * 1000)
+            response_text = provider_result.text
+            if not include_thinking:
+                response_text = strip_thinking_blocks(response_text)
             return TaskRunResult(
-                text=provider_result.text,
+                text=response_text,
                 attempts=provider_result.attempts,
                 latency_ms=latency_ms,
                 reference=resolved.reference,

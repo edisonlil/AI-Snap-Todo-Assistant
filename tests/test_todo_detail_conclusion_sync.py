@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -7,8 +7,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import _TodoDetailBridge
-from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.detail_panel import _TodoDetailBridge
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
 
 
 def _build_bridge() -> _TodoDetailBridge:
@@ -16,6 +16,7 @@ def _build_bridge() -> _TodoDetailBridge:
         attachment_root=Path("unused"),
         environment_access_service=SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
         ),
     )
 

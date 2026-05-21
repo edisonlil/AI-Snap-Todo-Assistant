@@ -1,10 +1,10 @@
-"""Coordinates result review, save, and feedback follow-up."""
+﻿"""Coordinates result review, save, and feedback follow-up."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
 
-from aica.analysis_metrics import AnalysisRunStats
+from aica.analysis.metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot
 

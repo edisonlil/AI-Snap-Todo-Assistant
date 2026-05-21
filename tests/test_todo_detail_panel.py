@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -6,9 +6,16 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.models import TicketSummaryFields
-from aica.todo_detail_panel import TodoDetailPanel, _resolve_neighbor_panel_x, _StageSummaryWindow, _TodoDetailBridge
-from aica.todo_models import TodoConclusion, TodoItem
+from aica.todo.detail_panel import (
+    TodoDetailPanel,
+    _AssistTroubleshootingWindow,
+    _resolve_neighbor_panel_x,
+    _StageSummaryWindow,
+    _TodoDetailBridge,
+)
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
 
 
 def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
@@ -16,15 +23,17 @@ def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
         attachment_root=attachment_root,
         environment_access_service=SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
         ),
     )
 
 
 def _build_panel(monkeypatch) -> TodoDetailPanel:
     monkeypatch.setattr(
-        "aica.todo_detail_panel.SQLiteProjectEnvironmentRepository",
+        "aica.todo.detail_panel.SQLiteProjectEnvironmentRepository",
         lambda: SimpleNamespace(
             list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
             get_access_entry=lambda _entry_id: None,
         ),
     )
@@ -137,6 +146,13 @@ def test_add_timeline_entry_moves_draft_attachments_into_new_event(monkeypatch) 
     assert event["attachments"][0]["path"] == f"/final/{event['id']}/note.txt"
 
 
+def test_detail_bridge_no_longer_exposes_manual_plan_export() -> None:
+    bridge = _build_bridge(Path("unused"))
+
+    assert not hasattr(bridge, "exportPlan")
+    assert not hasattr(bridge, "exportPlanRequested")
+
+
 def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())
@@ -190,6 +206,9 @@ def test_add_conclusion_moves_draft_attachments_into_conclusion(monkeypatch) -> 
     assert bridge.conclusionAttachmentCount == 2
     assert bridge.timelineCount == 1
     assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == bridge.conclusionContent
+    assert bridge.timeline[0]["attachmentCount"] == 2
+    assert [item["name"] for item in bridge.timeline[0]["attachments"]] == ["existing.txt", "report.txt"]
     assert bridge.conclusionAttachments[0]["path"] == "/final/__conclusion__/existing.txt"
     assert bridge.conclusionAttachments[1]["path"] == "/final/__conclusion__/report.txt"
 
@@ -235,6 +254,73 @@ def test_log_analysis_submission_pushes_notification() -> None:
     assert bridge.timelineCount == 1
     assert bridge.timeline[0]["type"] == "log_analysis_command"
     assert _notification_messages(bridge)[-1] == "已提交日志分析任务，后台排查中"
+
+
+def test_assist_analysis_result_exposes_case_results_without_mock_fallback() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._assist_analysis_pending_request_id = "req-1"  # noqa: SLF001
+
+    bridge.apply_assist_analysis_result(
+        "todo-1",
+        "req-1",
+        {
+            "summary": "分析完成",
+            "caseResults": {
+                "status": "success",
+                "countLabel": "检索 2 条结果",
+                "items": [
+                    {
+                        "title": "弱相关案例",
+                        "desc": "低分案例描述",
+                        "text": "低分引用文本",
+                        "detailUrl": "https://www.kdocs.cn/l/case-low",
+                        "score": 49,
+                        "scoreLabel": "契合度 49",
+                        "matchReason": "仅弱相关",
+                    },
+                    {
+                        "title": "移动端鉴权 token 未透传",
+                        "desc": "历史案例描述",
+                        "text": "引用文本",
+                        "detailUrl": "https://www.kdocs.cn/l/case1",
+                        "score": 86,
+                        "scoreLabel": "契合度 86",
+                        "matchReason": "现象均包含移动端鉴权 token",
+                    }
+                ],
+            },
+        },
+    )
+
+    results = bridge.assistCaseResults
+    assert results["countLabel"] == "检索 1 条结果"
+    assert len(results["items"]) == 1
+    assert results["items"][0]["title"] == "移动端鉴权 token 未透传"
+    assert results["items"][0]["detailUrl"] == "https://www.kdocs.cn/l/case1"
+    assert results["items"][0]["score"] == 86
+    assert results["items"][0]["scoreLabel"] == "契合度 86"
+    assert results["items"][0]["matchReason"] == "现象均包含移动端鉴权 token"
+
+
+def test_assist_analysis_empty_case_results_stay_empty() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._assist_analysis_pending_request_id = "req-1"  # noqa: SLF001
+
+    bridge.apply_assist_analysis_result(
+        "todo-1",
+        "req-1",
+        {
+            "summary": "分析完成",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+
+    results = bridge.assistCaseResults
+    assert results["countLabel"] == "暂无案例"
+    assert results["items"] == []
+    assert results["emptyText"] == "暂无案例"
 
 
 def test_removing_draft_attachment_does_not_touch_existing_event_attachments(monkeypatch) -> None:
@@ -398,6 +484,202 @@ def test_toggle_stage_summary_requests_once_without_saving() -> None:
     assert len(requested) == 1
 
 
+def test_toggle_assist_troubleshooting_requests_analysis_once() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is True
+    assert len(requested) == 1
+    todo_id, payload = requested[0]
+    assert todo_id == "todo-1"
+    assert isinstance(payload, dict)
+    assert payload["requestId"]
+    assert payload["todoPayload"]["title"]
+
+    bridge.closeAssistTroubleshooting()
+    bridge.toggleAssistTroubleshooting()
+
+    assert len(requested) == 1
+
+
+def test_open_detail_prewarm_requests_assist_analysis_when_cache_missing() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+
+    assert bridge.assistTroubleshootingVisible is False
+    assert bridge.assistAnalysisBusy is False
+    assert len(requested) == 1
+    assert requested[0][0] == "todo-1"
+    assert requested[0][1]["cacheKey"] == build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+
+
+def test_open_detail_prewarm_skips_when_assist_cache_exists() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+    bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "已有缓存建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+
+    assert requested == []
+    assert bridge.assistAnalysisSummary == "已有缓存建议"
+
+
+def test_click_assist_waits_for_existing_open_detail_prewarm_request() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+
+    bridge.prewarmAssistAnalysisIfNeeded()
+    prewarm_request_id = str(requested[0][1]["requestId"])
+    bridge.toggleAssistTroubleshooting()
+
+    assert len(requested) == 1
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is True
+    assert bridge.apply_assist_analysis_result(
+        "todo-1",
+        prewarm_request_id,
+        {
+            "summary": "预热请求返回的建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "预热请求返回的建议"
+
+
+def test_toggle_assist_troubleshooting_uses_prewarmed_cache() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    requested: list[tuple[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda todo_id, payload: requested.append((todo_id, payload)))
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "预热完成的第一版建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "预热完成的第一版建议"
+    assert requested == []
+
+
+def test_review_cache_result_updates_only_when_marked_useful() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    bridge.set_todo(todo)
+    cache_key = build_assist_analysis_cache_key(todo.id, build_assist_todo_payload(todo))
+    bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "initial",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "第一版建议",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    )
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "review",
+            "shouldUpdate": False,
+            "cacheKey": cache_key,
+            "summary": "无增益第二版",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is False
+    assert bridge.assistAnalysisSummary == "第一版建议"
+
+    assert bridge.cache_assist_analysis_result(
+        "todo-1",
+        {
+            "phase": "review",
+            "shouldUpdate": True,
+            "cacheKey": cache_key,
+            "summary": "有增益第二版",
+            "caseResults": {"status": "empty", "items": []},
+        },
+    ) is True
+    assert bridge.assistAnalysisSummary == "有增益第二版"
+
+
+def test_apply_assist_analysis_result_updates_structured_state() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    requested: list[dict[str, object]] = []
+    bridge.assistAnalysisRequested.connect(lambda _todo_id, payload: requested.append(payload))
+    bridge.toggleAssistTroubleshooting()
+    request_id = str(requested[0]["requestId"])
+
+    assert bridge.apply_assist_analysis_result(
+        "todo-1",
+        request_id,
+        {
+            "summary": "已有 demo 对比线索，但仍缺少生产请求参数和日志。",
+            "informationStatus": {
+                "recognized": "已识别到环境对比线索",
+                "checkedDirections": [
+                    {"title": "demo 已验证", "evidence": "时间线记录 demo 正常"}
+                ],
+            },
+            "missingSupplement": {
+                "directions": [
+                    {"title": "生产请求参数", "reason": "用于核对参数差异"}
+                ],
+            },
+            "upgradeSuggestion": {
+                "decision": "暂不建议升级",
+                "reason": "证据链不完整。",
+            },
+        },
+    ) is True
+
+    assert bridge.assistAnalysisBusy is False
+    assert bridge.assistAnalysisSummary == "已有 demo 对比线索，但仍缺少生产请求参数和日志。"
+    assert bridge.assistInformationStatus["recognized"] == "已识别到环境对比线索"
+    assert bridge.assistInformationStatus["checkedDirections"][0]["title"] == "demo 已验证"
+    assert bridge.assistMissingSupplement["directions"][0]["reason"] == "用于核对参数差异"
+    assert bridge.assistUpgradeSuggestion["reason"] == "证据链不完整。"
+
+
 def test_stage_summary_result_resets_when_switching_todo() -> None:
     bridge = _build_bridge(Path("unused"))
     first_todo = _build_todo("todo-1")
@@ -496,15 +778,15 @@ def test_stage_summary_window_sync_uses_default_width_and_preferred_height(monke
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 700,
     )
     monkeypatch.setattr(
@@ -538,15 +820,15 @@ def test_stage_summary_window_manual_resize_persists_until_hidden(monkeypatch) -
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 650,
     )
     monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
@@ -584,15 +866,15 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
         raising=False,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_neighbor_panel_x",
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
         lambda *_args, **_kwargs: 650,
     )
 
@@ -609,6 +891,204 @@ def test_stage_summary_window_manual_drag_persists_until_hidden(monkeypatch) -> 
 
     assert window.x() == 650
     assert window.y() == 204
+
+
+def test_stage_summary_window_screen_change_restores_synced_size(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _StageSummaryWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 510 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 700,
+    )
+    monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.resize(900, 700)
+    window._handle_screen_changed(None)  # noqa: SLF001
+
+    assert window.width() == 443
+    assert window.height() == 510
+
+
+def test_toggle_assist_troubleshooting_does_not_save_detail_payload() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, object]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.toggleAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is True
+    assert saved == []
+
+    bridge.closeAssistTroubleshooting()
+
+    assert bridge.assistTroubleshootingVisible is False
+    assert saved == []
+
+
+def test_assist_troubleshooting_window_sync_uses_default_width_and_preferred_height(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _AssistTroubleshootingWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+    moved: list[tuple[int, int, object]] = []
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 470 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 710,
+    )
+    monkeypatch.setattr(
+        window,
+        "_move_within_screen",
+        lambda x, y, screen: moved.append((x, y, screen)),
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 470
+    assert moved == [(710, 204, "screen-token")]
+
+
+def test_assist_troubleshooting_window_manual_resize_and_drag_persist_until_hidden(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _AssistTroubleshootingWindow(
+        bridge,
+        panel_width=443,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 460 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 640,
+    )
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.resize(620, 540)
+    window.setPosition(730, 280)
+    window._manual_size_override = True  # noqa: SLF001
+    window._manual_position_override = True  # noqa: SLF001
+    window.update_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 620
+    assert window.height() == 540
+    assert window.x() == 730
+    assert window.y() == 280
+
+    window.hide()
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+
+    assert window.width() == 443
+    assert window.height() == 460
+    assert window.x() == 640
+    assert window.y() == 204
+
+
+def test_detail_panel_screen_change_restores_default_size(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+
+    panel.resize(900, 900)
+    panel._handle_screen_changed(None)  # noqa: SLF001
+
+    assert panel.width() == 396
+    assert panel.height() == 724
+
+
+def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel._bridge._assist_troubleshooting_visible = True  # noqa: SLF001
+    panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
+
+    hide_calls: list[str] = []
+    monkeypatch.setattr(
+        panel._assist_troubleshooting_window,
+        "hide",
+        lambda: hide_calls.append("assist"),
+    )
+
+    panel._close_panel()
+
+    assert panel._bridge.assistTroubleshootingVisible is False
+    assert panel._assist_troubleshooting_window_visible is False
+    assert hide_calls
+
+
+def test_hiding_detail_panel_hides_auxiliary_windows(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    panel.show()
+    panel._stage_summary_window_visible = True  # noqa: SLF001
+    panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
+
+    hide_calls: list[str] = []
+    monkeypatch.setattr(panel._stage_summary_window, "hide", lambda: hide_calls.append("stage"))
+    monkeypatch.setattr(panel._assist_troubleshooting_window, "hide", lambda: hide_calls.append("assist"))
+
+    panel.hide()
+
+    assert panel._stage_summary_window_visible is False
+    assert panel._assist_troubleshooting_window_visible is False
+    assert hide_calls == ["stage", "assist"]
 
 
 def test_show_todo_restores_cached_timeline_draft_after_panel_close(monkeypatch) -> None:
@@ -661,7 +1141,7 @@ def test_show_todo_preserve_position_keeps_current_location(monkeypatch) -> None
     move_calls: list[tuple[int, int, object]] = []
 
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(panel, "_reposition", lambda anchor_rect=None: reposition_calls.append(anchor_rect))
@@ -680,11 +1160,11 @@ def test_show_todo_preserve_position_clamps_current_location_within_screen(monke
     available = _FakeAvailableGeometry(width=800, height=900)
 
     monkeypatch.setattr(
-        "aica.todo_detail_panel._screen_for_point",
+        "aica.todo.detail_panel._screen_for_point",
         lambda _point: "screen-token",
     )
     monkeypatch.setattr(
-        "aica.todo_detail_panel._resolve_available_geometry",
+        "aica.todo.detail_panel._resolve_available_geometry",
         lambda _screen: available,
     )
     monkeypatch.setattr(
@@ -847,6 +1327,33 @@ def test_manual_save_upserts_conclusion_timeline_item() -> None:
     assert len(saved) == 1
     assert len(saved[0][1]["timeline"]) == 1
     assert saved[0][1]["timeline"][0].kind == "conclusion"
+
+
+def test_manual_save_preserves_legacy_conclusion_timeline_item() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.conclusion = TodoConclusion()
+    todo.timeline = [
+        TimelineEvent(
+            id="conclusion-legacy",
+            timestamp="2026-04-22T10:00:00",
+            kind="conclusion",
+            scenario="结论更新",
+            content="已有结论内容",
+        )
+    ]
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.set_todo(todo)
+    bridge.saveTodo()
+
+    assert bridge.conclusionContent == "已有结论内容"
+    assert bridge.timeline[0]["content"] == "已有结论内容"
+    assert len(saved) == 1
+    assert saved[0][1]["conclusion"].content == "已有结论内容"
+    assert saved[0][1]["timeline"][0].content == "已有结论内容"
 
 
 def test_add_conclusion_emits_conclusion_command() -> None:

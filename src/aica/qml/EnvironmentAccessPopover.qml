@@ -14,6 +14,12 @@ Rectangle {
 
     function flowMessage(entry) {
         var accessName = (entry && entry.name) ? entry.name : "当前入口"
+        if (entry && entry.detailMode === "link") {
+            if ((entry.username || "").length === 0 && !entry.canCopyPassword && !entry.canCopyOtp) {
+                return "已复制" + accessName + "链接。当前访问方式暂无账号、密码或验证码。"
+            }
+            return "已复制" + accessName + "链接。继续复制账号、密码或验证码："
+        }
         if (entry && entry.hasTarget) {
             return "已用新窗口打开" + accessName + "，并自动复制账号。继续完成登录："
         }
@@ -222,28 +228,58 @@ Rectangle {
                                         width: parent.width
                                         spacing: 8
 
-                                        Rectangle {
-                                            visible: modelData.hasTarget || modelData.hasPassword
-                                            radius: 12
-                                            width: loginLabel.implicitWidth + 22
+                                        Row {
+                                            visible: modelData.hasTarget
+                                                || (modelData.username || "").length > 0
+                                                || modelData.hasPassword
+                                            spacing: 10
+                                            width: loginButton.width
+                                                   + (copyLinkText.visible ? copyLinkText.implicitWidth + spacing : 0)
                                             height: 30
-                                            color: "#111827"
+
+                                            Rectangle {
+                                                id: loginButton
+                                                radius: 12
+                                                width: loginLabel.implicitWidth + 22
+                                                height: parent.height
+                                                color: "#111827"
+
+                                                Text {
+                                                    id: loginLabel
+                                                    anchors.centerIn: parent
+                                                    text: "开始登录"
+                                                    color: "#FFFFFF"
+                                                    font.family: root.theme.uiFont
+                                                    font.pixelSize: 11
+                                                    font.weight: root.theme.labelWeight
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: todoDetailBridge.startEnvironmentLogin(modelData.id)
+                                                }
+                                            }
 
                                             Text {
-                                                id: loginLabel
-                                                anchors.centerIn: parent
-                                                text: "开始登录"
-                                                color: "#FFFFFF"
+                                                id: copyLinkText
+                                                visible: modelData.hasTarget
+                                                width: implicitWidth
+                                                height: parent.height
+                                                text: "复制链接"
+                                                color: "#111827"
                                                 font.family: root.theme.uiFont
                                                 font.pixelSize: 11
                                                 font.weight: root.theme.labelWeight
+                                                verticalAlignment: Text.AlignVCenter
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: todoDetailBridge.copyEnvironmentAddressAndShowDetails(modelData.id)
+                                                }
                                             }
 
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: todoDetailBridge.startEnvironmentLogin(modelData.id)
-                                            }
                                         }
                                     }
 

@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import struct
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qs, urlparse
 
@@ -25,11 +25,28 @@ def _normalize_bool(value: object) -> bool:
     return text in {"1", "true", "yes", "y", "on"}
 
 
+def normalize_environment_scope(value: object, *, default: str = "project") -> str:
+    normalized = sanitize_text(value).casefold()
+    if normalized in {"global", "project"}:
+        return normalized
+    return default
+
+
+def normalize_access_type(value: object, *, default: str = "web") -> str:
+    normalized = sanitize_text(value).casefold()
+    if normalized in {"", "http", "https", "web"}:
+        return "web"
+    if normalized in {"ssh", "rdp", "db", "vpn"}:
+        return normalized
+    return normalized or default
+
+
 @dataclass(frozen=True)
 class ProjectEnvironmentRecord:
     id: str
     project_id: str
     env_name: str
+    scope: str = "project"
     env_type: str = ""
     sort_order: int = 0
     is_active: bool = True
@@ -43,6 +60,9 @@ class EnvironmentAccessEntryRecord:
     id: str
     environment_id: str
     access_name: str
+    scope: str = ""
+    source_scope: str = ""
+    is_project_override: bool = False
     access_type: str = ""
     url_or_host: str = ""
     username: str = ""
@@ -60,6 +80,8 @@ class EnvironmentAccessEntryRecord:
 @dataclass(frozen=True)
 class ProjectEnvironmentBundle:
     environment: ProjectEnvironmentRecord
+    source_scope: str = ""
+    is_project_override: bool = False
     entries: tuple[EnvironmentAccessEntryRecord, ...] = ()
 
 
@@ -170,6 +192,12 @@ class EnvironmentAccessService:
         if not normalized_project_id:
             return []
         return self._repository.list_project_environments(normalized_project_id)
+
+    def list_global_environments(self) -> list[ProjectEnvironmentBundle]:
+        return self._repository.list_global_environments()
+
+    def list_effective_environments(self, project_id: str) -> list[ProjectEnvironmentBundle]:
+        return self._repository.list_effective_environments(sanitize_text(project_id))
 
     def prepare_login(self, entry_id: str) -> EnvironmentAccessLaunchResult | None:
         entry = self._repository.get_access_entry(sanitize_text(entry_id))

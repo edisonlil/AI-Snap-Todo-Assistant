@@ -1,4 +1,4 @@
-"""AICA entrypoint: initialize app and connect the main workflow."""
+﻿"""AICA entrypoint: initialize app and connect the main workflow."""
 from __future__ import annotations
 
 import ctypes
@@ -12,23 +12,25 @@ import uuid
 
 from PyQt6.QtCore import QRect, QTimer, Qt
 from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from aica.analysis_flow import AnalysisFlowCoordinator
-from aica.analysis_metrics import AnalysisMetricsStore
+from aica.analysis.flow import AnalysisFlowCoordinator
+from aica.analysis.metrics import AnalysisMetricsStore
 from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
+from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
 from aica.capture_session import CaptureSession
 from aica.capture_ui_flow import CaptureUiFlow
 from aica.config import ConfigManager
-from aica.context_summary_models import build_context_summary_request_for_todo
+from aica.context_summary.models import build_context_summary_request_for_todo
 from aica.control_panel import ControlPanelWindow
 from aica.hotkey import HotkeyManager
+from aica.knowledge_archive import KnowledgeArchiveEventHandler
 from aica.llm.service import LLMService, ModelResolutionError
-from aica.log_analysis_models import LogAnalysisTask
-from aica.log_analysis_orchestrator import LogAnalysisOrchestrator
-from aica.log_analysis_store import LogAnalysisTaskStore
-from aica.log_analysis_worker import LogAnalysisWorker
+from aica.log_analysis.models import LogAnalysisTask
+from aica.log_analysis.orchestrator import LogAnalysisOrchestrator
+from aica.log_analysis.store import LogAnalysisTaskStore
+from aica.log_analysis.worker import LogAnalysisWorker
 from aica.loading_dialog import LoadingDialog
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
@@ -45,19 +47,18 @@ from aica.ticket_enrichment import (
     summarize_enrichment_errors,
 )
 from aica.ticket_enrichment_worker import TicketEnrichmentWorker
-from aica.todo_controller import TodoController
-from aica.todo_detail_panel import TodoDetailPanel
-from aica.todo_detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
-from aica.todo_events import ScriptEventHandler, TodoBindingStore, TodoEventBus
-from aica.todo_panel import TodoPanel
-from aica.todo_store import TodoConclusion, TodoStore
+from aica.todo.controller import TodoController
+from aica.todo.detail_panel import TodoDetailPanel
+from aica.todo.detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
+from aica.todo.events import ScriptEventHandler, TodoBindingStore, TodoEventBus
+from aica.todo.panel import TodoPanel
+from aica.todo.store import TodoConclusion, TodoStore
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
+    AssistAnalysisWorker,
     MultiCaptureAIWorker,
-    PlanExportWorker,
     StageSummaryWorker,
-    build_plan_export_filename,
 )
 
 
@@ -176,12 +177,6 @@ def main() -> None:
         show_already_running_message()
         return
 
-    if RUNTIME_CAPABILITIES.is_windows:
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-
     startup_log_file = _setup_exception_handler()
     _append_startup_log(startup_log_file, "startup: main entered")
 
@@ -207,7 +202,13 @@ def main() -> None:
     log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
     todo_event_bus = TodoEventBus(
-        handlers=[ScriptEventHandler(binding_store=binding_store)],
+        handlers=[
+            ScriptEventHandler(binding_store=binding_store),
+            KnowledgeArchiveEventHandler(
+                todo_store=todo_store,
+                runtime_config_provider=lambda: _build_runtime_config(config_mgr.load()),
+            ),
+        ],
         binding_store=binding_store,
     )
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
@@ -219,11 +220,12 @@ def main() -> None:
 
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
-    plan_export_workers: list[PlanExportWorker] = []
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
+    assist_analysis_workers: list[AssistAnalysisWorker] = []
     ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
     pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
+    pending_assist_analysis_keys: set[str] = set()
     capture_ui = CaptureUiFlow(
         toolbar=toolbar,
         todo_panel=todo_panel,
@@ -334,6 +336,7 @@ def main() -> None:
             toolbar.get_current_scenario(),
         )
         _refresh_todo_panel()
+        _start_assist_analysis_prewarm(save_result.todo)
         return save_result.action, save_result.todo.title
 
     def _show_overlays() -> None:
@@ -363,11 +366,6 @@ def main() -> None:
 
     def _queue_current_capture() -> bool:
         return capture_ui.queue_current_capture()
-
-    def _cleanup_plan_export_worker(worker: PlanExportWorker) -> None:
-        if worker in plan_export_workers:
-            plan_export_workers.remove(worker)
-        worker.deleteLater()
 
     def _build_runtime_config(config):
         llm_service = LLMService(config)
@@ -466,49 +464,6 @@ def main() -> None:
         worker.finished.connect(lambda _todo_id, _request_id, _outcome, current=worker: _cleanup_ticket_enrichment_worker(current))
         worker.error.connect(_on_ticket_enrichment_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_ticket_enrichment_worker(current))
-        worker.start()
-
-    def _on_plan_export_finished(export_path: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, PlanExportWorker):
-            _cleanup_plan_export_worker(sender)
-        QMessageBox.information(None, "导出成功", f"方案已导出到:\n{export_path}")
-
-    def _on_plan_export_error(message: str) -> None:
-        sender = app.sender()
-        if isinstance(sender, PlanExportWorker):
-            _cleanup_plan_export_worker(sender)
-        QMessageBox.warning(None, "导出失败", message)
-
-    def _on_todo_export_plan_requested(todo_id: str, payload: object) -> None:
-        if not isinstance(payload, dict):
-            return
-        config = _ensure_api_key_configured()
-        if config is None:
-            return
-
-        default_name = build_plan_export_filename(str(payload.get("title", "")))
-        export_path, _ = QFileDialog.getSaveFileName(
-            None,
-            "导出方案",
-            default_name,
-            "Markdown 文件 (*.md)",
-        )
-        if not export_path:
-            return
-        if not export_path.lower().endswith(".md"):
-            export_path = f"{export_path}.md"
-
-        worker = PlanExportWorker(
-            config.llm_service,
-            config.llm_service.describe_task_model("plan_export"),
-            config.plan_export_timeout_seconds,
-            payload,
-            export_path,
-        )
-        plan_export_workers.append(worker)
-        worker.finished.connect(_on_plan_export_finished)
-        worker.error.connect(_on_plan_export_error)
         worker.start()
 
     result_flow = ResultFlowCoordinator(
@@ -704,7 +659,20 @@ def main() -> None:
     def _cleanup_stage_summary_worker(worker: StageSummaryWorker) -> None:
         if worker in stage_summary_workers:
             stage_summary_workers.remove(worker)
+
+    def _cleanup_assist_analysis_worker(worker: AssistAnalysisWorker) -> None:
+        if worker in assist_analysis_workers:
+            assist_analysis_workers.remove(worker)
         worker.deleteLater()
+
+    def _clear_pending_assist_analysis_key(payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        if not bool(payload.get("isFinal", True)):
+            return
+        cache_key = str(payload.get("cacheKey", "") or "").strip()
+        if cache_key:
+            pending_assist_analysis_keys.discard(cache_key)
 
     def _on_log_analysis_finished(task_id: str) -> None:
         task = log_analysis_store.get_task(task_id)
@@ -778,6 +746,74 @@ def main() -> None:
     def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
 
+    def _on_assist_analysis_finished(todo_id: str, request_id: str, payload: object) -> None:
+        todo_detail_panel.apply_assist_analysis_result(todo_id, request_id, payload)
+
+    def _on_assist_analysis_error(todo_id: str, request_id: str, message: str) -> None:
+        todo_detail_panel.apply_assist_analysis_error(todo_id, request_id, message)
+
+    def _build_assist_worker_payload(todo, *, previous_result: object | None = None) -> dict[str, object]:
+        todo_payload = build_assist_todo_payload(todo)
+        payload: dict[str, object] = {
+            "requestId": str(uuid.uuid4()),
+            "todoPayload": todo_payload,
+            "cacheKey": build_assist_analysis_cache_key(todo.id, todo_payload),
+        }
+        if previous_result is not None:
+            payload["previousResult"] = previous_result
+        return payload
+
+    def _start_assist_analysis_review(todo, previous_result: object) -> None:
+        payload = _build_assist_worker_payload(todo, previous_result=previous_result)
+        pending_assist_analysis_keys.add(str(payload["cacheKey"]))
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config_mgr.load()),
+            todo_id=todo.id,
+            request_id=str(payload["requestId"]),
+            payload=payload,
+            phase="review",
+        )
+        assist_analysis_workers.append(worker)
+        worker.result_ready.connect(_on_assist_analysis_review_finished)
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.start()
+
+    def _on_assist_analysis_prewarm_finished(todo_id: str, _request_id: str, payload: object) -> None:
+        todo_detail_panel.cache_assist_analysis_result(todo_id, payload)
+        _clear_pending_assist_analysis_key(payload)
+        if not isinstance(payload, dict) or not bool(payload.get("isFinal", True)):
+            return
+        latest = todo_store.get_todo(todo_id)
+        if latest is not None:
+            _start_assist_analysis_review(latest, payload)
+
+    def _on_assist_analysis_review_finished(todo_id: str, _request_id: str, payload: object) -> None:
+        _clear_pending_assist_analysis_key(payload)
+        if isinstance(payload, dict) and bool(payload.get("shouldUpdate", True)):
+            todo_detail_panel.cache_assist_analysis_result(todo_id, payload)
+
+    def _start_assist_analysis_prewarm(todo) -> None:
+        if todo is None:
+            return
+        payload = _build_assist_worker_payload(todo)
+        cache_key = str(payload["cacheKey"])
+        if cache_key in pending_assist_analysis_keys:
+            return
+        pending_assist_analysis_keys.add(cache_key)
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config_mgr.load()),
+            todo_id=todo.id,
+            request_id=str(payload["requestId"]),
+            payload=payload,
+            phase="initial",
+        )
+        assist_analysis_workers.append(worker)
+        worker.result_ready.connect(_on_assist_analysis_prewarm_finished)
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
+        worker.start()
+
     def _start_stage_summary_worker(todo_id: str, request_id: str, mode: str, payload: dict[str, object]) -> None:
         config = config_mgr.load()
         worker = StageSummaryWorker(
@@ -792,6 +828,36 @@ def main() -> None:
         worker.finished.connect(lambda _todo_id, _request_id, _text, _notice, current=worker: _cleanup_stage_summary_worker(current))
         worker.error.connect(_on_stage_summary_error)
         worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_stage_summary_worker(current))
+        worker.start()
+
+    def _on_assist_analysis_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        if not request_id:
+            return
+        cache_key = str(payload.get("cacheKey", "") or "").strip()
+        if not cache_key and isinstance(payload.get("todoPayload"), dict):
+            cache_key = build_assist_analysis_cache_key(todo_id, payload.get("todoPayload"))
+            payload = {**payload, "cacheKey": cache_key}
+        if cache_key and cache_key in pending_assist_analysis_keys:
+            return
+        if cache_key:
+            pending_assist_analysis_keys.add(cache_key)
+        config = config_mgr.load()
+        worker = AssistAnalysisWorker(
+            llm_service=LLMService(config),
+            todo_id=todo_id,
+            request_id=request_id,
+            payload=payload,
+        )
+        assist_analysis_workers.append(worker)
+        worker.result_ready.connect(_on_assist_analysis_finished)
+        worker.result_ready.connect(lambda _todo_id, _request_id, _payload: _clear_pending_assist_analysis_key(_payload))
+        worker.finished.connect(lambda current=worker: _cleanup_assist_analysis_worker(current))
+        worker.error.connect(_on_assist_analysis_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, key=cache_key: pending_assist_analysis_keys.discard(key) if key else None)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_assist_analysis_worker(current))
         worker.start()
 
     def _on_stage_summary_requested(todo_id: str, payload: object) -> None:
@@ -837,10 +903,10 @@ def main() -> None:
     todo_detail_panel.closed.connect(_on_todo_detail_closed)
     todo_detail_panel.complete_requested.connect(_on_todo_detail_completed)
     todo_detail_panel.delete_requested.connect(_on_todo_detail_deleted)
-    todo_detail_panel.export_plan_requested.connect(_on_todo_export_plan_requested)
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
     todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
     todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
+    todo_detail_panel.assist_analysis_requested.connect(_on_assist_analysis_requested)
 
     try:
         _refresh_todo_panel()

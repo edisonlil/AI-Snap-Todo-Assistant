@@ -26,6 +26,8 @@ Rectangle {
     readonly property color successBg: "#E7F5ED"
     readonly property color successInk: "#17663A"
     readonly property string uiFont: controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI"
+    readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
+    readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
     readonly property var projectLevelOptions: [
         { value: "normal", text: "常规" },
         { value: "important", text: "重要" }
@@ -54,7 +56,7 @@ Rectangle {
     }
 
     function ensureSelectedProvider() {
-        if (!controlPanelBridge || controlPanelBridge.currentSection !== "models") {
+        if (!controlPanelBridge || root.currentSection !== "models") {
             return
         }
         var providers = controlPanelBridge.providers || []
@@ -471,6 +473,8 @@ Rectangle {
             for (var index = 0; index < comboRoot.model.length; index += 1) {
                 var option = comboRoot.model[index]
                 if (root.fuzzyMatch(option.text, keyword) || root.fuzzyMatch(option.value, keyword)) {
+                    matches.push(option)
+                } else if (root.fuzzyMatch(option.details || "", keyword)) {
                     matches.push(option)
                 }
             }
@@ -1015,23 +1019,23 @@ Rectangle {
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 54
-                                        color: controlPanelBridge.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
+                                        color: root.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
 
                                         Text {
                                             anchors.left: parent.left
                                             anchors.leftMargin: 18
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: modelData.title
-                                            color: controlPanelBridge.currentSection === modelData.id ? root.accent : root.titleInk
+                                            color: root.currentSection === modelData.id ? root.accent : root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: controlPanelBridge.currentSection === modelData.id ? 14 : 13
-                                            font.weight: controlPanelBridge.currentSection === modelData.id ? 700 : 400
+                                            font.pixelSize: root.currentSection === modelData.id ? 14 : 13
+                                            font.weight: root.currentSection === modelData.id ? 700 : 400
                                         }
 
                                         MouseArea {
                                             anchors.fill: parent
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: controlPanelBridge.setCurrentSection(modelData.id)
+                                            onClicked: if (controlPanelBridge) controlPanelBridge.setCurrentSection(modelData.id)
                                         }
                                     }
                                 }
@@ -1075,7 +1079,7 @@ Rectangle {
                                 spacing: 6
 
                                 Text {
-                                    text: controlPanelBridge.currentSectionMeta.title
+                                    text: root.currentSectionMeta.title || ""
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 20
@@ -1084,7 +1088,7 @@ Rectangle {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: controlPanelBridge.currentSectionMeta.description
+                                    text: root.currentSectionMeta.description || ""
                                     color: root.bodyInk
                                     font.family: root.uiFont
                                     font.pixelSize: 12
@@ -1093,13 +1097,16 @@ Rectangle {
                             }
 
                             PlainButton {
-                                label: controlPanelBridge.currentSectionMeta.primaryActionLabel
+                                label: root.currentSectionMeta.primaryActionLabel || ""
                                 fillColor: root.accent
                                 inkColor: "#FFFFFF"
                                 strokeWidth: 0
                                 border.color: root.accent
                                 onClicked: {
-                                    if (controlPanelBridge.currentSection === "tickets") {
+                                    if (!controlPanelBridge) {
+                                        return
+                                    }
+                                    if (root.currentSection === "tickets") {
                                         controlPanelBridge.refreshTickets()
                                     } else {
                                         controlPanelBridge.saveCurrentSection()
@@ -1120,7 +1127,7 @@ Rectangle {
                                 spacing: 18
 
                                 ColumnLayout {
-                                    visible: controlPanelBridge.currentSection === "models"
+                                    visible: root.currentSection === "models"
                                     Layout.fillWidth: true
                                     spacing: 14
 
@@ -1320,7 +1327,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "hotkeys"
+                                    visible: root.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: hotkeyContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -1385,7 +1392,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "hotkeys"
+                                    visible: root.currentSection === "hotkeys"
                                     Layout.fillWidth: true
                                     implicitHeight: imageContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -1423,7 +1430,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "analysis_rules"
+                                    visible: root.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -1510,7 +1517,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "analysis_rules"
+                                    visible: root.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: promptDebugContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -1688,7 +1695,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "storage"
+                                    visible: root.currentSection === "storage"
                                     Layout.fillWidth: true
                                     implicitHeight: storageContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -1713,6 +1720,15 @@ Rectangle {
                                             color: root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "知识库归档会自动保存在数据目录下的 knowledge_base 子目录，修改数据目录后会随本地数据一起迁移。"
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
                                             wrapMode: Text.Wrap
                                         }
 
@@ -1827,13 +1843,18 @@ Rectangle {
                                     Layout.fillWidth: true
                                 }
 
+                                EnvironmentsSection {
+                                    theme: root
+                                    Layout.fillWidth: true
+                                }
+
                                 TicketsSection {
                                     theme: root
                                     Layout.fillWidth: true
                                 }
 
                                 SectionCard {
-                                    visible: false && controlPanelBridge.currentSection === "projects"
+                                    visible: false && root.currentSection === "projects"
                                     Layout.fillWidth: true
                                     implicitHeight: projectManagerContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -2312,7 +2333,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "integrations"
+                                    visible: root.currentSection === "integrations"
                                     Layout.fillWidth: true
                                     implicitHeight: integrationIntro.implicitHeight + 32
                                     color: root.panelAltBg
@@ -2348,7 +2369,7 @@ Rectangle {
                                 }
 
                                 SectionCard {
-                                    visible: controlPanelBridge.currentSection === "integrations" && controlPanelBridge.integrationScripts.length === 0
+                                    visible: root.currentSection === "integrations" && controlPanelBridge && controlPanelBridge.integrationScripts.length === 0
                                     Layout.fillWidth: true
                                     implicitHeight: emptyIntegrationContent.implicitHeight + 32
                                     color: root.panelAltBg
@@ -2379,7 +2400,7 @@ Rectangle {
                                 }
 
                                 Repeater {
-                                    model: controlPanelBridge.currentSection === "integrations" ? controlPanelBridge.integrationScripts : []
+                                    model: root.currentSection === "integrations" && controlPanelBridge ? controlPanelBridge.integrationScripts : []
 
                                     delegate: SectionCard {
                                         Layout.fillWidth: true
@@ -2468,7 +2489,7 @@ Rectangle {
                                 }
 
                                 Repeater {
-                                    model: controlPanelBridge.currentSection === "storage" ? controlPanelBridge.locations : []
+                                    model: root.currentSection === "storage" && controlPanelBridge ? controlPanelBridge.locations : []
 
                                     delegate: SectionCard {
                                         Layout.fillWidth: true

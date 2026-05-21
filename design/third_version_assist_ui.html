@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>辅助排查第三版 - 通用思考助手</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root{
+      --bg:#f4f5f7;
+      --panel:#f7f7f8;
+      --text:#111827;
+      --muted:#98a2b3;
+      --line:#e8eaee;
+      --blue:#4f73ff;
+      --blue-soft:#eef2ff;
+      --shadow:0 16px 40px rgba(15,23,42,.12);
+    }
+    body{
+      margin:0;
+      background:var(--bg);
+      font-family:"PingFang SC","Microsoft YaHei",Arial,sans-serif;
+      color:var(--text);
+      display:flex;
+      justify-content:center;
+      padding:24px;
+    }
+    .panel{
+      width:500px;
+      height:900px;
+      background:var(--panel);
+      border:1px solid #ececec;
+      border-radius:24px;
+      overflow:hidden;
+      position:relative;
+      box-shadow:0 10px 30px rgba(0,0,0,.08);
+    }
+    .header{
+      height:72px;
+      background:#fff;
+      border-bottom:1px solid #ececec;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 22px;
+    }
+    .header h1{margin:0;font-size:18px;font-weight:700;}
+    .actions{display:flex;gap:18px;font-size:14px;}
+    .actions span{color:#6b7280;cursor:pointer;}
+    .actions .primary{color:var(--blue);font-weight:600;}
+    .content{
+      height:calc(100% - 72px);
+      overflow-y:auto;
+      padding:20px;
+      scrollbar-width: thin;
+      scrollbar-color: #d1d5db transparent;
+    }
+
+    .content::-webkit-scrollbar{
+      width:3px;
+    }
+    .content::-webkit-scrollbar-thumb{
+      background:rgba(0,0,0,0.15);
+      border-radius:999px;
+    }
+    .content::-webkit-scrollbar-thumb:hover{
+      background:rgba(0,0,0,0.3);
+    }
+    .title{font-size:18px;line-height:1.5;font-weight:700;margin-bottom:18px;}
+    .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:18px;}
+    .info-card{background:#efefef;border-radius:18px;padding:16px;}
+    .label{font-size:13px;color:var(--muted);margin-bottom:8px;}
+    .value{font-size:15px;line-height:1.5;}
+    .section{margin-bottom:26px;}
+    .section-title{font-size:16px;font-weight:700;margin-bottom:12px;}
+    .desc-box{font-size:15px;line-height:1.8;color:#374151;}
+    .timeline-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .count{font-size:14px;color:var(--muted);}
+    .small-pill{padding:7px 14px;border-radius:999px;border:1px solid #d9dde6;background:#fafafa;font-size:13px;color:#667085;}
+    .timeline-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;}
+    .timeline-placeholder{font-size:14px;color:#b0b7c3;flex:1;}
+    .assist-btn{height:34px;padding:0 14px;border-radius:999px;border:1px solid #d7dce5;background:#fff;color:#4b5563;font-size:13px;cursor:pointer;flex-shrink:0;}
+    .assist-btn:hover{background:#fcfcfd;border-color:#cfd6e3;}
+    .editor-box{min-height:96px;border-radius:16px;background:#f8f8f9;border:1px solid #eceff3;padding:14px;color:#c0c6d1;font-size:14px;line-height:1.8;white-space:pre-wrap;}
+
+    .assist-pop{
+      position:fixed;
+      right:24px;
+      bottom:24px;
+      width:386px;
+      height:auto;
+      min-width:320px;
+      min-height:260px;
+      max-width:calc(100vw - 24px);
+      max-height:calc(100vh - 24px);
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:22px;
+      box-shadow:var(--shadow);
+      display:none;
+      overflow:hidden;
+      z-index:9999;
+      cursor:default;
+    }
+    .assist-pop.show{display:block;}
+    .pop-header{padding:15px 16px 13px;border-bottom:1px solid #edf0f4;background:linear-gradient(180deg,#fff,#fbfcff);}
+    .pop-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .pop-title-wrap{display:flex;align-items:center;gap:8px;}
+    .spark{width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:var(--blue-soft);color:var(--blue);font-size:14px;}
+    .pop-title{font-size:15px;font-weight:700;}
+    .close{width:28px;height:28px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:18px;}
+    .close:hover{background:#f2f4f7;}
+    .ai-summary{background:#f8fafc;border:1px solid #eef2f6;border-radius:16px;padding:10px 12px;}
+    .summary-main{font-size:13px;line-height:1.7;color:#344054;margin-bottom:0;}
+    .pop-body{
+      padding:12px;
+      height:calc(100% - 122px);
+      max-height:470px;
+      overflow-y:auto;
+      /* 美化滚动条 */
+      scrollbar-width: thin;
+      scrollbar-color: #d1d5db transparent;
+    }
+
+    /* Webkit 滚动条美化 */
+    .pop-body::-webkit-scrollbar{
+      width:3px;
+    }
+    .pop-body::-webkit-scrollbar-track{
+      background: transparent;
+    }
+    .pop-body::-webkit-scrollbar-thumb{
+      background:rgba(0,0,0,0.15);
+      border-radius:999px;
+    }
+    .pop-body::-webkit-scrollbar-thumb:hover{
+      background:rgba(0,0,0,0.3);
+    }
+    .block{margin-bottom:10px;}
+    .block:last-child{margin-bottom:0;}
+    .block-head{display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px;}
+    .block-title{font-size:12px;color:#98a2b3;letter-spacing:.03em;}
+
+    .tool-bar{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .tool-btn{
+      height:28px;
+      padding:0 10px;
+      border-radius:8px;
+      border:1px solid transparent;
+      background:transparent;
+      font-size:12px;
+      color:#667085;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      transition:.12s ease;
+    }
+    .tool-btn:hover{
+      background:#f2f4f7;
+      color:#344054;
+    }
+    .tool-btn.primary{
+      background:#eef2ff;
+      color:#4f73ff;
+    }
+    .tool-btn.primary:hover{
+      background:#e0e7ff;
+    }
+    /* icon removed for cleaner look */
+    .tool-icon{display:none;}
+
+    .checklist{display:flex;flex-direction:column;gap:8px;}
+    .check-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border:none;border-radius:0;background:transparent;}
+    .check-main{flex:1;}
+    .check-text{font-size:13px;line-height:1.5;color:#475467;}
+    .check-reason{font-size:12px;color:#98a2b3;line-height:1.5;margin-top:2px;}
+
+    .result-area{display:none;margin-top:10px;border:1px solid #edf0f4;border-radius:16px;overflow:hidden;background:#fbfcfe;}
+    .result-area.show{display:block;}
+    .result-head{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #edf0f4;}
+    .result-head span:first-child{font-size:13px;font-weight:650;}
+    .result-head span:last-child{font-size:12px;color:#98a2b3;}
+    .result-card{margin:10px;padding:10px;background:#fff;border:1px solid #ebeef3;border-radius:13px;}
+    .result-title{font-size:13px;font-weight:650;line-height:1.5;margin-bottom:5px;}
+    .result-desc{font-size:12px;color:#667085;line-height:1.65;margin-bottom:8px;}
+    .result-actions{display:flex;gap:10px;}
+    .text-btn{border:none;background:none;padding:0;color:var(--blue);font-size:12px;cursor:pointer;}
+
+    .upgrade-card{border:none;background:transparent;padding:4px 0;}
+    .upgrade-status{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;}
+    .upgrade-title{font-size:14px;font-weight:700;}
+    .risk-pill{font-size:12px;padding:4px 8px;border-radius:999px;background:#fff7ed;color:#b54708;}
+    .upgrade-desc{font-size:13px;color:#667085;line-height:1.7;margin-bottom:10px;}
+    .gen-btn{width:100%;height:34px;border:none;border-radius:12px;background:#111827;color:#fff;font-size:13px;cursor:pointer;}
+    .gen-btn:hover{background:#1f2937;}
+    .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(17,24,39,.92);color:#fff;font-size:13px;padding:10px 14px;border-radius:999px;display:none;z-index:10000;white-space:nowrap;}
+    .toast.show{display:block;}
+    .resize-handle{
+      position:absolute;
+      right:0;
+      bottom:0;
+      width:18px;
+      height:18px;
+      cursor:nwse-resize;
+      z-index:3;
+    }
+    .resize-handle::after{
+      content:"";
+      position:absolute;
+      right:5px;
+      bottom:5px;
+      width:8px;
+      height:8px;
+      border-right:2px solid rgba(17,24,39,.18);
+      border-bottom:2px solid rgba(17,24,39,.18);
+      border-radius:1px;
+    }
+    .resize-handle:hover::after{
+      border-color:rgba(17,24,39,.35);
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="header">
+      <h1>待办详情</h1>
+      <div class="actions">
+        <span class="primary">导出方案</span>
+        <span>关闭</span>
+        <span>保存</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="title">文档的电子签章在在线预览发生位置偏移</div>
+      <div class="info-grid">
+        <div class="info-card"><div class="label">群聊名称</div><div class="value">北部湾港务</div></div>
+        <div class="info-card"><div class="label">环境</div><div class="value">生产环境</div></div>
+        <div class="info-card"><div class="label">产品线</div><div class="value">文档中台</div></div>
+        <div class="info-card"><div class="label">工单类型</div><div class="value">排查类</div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">当前描述</div>
+        <div class="desc-box">已提供截图对比，显示签章位置异常；需进一步确认生产环境的参数配置与 demo 环境是否一致，包括 preview_mode、印章坐标、文档格式等。</div>
+      </div>
+
+      <div class="section">
+        <div class="timeline-head">
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <div class="section-title" style="margin-bottom:0;">时间线历史</div>
+            <div class="count">8 条</div>
+          </div>
+          <div class="small-pill">阶段总结</div>
+        </div>
+        <div class="timeline-toolbar">
+          <div class="timeline-placeholder">输入 / 选择问题反馈、问题结论或分析日志</div>
+          <button class="assist-btn" id="openAssistBtn">辅助排查</button>
+        </div>
+        <div class="editor-box" id="editorBox">在这里继续写跟进内容...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="assist-pop" id="assistPop">
+    <div class="pop-header">
+      <div class="pop-top" id="dragHandle" style="cursor:move;">
+        <div class="pop-title-wrap">
+          <div class="spark">✦</div>
+          <div class="pop-title">辅助排查</div>
+        </div>
+        <div class="close" id="closeAssistBtn">×</div>
+      </div>
+      <div class="ai-summary">
+        <div class="summary-main">更像环境或参数差异问题，建议先补齐参数和日志，再决定是否升级。</div>
+      </div>
+    </div>
+
+    <div class="pop-body">
+      <div class="block">
+        <div class="block-head"><div class="block-title">操作</div></div>
+        <div class="tool-bar">
+          <button class="tool-btn primary" id="caseBtn">案例</button>
+          <button class="tool-btn" id="docBtn">文档</button>
+          <button class="tool-btn" id="errBtn">错误码</button>
+          <button class="tool-btn" id="verifyBtn">步骤</button>
+        </div>
+        <div class="result-area" id="resultArea">
+          <div class="result-head"><span id="resultTitle">相似案例</span><span id="resultCount">模拟 2 条结果</span></div>
+          <div id="resultList"></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-head"><div class="block-title">信息状态</div></div>
+        <div style="font-size:12px;color:#98a2b3;margin-bottom:6px;">已从时间线识别</div>
+        <div class="checklist">
+          <div class="check-item" style="opacity:0.6;">
+            <div class="check-main">
+              <div class="check-text">✔ 已存在 demo 验证结论</div>
+              <div class="check-reason">来自历史跟进：demo 正常，生产异常</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:12px;color:#98a2b3;margin:10px 0 6px;">仍需补充</div>
+        <div class="checklist">
+          <div class="check-item">
+            <div class="check-main">
+              <div class="check-text">生产环境请求参数</div>
+              <div class="check-reason">用于确认是否存在参数差异</div>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-main">
+              <div class="check-text">日志分析结论</div>
+              <div class="check-reason">需要明确是否存在异常或 warning</div>
+            </div>
+          </div>
+          <div class="check-item">
+            <div class="check-main">
+              <div class="check-text">问题文件与截图</div>
+              <div class="check-reason">用于复现与二线分析</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="upgrade-card">
+          <div class="upgrade-status">
+            <div class="upgrade-title" id="upgradeTitle">暂不建议升级</div>
+            <div class="risk-pill" id="riskPill">证据不足</div>
+          </div>
+          <div class="upgrade-desc" id="upgradeDesc">当前缺少参数、日志、demo 对比等关键证据。建议先补齐信息，再判断是否升级二线。</div>
+          <button class="gen-btn" id="genBtn">生成跟进 / 升级说明</button>
+        </div>
+      </div>
+    </div>
+    <div class="resize-handle" id="resizeHandle" title="拖拽调整大小"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const assistPop = document.getElementById('assistPop');
+    const dragHandle = document.getElementById('dragHandle');
+    const resizeHandle = document.getElementById('resizeHandle');
+    const openAssistBtn = document.getElementById('openAssistBtn');
+    const closeAssistBtn = document.getElementById('closeAssistBtn');
+    const resultArea = document.getElementById('resultArea');
+    const resultTitle = document.getElementById('resultTitle');
+    const resultCount = document.getElementById('resultCount');
+    const resultList = document.getElementById('resultList');
+    const editorBox = document.getElementById('editorBox');
+    const toast = document.getElementById('toast');
+
+    function showToast(text){
+      toast.textContent = text;
+      toast.classList.add('show');
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.classList.remove('show'), 1600);
+    }
+
+    function insertText(text){
+      const empty = editorBox.textContent.includes('在这里继续写跟进内容');
+      editorBox.textContent = (empty ? '' : editorBox.textContent + '\n\n') + text;
+      editorBox.style.color = '#374151';
+      showToast('已插入到跟进');
+    }
+
+    function bindActionButtons(scope = document){
+      scope.querySelectorAll('.insert').forEach(btn => {
+        btn.onclick = () => insertText(btn.dataset.text || '');
+      });
+    }
+
+    const mockData = {
+      case: {
+        title: '相似案例', count: '模拟 2 条结果',
+        items: [
+          {title:'电子签章在线预览坐标偏移',desc:'历史结论：生产与测试环境 preview_mode、缩放参数不一致，导致坐标换算结果不同。',action:'引用到跟进',text:'【相似案例】preview_mode 与缩放参数不一致可能导致坐标偏移，建议优先比对请求参数。'},
+          {title:'PDF 转图片后签章错位',desc:'与 DPI/缩放设置相关，服务端渲染参数不同导致偏移。',action:'引用到跟进',text:'【相似案例】与 DPI/缩放设置相关，建议核对服务端渲染参数。'}
+        ]
+      },
+      doc: {
+        title: '官方文档', count: '模拟 2 条结果',
+        items: [
+          {title:'签章预览坐标与缩放说明',desc:'页码、坐标原点、缩放比、旋转与预览模式共同影响展示。',action:'引用到跟进',text:'【官方文档】签章位置与页码/坐标系/缩放/预览模式相关，建议对照核查。'},
+          {title:'预览服务参数列表',desc:'包含 preview_mode、scale、dpi 等关键字段说明。',action:'引用到跟进',text:'【官方文档】建议核对 preview_mode/scale/dpi 等字段。'}
+        ]
+      },
+      err: {
+        title: '错误码说明', count: '模拟 2 条结果',
+        items: [
+          {title:'400000007',desc:'参数校验失败，检查必填字段与格式。',action:'引用到跟进',text:'【错误码】400000007 参数校验失败，需检查必填字段与格式。'},
+          {title:'15041',desc:'文档创建失败，可能与权限或模板异常相关。',action:'引用到跟进',text:'【错误码】15041 文档创建失败，需检查权限与模板。'}
+        ]
+      },
+      verify: {
+        title: '验证步骤', count: '模拟 1 条结果',
+        items: [
+          {title:'生产与 demo 对比验证',desc:'1. 使用同一文件；2. 使用同一请求参数；3. 对比 preview_mode、scale、dpi、页码和坐标；4. 记录是否复现。',action:'引用到跟进',text:'【验证步骤】\n1. 使用同一文件\n2. 使用同一请求参数\n3. 对比 preview_mode、scale、dpi、页码和坐标\n4. 记录生产与 demo 是否复现'}
+        ]
+      }
+    };
+
+    function renderResults(type){
+      const data = mockData[type];
+      if(!data) return;
+      resultTitle.textContent = data.title;
+      resultCount.textContent = data.count;
+      resultList.innerHTML = '';
+      data.items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'result-card';
+        el.innerHTML = `
+          <div class="result-title"></div>
+          <div class="result-desc"></div>
+          <div class="result-actions">
+            <button class="text-btn insert" data-text=""></button>
+            <button class="text-btn">查看详情</button>
+          </div>`;
+        el.querySelector('.result-title').textContent = item.title;
+        el.querySelector('.result-desc').textContent = item.desc;
+        const actionBtn = el.querySelector('.insert');
+        actionBtn.textContent = item.action;
+        actionBtn.dataset.text = item.text;
+        resultList.appendChild(el);
+      });
+      resultArea.classList.add('show');
+      bindActionButtons(resultList);
+    }
+
+    openAssistBtn.onclick = () => {
+      assistPop.classList.add('show');
+      if(!assistPop.style.left && !assistPop.style.top){
+        assistPop.style.right = '24px';
+        assistPop.style.bottom = '24px';
+      }
+    };
+    closeAssistBtn.onclick = () => assistPop.classList.remove('show');
+    document.getElementById('caseBtn').onclick = () => renderResults('case');
+    document.getElementById('docBtn').onclick = () => renderResults('doc');
+    document.getElementById('errBtn').onclick = () => renderResults('err');
+    document.getElementById('verifyBtn').onclick = () => renderResults('verify');
+    document.getElementById('genBtn').onclick = () => insertText('【辅助排查】当前建议先补齐生产请求参数、demo 验证结论、预览/转换日志与问题文件截图。若补齐后仍无法定位，可携带上述证据升级二线进一步分析。');
+    bindActionButtons();
+
+    // resize support（右下角拖拽拉大/缩小）
+    (function(){
+      let resizing=false, startX=0, startY=0, startWidth=0, startHeight=0, startLeft=0, startTop=0;
+      const minWidth = 320;
+      const minHeight = 260;
+
+      resizeHandle.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        resizing = true;
+        const rect = assistPop.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = rect.width;
+        startHeight = rect.height;
+        startLeft = rect.left;
+        startTop = rect.top;
+        assistPop.style.right = 'auto';
+        assistPop.style.bottom = 'auto';
+        assistPop.style.left = startLeft + 'px';
+        assistPop.style.top = startTop + 'px';
+        assistPop.style.height = startHeight + 'px';
+        document.body.style.userSelect = 'none';
+      });
+
+      document.addEventListener('mousemove', (e)=>{
+        if(!resizing) return;
+        const maxWidth = window.innerWidth - startLeft;
+        const maxHeight = window.innerHeight - startTop;
+        const nextWidth = Math.max(minWidth, Math.min(startWidth + e.clientX - startX, maxWidth));
+        const nextHeight = Math.max(minHeight, Math.min(startHeight + e.clientY - startY, maxHeight));
+        assistPop.style.width = nextWidth + 'px';
+        assistPop.style.height = nextHeight + 'px';
+      });
+
+      document.addEventListener('mouseup', ()=>{
+        if(!resizing) return;
+        resizing = false;
+        document.body.style.userSelect = '';
+      });
+    })();
+
+    // drag support（全局拖动，不受容器限制）
+    (function(){
+      let isDown=false, startX=0, startY=0, startLeft=0, startTop=0;
+      dragHandle.addEventListener('mousedown', (e)=>{
+        isDown=true;
+        const rect = assistPop.getBoundingClientRect();
+        startX=e.clientX; startY=e.clientY;
+        startLeft=rect.left; startTop=rect.top;
+        assistPop.style.right='auto'; assistPop.style.bottom='auto';
+        assistPop.style.left = startLeft + 'px';
+        assistPop.style.top = startTop + 'px';
+        document.body.style.userSelect='none';
+      });
+      document.addEventListener('mousemove', (e)=>{
+        if(!isDown) return;
+        let newLeft = startLeft + (e.clientX - startX);
+        let newTop = startTop + (e.clientY - startY);
+        const maxLeft = window.innerWidth - assistPop.offsetWidth;
+        const maxTop = window.innerHeight - assistPop.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+        assistPop.style.left = newLeft + 'px';
+        assistPop.style.top = newTop + 'px';
+      });
+      document.addEventListener('mouseup', ()=>{
+        isDown=false;
+        document.body.style.userSelect='';
+      });
+    })();
+
+    document.addEventListener('click', e => {
+      if(assistPop.classList.contains('show') && !assistPop.contains(e.target) && !openAssistBtn.contains(e.target)) {
+        assistPop.classList.remove('show');
+      }
+    });
+
+    // Lightweight smoke tests.
+    (function runSmokeTests(){
+      console.assert(typeof bindActionButtons === 'function', 'bindActionButtons should exist');
+      console.assert(Object.keys(mockData).length === 4, 'mockData should include case/doc/err/verify');
+      const before = resultList.children.length;
+      renderResults('err');
+      console.assert(resultList.children.length === 2, 'err mock should render 2 result cards');
+      console.assert(resultList.querySelectorAll('.insert').length === 2, 'rendered cards should have insert actions');
+      console.assert(!!resizeHandle, 'resize handle should exist');
+      resultArea.classList.remove('show');
+      resultList.innerHTML = '';
+      console.assert(before === 0, 'result list should start empty before smoke render');
+    })();
+  </script>
+</body>
+</html>

@@ -16,3 +16,8 @@ logs/
 manual_verification_tmp/
 .tmp_test/
 *.db
+chattodo-cross-packager/tmp/
+chattodo-cross-packager/work/
+
+# Local Netlify folder
+.netlify

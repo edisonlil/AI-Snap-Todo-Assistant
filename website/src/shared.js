@@ -1,4 +1,5 @@
 import { docsNav, siteMeta } from "./site.config.js";
+import logoUrl from "../images/aica_icon.png";
 
 export function getBasePath() {
   return document.body.dataset.base || ".";
@@ -11,23 +12,25 @@ export function pageLink(path) {
 export function buildHeader(current) {
   const docsHref = current === "home" ? "./docs/index.html" : "../docs/index.html";
   const homeHref = current === "home" ? "./index.html" : "../index.html";
+  const workflowHref = current === "home" ? "#workflow" : "../index.html#workflow";
   const featureHref = current === "home" ? "#features" : "../index.html#features";
   const downloadHref =
     current === "home" ? "./docs/installation.html#download" : "./installation.html#download";
 
   return `
     <header class="site-header">
-      <a class="brand-lockup" href="${homeHref}">
-        <span class="brand-orb"></span>
+      <a class="brand-lockup" href="${homeHref}" aria-label="${siteMeta.brand} 首页">
+        <img class="brand-logo" src="${logoUrl}" alt="" aria-hidden="true" />
         <span>
           <strong>${siteMeta.brand}</strong>
           <small>${siteMeta.badge}</small>
         </span>
       </a>
       <nav class="top-nav" aria-label="主导航">
-        <a href="${featureHref}">产品特性</a>
-        <a href="${docsHref}">使用文档</a>
-        <a href="${downloadHref}">下载/获取</a>
+        <a href="${workflowHref}">工作流</a>
+        <a href="${featureHref}">能力</a>
+        <a href="${docsHref}">文档</a>
+        <a href="${downloadHref}">下载</a>
       </nav>
     </header>
   `;
@@ -36,13 +39,33 @@ export function buildHeader(current) {
 export function buildFooter() {
   return `
     <footer class="site-footer">
-      <div>
-        <strong>${siteMeta.brand}</strong>
-        <p>${siteMeta.description}</p>
-      </div>
-      <p>${siteMeta.footerNote}</p>
+      <strong>${siteMeta.brand}</strong>
+      <p>${siteMeta.description}</p>
     </footer>
   `;
+}
+
+const docsNavTree = [
+  {
+    title: "开始",
+    items: ["index", "getting-started", "installation", "configuration"],
+  },
+  {
+    title: "问题处理流程",
+    items: ["capture-todos", "timeline-attachments", "assist-troubleshooting", "log-analysis"],
+  },
+  {
+    title: "团队能力",
+    items: ["project-environments", "knowledge-archive", "external-sync"],
+  },
+  {
+    title: "支持",
+    items: ["features", "faq"],
+  },
+];
+
+function getDocNavItem(key) {
+  return docsNav.find((item) => item.key === key);
 }
 
 export function buildDocsSidebar(currentKey) {
@@ -50,16 +73,30 @@ export function buildDocsSidebar(currentKey) {
     <aside class="docs-sidebar">
       <div class="docs-sidebar-head">
         <span class="eyebrow">Documentation</span>
-        <h2>基础用户文档</h2>
-        <p>先完成安装、配置和第一条待办闭环，再逐步引入更复杂的团队流程。</p>
+        <h2>Chattodo 文档</h2>
       </div>
-      <nav class="docs-sidebar-nav" aria-label="文档导航">
-        ${docsNav
+      <nav class="docs-sidebar-nav docs-tree" aria-label="文档导航">
+        ${docsNavTree
           .map(
-            (item) => `
-              <a class="${item.key === currentKey ? "active" : ""}" href="./${item.href}">
-                <span>${item.title}</span>
-              </a>
+            (group) => `
+              <section class="docs-tree-group">
+                <h3>${group.title}</h3>
+                <ul>
+                  ${group.items
+                    .map(getDocNavItem)
+                    .filter(Boolean)
+                    .map(
+                      (item) => `
+                        <li>
+                          <a class="${item.key === currentKey ? "active" : ""}" href="./${item.href}">
+                            <span>${item.title}</span>
+                          </a>
+                        </li>
+                      `,
+                    )
+                    .join("")}
+                </ul>
+              </section>
             `,
           )
           .join("")}
@@ -77,6 +114,19 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+export function renderInline(value) {
+  return String(value)
+    .split(/(`[^`]+`)/g)
+    .map((part) => {
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+      }
+
+      return escapeHtml(part);
+    })
+    .join("");
+}
+
 export function renderBlocks(blocks) {
   return blocks
     .map((block) => {
@@ -85,7 +135,7 @@ export function renderBlocks(blocks) {
       }
 
       if (block.type === "list") {
-        return `<ul class="prose-list">${block.items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+        return `<ul class="prose-list">${block.items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</ul>`;
       }
 
       if (block.type === "code") {
@@ -97,11 +147,46 @@ export function renderBlocks(blocks) {
         `;
       }
 
+      if (block.type === "steps") {
+        return `
+          <ol class="steps-list">
+            ${block.items
+              .map(
+                (item, index) => `
+                  <li>
+                    <span>${String(index + 1).padStart(2, "0")}</span>
+                    <p>${renderInline(item)}</p>
+                  </li>
+                `,
+              )
+              .join("")}
+          </ol>
+        `;
+      }
+
+      if (block.type === "workflow") {
+        return `
+          <div class="doc-workflow">
+            ${block.items
+              .map(
+                (item) => `
+                  <article>
+                    <span>${item.step}</span>
+                    <h3>${item.title}</h3>
+                    <p>${item.body}</p>
+                  </article>
+                `,
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
       if (block.type === "callout") {
         return `
           <div class="callout callout-${block.tone || "muted"}">
-            <strong>${block.title}</strong>
-            <p>${block.text}</p>
+            <strong>${renderInline(block.title)}</strong>
+            <p>${renderInline(block.text)}</p>
           </div>
         `;
       }
@@ -113,8 +198,8 @@ export function renderBlocks(blocks) {
               .map(
                 (item) => `
                   <details class="faq-item">
-                    <summary>${item.question}</summary>
-                    <p>${item.answer}</p>
+                    <summary>${renderInline(item.question)}</summary>
+                    <p>${renderInline(item.answer)}</p>
                   </details>
                 `,
               )

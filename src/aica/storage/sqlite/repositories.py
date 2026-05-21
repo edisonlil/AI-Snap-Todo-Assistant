@@ -11,7 +11,7 @@ from typing import Any
 from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
 from aica.project_management import is_project_active
-from aica.log_analysis_models import LogAnalysisTask
+from aica.log_analysis.models import LogAnalysisTask
 from aica.storage.adapters import (
     build_project_link,
     build_todo_item,
@@ -23,10 +23,10 @@ from aica.storage.adapters import (
 )
 from aica.storage.contracts import ProjectMatchResult, ProjectRecord
 from aica.text_sanitize import sanitize_text
-from aica.todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "14"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -63,6 +63,10 @@ def _load_schema_sql() -> str:
 def _has_column(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     return any(str(row["name"] or "") == column_name for row in rows)
+
+
+def _table_info(connection: sqlite3.Connection, table_name: str) -> list[sqlite3.Row]:
+    return list(connection.execute(f"PRAGMA table_info({table_name})").fetchall())
 
 
 def _is_project_active(support_ended_at: str, *, now: str | None = None) -> bool:
@@ -147,6 +151,7 @@ class SQLiteStorageMigrator:
             if not _has_column(connection, "log_analysis_tasks", column_name):
                 connection.execute(f"ALTER TABLE log_analysis_tasks ADD COLUMN {column_name} {column_def}")
         todo_columns = {
+            "sort_order": "INTEGER NOT NULL DEFAULT 0",
             "product_line": "TEXT NOT NULL DEFAULT ''",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
             "ach_filled_at": "TEXT NOT NULL DEFAULT ''",
@@ -163,6 +168,139 @@ class SQLiteStorageMigrator:
         for column_name, column_def in todo_columns.items():
             if not _has_column(connection, "todos", column_name):
                 connection.execute(f"ALTER TABLE todos ADD COLUMN {column_name} {column_def}")
+        if not _has_column(connection, "todos", "sort_order"):
+            return
+        connection.execute(
+            """
+            UPDATE todos
+            SET sort_order = COALESCE(
+              (
+                SELECT COUNT(*)
+                FROM todos AS newer
+                WHERE newer.status = todos.status
+                  AND (
+                    newer.updated_at > todos.updated_at
+                    OR (newer.updated_at = todos.updated_at AND newer.id > todos.id)
+                  )
+              ),
+              0
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_todos_open_sort_order ON todos(status, sort_order, updated_at DESC)"
+        )
+        self._migrate_project_environments_scope(connection)
+        connection.execute(
+            """
+            UPDATE environment_access_entries
+            SET access_type = 'web'
+            WHERE TRIM(LOWER(COALESCE(access_type, ''))) IN ('', 'http', 'https', 'web')
+            """
+        )
+
+    def _migrate_project_environments_scope(self, connection: sqlite3.Connection) -> None:
+        columns = _table_info(connection, "project_environments")
+        if not columns:
+            return
+        has_scope = any(str(row["name"] or "") == "scope" for row in columns)
+        project_id_info = next((row for row in columns if str(row["name"] or "") == "project_id"), None)
+        project_id_not_null = bool(project_id_info["notnull"]) if project_id_info is not None else False
+        if has_scope and not project_id_not_null:
+            connection.execute(
+                "UPDATE project_environments SET scope='project' WHERE TRIM(COALESCE(scope, '')) = ''"
+            )
+            return
+
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("ALTER TABLE environment_access_entries RENAME TO environment_access_entries_old")
+        connection.execute("ALTER TABLE project_environments RENAME TO project_environments_old")
+        connection.execute(
+            """
+            CREATE TABLE project_environments (
+              id TEXT PRIMARY KEY,
+              project_id TEXT DEFAULT '',
+              env_name TEXT NOT NULL,
+              scope TEXT NOT NULL DEFAULT 'project',
+              env_type TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK(scope IN ('global', 'project')),
+              CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO project_environments(
+              id, project_id, env_name, scope, env_type, sort_order,
+              is_active, note, created_at, updated_at
+            )
+            SELECT
+              id,
+              COALESCE(project_id, ''),
+              env_name,
+              'project',
+              COALESCE(env_type, ''),
+              COALESCE(sort_order, 0),
+              COALESCE(is_active, 1),
+              COALESCE(note, ''),
+              COALESCE(created_at, ''),
+              COALESCE(updated_at, '')
+            FROM project_environments_old
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE environment_access_entries (
+              id TEXT PRIMARY KEY,
+              environment_id TEXT NOT NULL,
+              access_name TEXT NOT NULL,
+              access_type TEXT NOT NULL DEFAULT '',
+              url_or_host TEXT NOT NULL DEFAULT '',
+              username TEXT NOT NULL DEFAULT '',
+              password_encrypted TEXT NOT NULL DEFAULT '',
+              otp_secret_encrypted TEXT NOT NULL DEFAULT '',
+              requires_otp INTEGER NOT NULL DEFAULT 0,
+              note TEXT NOT NULL DEFAULT '',
+              open_command TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(environment_id) REFERENCES project_environments(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO environment_access_entries(
+              id, environment_id, access_name, access_type, url_or_host,
+              username, password_encrypted, otp_secret_encrypted,
+              requires_otp, note, open_command, sort_order, is_active,
+              created_at, updated_at
+            )
+            SELECT
+              id, environment_id, access_name, COALESCE(access_type, ''), COALESCE(url_or_host, ''),
+              COALESCE(username, ''), COALESCE(password_encrypted, ''), COALESCE(otp_secret_encrypted, ''),
+              COALESCE(requires_otp, 0), COALESCE(note, ''), COALESCE(open_command, ''), COALESCE(sort_order, 0),
+              COALESCE(is_active, 1), COALESCE(created_at, ''), COALESCE(updated_at, '')
+            FROM environment_access_entries_old
+            """
+        )
+        connection.execute("DROP TABLE environment_access_entries_old")
+        connection.execute("DROP TABLE project_environments_old")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_environments_project ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_environment_access_entries_environment ON environment_access_entries(environment_id, is_active, sort_order, updated_at DESC)"
+        )
+        connection.execute("PRAGMA foreign_keys = ON")
 
     def get_schema_version(self) -> str:
         self.ensure_schema()
@@ -1133,6 +1271,28 @@ class SQLiteTodoRepository:
                     self._insert_conclusion_attachment(connection, sanitized_id, attachment)
         if summary_fields is not None and updated_group_name != str(row["group_name"]):
             self._refresh_project_link(sanitized_id, updated_group_name)
+        return self.get_todo(sanitized_id)
+
+    def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
+        sanitized_id = sanitize_text(todo_id)
+        if not sanitized_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM todos WHERE id = ?",
+                (sanitized_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            stamp = now_iso()
+            connection.execute(
+                "DELETE FROM todo_project_links WHERE todo_id = ?",
+                (sanitized_id,),
+            )
+            connection.execute(
+                "UPDATE todos SET product_line = '', ticket_version = '', updated_at = ? WHERE id = ?",
+                (stamp, sanitized_id),
+            )
         return self.get_todo(sanitized_id)
 
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:

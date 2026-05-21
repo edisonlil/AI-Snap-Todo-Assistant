@@ -3,45 +3,42 @@ import "./styles.css";
 import { faqItems, homeContent, siteMeta } from "./site.config.js";
 import { buildFooter, buildHeader } from "./shared.js";
 
-document.title = `${siteMeta.brand} · 官网`;
+document.title = `${siteMeta.brand} - 截图驱动的 AI 待办工作台`;
 
 const app = document.querySelector("#app");
 
 app.innerHTML = `
   <div class="site-shell">
     ${buildHeader("home")}
-    <main>
-      <section class="hero-grid">
-        <div class="hero-copy reveal">
-          <span class="hero-badge">${siteMeta.badge}</span>
-          <h1>把截图变成真正能推进的任务上下文。</h1>
-          <p class="hero-summary">
-            ${siteMeta.brand} 把聊天记录、报错现场和后续动作收拢到一条连续时间线里，
-            让技术支持、售后、实施和交付团队不再反复整理同一件事。
-          </p>
+    <main class="home-main">
+      <section class="hero-section reveal">
+        <div class="hero-copy">
+          <span class="hero-badge">${homeContent.hero.label}</span>
+          <h1>${homeContent.hero.title}</h1>
+          <p class="hero-summary">${homeContent.hero.summary}</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="./docs/installation.html#download">下载/获取</a>
-            <a class="button button-secondary" href="./docs/index.html">查看文档</a>
+            <a class="button button-primary" href="${homeContent.hero.primaryHref}">${homeContent.hero.primaryCta}</a>
+            <a class="button button-secondary" href="${homeContent.hero.secondaryHref}">${homeContent.hero.secondaryCta}</a>
           </div>
-          <div class="hero-stats">
-            ${homeContent.heroStats
-              .map(
-                (item) => `
-                  <div class="stat-card">
-                    <strong>${item.value}</strong>
-                    <span>${item.label}</span>
-                  </div>
-                `,
-              )
-              .join("")}
-          </div>
+        </div>
+        <div class="hero-stats">
+          ${homeContent.stats
+            .map(
+              (item) => `
+                <div class="stat-card">
+                  <strong>${item.value}</strong>
+                  <span>${item.label}</span>
+                </div>
+              `,
+            )
+            .join("")}
         </div>
       </section>
 
-      <section class="section-block reveal">
+      <section class="section-block section-split intro-section reveal">
         <div class="section-intro">
           <span class="eyebrow">Why Chattodo</span>
-          <h2>截图工具解决采集，待办工具解决记录，Chattodo 解决的是持续推进。</h2>
+          <h1>为问题处理团队设计，不是又一个泛用清单</h1>
         </div>
         <div class="value-grid">
           ${homeContent.values
@@ -57,32 +54,12 @@ app.innerHTML = `
         </div>
       </section>
 
-      <section class="section-block reveal" id="features">
-        <div class="section-intro">
-          <span class="eyebrow">Core Features</span>
-          <h2>首版官网聚焦五类核心能力，全部来自当前项目已有事实能力。</h2>
-        </div>
-        <div class="feature-grid">
-          ${homeContent.features
-            .map(
-              (item) => `
-                <article class="feature-card feature-${item.accent}">
-                  <span class="card-index">0${homeContent.features.indexOf(item) + 1}</span>
-                  <h3>${item.title}</h3>
-                  <p>${item.body}</p>
-                </article>
-              `,
-            )
-            .join("")}
-        </div>
-      </section>
-
-      <section class="section-block reveal">
+      <section class="section-block workflow-section reveal" id="workflow">
         <div class="section-intro">
           <span class="eyebrow">Workflow</span>
-          <h2>一条适合现场团队的四步闭环。</h2>
+          <h2>从问题进入视野，到经验留在团队里</h2>
         </div>
-        <div class="workflow-grid">
+        <div class="workflow-list">
           ${homeContent.workflow
             .map(
               (item) => `
@@ -97,20 +74,61 @@ app.innerHTML = `
         </div>
       </section>
 
-      <section class="section-block reveal">
+      <section class="section-block feature-section reveal" id="features">
         <div class="section-intro">
-          <span class="eyebrow">Built For</span>
-          <h2>这些岗位最容易从 Chattodo 的时间线化工作流里受益。</h2>
+          <span class="eyebrow">Core Features</span>
+          <h2>把分散工具里的上下文收回到待办本身</h2>
         </div>
-        <div class="audience-row">
-          ${homeContent.audiences.map((item) => `<span>${item}</span>`).join("")}
+        <div class="feature-grid">
+          ${homeContent.capabilities
+            .map(
+              (item, index) => `
+                <article class="feature-card">
+                  <span class="card-index">${String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <h3>${item.title}</h3>
+                    <p>${item.body}</p>
+                  </div>
+                </article>
+              `,
+            )
+            .join("")}
         </div>
       </section>
 
-      <section class="section-block reveal" id="download">
+      <section class="section-block audience-section reveal">
         <div class="section-intro">
-          <span class="eyebrow">Download / Access</span>
-          <h2>把下载安装和上手路径讲清楚，就能让它更像一款真正交付的软件。</h2>
+          <span class="eyebrow">Built For</span>
+          <h2>适合每天处理问题、验证和排障的人</h2>
+        </div>
+        <div class="audience-grid">
+          ${homeContent.audiences
+            .map(
+              (item) => `
+                <article class="audience-card">
+                  <h3>${item.title}</h3>
+                  <p>${item.body}</p>
+                </article>
+              `,
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <section class="section-block scenario-band reveal">
+        <div class="section-intro">
+          <span class="eyebrow">Scenarios</span>
+          <h2>典型使用场景</h2>
+        </div>
+        <div class="scenario-list">
+          ${homeContent.scenarios.map((item) => `<p>${item}</p>`).join("")}
+        </div>
+      </section>
+
+      <section class="section-block download-band reveal" id="download">
+        <div>
+          <span class="eyebrow">Start</span>
+          <h2>先从一次截图创建待办开始</h2>
         </div>
         <div class="download-grid">
           ${homeContent.downloadCards
@@ -130,11 +148,10 @@ app.innerHTML = `
       <section class="section-block reveal">
         <div class="section-intro">
           <span class="eyebrow">FAQ</span>
-          <h2>先把第一次接触这个产品时最容易问到的问题说清楚。</h2>
+          <h2>常见问题</h2>
         </div>
         <div class="faq-preview-grid">
           ${faqItems
-            .slice(0, 5)
             .map(
               (item) => `
                 <article class="faq-preview-card">

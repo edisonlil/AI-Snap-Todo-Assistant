@@ -412,7 +412,7 @@ Rectangle {
     }
 
     Shortcut {
-        sequence: StandardKey.Paste
+        sequences: [StandardKey.Paste]
         enabled: addTimelineEdit.activeFocus || root.activeAttachmentEventId.length > 0
         onActivated: {
             if (addTimelineEdit.activeFocus) {
@@ -492,31 +492,6 @@ Rectangle {
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 10
-
-                    Rectangle {
-                        width: exportText.implicitWidth + 24
-                        height: 32
-                        radius: 16
-                        color: "#FFFFFF"
-                        border.width: 1
-                        border.color: root.fieldLine
-
-                        Text {
-                            id: exportText
-                            anchors.centerIn: parent
-                            text: "导出方案"
-                            color: root.bodyInk
-                            font.family: root.uiFont
-                            font.pixelSize: 12
-                            font.weight: 700
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: todoDetailBridge.exportPlan()
-                        }
-                    }
 
                     Rectangle {
                         width: closeText.implicitWidth + 24
@@ -1159,7 +1134,7 @@ Rectangle {
 
                         Item {
                             width: parent.width
-                            height: 26
+                            height: 32
 
                             Text {
                                 anchors.left: parent.left
@@ -1185,12 +1160,12 @@ Rectangle {
                             Row {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 12
+                                spacing: 6
 
                                 Rectangle {
-                                    width: summaryToggleText.implicitWidth + 24
-                                    height: 30
-                                    radius: 15
+                                    width: summaryToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
                                     color: todoDetailBridge.stageSummaryVisible ? root.accent : "#FFFFFF"
                                     border.width: 1
                                     border.color: todoDetailBridge.stageSummaryVisible ? root.accent : root.fieldLine
@@ -1213,9 +1188,34 @@ Rectangle {
                                 }
 
                                 Rectangle {
-                                    width: timelineToggleText.implicitWidth + 20
-                                    height: 30
-                                    radius: 15
+                                    width: assistToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
+                                    color: todoDetailBridge.assistTroubleshootingVisible ? root.accent : "#FFFFFF"
+                                    border.width: 1
+                                    border.color: todoDetailBridge.assistTroubleshootingVisible ? root.accent : root.fieldLine
+
+                                    Text {
+                                        id: assistToggleText
+                                        anchors.centerIn: parent
+                                        text: "辅助排查"
+                                        color: todoDetailBridge.assistTroubleshootingVisible ? "#FFFFFF" : root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: todoDetailBridge.toggleAssistTroubleshooting()
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: timelineToggleText.implicitWidth + 18
+                                    height: 28
+                                    radius: 14
                                     color: "#FFFFFF"
                                     border.width: 1
                                     border.color: root.fieldLine
@@ -1226,8 +1226,8 @@ Rectangle {
                                         text: todoDetailBridge.timelineExpanded ? "收起" : "展开"
                                         color: root.bodyInk
                                         font.family: root.uiFont
-                                        font.pixelSize: 12
-                                        font.weight: 700
+                                        font.pixelSize: 11
+                                        font.weight: root.labelWeight
                                     }
 
                                     MouseArea {

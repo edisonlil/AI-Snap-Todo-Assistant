@@ -127,7 +127,7 @@ class FeaturePointProviderConfig:
     enabled: bool = True
     provider: str = "http"
     base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
-    api_key: str = ""
+    api_key: str = "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY"
     timeout_seconds: int = 500
 
     @classmethod
@@ -138,7 +138,7 @@ class FeaturePointProviderConfig:
             enabled=bool(data.get("enabled", False)),
             provider=str(data.get("provider", "http")).strip() or "http",
             base_url=str(data.get("base_url", "")).strip(),
-            api_key=str(data.get("api_key", "")).strip(),
+            api_key=str(data.get("api_key", "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY")).strip(),
             timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 5),
         )
 
@@ -360,7 +360,7 @@ def _normalize_task_bindings(bindings: TaskModelBindings, providers: list[Provid
             defaults.log_analysis if bindings.log_analysis.provider_id and bindings.log_analysis.model_id else defaults.analysis,
             "vision_chat",
         ),
-        plan_export=normalize(bindings.plan_export, defaults.plan_export, "vision_chat"),
+        plan_export=normalize(bindings.plan_export, defaults.plan_export, "text_chat"),
         context_summary=normalize(
             bindings.context_summary,
             defaults.context_summary if bindings.context_summary.provider_id and bindings.context_summary.model_id else defaults.context_summary,

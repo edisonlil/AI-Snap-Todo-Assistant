@@ -1,13 +1,14 @@
 ﻿"""AI workers: screenshot analysis and feedback optimization."""
 import base64
+import filecmp
 import json
-import mimetypes
 import os
 import re
 import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -69,26 +70,37 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def end(self):
             return None
 
-from .analysis_rules import AnalysisRulesManager, PromptDebugStore
-from .analysis_intent import AnalysisIntent, build_analysis_intent
-from .analysis_metrics import AnalysisRunStats
-from .analysis_strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
-from .context_summary_models import ContextSummaryRequest, build_context_summary_request_for_todo
-from .context_summary_service import ContextSummaryService, format_summary_for_analysis_context
+from .analysis.rules import AnalysisRulesManager, PromptDebugStore
+from .analysis.intent import AnalysisIntent, build_analysis_intent
+from .analysis.metrics import AnalysisRunStats
+from .analysis.strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
+from .todo.assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
+from .case_search import (
+    CaseSearchProvider,
+    KDocsSseCaseSearchProvider,
+    build_case_search_queries,
+    build_case_search_request,
+    empty_case_result,
+    loading_case_result,
+    rank_case_search_result,
+)
+from .context_summary.models import ContextSummaryRequest, build_context_summary_request_for_todo
+from .context_summary.service import ContextSummaryService, format_summary_for_analysis_context
+from .error_codes import ErrorCodeLookupService
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
 from .models import TicketSummaryFields
 from .parser import ResultParser
 from .text_sanitize import sanitize_text
-from .todo_models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
+from .todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 PLAN_EXPORT_MODEL = "Qwen/Qwen2.5-VL-72B-Instruct"
 _PLAN_EXPORT_SYSTEM_PROMPT = (
-    "你是一位资深的B端技术支持与实施专家，负责基于待办上下文输出可执行的处理方案。"
-    "你的输出会直接保存为 Markdown 文档发给同事或客户，因此必须结构清晰、专业准确、可落地。"
+    "你是一位资深的 B 端技术支持与实施专家，负责把待办上下文整理成可复用的解决方案知识条目。"
+    "你的输出会保存为 Markdown 文档，用于后续构建本地知识库、检索相似问题和复盘处理经验。"
+    "文档必须优先沉淀稳定元数据、问题描述、解决过程和问题结论；表达要专业、克制、可检索，不能编造上下文中没有的事实。"
 )
-_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS = 6
 _STAGE_SUMMARY_REWRITE_SYSTEM_PROMPT = (
     "你是一位阶段总结整理助手。"
     "你只能基于已有总结做轻量调整，只允许压缩、重排和调整口吻。"
@@ -231,17 +243,6 @@ def _group_plan_export_attachment_entries(
     return grouped_entries
 
 
-def _encode_local_image_to_data_url(path: str) -> str:
-    source = Path(str(path or "")).expanduser()
-    if not source.is_file():
-        return ""
-    mime_type, _ = mimetypes.guess_type(str(source))
-    if not mime_type or not mime_type.startswith("image/"):
-        return ""
-    encoded = base64.b64encode(source.read_bytes()).decode("utf-8")
-    return f"data:{mime_type};base64,{encoded}"
-
-
 def _build_plan_export_timeline_lines(todo_payload: dict[str, object]) -> list[str]:
     timeline_payload = todo_payload.get("timeline", [])
     timeline_lines: list[str] = []
@@ -269,6 +270,63 @@ def build_plan_export_timeline_markdown(todo_payload: dict[str, object]) -> str:
     if not timeline_lines:
         return "## 时间线回顾\n\n- 暂无时间线记录"
     return "## 时间线回顾\n\n" + "\n".join(f"- {line}" for line in timeline_lines)
+
+
+def _plan_export_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _build_plan_export_metadata_lines(
+    summary_fields: dict[str, object],
+    todo_payload: dict[str, object],
+) -> list[str]:
+    project_link = todo_payload.get("project_link", {})
+    project_snapshot: dict[str, object] = {}
+    project_status = ""
+    project_reason = ""
+    project_alias = ""
+    if isinstance(project_link, dict):
+        project_snapshot_payload = project_link.get("project_snapshot", {})
+        if isinstance(project_snapshot_payload, dict):
+            project_snapshot = project_snapshot_payload
+        project_status = _plan_export_text(project_link.get("match_status"))
+        project_reason = _plan_export_text(project_link.get("match_reason"))
+        project_alias = _plan_export_text(project_link.get("matched_alias"))
+
+    def _summary_or_snapshot(summary_key: str, snapshot_key: str = "") -> str:
+        value = _plan_export_text(summary_fields.get(summary_key))
+        if value:
+            return value
+        return _plan_export_text(project_snapshot.get(snapshot_key or summary_key))
+
+    product_line = _summary_or_snapshot("product_line")
+    ticket_version = _summary_or_snapshot("ticket_version", "product_version")
+    lines = [
+        f"工单标题: {_plan_export_text(todo_payload.get('title'))}",
+        f"群聊名称: {_plan_export_text(summary_fields.get('group_name'))}",
+        f"环境: {_plan_export_text(summary_fields.get('environment'))}",
+        f"产品线: {product_line}",
+        f"版本号: {ticket_version}",
+        f"功能点: {_plan_export_text(summary_fields.get('feature_point'))}",
+        f"工单类型: {_plan_export_text(summary_fields.get('ticket_type'))}",
+        f"根因分类: {_plan_export_text(summary_fields.get('root_cause'))}",
+        f"根因说明: {_plan_export_text(summary_fields.get('root_cause_desc'))}",
+    ]
+    if project_snapshot or project_status:
+        lines.extend(
+            [
+                f"关联项目状态: {project_status}",
+                f"项目名: {_plan_export_text(project_snapshot.get('project_name'))}",
+                f"项目编号: {_plan_export_text(project_snapshot.get('task_order_no'))}",
+                f"项目客户: {_plan_export_text(project_snapshot.get('customer_name'))}",
+                f"项目经理: {_plan_export_text(project_snapshot.get('project_manager'))}",
+                f"项目级别: {_plan_export_text(project_snapshot.get('project_level'))}",
+                f"项目别名: {project_alias}",
+                f"项目匹配说明: {project_reason}",
+            ]
+        )
+    lines.append(f"当前摘要: {_plan_export_text(todo_payload.get('current_summary'))}")
+    return lines
 
 
 class _BaseVisionWorker(QThread):
@@ -468,66 +526,50 @@ class _BaseVisionWorker(QThread):
 def build_plan_export_messages(todo_payload: dict[str, object]) -> list[Message]:
     summary_fields = todo_payload.get("summary_fields")
     if isinstance(summary_fields, dict):
-        group_name = str(summary_fields.get("group_name", "")).strip()
-        environment = str(summary_fields.get("environment", "")).strip()
-        product_line = str(summary_fields.get("product_line", "")).strip()
-        ticket_type = str(summary_fields.get("ticket_type", "")).strip()
+        normalized_summary_fields = summary_fields
     else:
-        group_name = ""
-        environment = ""
-        product_line = ""
-        ticket_type = ""
+        normalized_summary_fields = {}
 
     timeline_lines = _build_plan_export_timeline_lines(todo_payload)
     timeline_text = "\n".join(timeline_lines) if timeline_lines else "暂无时间线记录"
+    metadata_text = "\n".join(_build_plan_export_metadata_lines(normalized_summary_fields, todo_payload))
     user_prompt = (
-        "请基于以下待办信息，编写一份可直接导出的 Markdown 处理方案。\n"
-        "只输出 Markdown 正文，不要解释，不要输出代码块围栏。\n"
-        "要求：\n"
-        "1. 文档包含标题，并尽量使用以下二级标题：问题概述、现状分析、处理方案、执行步骤、风险与注意事项、结论。\n"
-        "2. 内容要结合待办现状和时间线，避免脱离上下文的空泛表述。\n"
-        "3. 如果关键信息不足，要明确写出待确认项，不要编造事实。\n"
-        "4. 方案偏向企业内部协作场景，兼顾排查、执行、沟通和交付。\n"
-        "5. 使用简体中文，表达专业、可执行，适合保存归档。\n\n"
-        "6. 必须包含“时间线回顾”或等价小节，并且每个时间线节点都要保留明确时间点，格式优先使用 `[YYYY-MM-DDTHH:MM:SS]`。\n"
-        "7. 如果时间线里带有附件，要把附件内容纳入现状分析、处理方案或执行步骤，不要忽略附件提供的信息。\n\n"
-        f"待办标题: {str(todo_payload.get('title', '')).strip()}\n"
-        f"群聊名称: {group_name}\n"
-        f"环境: {environment}\n"
-        f"产品线: {product_line}\n"
-        f"工单类型: {ticket_type}\n"
-        f"当前摘要: {str(todo_payload.get('current_summary', '')).strip()}\n"
+        "请基于以下待办信息，重新编写一份可直接导出的 Markdown 解决方案知识条目。\n"
+        "只输出 Markdown 正文，不要解释，不要输出代码块围栏。\n\n"
+        "推荐文档结构：\n"
+        "# 解决方案标题\n"
+        "- 标题要包含产品或功能对象、问题现象和最终处理方向，方便知识库检索。\n\n"
+        "- 使用表格稳定记录以下字段：产品线、版本号、功能点、项目名、环境、工单类型、来源群聊。\n"
+        "- 上下文没有提供的字段统一写“未提供”或“待确认”，不要猜测。\n"
+        "- 功能点如无法从标题、摘要或时间线判断，写“未明确”。\n"
+        "- 版本号如未出现，写“未提供”；不要从环境或产品线推断版本。\n\n"
+        "## 问题描述\n"
+        "- 描述用户遇到的具体现象、触发场景、影响范围和可观察信息。\n"
+        "- 优先保留错误码、接口名、页面名、参数名、日志关键字、截图或附件名称等可检索线索。\n\n"
+        "## 解决过程\n"
+        "- 按处理思路整理：现象确认、信息收集、假设判断、验证过程、采取动作。\n"
+        "- 明确区分“已确认事实”“排查思路”“尝试过但无效/待验证的方向”。\n"
+        "- 时间线中有附件时，要说明附件对应的线索；无法读取内容时说明仅有附件名称。\n\n"
+        "## 问题结论\n"
+        "- 给出最终结论、根因或当前阶段判断。\n"
+        "- 如果尚未闭环，明确写“阶段性结论”和“待确认事项”，不要包装成最终结论。\n\n"
+        "## 复用建议\n"
+        "- 总结后续遇到相似问题时的识别关键词、快速判断方法和推荐处理步骤。\n"
+        "- 只沉淀可复用经验，不写泛泛的管理动作。\n\n"
+        "## 时间线回顾\n"
+        "- 必须保留每个时间线节点的明确时间点，优先使用 `[YYYY-MM-DDTHH:MM:SS]` 格式。\n"
+        "- 可以压缩措辞，但不要删除关键节点或改变事件顺序。\n\n"
+        "写作要求：\n"
+        "1. 使用简体中文，语气专业、清晰、适合知识库归档。\n"
+        "2. 重点沉淀“是什么问题、怎么分析、怎么解决、结论是什么”，不要写成项目推进计划。\n"
+        "3. 不要编造待办、时间线和附件中没有的信息；信息缺失时标记未提供、未明确或待确认。\n"
+        "4. Markdown 层级保持稳定，字段名称尽量固定，便于后续解析和检索。\n\n"
+        f"元数据:\n{metadata_text}\n"
         f"时间线:\n{timeline_text}"
     )
-    user_content: str | list[ContentPart] = user_prompt
-    image_entries = [
-        entry
-        for entry in _iter_plan_export_attachment_entries(todo_payload)
-        if entry.get("kind") == "image" and entry.get("path")
-    ]
-    image_content: list[ContentPart] = []
-    for entry in image_entries[:_PLAN_EXPORT_MAX_IMAGE_ATTACHMENTS]:
-        data_url = _encode_local_image_to_data_url(entry.get("path", ""))
-        if not data_url:
-            continue
-        image_content.append(
-            ContentPart(
-                type="text",
-                text=(
-                    f"附件图片，时间节点 [{entry['timestamp']}]，"
-                    f"场景 {entry['scenario']}，文件名 {entry['name']}。"
-                    f"{(' 关联说明：' + entry['content']) if entry['content'] else ''}"
-                ),
-            )
-        )
-        image_content.append(ContentPart(type="image_data_url", data_url=data_url))
-
-    if image_content:
-        user_content = [ContentPart(type="text", text=user_prompt), *image_content]
-
     return [
         Message(role="system", content=_PLAN_EXPORT_SYSTEM_PROMPT),
-        Message(role="user", content=user_content),
+        Message(role="user", content=user_prompt),
     ]
 
 
@@ -561,9 +603,21 @@ def _copy_plan_export_attachment(path: str, asset_dir: Path) -> Path | None:
         return None
     asset_dir.mkdir(parents=True, exist_ok=True)
     target = asset_dir / source.name
+    if target.exists():
+        try:
+            if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                return target
+        except OSError:
+            pass
     counter = 1
     while target.exists():
         target = asset_dir / f"{source.stem}_{counter}{source.suffix}"
+        if target.exists():
+            try:
+                if target.is_file() and filecmp.cmp(source, target, shallow=False):
+                    return target
+            except OSError:
+                pass
         counter += 1
     shutil.copy2(source, target)
     return target
@@ -586,7 +640,7 @@ def append_plan_export_timeline_visual_section(
     if not grouped_entries:
         return markdown
 
-    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    asset_dir = export_path.parent / "assets"
     section_lines = ["## 时间线图示", ""]
     has_content = False
 
@@ -635,7 +689,7 @@ def append_plan_export_attachment_section(
     if not attachment_entries:
         return markdown
 
-    asset_dir = export_path.with_name(f"{export_path.stem}_assets")
+    asset_dir = export_path.parent / "assets"
     section_lines = ["## 附件图示", ""]
     has_content = False
 
@@ -660,12 +714,6 @@ def append_plan_export_attachment_section(
     if "## 附件图示" in normalized:
         return normalized
     return f"{normalized}\n\n{attachment_markdown}".strip()
-
-
-def build_plan_export_filename(title: str) -> str:
-    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(title or "").strip())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
-    return f"{cleaned or '待办处理方案'}.md"
 
 
 def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
@@ -719,6 +767,315 @@ def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
         timeline=timeline,
         conclusion=conclusion,
     )
+
+
+_ASSIST_ANALYSIS_SYSTEM_PROMPT = (
+    "你是一个工单辅助排查分析助手。"
+    "你只能基于给定的问题描述、当前摘要、结论和时间线记录进行分析，不得编造错误码、日志、接口、根因或已完成动作。"
+    "信息状态只写已经排查过的方向和已有证据；仍需补充只写建议排查方向和需要补充的材料。"
+    "如果证据不足，必须明确保留不确定性，不要写成已确认根因。"
+)
+
+
+def _extract_json_object(text: str) -> dict[str, object]:
+    normalized = str(text or "").strip()
+    if normalized.startswith("```"):
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", normalized, re.IGNORECASE)
+        if match:
+            normalized = match.group(1).strip()
+    start = normalized.find("{")
+    end = normalized.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("response is not JSON")
+    payload = json.loads(normalized[start:end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("response is not a JSON object")
+    return payload
+
+
+def _coerce_assist_text(value: object, fallback: str = "") -> str:
+    normalized = sanitize_text(value).strip()
+    return normalized or fallback
+
+
+def _coerce_assist_items(value: object, *, body_key: str, max_items: int = 4) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                title = _coerce_assist_text(item.get("title"))
+                body = _coerce_assist_text(
+                    item.get(body_key) or item.get("evidence") or item.get("reason") or item.get("material")
+                )
+            else:
+                title = _coerce_assist_text(item)
+                body = ""
+            if not title:
+                continue
+            items.append({"title": title, body_key: body})
+            if len(items) >= max_items:
+                break
+    return items
+
+
+def _normalize_assist_analysis_payload(payload: object) -> dict[str, object]:
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    information = dict(data.get("informationStatus") or {}) if isinstance(data.get("informationStatus"), dict) else {}
+    missing = dict(data.get("missingSupplement") or {}) if isinstance(data.get("missingSupplement"), dict) else {}
+    upgrade = dict(data.get("upgradeSuggestion") or {}) if isinstance(data.get("upgradeSuggestion"), dict) else {}
+    return {
+        "summary": _coerce_assist_text(data.get("summary"), "当前证据仍不完整，建议先补齐关键信息后再判断是否升级。"),
+        "informationStatus": {
+            "recognized": _coerce_assist_text(information.get("recognized"), "已基于当前描述和时间线完成初步识别"),
+            "checkedDirections": _coerce_assist_items(information.get("checkedDirections"), body_key="evidence"),
+        },
+        "missingSupplement": {
+            "directions": _coerce_assist_items(missing.get("directions"), body_key="reason", max_items=5),
+        },
+        "upgradeSuggestion": {
+            "decision": _coerce_assist_text(upgrade.get("decision"), "暂不建议升级"),
+            "reason": _coerce_assist_text(upgrade.get("reason"), "当前缺少足够证据，建议先补齐问题现象、请求参数、日志或复现结论。"),
+        },
+    }
+
+
+def _timeline_lines_for_assist(todo: TodoItem, *, max_items: int = 12) -> list[str]:
+    lines: list[str] = []
+    for event in list(todo.timeline)[-max_items:]:
+        content = sanitize_text(getattr(event, "content", "")).strip()
+        if not content:
+            continue
+        scenario = sanitize_text(getattr(event, "scenario", "")).strip()
+        timestamp = sanitize_text(getattr(event, "timestamp", "") or getattr(event, "created_at", "")).strip()
+        prefix = " / ".join(part for part in (timestamp, scenario) if part)
+        lines.append(f"- {prefix}: {content}" if prefix else f"- {content}")
+    return lines
+
+
+def _local_assist_analysis_payload(todo: TodoItem) -> dict[str, object]:
+    title = sanitize_text(todo.title).strip()
+    summary = sanitize_text(todo.current_summary).strip()
+    timeline_lines = _timeline_lines_for_assist(todo, max_items=6)
+    combined = "\n".join([title, summary, *timeline_lines]).strip()
+    checked: list[dict[str, str]] = []
+    if summary:
+        checked.append({"title": "已有问题描述 / 当前摘要", "evidence": summary[:120]})
+    if timeline_lines:
+        checked.append({"title": "已有时间线跟进记录", "evidence": f"已记录 {len(timeline_lines)} 条可参考跟进证据"})
+    if "demo" in combined.lower() or "测试" in combined or "生产" in combined:
+        checked.append({"title": "已有环境对比线索", "evidence": "当前记录中出现 demo、测试或生产环境相关描述"})
+    missing = [
+        {"title": "关键请求参数", "reason": "用于核对不同环境或链路中的参数是否一致"},
+        {"title": "日志 / request_id / trace_id", "reason": "用于串联服务端日志并确认异常发生位置"},
+        {"title": "复现结论和问题材料", "reason": "用于确认问题是否稳定复现，以及是否具备升级排查条件"},
+    ]
+    return _normalize_assist_analysis_payload(
+        {
+            "summary": (
+                "当前已有问题描述和部分跟进记录，但证据仍不完整；建议先补齐请求参数、日志和复现结论，再判断是否需要升级。"
+                if combined
+                else "当前缺少明确问题描述和时间线证据，建议先补充问题现象、发生环境和复现材料。"
+            ),
+            "informationStatus": {
+                "recognized": "已基于当前描述和时间线完成初步识别" if combined else "当前可识别信息较少",
+                "checkedDirections": checked,
+            },
+            "missingSupplement": {"directions": missing},
+            "upgradeSuggestion": {
+                "decision": "暂不建议升级",
+                "reason": "当前证据链尚不完整，建议先补齐参数、日志、复现材料或已有排查结论。",
+            },
+        }
+    )
+
+
+def _build_assist_analysis_user_prompt(todo: TodoItem) -> str:
+    payload = {
+        "title": sanitize_text(todo.title).strip(),
+        "current_summary": sanitize_text(todo.current_summary).strip(),
+        "summary_fields": todo.summary_fields.to_dict(),
+        "conclusion": sanitize_text(getattr(todo.conclusion, "content", "")).strip(),
+        "timeline": _timeline_lines_for_assist(todo),
+    }
+    return (
+        "请基于以下待办上下文输出 JSON 对象，字段固定为：\n"
+        "{\n"
+        '  "summary": "30-80字的问题分析摘要",\n'
+        '  "informationStatus": {"recognized": "已识别到的当前状态", "checkedDirections": [{"title": "已排查方向或已有证据", "evidence": "对应证据"}]},\n'
+        '  "missingSupplement": {"directions": [{"title": "建议排查方向或待补材料", "reason": "为什么需要补充"}]},\n'
+        '  "upgradeSuggestion": {"decision": "暂不建议升级/建议升级", "reason": "判断依据"}\n'
+        "}\n\n"
+        "规则：informationStatus 只能写已经排查过的方向和已有证据；missingSupplement 只能写建议排查方向和需要补充的材料；证据不足时明确说证据不足；只输出 JSON。\n\n"
+        f"待办上下文：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
+    )
+
+
+class AssistAnalysisWorker(QThread):
+    result_ready = pyqtSignal(str, str, object)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        llm_service: LLMService,
+        todo_id: str,
+        request_id: str,
+        payload: dict[str, object],
+        phase: str = "initial",
+        case_search_provider: CaseSearchProvider | None = None,
+        error_code_lookup_service: ErrorCodeLookupService | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._llm_service = llm_service
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._payload = dict(payload or {})
+        self._phase = str(phase or "initial").strip() or "initial"
+        self._case_search_provider = case_search_provider or KDocsSseCaseSearchProvider()
+        self._error_code_lookup_service = error_code_lookup_service
+
+    def run(self) -> None:
+        try:
+            todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
+            if self._phase == "review":
+                candidate = self._with_metadata(
+                    self._build_initial_result(todo),
+                    todo,
+                    phase="review",
+                    should_update=True,
+                    is_final=True,
+                )
+                previous = self._payload.get("previousResult")
+                if not should_update_assist_analysis(previous, candidate):
+                    candidate = self._with_metadata({}, todo, phase="review", should_update=False, is_final=True)
+                result = candidate
+            else:
+                initial_result = self._with_metadata(
+                    self._build_assist_analysis_only_result(todo),
+                    todo,
+                    phase="initial",
+                    should_update=True,
+                    is_final=False,
+                )
+                initial_result["caseResults"] = loading_case_result().to_payload()
+                initial_result["errorCodeResults"] = self._lookup_error_codes(todo)
+                self.result_ready.emit(self._todo_id, self._request_id, initial_result)
+
+                final_result = dict(initial_result)
+                try:
+                    final_result["caseResults"] = self._search_cases(todo)
+                except Exception as exc:  # noqa: BLE001
+                    final_result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+                result = self._with_metadata(
+                    final_result,
+                    todo,
+                    phase="initial",
+                    should_update=True,
+                    is_final=True,
+                )
+            self.result_ready.emit(self._todo_id, self._request_id, result)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+
+    def _build_initial_result(self, todo: TodoItem) -> dict[str, object]:
+        result: dict[str, object] = {}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            analysis_future = executor.submit(self._run_assist_analysis, todo)
+            cases_future = executor.submit(self._search_cases, todo)
+            error_codes_future = executor.submit(self._lookup_error_codes, todo)
+            try:
+                result = analysis_future.result()
+            except Exception:
+                result = _local_assist_analysis_payload(todo)
+            try:
+                result["caseResults"] = cases_future.result()
+            except Exception as exc:  # noqa: BLE001
+                result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+            try:
+                result["errorCodeResults"] = error_codes_future.result()
+            except Exception:
+                result["errorCodeResults"] = self._empty_error_code_result()
+        return result
+
+    def _build_assist_analysis_only_result(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            result = self._run_assist_analysis(todo)
+        except Exception:
+            result = _local_assist_analysis_payload(todo)
+        result["errorCodeResults"] = self._lookup_error_codes(todo)
+        return result
+
+    def _run_assist_analysis(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            raw = self._llm_service.run_task(
+                "context_summary",
+                messages=[
+                    Message(role="system", content=_ASSIST_ANALYSIS_SYSTEM_PROMPT),
+                    Message(role="user", content=_build_assist_analysis_user_prompt(todo)),
+                ],
+                temperature=0.2,
+            )
+            return _normalize_assist_analysis_payload(_extract_json_object(raw))
+        except Exception:
+            return _local_assist_analysis_payload(todo)
+
+    def _with_metadata(
+        self,
+        payload: dict[str, object],
+        todo: TodoItem,
+        *,
+        phase: str,
+        should_update: bool,
+        is_final: bool,
+    ) -> dict[str, object]:
+        result = dict(payload or {})
+        result["phase"] = phase
+        result["shouldUpdate"] = bool(should_update)
+        result["isFinal"] = bool(is_final)
+        result["cacheKey"] = build_assist_analysis_cache_key(
+            todo.id,
+            {
+                "title": todo.title,
+                "current_summary": todo.current_summary,
+                "conclusion": todo.conclusion,
+                "timeline": todo.timeline,
+            },
+        )
+        return result
+
+    def _search_cases(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            request = build_case_search_request(
+                todo_id=todo.id,
+                title=todo.title,
+                current_summary=todo.current_summary,
+                timeline_lines=_timeline_lines_for_assist(todo),
+            )
+            queries = build_case_search_queries(self._llm_service, request)
+            result = self._case_search_provider.search_many(queries)
+            return rank_case_search_result(self._llm_service, request, result, max_results=5).to_payload()
+        except Exception as exc:  # noqa: BLE001
+            return empty_case_result(error_message=str(exc)).to_payload()
+
+    def _lookup_error_codes(self, todo: TodoItem) -> dict[str, object]:
+        try:
+            service = self._error_code_lookup_service or ErrorCodeLookupService()
+            return service.lookup_for_todo(todo)
+        except Exception:
+            return self._empty_error_code_result()
+
+    @staticmethod
+    def _empty_error_code_result() -> dict[str, object]:
+        return {
+            "status": "empty",
+            "title": "错误码说明",
+            "countLabel": "暂无错误码说明",
+            "count": "暂无错误码说明",
+            "emptyText": "暂无命中，建议补充完整错误码、request_id、发生时间和接口返回体",
+            "items": [],
+            "errorMessage": "",
+        }
 
 
 def _stage_summary_rewrite_instruction(preset_key: str, custom_instruction: str) -> str:
@@ -864,60 +1221,6 @@ class StageSummaryWorker(QThread):
                 self._result_notice = "模型重写失败，已回退本地整理"
                 return fallback
             raise RuntimeError("模型重写失败") from exc
-
-
-class PlanExportWorker(_BaseVisionWorker):
-    finished = pyqtSignal(str)
-    error = pyqtSignal(str)
-
-    def __init__(
-        self,
-        llm_service: LLMService,
-        model_label: str,
-        timeout: int,
-        todo_payload: dict[str, object],
-        export_path: str,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._llm_service = llm_service
-        self._model = model_label
-        self._timeout = timeout
-        self._todo_payload = todo_payload
-        self._export_path = export_path
-
-    def run(self) -> None:
-        try:
-            raw_markdown = self._run_llm_task(
-                "plan_export",
-                messages=build_plan_export_messages(self._todo_payload),
-                temperature=0.2,
-                timeout=min(self._timeout, 30),
-            )
-            markdown = ensure_plan_export_timeline_section(
-                normalize_markdown_content(raw_markdown),
-                self._todo_payload,
-            )
-            if not markdown:
-                raise ValueError("生成的方案内容为空")
-            export_file = Path(self._export_path)
-            export_file.parent.mkdir(parents=True, exist_ok=True)
-            markdown = append_plan_export_timeline_visual_section(
-                markdown,
-                self._todo_payload,
-                export_file,
-            )
-            markdown = append_plan_export_attachment_section(
-                markdown,
-                self._todo_payload,
-                export_file,
-            )
-            export_file.write_text(markdown, encoding="utf-8")
-            self.finished.emit(str(export_file))
-        except LLMServiceError as exc:
-            self.error.emit(f"导出方案失败，模型调用错误: {exc}")
-        except Exception as exc:
-            self.error.emit(f"导出方案失败: {exc}")
 
 
 class AIWorker(_BaseVisionWorker):

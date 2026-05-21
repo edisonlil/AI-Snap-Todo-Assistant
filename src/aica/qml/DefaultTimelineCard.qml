@@ -114,7 +114,7 @@ Rectangle {
                     Text {
                         id: statusLabel
                         anchors.centerIn: parent
-                        text: eventData ? eventData.taskStatusLabel : ""
+                        text: eventData && eventData.taskStatusLabel ? eventData.taskStatusLabel : ""
                         color: eventData && eventData.taskStatus === "failed"
                                ? "#B42318"
                                : ((eventData && eventData.taskStatus === "completed")
@@ -128,7 +128,7 @@ Rectangle {
 
                 Text {
                     visible: !!(eventData && eventData.taskStatusDetail)
-                    text: eventData ? eventData.taskStatusDetail : ""
+                    text: eventData && eventData.taskStatusDetail ? eventData.taskStatusDetail : ""
                     color: eventData && eventData.taskStatus === "failed"
                            ? "#C9414B"
                            : (rootContext ? rootContext.mutedInk : "#B3BBC8")

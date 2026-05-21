@@ -1,4 +1,4 @@
-"""Storage contracts for Todo, project, and binding persistence."""
+﻿"""Storage contracts for Todo, project, and binding persistence."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from aica.log_analysis_models import LogAnalysisTask
+    from aica.log_analysis.models import LogAnalysisTask
     from aica.environment_access import (
         EnvironmentAccessEntryRecord,
         ProjectEnvironmentBundle,
         ProjectEnvironmentRecord,
     )
     from aica.models import TicketSnapshot, TicketSummaryFields
-    from aica.todo_models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
+    from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
 def _now_iso() -> str:
@@ -101,6 +101,9 @@ class TodoRepository(Protocol):
         conclusion: "TodoConclusion | None" = None,
     ) -> "TodoItem | None":
         """Update editable Todo fields."""
+
+    def unlink_todo_project(self, todo_id: str) -> "TodoItem | None":
+        """Remove a Todo project link and clear project-backed fields."""
 
 
 class ProjectRepository(Protocol):
@@ -206,6 +209,13 @@ class LogAnalysisTaskRepository(Protocol):
 class ProjectEnvironmentRepository(Protocol):
     path: str
 
+    def list_global_environments(
+        self,
+        *,
+        include_inactive: bool = False,
+    ) -> list["ProjectEnvironmentBundle"]:
+        """List global environments and their access entries."""
+
     def list_project_environments(
         self,
         project_id: str,
@@ -213,6 +223,17 @@ class ProjectEnvironmentRepository(Protocol):
         include_inactive: bool = False,
     ) -> list["ProjectEnvironmentBundle"]:
         """List project environments and their access entries."""
+
+    def list_effective_environments(
+        self,
+        project_id: str,
+        *,
+        include_inactive: bool = False,
+    ) -> list["ProjectEnvironmentBundle"]:
+        """List merged global and project environments."""
+
+    def get_project_environment(self, environment_id: str) -> "ProjectEnvironmentRecord | None":
+        """Fetch one environment group."""
 
     def get_access_entry(self, entry_id: str) -> "EnvironmentAccessEntryRecord | None":
         """Fetch one environment access entry."""
@@ -229,6 +250,9 @@ class ProjectEnvironmentRepository(Protocol):
         entries: list["EnvironmentAccessEntryRecord"],
     ) -> list["EnvironmentAccessEntryRecord"]:
         """Replace all access entries under one environment."""
+
+    def delete_project_environment(self, environment_id: str) -> bool:
+        """Delete one environment group and its access entries."""
 
 
 class StorageMigrator(Protocol):

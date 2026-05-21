@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -13,7 +13,7 @@ from aica.ticket_enrichment import (
     is_ticket_enrichment_job_still_current,
     merge_async_enrichment_fields,
 )
-from aica.todo_models import TodoConclusion, TodoItem
+from aica.todo.models import TodoConclusion, TodoItem
 
 
 class _SequentialLLMService:

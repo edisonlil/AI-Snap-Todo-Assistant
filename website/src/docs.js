@@ -4,10 +4,10 @@ import { docsPages, siteMeta } from "./site.config.js";
 import { buildDocsSidebar, buildFooter, buildHeader, renderBlocks } from "./shared.js";
 
 const pageKey = document.body.dataset.page || "index";
-const page = docsPages[pageKey];
+const page = docsPages[pageKey] || docsPages.index;
 const app = document.querySelector("#app");
 
-document.title = `${page.title} · ${siteMeta.brand} 文档`;
+document.title = `${page.title} - ${siteMeta.brand} 文档`;
 
 app.innerHTML = `
   <div class="site-shell docs-shell">
@@ -15,13 +15,15 @@ app.innerHTML = `
     <main class="docs-layout">
       ${buildDocsSidebar(pageKey)}
       <section class="docs-content">
-        <div class="docs-hero">
-          <span class="eyebrow">${page.eyebrow}</span>
-          <h1>${page.title}</h1>
-          <p>${page.summary}</p>
-          <div class="anchor-row">
-            ${page.sections.map((section) => `<a href="#${section.id}">${section.title}</a>`).join("")}
+        <div class="docs-page-head">
+          <div>
+            <span class="eyebrow">${page.eyebrow}</span>
+            <h1>${page.title}</h1>
+            <p>${page.summary}</p>
           </div>
+          <nav class="anchor-row" aria-label="页面章节">
+            ${page.sections.map((section) => `<a href="#${section.id}">${section.title}</a>`).join("")}
+          </nav>
         </div>
         ${page.sections
           .map(

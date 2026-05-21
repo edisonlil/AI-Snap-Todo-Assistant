@@ -13,11 +13,11 @@ Rectangle {
     Rectangle {
         id: panel
         anchors.fill: parent
-        property bool busy: todoDetailBridge.stageSummaryBusy
-        property string summaryText: todoDetailBridge.stageSummaryText
-        property string errorText: todoDetailBridge.stageSummaryError
-        property string noticeText: todoDetailBridge.stageSummaryNotice
-        property bool hasSummary: todoDetailBridge.hasStageSummary
+        property bool busy: todoDetailBridge ? todoDetailBridge.stageSummaryBusy : false
+        property string summaryText: todoDetailBridge ? todoDetailBridge.stageSummaryText : ""
+        property string errorText: todoDetailBridge ? todoDetailBridge.stageSummaryError : ""
+        property string noticeText: todoDetailBridge ? todoDetailBridge.stageSummaryNotice : ""
+        property bool hasSummary: todoDetailBridge ? todoDetailBridge.hasStageSummary : false
         property bool editMode: false
         property bool syncingSummaryEditor: false
 

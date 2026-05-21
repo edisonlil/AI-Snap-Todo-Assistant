@@ -1,9 +1,11 @@
-"""QML-backed application control panel."""
+﻿"""QML-backed application control panel."""
 from __future__ import annotations
 
 from datetime import datetime
 import os
+from pathlib import Path
 import sys
+import tempfile
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 
@@ -104,6 +106,17 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def fromLocalFile(path):
             return QUrl(path)
 
+        def isLocalFile(self):
+            return str(self._path).startswith("file:")
+
+        def toLocalFile(self):
+            text = str(self._path)
+            if text.startswith("file:///"):
+                return text[8:]
+            if text.startswith("file://"):
+                return text[7:]
+            return text
+
     class QColor:  # type: ignore[no-redef]
         def __init__(self, *_args, **_kwargs):
             pass
@@ -147,6 +160,15 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
     class _Clipboard:
         def setText(self, *_args, **_kwargs):
+            return None
+
+        def text(self):
+            return ""
+
+        def image(self):
+            return None
+
+        def mimeData(self):
             return None
 
     class QApplication:  # type: ignore[no-redef]
@@ -228,8 +250,8 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         def setSpacing(self, *_args, **_kwargs):
             return None
 
-from aica.analysis_metrics import AnalysisMetricsStore, ModelLatencySummary
-from aica.analysis_rules import (
+from aica.analysis.metrics import AnalysisMetricsStore, ModelLatencySummary
+from aica.analysis.rules import (
     AnalysisRulesManager,
     PromptDebugStore,
     SceneAnalysisRule,
@@ -253,6 +275,15 @@ from aica.control_panel_state import (
     script_integration_display_path,
     update_script_integration_path,
 )
+from aica.environment_access import (
+    EnvironmentAccessEntryRecord,
+    EnvironmentAccessService,
+    ProjectEnvironmentBundle,
+    ProjectEnvironmentRecord,
+    normalize_access_type,
+    normalize_environment_scope,
+)
+from aica.otp_secret_extractor import OtpSecretExtractResult, extract_otp_secret_from_qr_image, parse_otpauth_payload
 from aica.project_management import (
     build_project_template_content,
     find_active_alias_conflicts,
@@ -277,10 +308,11 @@ from aica.paths import (
 from aica.models import TicketSummaryFields, is_unknown_text
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import now_iso
+from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
-from aica.todo_models import TodoItem, TodoStatus
-from aica.todo_store import TodoStore
+from aica.todo.models import TodoItem, TodoStatus
+from aica.todo.store import TodoStore
 
 _QT_KEY_ESCAPE = 0x01000000
 _QT_KEY_TAB = 0x01000001
@@ -387,6 +419,11 @@ _SECTION_GROUPS = [
                 "title": "\u5de5\u5355\u7ba1\u7406",
                 "description": "\u67e5\u770b\u5de5\u5355\u5217\u8868\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b\u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
             },
+            {
+                "id": "environments",
+                "title": "\u73af\u5883\u7ba1\u7406",
+                "description": "\u5728\u540c\u4e00\u9875\u9762\u7edf\u4e00\u7ef4\u62a4\u5168\u5c40\u73af\u5883\u4e0e\u9879\u76ee\u73af\u5883\uff0c\u652f\u6301\u6309\u6807\u7b7e\u3001\u68c0\u7d22\u4e0e\u5feb\u901f\u5207\u6362\u3002",
+            },
         ],
     },
     {
@@ -464,11 +501,16 @@ _SECTION_VIEW_META = {
         "description": "\u67e5\u770b\u6253\u5f00\u4e2d\u6216\u5df2\u5b8c\u6210\u7684\u5de5\u5355\uff0c\u5e76\u5728\u63a7\u5236\u9762\u677f\u5185\u67e5\u770b timeline \u5386\u53f2\u8ddf\u8fdb\u8be6\u60c5\u3002",
         "primaryActionLabel": "\u5237\u65b0\u5217\u8868",
     },
+    "environments": {
+        "title": "\u73af\u5883\u7ba1\u7406",
+        "description": "\u5728\u540c\u4e00\u9875\u9762\u5207\u6362\u5168\u5c40\u73af\u5883\u4e0e\u9879\u76ee\u73af\u5883\uff0c\u9879\u76ee\u7ea7\u540c\u540d\u73af\u5883\u4f1a\u5728\u5f85\u529e\u8be6\u60c5\u4e2d\u8986\u76d6\u5168\u5c40\u7ed3\u679c\u3002",
+        "primaryActionLabel": "\u5237\u65b0\u5217\u8868",
+    },
 }
 
 
 def _required_capability(task_name: str) -> str:
-    if task_name == "context_summary":
+    if task_name in {"context_summary", "plan_export"}:
         return "text_chat"
     return "vision_chat"
 
@@ -492,6 +534,20 @@ def _option_payload(value: str, text: str) -> dict[str, str]:
     }
 
 
+def _model_option_payload(
+    model: ProviderModelConfig,
+    summary: ModelLatencySummary | None,
+) -> dict[str, str]:
+    details = ", ".join(model.capabilities)
+    if summary is not None and not summary.is_empty:
+        details = f"{details} · {summary.to_display_text()}" if details else summary.to_display_text()
+    return {
+        "value": model.id,
+        "text": model.name,
+        "details": details,
+    }
+
+
 def _normalize_model_text(value: str) -> str:
     return str(value or "").strip()
 
@@ -511,13 +567,57 @@ def _append_metric_suffix(label: str, summary: ModelLatencySummary | None) -> st
     return f"{label} · {summary.to_display_text()}"
 
 
+def _otp_import_payload(
+    parsed: OtpSecretExtractResult,
+    *,
+    selected_path: str = "",
+    preview_image_url: str = "",
+    source: str = "",
+) -> dict[str, object]:
+    otp_config = str(parsed.raw_payload or parsed.secret or "").strip()
+    return {
+        "success": True,
+        "otpConfig": otp_config,
+        "secret": parsed.secret,
+        "issuer": parsed.issuer,
+        "account": parsed.account,
+        "algorithm": parsed.algorithm,
+        "digits": parsed.digits,
+        "period": parsed.period,
+        "label": parsed.label,
+        "rawPayload": parsed.raw_payload,
+        "selectedPath": selected_path,
+        "previewImageUrl": preview_image_url,
+        "source": source,
+    }
+
+
+def _preview_image_url(image_path: str) -> str:
+    normalized = str(image_path or "").strip()
+    if not normalized:
+        return ""
+    try:
+        return Path(normalized).expanduser().resolve().as_uri()
+    except ValueError:
+        return ""
+
+
+def _local_path_from_url_or_path(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("file:"):
+        return QUrl(text).toLocalFile()
+    return text
+
+
 def _build_speed_hint(model_name: str, summary: ModelLatencySummary | None) -> str:
     if summary is None or summary.avg_latency_ms <= 10000:
         return ""
     lowered = str(model_name or "").lower()
     if "thinking" not in lowered and "reasoning" not in lowered:
         return ""
-    return "该模型近期平均耗时偏长，通常更适合重质量场景；若更看重速度，可优先比较 Instruct/Flash 类模型。"
+    return "该模型近期平均耗时偏长，更适合重质量场景；若更看重速度，可优先比较 Instruct/Flash 类模型。"
 
 
 def _parse_project_date(value: str) -> QDate:
@@ -578,7 +678,7 @@ def _format_ticket_product(product: object) -> str:
     if not value:
         return ""
     if value == "WPS协作":
-        return "WPS协作（泛）/协作-私网"
+        return "WPS协作（泛微）协作-私网"
     if value == "文档中台":
         return "文档中台/V7"
     if value == "文档中心":
@@ -699,10 +799,18 @@ class _ControlPanelBridge(QObject):
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._environment_repository = SQLiteProjectEnvironmentRepository(aica_database_file())
+        self._environment_access_service = EnvironmentAccessService(self._environment_repository)
         self._todo_store = TodoStore(str(aica_database_file()))
         self._project_query = ""
         self._include_expired_projects = True
         self._projects = self._load_project_payloads()
+        self._environment_scope_filter = "global"
+        self._project_environment_project_id = ""
+        self._project_environment_groups: list[dict[str, object]] = []
+        self._global_environment_groups: list[dict[str, object]] = []
+        self._selected_environment_id = ""
+        self._selected_environment = self._empty_environment_detail_payload()
         self._last_project_import_summary = ""
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
@@ -761,14 +869,14 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, constant=True)
     def integrationScriptHelpText(self) -> str:
         if RUNTIME_CAPABILITIES.is_windows:
-            return "支持导入 .py、.ps1、.bat、.cmd、.exe。保存后 AICA 会继续按现有 ScriptEventHandler 规则调用脚本。"
-        return "支持导入 .py、.pyw、.sh。已存在的 Windows 专用脚本会保留配置，但会标记为当前平台不支持。"
+            return "支持 .py、.ps1、.bat、.cmd、.exe 文件，AICA 会按 ScriptEventHandler 配置调用。"
+        return "支持 .py、.pyw、.sh 文件，Windows 环境建议优先使用可直接执行的脚本。"
 
     @pyqtProperty(str, constant=True)
     def hotkeyHelpText(self) -> str:
         if RUNTIME_CAPABILITIES.is_macos:
-            return "支持形如 Command+Shift+A、Option+A、Control+Shift+F8，至少需要一个修饰键。"
-        return "支持形如 Alt+A、Ctrl+Shift+A，至少需要一个修饰键。"
+            return "例如 Command+Shift+A、Option+A、Control+Shift+F8，点击输入框后直接按下组合键。"
+        return "例如 Alt+A、Ctrl+Shift+A，点击输入框后直接按下组合键。"
 
     @pyqtProperty(str, constant=True)
     def hotkeyPlaceholder(self) -> str:
@@ -863,7 +971,7 @@ class _ControlPanelBridge(QObject):
             payload.append(
                 {
                     "id": str(integration.get("id") or "").strip(),
-                    "name": str(integration.get("name") or integration.get("id") or "未命名脚本").strip(),
+                    "name": str(integration.get("name") or integration.get("id") or "未命名").strip(),
                     "enabled": bool(integration.get("enabled", True)),
                     "scriptPath": script_path,
                     "exists": bool(script_path) and Path(script_path).exists(),
@@ -952,6 +1060,30 @@ class _ControlPanelBridge(QObject):
     def lastProjectImportSummary(self) -> str:
         return self._last_project_import_summary
 
+    @pyqtProperty(str, notify=dataChanged)
+    def environmentScopeFilter(self) -> str:
+        return self._environment_scope_filter
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectEnvironmentProjectId(self) -> str:
+        return self._project_environment_project_id
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def projectEnvironmentGroups(self):  # noqa: ANN201
+        return list(self._project_environment_groups)
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def globalEnvironmentGroups(self):  # noqa: ANN201
+        return list(self._global_environment_groups)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def selectedEnvironmentId(self) -> str:
+        return self._selected_environment_id
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedEnvironment(self):  # noqa: ANN201
+        return dict(self._selected_environment)
+
     @pyqtProperty("QVariantList", notify=dataChanged)
     def tickets(self):  # noqa: ANN201
         return list(self._tickets)
@@ -975,6 +1107,11 @@ class _ControlPanelBridge(QObject):
                 "id": "data_dir",
                 "title": "本地数据目录",
                 "description": self._data_dir,
+            },
+            {
+                "id": "knowledge_base_dir",
+                "title": "知识库归档目录",
+                "description": str(Path(self._data_dir).expanduser() / "knowledge_base"),
             },
             {
                 "id": "feedback_dir",
@@ -1009,12 +1146,9 @@ class _ControlPanelBridge(QObject):
             return []
         capability = _required_capability(task_name)
         options = [
-            _option_payload(
-                model.id,
-                _append_metric_suffix(
-                    f"{model.name} ({', '.join(model.capabilities)})",
-                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
-                ),
+            _model_option_payload(
+                model,
+                self._analysis_metrics.get_summary(task_name, provider.id, model.id),
             )
             for model in provider.models
             if capability in model.capabilities
@@ -1022,12 +1156,9 @@ class _ControlPanelBridge(QObject):
         if options:
             return options
         return [
-            _option_payload(
-                model.id,
-                _append_metric_suffix(
-                    f"{model.name} ({', '.join(model.capabilities)})",
-                    self._analysis_metrics.get_summary(task_name, provider.id, model.id),
-                ),
+            _model_option_payload(
+                model,
+                self._analysis_metrics.get_summary(task_name, provider.id, model.id),
             )
             for model in provider.models
         ]
@@ -1103,6 +1234,191 @@ class _ControlPanelBridge(QObject):
     def _refresh_project_payloads(self) -> None:
         self._projects = self._load_project_payloads()
 
+    @staticmethod
+    def _normalize_environment_scope_filter(value: str) -> str:
+        return "project" if normalize_environment_scope(value, default="global") == "project" else "global"
+
+    def _resolve_project_environment_project_id(self, project_id: str = "") -> str:
+        explicit_id = str(project_id or "").strip()
+        if explicit_id:
+            return explicit_id
+        normalized_id = str(self._project_environment_project_id or "").strip()
+        if normalized_id and self._find_cached_project(normalized_id) is not None:
+            return normalized_id
+        if not self._projects:
+            return ""
+        first_project_id = str(self._projects[0].get("id") or "").strip()
+        return first_project_id
+
+    @staticmethod
+    def _empty_environment_detail_payload() -> dict[str, object]:
+        return {
+            "id": "",
+            "projectId": "",
+            "name": "",
+            "type": "",
+            "note": "",
+            "sortOrder": 0,
+            "isActive": True,
+            "scope": "global",
+            "scopeLabel": "",
+            "isGlobal": True,
+            "isProjectOverride": False,
+            "entryCount": 0,
+            "entries": [],
+        }
+
+    @staticmethod
+    def _environment_scope_label(scope: str) -> str:
+        return "全局环境" if normalize_environment_scope(scope) == "global" else "项目环境"
+
+    def _build_environment_entry_payload(self, entry: EnvironmentAccessEntryRecord) -> dict[str, object]:
+        source_scope = normalize_environment_scope(entry.source_scope or entry.scope, default="project")
+        return {
+            "id": entry.id,
+            "name": str(entry.access_name or "").strip(),
+            "type": normalize_access_type(entry.access_type),
+            "urlOrHost": str(entry.url_or_host or "").strip(),
+            "username": str(entry.username or "").strip(),
+            "note": str(entry.note or "").strip(),
+            "sortOrder": int(entry.sort_order or 0),
+            "isActive": bool(entry.is_active),
+            "requiresOtp": bool(entry.requires_otp),
+            "hasPassword": bool(str(entry.password_encrypted or "").strip()),
+            "hasOtpConfig": bool(str(entry.otp_secret_encrypted or "").strip()),
+            "scope": source_scope,
+            "scopeLabel": self._environment_scope_label(source_scope),
+            "isGlobal": source_scope == "global",
+            "isProjectOverride": bool(entry.is_project_override),
+        }
+
+    def _build_environment_summary_payload(self, bundle: ProjectEnvironmentBundle) -> dict[str, object]:
+        scope = normalize_environment_scope(bundle.environment.scope or bundle.source_scope, default="project")
+        return {
+            "id": bundle.environment.id,
+            "projectId": str(bundle.environment.project_id or "").strip(),
+            "name": str(bundle.environment.env_name or "").strip(),
+            "type": str(bundle.environment.env_type or "").strip(),
+            "note": str(bundle.environment.note or "").strip(),
+            "sortOrder": int(bundle.environment.sort_order or 0),
+            "isActive": bool(bundle.environment.is_active),
+            "scope": scope,
+            "scopeLabel": self._environment_scope_label(scope),
+            "isGlobal": scope == "global",
+            "isProjectOverride": bool(bundle.is_project_override),
+            "entryCount": len(bundle.entries),
+        }
+
+    def _build_environment_detail_payload(self, bundle: ProjectEnvironmentBundle) -> dict[str, object]:
+        payload = self._build_environment_summary_payload(bundle)
+        payload["entries"] = [self._build_environment_entry_payload(entry) for entry in bundle.entries]
+        return payload
+
+    def _refresh_selected_environment_payload(self) -> None:
+        normalized_id = str(self._selected_environment_id or "").strip()
+        if not normalized_id:
+            self._selected_environment = self._empty_environment_detail_payload()
+            return
+        environment, bundle = self._load_environment_bundle_for_edit(normalized_id)
+        if environment is None or bundle is None:
+            self._clear_selected_environment()
+            return
+        self._selected_environment = self._build_environment_detail_payload(bundle)
+
+    def _clear_selected_environment(self) -> None:
+        self._selected_environment_id = ""
+        self._selected_environment = self._empty_environment_detail_payload()
+
+    def _select_environment(self, environment_id: str) -> None:
+        self._selected_environment_id = str(environment_id or "").strip()
+        self._refresh_selected_environment_payload()
+
+    def _selected_environment_matches_current_scope(self) -> bool:
+        if not self._selected_environment_id:
+            return False
+        scope, payload = self._find_environment_group_payload(self._selected_environment_id)
+        if payload is None:
+            return False
+        if scope != self._environment_scope_filter:
+            return False
+        if scope != "project":
+            return True
+        return str(payload.get("projectId") or "").strip() == str(self._project_environment_project_id or "").strip()
+
+    def _sync_selected_environment_for_current_scope(self) -> None:
+        if self._selected_environment_matches_current_scope():
+            self._refresh_selected_environment_payload()
+            return
+        self._clear_selected_environment()
+
+    def _refresh_project_environment_payloads(self, project_id: str) -> None:
+        self._project_environment_project_id = self._resolve_project_environment_project_id(project_id)
+        if not self._project_environment_project_id:
+            self._project_environment_groups = []
+            self._sync_selected_environment_for_current_scope()
+            return
+        bundles = self._environment_repository.list_project_environments(
+            self._project_environment_project_id,
+            include_inactive=True,
+        )
+        self._project_environment_groups = [self._build_environment_summary_payload(bundle) for bundle in bundles]
+        self._sync_selected_environment_for_current_scope()
+
+    def _refresh_global_environment_payloads(self) -> None:
+        bundles = self._environment_repository.list_global_environments(include_inactive=True)
+        self._global_environment_groups = [self._build_environment_summary_payload(bundle) for bundle in bundles]
+        self._sync_selected_environment_for_current_scope()
+
+    def _find_environment_group_payload(self, environment_id: str) -> tuple[str, dict[str, object] | None]:
+        normalized_id = str(environment_id or "").strip()
+        for item in self._project_environment_groups:
+            if str(item.get("id") or "").strip() == normalized_id:
+                return "project", item
+        for item in self._global_environment_groups:
+            if str(item.get("id") or "").strip() == normalized_id:
+                return "global", item
+        return "", None
+
+    def _load_environment_bundle_for_edit(self, environment_id: str) -> tuple[ProjectEnvironmentRecord | None, ProjectEnvironmentBundle | None]:
+        environment = self._environment_repository.get_project_environment(environment_id)
+        if environment is None:
+            return None, None
+        if normalize_environment_scope(environment.scope) == "global":
+            bundles = self._environment_repository.list_global_environments(include_inactive=True)
+        else:
+            bundles = self._environment_repository.list_project_environments(environment.project_id, include_inactive=True)
+        bundle = next((item for item in bundles if item.environment.id == environment.id), None)
+        return environment, bundle
+
+    def _refresh_environment_scope_payloads(self, scope: str, project_id: str = "") -> None:
+        normalized_scope = normalize_environment_scope(scope)
+        if normalized_scope == "global":
+            self._refresh_global_environment_payloads()
+        else:
+            self._refresh_project_environment_payloads(project_id or self._project_environment_project_id)
+
+    def _refresh_current_environment_scope_payloads(self) -> None:
+        if self._environment_scope_filter == "project":
+            self._refresh_project_payloads()
+            self._refresh_project_environment_payloads(self._project_environment_project_id)
+            return
+        self._refresh_global_environment_payloads()
+
+    def _refresh_environment_lists_for_current_scope(self) -> None:
+        if self._environment_scope_filter == "project":
+            self._refresh_project_payloads()
+            self._refresh_project_environment_payloads(self._project_environment_project_id)
+            return
+        self._refresh_global_environment_payloads()
+
+    def _refresh_environment_scope_after_change(self, scope: str, project_id: str = "") -> None:
+        normalized_scope = normalize_environment_scope(scope)
+        if normalized_scope == "global":
+            self._refresh_global_environment_payloads()
+        else:
+            self._refresh_project_environment_payloads(project_id or self._project_environment_project_id)
+        self._select_environment(self._selected_environment_id)
+
     def _build_ticket_list_payload(self, todo: TodoItem) -> dict[str, object]:
         snapshot = todo.project_link.project_snapshot
         return {
@@ -1177,7 +1493,7 @@ class _ControlPanelBridge(QObject):
             "projectName": str(snapshot.get("project_name") or "").strip(),
             "customerName": str(snapshot.get("customer_name") or "").strip(),
             "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
-            "productLine": str(todo.summary_fields.product_line or "").strip(),
+            "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
             "ticketVersion": ticket_version,
             "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
@@ -1286,12 +1602,25 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot(str)
     def setCurrentSection(self, section_id: str) -> None:
         section = str(section_id or "").strip()
+        if section == "global_environments":
+            self._environment_scope_filter = "global"
+            section = "environments"
+        elif section == "project_environments":
+            self._environment_scope_filter = "project"
+            section = "environments"
         if not section or section == self._current_section:
+            if section == "environments":
+                self._refresh_current_environment_scope_payloads()
+                self.currentSectionChanged.emit()
+                self._emit_data_changed()
             return
         if not any(item["id"] == section for item in _SECTION_ITEMS):
             return
         self._current_section = section
+        if section == "environments":
+            self._refresh_environment_lists_for_current_scope()
         self.currentSectionChanged.emit()
+        self._emit_data_changed()
 
     @pyqtSlot()
     def reloadConfig(self) -> None:
@@ -1306,8 +1635,18 @@ class _ControlPanelBridge(QObject):
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
+        self._environment_repository = SQLiteProjectEnvironmentRepository(aica_database_file())
+        self._environment_access_service = EnvironmentAccessService(self._environment_repository)
         self._todo_store = TodoStore(str(aica_database_file()))
         self._refresh_project_payloads()
+        if self._project_environment_project_id or self._environment_scope_filter == "project":
+            self._refresh_project_environment_payloads(self._project_environment_project_id)
+        else:
+            self._project_environment_project_id = self._resolve_project_environment_project_id()
+            self._project_environment_groups = []
+        if self._current_section == "environments" or self._global_environment_groups:
+            self._refresh_global_environment_payloads()
+        self._refresh_selected_environment_payload()
         self._refresh_ticket_payloads()
         self._refresh_selected_ticket_payload()
         if self._selected_rule_scene not in self._analysis_rules.scene_rules:
@@ -1378,7 +1717,7 @@ class _ControlPanelBridge(QObject):
             binding.model_id = model.id
         else:
             self._status_message = (
-                f"已添加模型 {model.name}，但当前任务需要 {required_capability} 能力，暂未自动绑定。"
+                f"模型 {model.name} 不支持 {required_capability} 能力，已保留当前选择"
             )
         self._emit_data_changed()
 
@@ -1447,6 +1786,7 @@ class _ControlPanelBridge(QObject):
     def openLocation(self, location_id: str) -> None:
         mapping = {
             "data_dir": app_data_dir(),
+            "knowledge_base_dir": Path(self._data_dir).expanduser() / "knowledge_base",
             "feedback_dir": feedback_dir(),
             "analysis_rules_dir": analysis_rules_file().parent,
             "prompt_debug_dir": prompt_debug_dir(),
@@ -1501,10 +1841,27 @@ class _ControlPanelBridge(QObject):
         if self._current_section == "projects":
             self.relinkOpenUnresolvedTodos()
             return
+        if self._current_section == "environments":
+            self._clear_messages()
+            self._refresh_current_environment_scope_payloads()
+            self._emit_data_changed()
+            return
         if self._current_section == "tickets":
             self.refreshTickets()
             return
         self.saveConfig()
+
+    @pyqtSlot(str)
+    def setEnvironmentScopeFilter(self, scope: str) -> None:
+        normalized_scope = self._normalize_environment_scope_filter(scope)
+        if self._environment_scope_filter == normalized_scope:
+            return
+        self._environment_scope_filter = normalized_scope
+        self._clear_selected_environment()
+        self._clear_messages()
+        if self._current_section == "environments":
+            self._refresh_current_environment_scope_payloads()
+        self._emit_data_changed()
 
     @pyqtSlot()
     def saveStoragePaths(self) -> None:
@@ -1526,7 +1883,7 @@ class _ControlPanelBridge(QObject):
         self._data_dir = result["data_dir"]
         self._log_dir = result["log_dir"]
         self.reloadConfig()
-        self._status_message = "目录设置已保存，新日志会写入新位置；数据目录切换建议重启应用后完全生效。"
+        self._status_message = "存储目录已保存，配置与数据已重新加载"
         self._emit_data_changed()
 
     @pyqtSlot(str)
@@ -1623,7 +1980,7 @@ class _ControlPanelBridge(QObject):
         for scene_type, rule in self._analysis_rules.scenes.items():
             self._analysis_rules_manager.update_scene_rule(scene_type, rule)
         self._analysis_rules = self._analysis_rules_manager.save()
-        self._status_message = "分析规则与调试设置已保存。"
+        self._status_message = "分析规则已保存"
         self._emit_data_changed()
 
     @pyqtSlot(str)
@@ -1647,7 +2004,7 @@ class _ControlPanelBridge(QObject):
             return
         field_value = str(payload.get(str(field_name or "").strip(), "")).strip()
         QApplication.clipboard().setText(field_value)
-        self._status_message = "调试内容已复制到剪贴板。"
+        self._status_message = "字段内容已复制"
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -1668,7 +2025,7 @@ class _ControlPanelBridge(QObject):
 
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
-        self._status_message = "配置已保存，新的截图热键已立即生效。"
+        self._status_message = "配置已保存"
         self._emit_data_changed()
         self.configSaved.emit(self._config)
 
@@ -1680,7 +2037,7 @@ class _ControlPanelBridge(QObject):
             self._script_integrations,
         )
         save_integration_config(self._integrations_path, self._integration_payload)
-        self._status_message = "脚本集成配置已保存。"
+        self._status_message = "脚本集成已保存"
         self._emit_data_changed()
 
     @pyqtSlot()
@@ -1760,7 +2117,7 @@ class _ControlPanelBridge(QObject):
     def chooseProjectImportFile(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
             None,
-            "选择项目主数据文件",
+            "选择项目文件",
             str(app_data_dir()),
             "项目文件 (*.csv *.xlsx);;所有文件 (*.*)",
         )
@@ -1778,18 +2135,18 @@ class _ControlPanelBridge(QObject):
             return
         self._refresh_project_payloads()
         self._last_project_import_summary = (
-            f"导入完成：新增 {result.created_count}，更新 {result.updated_count}，"
-            f"跳过 {result.skipped_count}，补关联 {result.relinked_count}。"
+            f"新增 {result.created_count} 个，更新 {result.updated_count} 个，"
+            f"跳过 {result.skipped_count} 个，关联 {result.relinked_count} 个"
         )
         if result.alias_conflicts or result.error_rows:
             fragments = [self._last_project_import_summary]
             if result.alias_conflicts:
                 first_conflict = result.alias_conflicts[0]
                 fragments.append(
-                    "别名冲突示例："
-                    f"第 {first_conflict.row_number} 行别名 {first_conflict.alias} "
+                    "别名冲突："
+                    f"第 {first_conflict.row_number} 行，别名 {first_conflict.alias} "
                     f"已被 {first_conflict.conflicting_project_name}"
-                    f"({first_conflict.conflicting_task_order_no}) 占用。"
+                    f"({first_conflict.conflicting_task_order_no}) 使用"
                 )
             if result.error_rows:
                 first_error = result.error_rows[0]
@@ -1822,6 +2179,330 @@ class _ControlPanelBridge(QObject):
         self._include_expired_projects = bool(include_expired)
         self._refresh_project_payloads()
         self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def listProjectEnvironments(self, project_id: str) -> None:
+        self._refresh_project_environment_payloads(project_id)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def listGlobalEnvironments(self) -> None:
+        self._refresh_global_environment_payloads()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def openEnvironmentDetail(self, environment_id: str) -> None:
+        self._clear_messages()
+        environment = self._environment_repository.get_project_environment(environment_id)
+        if environment is not None:
+            self._environment_scope_filter = self._normalize_environment_scope_filter(environment.scope)
+            if normalize_environment_scope(environment.scope) == "project":
+                self._project_environment_project_id = str(environment.project_id or "").strip()
+        self._select_environment(environment_id)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def closeEnvironmentDetail(self) -> None:
+        self._clear_messages()
+        self._clear_selected_environment()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, "QVariantMap")
+    def saveProjectEnvironment(self, project_id: str, payload: object) -> None:
+        normalized_project_id = str(project_id or "").strip()
+        if not isinstance(payload, dict) or not normalized_project_id:
+            return
+        env_name = str(payload.get("name") or "").strip()
+        if not env_name:
+            self._error_message = "环境名称不能为空"
+            self._emit_data_changed()
+            return
+        self._clear_messages()
+        record = ProjectEnvironmentRecord(
+            id=str(payload.get("id") or "").strip(),
+            project_id=normalized_project_id,
+            env_name=env_name,
+            scope="project",
+            env_type=str(payload.get("type") or "").strip(),
+            sort_order=int(payload.get("sortOrder") or 0),
+            is_active=bool(payload.get("isActive", True)),
+            note=str(payload.get("note") or "").strip(),
+        )
+        saved = self._environment_repository.upsert_project_environment(record)
+        self._select_environment(saved.id)
+        self._refresh_environment_scope_after_change(saved.scope, saved.project_id)
+        self._status_message = f"项目环境已保存：{saved.env_name}"
+        self._emit_data_changed()
+
+    @pyqtSlot("QVariantMap")
+    def saveGlobalEnvironment(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        env_name = str(payload.get("name") or "").strip()
+        if not env_name:
+            self._error_message = "环境名称不能为空"
+            self._emit_data_changed()
+            return
+        self._clear_messages()
+        record = ProjectEnvironmentRecord(
+            id=str(payload.get("id") or "").strip(),
+            project_id="",
+            env_name=env_name,
+            scope="global",
+            env_type=str(payload.get("type") or "").strip(),
+            sort_order=int(payload.get("sortOrder") or 0),
+            is_active=bool(payload.get("isActive", True)),
+            note=str(payload.get("note") or "").strip(),
+        )
+        saved = self._environment_repository.upsert_project_environment(record)
+        self._select_environment(saved.id)
+        self._refresh_environment_scope_after_change(saved.scope, saved.project_id)
+        self._status_message = f"全局环境已保存：{saved.env_name}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def deleteProjectEnvironment(self, environment_id: str) -> None:
+        environment = self._environment_repository.get_project_environment(environment_id)
+        if environment is None or normalize_environment_scope(environment.scope) != "project":
+            return
+        self._clear_messages()
+        deleted = self._environment_repository.delete_project_environment(environment.id)
+        if not deleted:
+            self._error_message = "删除项目环境失败"
+            self._emit_data_changed()
+            return
+        if self._selected_environment_id == environment.id:
+            self._clear_selected_environment()
+        self._refresh_project_environment_payloads(environment.project_id)
+        self._status_message = f"项目环境已删除：{environment.env_name}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def deleteGlobalEnvironment(self, environment_id: str) -> None:
+        environment = self._environment_repository.get_project_environment(environment_id)
+        if environment is None or normalize_environment_scope(environment.scope) != "global":
+            return
+        self._clear_messages()
+        deleted = self._environment_repository.delete_project_environment(environment.id)
+        if not deleted:
+            self._error_message = "删除全局环境失败"
+            self._emit_data_changed()
+            return
+        if self._selected_environment_id == environment.id:
+            self._clear_selected_environment()
+        self._refresh_global_environment_payloads()
+        self._status_message = f"全局环境已删除：{environment.env_name}"
+        self._emit_data_changed()
+
+    def _save_environment_access_entry(self, environment_id: str, payload: object, *, expected_scope: str) -> None:
+        if not isinstance(payload, dict):
+            return
+        environment, bundle = self._load_environment_bundle_for_edit(environment_id)
+        if environment is None or bundle is None:
+            self._error_message = "未找到环境配置"
+            self._emit_data_changed()
+            return
+        actual_scope = normalize_environment_scope(environment.scope)
+        if actual_scope != normalize_environment_scope(expected_scope):
+            return
+        access_name = str(payload.get("name") or "").strip()
+        if not access_name:
+            self._error_message = "访问项名称不能为空"
+            self._emit_data_changed()
+            return
+        self._clear_messages()
+        existing_entry = self._environment_repository.get_access_entry(str(payload.get("id") or "").strip())
+        password_text = str(payload.get("password") or "")
+        otp_config_text = str(payload.get("otpConfig") or "")
+        clear_password = bool(payload.get("clearPassword", False))
+        clear_otp_config = bool(payload.get("clearOtpConfig", False))
+        if password_text.strip():
+            password_encrypted = self._environment_access_service.encrypt_secret(password_text.strip())
+        elif clear_password:
+            password_encrypted = ""
+        else:
+            password_encrypted = str(existing_entry.password_encrypted or "") if existing_entry is not None else ""
+        if otp_config_text.strip():
+            otp_secret_encrypted = self._environment_access_service.encrypt_secret(otp_config_text.strip())
+        elif clear_otp_config:
+            otp_secret_encrypted = ""
+        else:
+            otp_secret_encrypted = str(existing_entry.otp_secret_encrypted or "") if existing_entry is not None else ""
+        target_id = str(payload.get("id") or "").strip()
+        next_entry = EnvironmentAccessEntryRecord(
+            id=target_id,
+            environment_id=environment.id,
+            access_name=access_name,
+            scope=actual_scope,
+            source_scope=actual_scope,
+            access_type=normalize_access_type(payload.get("type")),
+            url_or_host=str(payload.get("urlOrHost") or "").strip(),
+            username=str(payload.get("username") or "").strip(),
+            password_encrypted=password_encrypted,
+            otp_secret_encrypted=otp_secret_encrypted,
+            requires_otp=bool(payload.get("requiresOtp", False)),
+            note=str(payload.get("note") or "").strip(),
+            open_command=(
+                str(payload.get("openCommand") or "").strip()
+                if "openCommand" in payload
+                else (str(existing_entry.open_command or "") if existing_entry is not None else "")
+            ),
+            sort_order=int(payload.get("sortOrder") or 0),
+            is_active=bool(payload.get("isActive", True)),
+        )
+        existing_entries = list(bundle.entries)
+        saved_entries: list[EnvironmentAccessEntryRecord] = []
+        replaced = False
+        for entry in existing_entries:
+            if target_id and entry.id == target_id:
+                saved_entries.append(next_entry)
+                replaced = True
+            else:
+                saved_entries.append(entry)
+        if not replaced:
+            saved_entries.append(next_entry)
+        self._environment_repository.replace_access_entries(environment.id, saved_entries)
+        self._refresh_environment_scope_payloads(actual_scope, environment.project_id)
+        self._status_message = f"访问项已保存：{access_name}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str, "QVariantMap")
+    def saveProjectEnvironmentAccessEntry(self, environment_id: str, payload: object) -> None:
+        self._save_environment_access_entry(environment_id, payload, expected_scope="project")
+
+    @pyqtSlot(str, "QVariantMap")
+    def saveGlobalEnvironmentAccessEntry(self, environment_id: str, payload: object) -> None:
+        self._save_environment_access_entry(environment_id, payload, expected_scope="global")
+
+    def _delete_environment_access_entry(self, entry_id: str, *, expected_scope: str) -> None:
+        existing_entry = self._environment_repository.get_access_entry(entry_id)
+        if existing_entry is None:
+            return
+        environment, bundle = self._load_environment_bundle_for_edit(existing_entry.environment_id)
+        if environment is None or bundle is None:
+            return
+        actual_scope = normalize_environment_scope(environment.scope)
+        if actual_scope != normalize_environment_scope(expected_scope):
+            return
+        self._clear_messages()
+        next_entries = [entry for entry in bundle.entries if entry.id != existing_entry.id]
+        self._environment_repository.replace_access_entries(environment.id, next_entries)
+        self._refresh_environment_scope_payloads(actual_scope, environment.project_id)
+        self._status_message = f"访问项已删除：{existing_entry.access_name}"
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def deleteProjectEnvironmentAccessEntry(self, entry_id: str) -> None:
+        self._delete_environment_access_entry(entry_id, expected_scope="project")
+
+    @pyqtSlot(str)
+    def deleteGlobalEnvironmentAccessEntry(self, entry_id: str) -> None:
+        self._delete_environment_access_entry(entry_id, expected_scope="global")
+
+    @pyqtSlot("QVariantMap", result="QVariantMap")
+    def importOtpConfigFromQrImage(self, payload_context: object):  # noqa: ANN201
+        start_dir = str(app_data_dir())
+        if isinstance(payload_context, dict):
+            initial_dir = str(payload_context.get("initialDir") or "").strip()
+            if initial_dir:
+                start_dir = initial_dir
+        selected_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "选择 OTP 二维码图片",
+            start_dir,
+            "图片文件 (*.png *.jpg *.jpeg *.bmp *.webp);;所有文件 (*.*)",
+        )
+        if not selected_path:
+            return {"success": False, "canceled": True}
+        return self._import_otp_config_from_qr_image_path(selected_path, source="file_dialog")
+
+    @pyqtSlot(str, result="QVariantMap")
+    def importOtpConfigFromQrImagePath(self, image_path: str):  # noqa: ANN201
+        normalized_path = _local_path_from_url_or_path(image_path)
+        if not normalized_path:
+            return {"success": False, "error": "未找到二维码图片路径"}
+        return self._import_otp_config_from_qr_image_path(normalized_path, source="drop")
+
+    @pyqtSlot(result="QVariantMap")
+    def importOtpConfigFromClipboardQr(self):  # noqa: ANN201
+        self._clear_messages()
+        clipboard = QApplication.clipboard()
+        try:
+            image = clipboard.image()
+        except Exception:  # noqa: BLE001
+            image = None
+        if image is not None and not bool(getattr(image, "isNull", lambda: True)()):
+            try:
+                return self._import_otp_config_from_clipboard_image(image)
+            except Exception as exc:  # noqa: BLE001
+                self._error_message = f"剪贴板二维码导入失败：{exc}"
+                self._emit_data_changed()
+                return {"success": False, "error": str(exc)}
+
+        mime_data = clipboard.mimeData() if hasattr(clipboard, "mimeData") else None
+        if mime_data is not None and getattr(mime_data, "hasUrls", lambda: False)():
+            for item in mime_data.urls():
+                normalized_path = _local_path_from_url_or_path(item.toString() if hasattr(item, "toString") else item)
+                if normalized_path:
+                    return self._import_otp_config_from_qr_image_path(normalized_path, source="clipboard_url")
+
+        text = str(clipboard.text() if hasattr(clipboard, "text") else "").strip()
+        if text:
+            image_path = _local_path_from_url_or_path(text)
+            if Path(image_path).expanduser().is_file():
+                return self._import_otp_config_from_qr_image_path(image_path, source="clipboard_path")
+            try:
+                parsed = parse_otpauth_payload(text)
+            except Exception as exc:  # noqa: BLE001
+                self._error_message = f"剪贴板内容不是有效的 OTP 二维码或配置：{exc}"
+                self._emit_data_changed()
+                return {"success": False, "error": str(exc)}
+            self._status_message = "OTP 配置已从剪贴板导入"
+            self._emit_data_changed()
+            return _otp_import_payload(parsed, source="clipboard_text")
+
+        self._error_message = "剪贴板中未找到二维码图片、图片路径或 OTP 配置"
+        self._emit_data_changed()
+        return {"success": False, "error": self._error_message}
+
+    def _import_otp_config_from_clipboard_image(self, image: object) -> dict[str, object]:
+        temp_file = tempfile.NamedTemporaryFile(prefix="aica_otp_qr_", suffix=".png", delete=False)
+        temp_path = Path(temp_file.name)
+        temp_file.close()
+        saved = image.save(str(temp_path), "PNG")
+        if saved is False:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError("剪贴板图片保存失败")
+        return self._import_otp_config_from_qr_image_path(str(temp_path), source="clipboard_image")
+
+    def _import_otp_config_from_qr_image_path(self, image_path: str, *, source: str) -> dict[str, object]:
+        self._clear_messages()
+        try:
+            parsed = extract_otp_secret_from_qr_image(image_path)
+        except Exception as exc:  # noqa: BLE001
+            self._error_message = f"OTP 二维码导入失败：{exc}"
+            self._emit_data_changed()
+            return {"success": False, "error": str(exc)}
+        source_label = {
+            "clipboard_image": "剪贴板二维码",
+            "clipboard_path": "剪贴板图片路径",
+            "clipboard_url": "剪贴板图片",
+            "drop": "拖拽二维码",
+            "file_dialog": "二维码图片",
+        }.get(source, "二维码")
+        self._status_message = f"OTP 配置已从{source_label}导入"
+        self._emit_data_changed()
+        return _otp_import_payload(
+            parsed,
+            selected_path=image_path,
+            preview_image_url=_preview_image_url(image_path),
+            source=source,
+        )
 
     @pyqtSlot(str, str)
     def listTickets(self, query: str, status_filter: str) -> None:
@@ -1881,7 +2562,7 @@ class _ControlPanelBridge(QObject):
             return
         todo = self._todo_store.get_todo(normalized_id)
         if todo is None:
-            self._error_message = "该工单不存在或已被删除。"
+            self._error_message = "未找到对应待办"
             self._emit_data_changed()
             return
         payload = self._build_ticket_detail_payload(todo)
@@ -1926,9 +2607,28 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._refresh_ticket_payloads()
-        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{str(todo.title or '').strip() or '\u672a\u5206\u7c7b\u4efb\u52a1'}"
+        todo_title = str(todo.title or "").strip() or "\u672a\u5206\u7c7b\u4efb\u52a1"
+        self._status_message = f"\u5de5\u5355\u5df2\u5220\u9664\uff1a{todo_title}"
         self._emit_data_changed()
         self.todoListRefreshRequested.emit()
+
+    @pyqtSlot()
+    def unlinkSelectedTicketProject(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        self._clear_messages()
+        todo = self._resolve_selected_ticket_for_update()
+        if todo is None:
+            return
+        updated = self._todo_store.unlink_todo_project(todo.id)
+        if updated is None:
+            self._error_message = "\u89e3\u9664\u5173\u8054\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+            self._emit_data_changed()
+            return
+        self._apply_selected_ticket_update(
+            updated,
+            status_message="\u5df2\u89e3\u9664\u9879\u76ee\u5173\u8054",
+        )
 
     @pyqtSlot(str)
     def saveSelectedTicketVersion(self, value: str) -> None:
@@ -2031,9 +2731,10 @@ class _ControlPanelBridge(QObject):
             "root_cause": "\u95ee\u9898\u6839\u56e0",
             "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
         }
+        field_label = field_labels.get(normalized_field, "\u5b57\u6bb5")
         self._apply_selected_ticket_update(
             updated,
-            status_message=f"{field_labels.get(normalized_field, '\u5b57\u6bb5')}\u5df2\u4fdd\u5b58",
+            status_message=f"{field_label}\u5df2\u4fdd\u5b58",
         )
 
     @pyqtSlot(str, str)
@@ -2106,9 +2807,10 @@ class _ControlPanelBridge(QObject):
         self._project_repository.upsert_project(project)
         relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(previous_aliases + list(project.aliases))
         self._refresh_project_payloads()
+        self._refresh_project_environment_payloads(project.id)
         self._status_message = (
-            f"项目已保存：{project.project_name}。"
-            f"本次补关联 {relinked_count} 条未解决待办。"
+            f"已保存项目 {project.project_name}，"
+            f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
 
@@ -2124,9 +2826,12 @@ class _ControlPanelBridge(QObject):
             return
         relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(list(project.aliases))
         self._refresh_project_payloads()
+        if self._project_environment_project_id == project.id:
+            self._project_environment_project_id = ""
+            self._project_environment_groups = []
         self._status_message = (
-            f"项目已删除：{project.project_name}。"
-            f"本次补关联 {relinked_count} 条未解决待办。"
+            f"已删除项目 {project.project_name}，"
+            f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
 
@@ -2135,7 +2840,7 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         relinked_count = self._todo_store.relink_open_unresolved_todos()
         self._refresh_project_payloads()
-        self._status_message = f"已补关联 {relinked_count} 条未完成且未解决关联的待办。"
+        self._status_message = f"已关联 {relinked_count} 个未解决待办到项目"
         self._emit_data_changed()
 
     def _coerce_provider_timeouts(self) -> None:
@@ -2143,7 +2848,7 @@ class _ControlPanelBridge(QObject):
             try:
                 provider.timeout_seconds = int(provider.timeout_seconds)
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"{provider.name} 的超时时间必须是正整数") from exc
+                raise ValueError(f"{provider.name} 的超时时间必须是整数") from exc
             if provider.timeout_seconds <= 0:
                 raise ValueError(f"{provider.name} 的超时时间必须大于 0")
 
@@ -2310,3 +3015,4 @@ class ControlPanelWindow(QWidget):
             return
         margin = 0 if self.isMaximized() else 12
         self._layout.setContentsMargins(margin, margin, margin, margin)
+

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   current_summary TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
   group_name TEXT NOT NULL DEFAULT '',
   environment TEXT NOT NULL DEFAULT '',
   product_line TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS todos (
 
 CREATE INDEX IF NOT EXISTS idx_todos_status_updated
 ON todos(status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_todos_open_sort_order
+ON todos(status, sort_order, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_todos_group_name
 ON todos(group_name);
@@ -98,6 +102,29 @@ ON log_analysis_tasks(todo_id, timeline_entry_id);
 
 CREATE INDEX IF NOT EXISTS idx_log_analysis_tasks_status_updated
 ON log_analysis_tasks(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS error_codes (
+  code TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  meaning TEXT NOT NULL DEFAULT '',
+  suggestion TEXT NOT NULL DEFAULT '',
+  source_name TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'online_doc',
+  source_url TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  raw_payload_json TEXT NOT NULL DEFAULT '{}',
+  cache_status TEXT NOT NULL DEFAULT 'fresh',
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_error_codes_category
+ON error_codes(category);
+
+CREATE INDEX IF NOT EXISTS idx_error_codes_last_seen
+ON error_codes(last_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
   id TEXT PRIMARY KEY,
@@ -184,19 +211,22 @@ CREATE TABLE IF NOT EXISTS todo_project_links (
 
 CREATE TABLE IF NOT EXISTS project_environments (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT DEFAULT '',
   env_name TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'project',
   env_type TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   note TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  CHECK(scope IN ('global', 'project')),
+  CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_environments_project
-ON project_environments(project_id, is_active, sort_order, updated_at DESC);
+ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS environment_access_entries (
   id TEXT PRIMARY KEY,

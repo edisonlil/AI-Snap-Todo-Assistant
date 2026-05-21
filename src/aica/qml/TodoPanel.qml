@@ -1,4 +1,5 @@
 import QtQuick
+import QtQml
 
 Rectangle {
     id: root
@@ -6,6 +7,7 @@ Rectangle {
     height: 194
     color: "transparent"
 
+    readonly property var bridge: (typeof todoPanelBridge !== "undefined" && todoPanelBridge) ? todoPanelBridge : fallbackBridge
     readonly property int outerPadding: 12
     readonly property int headerHeight: 26
     readonly property int sectionGap: 6
@@ -14,13 +16,36 @@ Rectangle {
     readonly property int listBottomInset: 2
     readonly property int listViewportHeight: Math.max(
         0,
-        height - outerPadding * 2 - headerHeight - (todoPanelBridge.minimized ? 0 : sectionGap) - listBottomInset
+        height - outerPadding * 2 - headerHeight - (root.bridge.minimized ? 0 : sectionGap) - listBottomInset
     )
+
+    QtObject {
+        id: fallbackBridge
+
+        readonly property var todos: []
+        readonly property int todoCount: 0
+        readonly property bool minimized: false
+        readonly property bool pinned: true
+        readonly property bool canExpand: false
+        readonly property bool hasSelected: false
+        readonly property string expandLabel: ""
+        readonly property string logoSource: ""
+
+        function startDrag() {}
+        function moveDrag() {}
+        function endDrag() {}
+        function toggleExpanded() {}
+        function toggleMinimized() {}
+        function togglePinned() {}
+        function clearSelection() {}
+        function selectTodo(todoId) {}
+        function requestDetail(todoId) {}
+    }
 
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: todoPanelBridge.minimized ? height / 2 : 20
+        radius: root.bridge.minimized ? height / 2 : 20
         color: "#FFFFFF"
         opacity: 1
         border.width: 0
@@ -30,7 +55,7 @@ Rectangle {
         Column {
             anchors.fill: parent
             anchors.margins: root.outerPadding
-            spacing: todoPanelBridge.minimized ? 0 : root.sectionGap
+            spacing: root.bridge.minimized ? 0 : root.sectionGap
 
             Item {
                 width: parent.width
@@ -38,9 +63,9 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    onPressed: todoPanelBridge.startDrag()
-                    onPositionChanged: todoPanelBridge.moveDrag()
-                    onReleased: todoPanelBridge.endDrag()
+                    onPressed: root.bridge.startDrag()
+                    onPositionChanged: root.bridge.moveDrag()
+                    onReleased: root.bridge.endDrag()
                 }
 
                 Row {
@@ -52,7 +77,7 @@ Rectangle {
                     Image {
                         width: 24
                         height: 24
-                        source: todoPanelBridge.logoSource
+                        source: root.bridge.logoSource
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                         mipmap: true
@@ -61,7 +86,7 @@ Rectangle {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.verticalCenterOffset: 1
-                        text: todoPanelBridge.todoCount + " 进行中"
+                        text: root.bridge.todoCount + " 进行中"
                         font.pixelSize: 11
                         color: "#7B7B7B"
                     }
@@ -72,8 +97,8 @@ Rectangle {
                     anchors.right: minimizeButton.left
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: todoPanelBridge.canExpand && !todoPanelBridge.minimized
-                    text: todoPanelBridge.expandLabel
+                    visible: root.bridge.canExpand && !root.bridge.minimized
+                    text: root.bridge.expandLabel
                     font.pixelSize: 10
                     color: "#9B9B9B"
 
@@ -81,7 +106,7 @@ Rectangle {
                         anchors.fill: parent
                         onClicked: function(mouse) {
                             mouse.accepted = true
-                            todoPanelBridge.toggleExpanded()
+                            root.bridge.toggleExpanded()
                         }
                     }
                 }
@@ -100,7 +125,7 @@ Rectangle {
 
                     Text {
                         anchors.centerIn: parent
-                        text: todoPanelBridge.minimized ? "+" : "−"
+                        text: root.bridge.minimized ? "+" : "−"
                         font.pixelSize: 14
                         color: "#5D5D5D"
                     }
@@ -109,7 +134,7 @@ Rectangle {
                         anchors.fill: parent
                         onClicked: function(mouse) {
                             mouse.accepted = true
-                            todoPanelBridge.toggleMinimized()
+                            root.bridge.toggleMinimized()
                         }
                     }
                 }
@@ -119,7 +144,7 @@ Rectangle {
                     anchors.right: pinButton.left
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: todoPanelBridge.hasSelected
+                    visible: root.bridge.hasSelected
                     radius: 999
                     color: "#FFFFFF"
                     border.width: 1
@@ -139,7 +164,7 @@ Rectangle {
                         anchors.fill: parent
                         onClicked: function(mouse) {
                             mouse.accepted = true
-                            todoPanelBridge.clearSelection()
+                            root.bridge.clearSelection()
                         }
                     }
                 }
@@ -151,17 +176,17 @@ Rectangle {
                     radius: 999
                     width: 24
                     height: 24
-                    color: todoPanelBridge.pinned ? "#ECEFF3" : "#FFFFFF"
+                    color: root.bridge.pinned ? "#ECEFF3" : "#FFFFFF"
                     border.width: 1
-                    border.color: todoPanelBridge.pinned ? "#2A313F" : "#E5E7EB"
+                    border.color: root.bridge.pinned ? "#2A313F" : "#E5E7EB"
 
                     Item {
                         anchors.centerIn: parent
                         width: 12
                         height: 12
-                        rotation: todoPanelBridge.pinned ? 0 : 32
+                        rotation: root.bridge.pinned ? 0 : 32
 
-                        readonly property color pinColor: todoPanelBridge.pinned ? "#2A313F" : "#6E6E6E"
+                        readonly property color pinColor: root.bridge.pinned ? "#2A313F" : "#6E6E6E"
 
                         Rectangle {
                             x: 1
@@ -197,7 +222,7 @@ Rectangle {
                         anchors.fill: parent
                         onClicked: function(mouse) {
                             mouse.accepted = true
-                            todoPanelBridge.togglePinned()
+                            root.bridge.togglePinned()
                         }
                     }
                 }
@@ -206,9 +231,9 @@ Rectangle {
             Item {
                 id: listViewport
                 width: parent.width
-                height: todoPanelBridge.minimized ? 0 : root.listViewportHeight
+                height: root.bridge.minimized ? 0 : root.listViewportHeight
                 clip: true
-                visible: !todoPanelBridge.minimized
+                visible: !root.bridge.minimized
 
                 Flickable {
                     id: listFlick
@@ -224,7 +249,7 @@ Rectangle {
                         spacing: root.rowSpacing
 
                         Repeater {
-                            model: todoPanelBridge.todos
+                            model: root.bridge.todos
 
                             delegate: Rectangle {
                                 width: listColumn.width
@@ -259,7 +284,7 @@ Rectangle {
                                         anchors.fill: parent
                                         onClicked: function(mouse) {
                                             mouse.accepted = true
-                                            todoPanelBridge.selectTodo(modelData.id)
+                                            root.bridge.selectTodo(modelData.id)
                                         }
                                     }
                                 }
@@ -285,7 +310,7 @@ Rectangle {
                                     height: parent.height
                                     onClicked: function(mouse) {
                                         mouse.accepted = true
-                                        todoPanelBridge.requestDetail(modelData.id)
+                                        root.bridge.requestDetail(modelData.id)
                                     }
                                 }
                             }
