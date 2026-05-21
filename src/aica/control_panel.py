@@ -8,6 +8,8 @@ import sys
 import tempfile
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+_DWMWA_BORDER_COLOR = 34
+_DWMWA_COLOR_NONE = 0xFFFFFFFE
 
 try:
     if _SKIP_QT_IMPORT:
@@ -330,6 +332,24 @@ _QT_SHIFT_MODIFIER = 0x02000000
 _QT_CONTROL_MODIFIER = 0x04000000
 _QT_ALT_MODIFIER = 0x08000000
 _QT_META_MODIFIER = 0x10000000
+
+
+def _disable_windows_window_border(widget) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        hwnd = int(widget.winId())
+        color = ctypes.c_uint32(_DWMWA_COLOR_NONE)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            ctypes.c_void_p(hwnd),
+            ctypes.c_uint32(_DWMWA_BORDER_COLOR),
+            ctypes.byref(color),
+            ctypes.c_uint32(ctypes.sizeof(color)),
+        )
+    except Exception:
+        return
 
 
 def _hotkey_primary_from_qt_key(key: int, text: str) -> str | None:
@@ -2999,6 +3019,10 @@ class ControlPanelWindow(QWidget):
         super().changeEvent(event)
         self._sync_window_state()
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        _disable_windows_window_border(self)
+
     def _fit_within_screen(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
         if screen is None:
@@ -3061,6 +3085,5 @@ class ControlPanelWindow(QWidget):
     def _update_layout_margins(self) -> None:
         if self._layout is None:
             return
-        margin = 0 if self.isMaximized() else 12
-        self._layout.setContentsMargins(margin, margin, margin, margin)
+        self._layout.setContentsMargins(0, 0, 0, 0)
 
