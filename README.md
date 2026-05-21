@@ -331,12 +331,27 @@ Apple Silicon 原生 `arm64` `.app`：
 
 后续功能更新请同步记录到本节，避免 README 与实际行为脱节。
 
+### 2026-05-14
+
+- Chattodo macOS 云端打包流程上线：
+  - 新增 GitHub Actions unsigned macOS 构建工作流，支持在云端产出未签名的 macOS 应用包
+  - 新增 `chattodo-cross-packager` 打包 skill，补充 OpenAI agent 配置、构建矩阵说明以及 PowerShell、Shell、Python 打包脚本
+  - 补充跨平台打包脚本测试，覆盖打包命令生成、产物路径与关键参数传递
+- macOS 架构参数修复：
+  - 修复云端打包时目标架构参数未正确传递到 PyInstaller spec 的问题
+  - 在 `aica_macos.spec` 中接入 `TARGET_ARCH` 目标架构配置，确保 `arm64`、`x86_64` 与 `universal2` 构建结果符合预期
+  - 新增 macOS spec 架构参数测试，防止后续构建脚本改动造成回归
+
 ### 2026-05-13
 
+- 待办事项排序与数据库模式升级：
+  - SQLite 数据库新增待办排序相关字段，为控制面板和存储层提供稳定的排序能力
+  - 更新 SQLite 仓储逻辑，写入待办时维护排序值，保证新增和既有待办在列表中的展示顺序可控
 - macOS Intel 打包支持补强：
   - 更新 macOS 构建脚本，支持显式指定 `arm64`、`x86_64` 与 `universal2` 目标架构
   - 增加构建前架构输出与兼容性提示，降低在 Apple Silicon 上误打 Intel 包的风险
   - 补充 README 中的 Intel Mac 与通用包构建说明，明确不同机器上的打包前提
+  - 增加 macOS 构建文档测试，确保 README 中的多架构打包说明与脚本能力保持一致
 
 ### 2026-04-29
 
