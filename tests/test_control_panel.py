@@ -437,6 +437,44 @@ def test_control_panel_readable_chinese_copy_and_locations(monkeypatch: pytest.M
     assert locations["knowledge_base_dir"]["description"].endswith("knowledge_base")
 
 
+def test_server_config_updates_and_persists(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateProviderField("siliconflow", "api_key", "model-key")
+    bridge.updateServerField("enabled", "true")
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+    bridge.updateServerField("timeout_seconds", "45")
+
+    assert bridge.serverConfig == {
+        "enabled": True,
+        "baseUrl": "https://server.example.com",
+        "apiKey": "server-key",
+        "timeoutSeconds": "45",
+    }
+
+    bridge.saveConfig()
+
+    saved = bridge._config_manager.load()
+    assert saved.server.enabled is True
+    assert saved.server.base_url == "https://server.example.com"
+    assert saved.server.api_key == "server-key"
+    assert saved.server.timeout_seconds == 45
+    assert bridge.statusMessage
+
+
+def test_server_config_rejects_invalid_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateProviderField("siliconflow", "api_key", "model-key")
+    bridge.updateServerField("timeout_seconds", "0")
+    bridge.saveConfig()
+
+    assert "服务端超时时间" in bridge.errorMessage
+
+
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.status = TodoStatus.DONE

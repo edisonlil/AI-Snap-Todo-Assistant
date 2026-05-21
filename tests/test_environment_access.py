@@ -222,6 +222,82 @@ def test_environment_repository_supports_global_and_effective_scope() -> None:
     assert [entry.username for entry in effective_bundles[0].entries] == ["project-user"]
 
 
+def test_environment_schema_migration_adds_missing_sort_order_columns() -> None:
+    fd, raw_path = tempfile.mkstemp(suffix=".db", dir=Path.cwd())
+    os.close(fd)
+    Path(raw_path).unlink(missing_ok=True)
+    db_path = Path(raw_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              project_name TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE project_environments (
+              id TEXT PRIMARY KEY,
+              project_id TEXT DEFAULT '',
+              env_name TEXT NOT NULL,
+              scope TEXT NOT NULL DEFAULT 'project',
+              env_type TEXT NOT NULL DEFAULT '',
+              is_active INTEGER NOT NULL DEFAULT 1,
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE environment_access_entries (
+              id TEXT PRIMARY KEY,
+              environment_id TEXT NOT NULL,
+              access_name TEXT NOT NULL,
+              access_type TEXT NOT NULL DEFAULT '',
+              url_or_host TEXT NOT NULL DEFAULT '',
+              username TEXT NOT NULL DEFAULT '',
+              password_encrypted TEXT NOT NULL DEFAULT '',
+              otp_secret_encrypted TEXT NOT NULL DEFAULT '',
+              requires_otp INTEGER NOT NULL DEFAULT 0,
+              note TEXT NOT NULL DEFAULT '',
+              open_command TEXT NOT NULL DEFAULT '',
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO project_environments(
+              id, project_id, env_name, scope, env_type, is_active, note, created_at, updated_at
+            ) VALUES('env-legacy', '', 'legacy-env', 'global', '', 1, '', '2026-01-01', '2026-01-01')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO environment_access_entries(
+              id, environment_id, access_name, access_type, is_active, created_at, updated_at
+            ) VALUES('entry-legacy', 'env-legacy', 'console', 'web', 1, '2026-01-01', '2026-01-01')
+            """
+        )
+
+    SQLiteStorageMigrator(db_path).ensure_schema()
+    repository = SQLiteProjectEnvironmentRepository(db_path)
+    bundles = repository.list_global_environments()
+
+    assert len(bundles) == 1
+    assert bundles[0].environment.sort_order == 0
+    assert bundles[0].entries[0].sort_order == 0
+
+
 def test_environment_access_service_and_totp() -> None:
     bundle = ProjectEnvironmentBundle(
         environment=ProjectEnvironmentRecord(

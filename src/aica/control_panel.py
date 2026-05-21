@@ -457,6 +457,11 @@ _SECTION_GROUPS = [
                 "description": "\u67e5\u770b\u914d\u7f6e\u4f4d\u7f6e\u5e76\u5feb\u901f\u8df3\u8f6c\u672c\u5730\u6570\u636e\u76ee\u5f55\u3002",
             },
             {
+                "id": "server",
+                "title": "\u670d\u52a1\u7aef\u96c6\u6210",
+                "description": "\u914d\u7f6e Chattodo \u670d\u52a1\u7aef\u5730\u5740\u548c API Key\uff0c\u4e3a\u540e\u7eed\u80fd\u529b\u63a5\u5165\u505a\u51c6\u5907\u3002",
+            },
+            {
                 "id": "integrations",
                 "title": "\u811a\u672c\u96c6\u6210",
                 "description": "\u5bfc\u5165\u5916\u90e8\u811a\u672c\uff0c\u5e76\u63a7\u5236\u542f\u7528\u6216\u505c\u7528\u540c\u6b65\u811a\u672c\u3002",
@@ -485,6 +490,11 @@ _SECTION_VIEW_META = {
         "title": "\u5b58\u50a8\u4e0e\u65e5\u5fd7",
         "description": "\u5feb\u901f\u6253\u5f00\u672c\u5730\u6570\u636e\u76ee\u5f55\uff0c\u5b9a\u4f4d\u914d\u7f6e\u3001\u53cd\u9988\u548c\u9519\u8bef\u65e5\u5fd7\u3002",
         "primaryActionLabel": "\u4fdd\u5b58\u76ee\u5f55",
+    },
+    "server": {
+        "title": "\u670d\u52a1\u7aef\u96c6\u6210",
+        "description": "\u7ef4\u62a4 Chattodo \u670d\u52a1\u7aef\u8fde\u63a5\u4fe1\u606f\uff0c\u540e\u7eed\u53ef\u7528\u4e8e\u529f\u80fd\u70b9\u63a8\u8350\u3001\u6570\u636e\u540c\u6b65\u7b49\u670d\u52a1\u7aef\u80fd\u529b\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u670d\u52a1\u914d\u7f6e",
     },
     "integrations": {
         "title": "\u811a\u672c\u96c6\u6210",
@@ -524,6 +534,15 @@ def _provider_payload(provider: ProviderConfig) -> dict[str, object]:
         "baseUrl": provider.base_url,
         "timeoutSeconds": str(provider.timeout_seconds),
         "baseUrlEnabled": provider.kind == "openai_compatible",
+    }
+
+
+def _server_config_payload(config: object) -> dict[str, object]:
+    return {
+        "enabled": bool(getattr(config, "enabled", False)),
+        "baseUrl": str(getattr(config, "base_url", "") or ""),
+        "apiKey": str(getattr(config, "api_key", "") or ""),
+        "timeoutSeconds": str(getattr(config, "timeout_seconds", 30) or 30),
     }
 
 
@@ -885,6 +904,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty("QVariantList", notify=dataChanged)
     def providers(self):  # noqa: ANN201
         return [_provider_payload(provider) for provider in self._config.providers]
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def serverConfig(self):  # noqa: ANN201
+        return _server_config_payload(self._config.server)
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def taskBindings(self):  # noqa: ANN201
@@ -1678,6 +1701,22 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
 
     @pyqtSlot(str, str)
+    def updateServerField(self, field_name: str, value: str) -> None:
+        normalized = str(field_name or "").strip()
+        if normalized == "enabled":
+            self._config.server.enabled = str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+        elif normalized == "base_url":
+            self._config.server.base_url = str(value or "").strip()
+        elif normalized == "api_key":
+            self._config.server.api_key = str(value or "").strip()
+        elif normalized == "timeout_seconds":
+            self._config.server.timeout_seconds = str(value or "").strip() or "0"  # type: ignore[assignment]
+        else:
+            return
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
     def updateTaskBindingProvider(self, task_name: str, provider_id: str) -> None:
         provider = self._find_provider(str(provider_id or "").strip())
         if provider is None:
@@ -2012,6 +2051,7 @@ class _ControlPanelBridge(QObject):
         self._clear_messages()
         try:
             self._coerce_provider_timeouts()
+            self._coerce_server_timeout()
             self._config = persist_control_panel_config(
                 self._config_manager,
                 self._config,
@@ -2851,6 +2891,14 @@ class _ControlPanelBridge(QObject):
                 raise ValueError(f"{provider.name} 的超时时间必须是整数") from exc
             if provider.timeout_seconds <= 0:
                 raise ValueError(f"{provider.name} 的超时时间必须大于 0")
+
+    def _coerce_server_timeout(self) -> None:
+        try:
+            self._config.server.timeout_seconds = int(self._config.server.timeout_seconds)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("\u670d\u52a1\u7aef\u8d85\u65f6\u65f6\u95f4\u5fc5\u987b\u662f\u6574\u6570") from exc
+        if self._config.server.timeout_seconds <= 0:
+            raise ValueError("\u670d\u52a1\u7aef\u8d85\u65f6\u65f6\u95f4\u5fc5\u987b\u5927\u4e8e 0")
 
     def _find_script_integration(self, integration_id: str) -> dict[str, object] | None:
         return next(

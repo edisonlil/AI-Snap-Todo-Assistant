@@ -1838,6 +1838,120 @@ Rectangle {
                                     }
                                 }
 
+                                SectionCard {
+                                    visible: root.currentSection === "server"
+                                    Layout.fillWidth: true
+                                    implicitHeight: serverContent.implicitHeight + 32
+                                    color: root.panelAltBg
+
+                                    ColumnLayout {
+                                        id: serverContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 12
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 4
+
+                                                Text {
+                                                    text: "服务端连接"
+                                                    color: root.titleInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 15
+                                                    font.weight: 700
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: "先保存服务端地址和凭证，具体能力会在后续版本逐步接入。"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                    wrapMode: Text.Wrap
+                                                }
+                                            }
+
+                                            StatusToggle {
+                                                Layout.alignment: Qt.AlignTop | Qt.AlignRight
+                                                checked: controlPanelBridge.serverConfig.enabled
+                                                onToggled: checked => controlPanelBridge.updateServerField("enabled", checked ? "true" : "false")
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "服务端地址"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        SettingsInput {
+                                            Layout.fillWidth: true
+                                            text: controlPanelBridge.serverConfig.baseUrl
+                                            placeholderText: "https://chattodo.example.com"
+                                            onTextEdited: controlPanelBridge.updateServerField("base_url", text)
+                                        }
+
+                                        Text {
+                                            text: "API Key"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        SettingsInput {
+                                            Layout.fillWidth: true
+                                            echoMode: TextInput.Password
+                                            text: controlPanelBridge.serverConfig.apiKey
+                                            placeholderText: "输入服务端 API Key"
+                                            onTextEdited: controlPanelBridge.updateServerField("api_key", text)
+                                        }
+
+                                        Text {
+                                            text: "请求超时（秒）"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: 700
+                                        }
+
+                                        SettingsInput {
+                                            Layout.fillWidth: true
+                                            inputMethodHints: Qt.ImhDigitsOnly
+                                            text: controlPanelBridge.serverConfig.timeoutSeconds
+                                            placeholderText: "30"
+                                            onTextEdited: controlPanelBridge.updateServerField("timeout_seconds", text)
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            implicitHeight: serverNotice.implicitHeight + 24
+                                            radius: 12
+                                            color: "#FFFFFF"
+                                            border.width: 1
+                                            border.color: root.panelLine
+
+                                            Text {
+                                                id: serverNotice
+                                                anchors.fill: parent
+                                                anchors.margins: 12
+                                                text: "当前页面只负责保存连接配置，不会立即请求服务端；后续接入功能点推荐、数据同步等能力时会复用这里的设置。"
+                                                color: root.bodyInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+                                        }
+                                    }
+                                }
+
                                 ProjectsSection {
                                     theme: root
                                     Layout.fillWidth: true
