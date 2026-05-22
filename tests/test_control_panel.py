@@ -514,6 +514,31 @@ def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pyt
     assert _notification_messages(bridge)
 
 
+def test_external_ticket_refresh_updates_list_and_selected_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    refresh_events: list[str] = []
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    todo.title = "updated title"
+    todo.current_summary = "updated summary"
+    todo.summary_fields = TicketSummaryFields.from_dict(
+        {
+            **todo.summary_fields.to_dict(),
+            "ach_no": "ACH-2026",
+        }
+    )
+
+    bridge.refresh_ticket_payloads_from_store()
+
+    assert bridge.tickets[0]["title"] == "updated title"
+    assert bridge.selectedTicket["currentSummary"] == "updated summary"
+    assert bridge.selectedTicket["achNo"] == "ACH-2026"
+    assert refresh_events == []
+    assert _notification_messages(bridge) == []
+
+
 def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.summary_fields.product_line = "WPS协作"

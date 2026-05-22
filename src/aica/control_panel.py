@@ -2583,6 +2583,11 @@ class _ControlPanelBridge(QObject):
         self._status_message = f"\u5df2\u5237\u65b0 {len(self._tickets)} \u6761\u5de5\u5355\u3002"
         self._emit_data_changed()
 
+    def refresh_ticket_payloads_from_store(self) -> None:
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
     @pyqtSlot(str)
     def openTicketDetail(self, todo_id: str) -> None:
         normalized_id = str(todo_id or "").strip()
@@ -3010,6 +3015,9 @@ class ControlPanelWindow(QWidget):
         if not self._positioned:
             self._fit_within_screen()
             self._positioned = True
+
+    def refresh_tickets_from_store(self) -> None:
+        self._bridge.refresh_ticket_payloads_from_store()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         event.ignore()

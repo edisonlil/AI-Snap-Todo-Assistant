@@ -194,6 +194,7 @@ def main() -> None:
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
     hotkey_mgr = _build_hotkey_manager(config_mgr, initial_config)
+    _append_startup_log(startup_log_file, f"startup: capture hotkey configured={hotkey_mgr.hotkey}")
     notification_bridge = AppNotificationBridge()
     notification_window = AppNotificationWindow(notification_bridge)
     control_panel = ControlPanelWindow(config_mgr, notification_bridge=notification_bridge)
@@ -268,6 +269,29 @@ def main() -> None:
             "当前未配置可用的 API Key 或模型绑定。\n请点击系统托盘中的 AICA 图标，打开控制面板完成设置。",
         )
 
+    def _request_capture(source: str) -> None:
+        _append_startup_log(startup_log_file, f"capture: request source={source}")
+        if analysis_flow.capture_locked:
+            _append_startup_log(startup_log_file, "capture: ignored because analysis capture is locked")
+            return
+        if toolbar.is_loading():
+            _append_startup_log(startup_log_file, "capture: ignored because toolbar is loading")
+            return
+        if capture_session.current_capture is not None:
+            _append_startup_log(startup_log_file, "capture: ignored because a capture is already active")
+            return
+
+        if capture_ui.any_overlay_visible():
+            _append_startup_log(startup_log_file, "capture: hiding active overlays")
+            _hide_overlays(reset=True)
+            capture_session.active_overlay = None
+            toolbar.hide()
+            _refresh_todo_panel()
+        else:
+            _append_startup_log(startup_log_file, "capture: scheduling overlays")
+            toolbar.hide()
+            QTimer.singleShot(50, _show_overlays)
+
     def _quit_application() -> None:
         tray_icon.hide()
         notification_window.hide()
@@ -275,10 +299,14 @@ def main() -> None:
         app.quit()
 
     tray_menu = QMenu()
+    action_capture = QAction("开始截图", app)
     action_open_panel = QAction("打开控制面板", app)
     action_exit = QAction("退出", app)
+    action_capture.triggered.connect(lambda: _request_capture("tray"))
     action_open_panel.triggered.connect(lambda: _show_control_panel("models"))
     action_exit.triggered.connect(_quit_application)
+    tray_menu.addAction(action_capture)
+    tray_menu.addSeparator()
     tray_menu.addAction(action_open_panel)
     tray_menu.addSeparator()
     tray_menu.addAction(action_exit)
@@ -340,14 +368,21 @@ def main() -> None:
         return save_result.action, save_result.todo.title
 
     def _show_overlays() -> None:
+        screens = app.screens()
+        _append_startup_log(startup_log_file, f"capture: show overlays requested screens={len(screens)}")
         capture_ui.rebuild_overlays(
-            app.screens(),
+            screens,
             overlay_factory=OverlayWindow,
             on_selection_complete=_on_selection_complete,
             on_selection_changed=_on_selection_changed,
             on_cancel=_on_cancel,
         )
         capture_ui.show_overlays()
+        visible_count = sum(1 for overlay in capture_ui.overlays if overlay.isVisible())
+        _append_startup_log(
+            startup_log_file,
+            f"capture: overlays shown total={len(capture_ui.overlays)} visible={visible_count}",
+        )
 
     def _hide_overlays(*, reset: bool = True, preserve_active: bool = False) -> None:
         capture_ui.hide_overlays(reset=reset, preserve_active=preserve_active)
@@ -474,17 +509,7 @@ def main() -> None:
     )
 
     def _on_hotkey() -> None:
-        if analysis_flow.capture_locked or toolbar.is_loading() or capture_session.current_capture is not None:
-            return
-
-        if capture_ui.any_overlay_visible():
-            _hide_overlays(reset=True)
-            capture_session.active_overlay = None
-            toolbar.hide()
-            _refresh_todo_panel()
-        else:
-            toolbar.hide()
-            QTimer.singleShot(50, _show_overlays)
+        _request_capture("hotkey")
 
     def _on_selection_complete(rect: QRect, cropped: QPixmap) -> None:
         selected_overlay = app.sender()
@@ -644,6 +669,7 @@ def main() -> None:
             preserve_position=True,
         )
         _refresh_todo_panel()
+        control_panel.refresh_tickets_from_store()
 
     log_analysis_orchestrator = LogAnalysisOrchestrator(
         todo_store=todo_store,
