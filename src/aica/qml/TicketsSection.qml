@@ -754,23 +754,37 @@ ColumnLayout {
                                                 anchors.fill: parent
                                                 color: "transparent"
 
-                                            RowLayout {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: tableFlickable.sidePadding
-                                                anchors.rightMargin: tableFlickable.sidePadding
-                                                spacing: tableFlickable.columnSpacing
-
-                                                Text {
-                                                    Layout.preferredWidth: tableFlickable.titleColumnWidth
-                                                    text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
-                                                    color: theme.titleInk
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 13
-                                                    font.weight: 600
-                                                    elide: Text.ElideRight
-                                                    horizontalAlignment: Text.AlignLeft
-                                                    verticalAlignment: Text.AlignVCenter
+                                                MouseArea {
+                                                    id: rowDetailMouseArea
+                                                    anchors.left: parent.left
+                                                    anchors.top: parent.top
+                                                    anchors.bottom: parent.bottom
+                                                    width: Math.max(0, parent.width - tableFlickable.sidePadding - tableFlickable.actionColumnWidth)
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: function(mouse) {
+                                                        mouse.accepted = true
+                                                        controlPanelBridge.openTicketDetail(modelData.id)
+                                                    }
                                                 }
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: tableFlickable.sidePadding
+                                                    anchors.rightMargin: tableFlickable.sidePadding
+                                                    spacing: tableFlickable.columnSpacing
+
+                                                    Text {
+                                                        Layout.preferredWidth: tableFlickable.titleColumnWidth
+                                                        text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
+                                                        color: theme.titleInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 13
+                                                        font.weight: 600
+                                                        elide: Text.ElideRight
+                                                        horizontalAlignment: Text.AlignLeft
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
 
                                                 Item {
                                                     Layout.preferredWidth: tableFlickable.statusColumnWidth
