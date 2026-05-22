@@ -177,6 +177,7 @@ from aica.ticket_field_resolver import (
     resolve_product_line,
 )
 from aica.text_sanitize import sanitize_text, strip_invalid_surrogates
+from aica.window_effects import disable_windows_window_border
 
 _UNKNOWN_TEXT = "\u672a\u77e5"
 _UNCLASSIFIED_TASK = "\u672a\u5206\u7c7b\u4efb\u52a1"
@@ -199,6 +200,7 @@ class _ResultDialogBridge(QObject):
     closeRequested = pyqtSignal()
     saveRequested = pyqtSignal()
     feedbackRequested = pyqtSignal()
+    dragRequested = pyqtSignal()
 
     def __init__(
         self,
@@ -334,6 +336,10 @@ class _ResultDialogBridge(QObject):
         if self._show_feedback:
             self.feedbackRequested.emit()
 
+    @pyqtSlot()
+    def startWindowDrag(self) -> None:
+        self.dragRequested.emit()
+
 
 class ResultDialog(QDialog):
     """Displays a structured ticket snapshot for review before saving."""
@@ -377,10 +383,11 @@ class ResultDialog(QDialog):
         self._bridge.closeRequested.connect(self.reject)
         self._bridge.saveRequested.connect(self._on_save)
         self._bridge.feedbackRequested.connect(self._on_feedback)
+        self._bridge.dragRequested.connect(self._start_system_move)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self._view = QQuickWidget(self)
@@ -403,6 +410,7 @@ class ResultDialog(QDialog):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        disable_windows_window_border(self)
         if not self._positioned:
             self._fit_within_screen()
             self._positioned = True
@@ -420,6 +428,16 @@ class ResultDialog(QDialog):
         frame = self.frameGeometry()
         frame.moveCenter(available.center())
         self.move(frame.topLeft())
+
+    def _start_system_move(self) -> None:
+        window_handle = self.windowHandle()
+        if window_handle is None:
+            self.activateWindow()
+            return
+        try:
+            window_handle.startSystemMove()
+        except AttributeError:
+            self.activateWindow()
 
     def _build_snapshot(self) -> TicketSnapshot:
         return self._bridge.build_snapshot()

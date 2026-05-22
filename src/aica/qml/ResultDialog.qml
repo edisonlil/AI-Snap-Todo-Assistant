@@ -87,6 +87,15 @@ Rectangle {
                 anchors.top: parent.top
                 height: 52
 
+                MouseArea {
+                    anchors.left: parent.left
+                    anchors.right: headerActions.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: resultDialogBridge.startWindowDrag()
+                }
+
                 Text {
                     x: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
@@ -98,6 +107,7 @@ Rectangle {
                 }
 
                 Row {
+                    id: headerActions
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter

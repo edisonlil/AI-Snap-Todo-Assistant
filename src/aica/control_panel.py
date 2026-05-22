@@ -8,8 +8,6 @@ import sys
 import tempfile
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
-_DWMWA_BORDER_COLOR = 34
-_DWMWA_COLOR_NONE = 0xFFFFFFFE
 
 try:
     if _SKIP_QT_IMPORT:
@@ -315,6 +313,7 @@ from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
 from aica.todo.models import TodoItem, TodoStatus
 from aica.todo.store import TodoStore
+from aica.window_effects import disable_windows_window_border
 
 _QT_KEY_ESCAPE = 0x01000000
 _QT_KEY_TAB = 0x01000001
@@ -332,24 +331,6 @@ _QT_SHIFT_MODIFIER = 0x02000000
 _QT_CONTROL_MODIFIER = 0x04000000
 _QT_ALT_MODIFIER = 0x08000000
 _QT_META_MODIFIER = 0x10000000
-
-
-def _disable_windows_window_border(widget) -> None:
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-
-        hwnd = int(widget.winId())
-        color = ctypes.c_uint32(_DWMWA_COLOR_NONE)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            ctypes.c_void_p(hwnd),
-            ctypes.c_uint32(_DWMWA_BORDER_COLOR),
-            ctypes.byref(color),
-            ctypes.c_uint32(ctypes.sizeof(color)),
-        )
-    except Exception:
-        return
 
 
 def _hotkey_primary_from_qt_key(key: int, text: str) -> str | None:
@@ -3029,7 +3010,7 @@ class ControlPanelWindow(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        _disable_windows_window_border(self)
+        disable_windows_window_border(self)
 
     def _fit_within_screen(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
