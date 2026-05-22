@@ -30,12 +30,24 @@ Rectangle {
 
     function syncFields() {
         syncingFields = true
-        titleEdit.text = resultDialogBridge.title
-        groupNameEdit.text = resultDialogBridge.groupName
-        environmentEdit.text = resultDialogBridge.environment
-        productLineEdit.text = resultDialogBridge.productLine
-        ticketTypeEdit.text = resultDialogBridge.ticketType
-        summaryEdit.text = resultDialogBridge.recognitionConclusion
+        if (titleEdit.text !== resultDialogBridge.title) {
+            titleEdit.text = resultDialogBridge.title
+        }
+        if (groupNameEdit.text !== resultDialogBridge.groupName) {
+            groupNameEdit.text = resultDialogBridge.groupName
+        }
+        if (environmentEdit.text !== resultDialogBridge.environment) {
+            environmentEdit.text = resultDialogBridge.environment
+        }
+        if (productLineEdit.text !== resultDialogBridge.productLine) {
+            productLineEdit.text = resultDialogBridge.productLine
+        }
+        if (ticketTypeEdit.text !== resultDialogBridge.ticketType) {
+            ticketTypeEdit.text = resultDialogBridge.ticketType
+        }
+        if (summaryEdit.text !== resultDialogBridge.recognitionConclusion) {
+            summaryEdit.text = resultDialogBridge.recognitionConclusion
+        }
         syncingFields = false
     }
 
