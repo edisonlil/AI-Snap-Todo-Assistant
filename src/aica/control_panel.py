@@ -321,6 +321,7 @@ from aica.paths import (
 from aica.models import TicketSummaryFields, is_unknown_text
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import normalize_group_alias, now_iso
+from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
@@ -806,6 +807,22 @@ def _new_project_aliases(previous_aliases: list[str], next_aliases: list[str]) -
     return added
 
 
+def _project_date_for_server(value: str) -> str:
+    text = str(value or "").strip().replace("/", "-")
+    if "T" in text:
+        return text.split("T", 1)[0]
+    if " " in text:
+        return text.split(" ", 1)[0]
+    return text
+
+
+def _project_update_payload(project: ProjectRecord) -> dict[str, object]:
+    return {
+        "task_order_no": project.task_order_no,
+        "product_version": project.product_version,
+    }
+
+
 class ProjectServerSyncWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -827,6 +844,34 @@ class ProjectServerSyncWorker(QThread):
             self.error.emit(str(exc))
         else:
             self.finished.emit(result)
+
+
+class ProjectUpdateSyncWorker(QThread):
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str, str)
+
+    def __init__(
+        self,
+        *,
+        config_manager: ConfigManager,
+        payload: dict[str, object],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._payload = dict(payload or {})
+        self._task_order_no = str(self._payload.get("task_order_no") or "").strip()
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            client.update_project_by_task_order_no(self._payload)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(self._task_order_no, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._task_order_no, str(exc))
+        else:
+            self.finished.emit(self._task_order_no)
 
 
 class ProjectChatGroupsSyncWorker(QThread):
@@ -915,6 +960,7 @@ class _ControlPanelBridge(QObject):
         self._project_server_syncing = False
         self._project_server_sync_message = ""
         self._project_server_sync_worker: ProjectServerSyncWorker | None = None
+        self._project_update_sync_workers: list[ProjectUpdateSyncWorker] = []
         self._project_chat_groups_sync_workers: list[ProjectChatGroupsSyncWorker] = []
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
@@ -2949,7 +2995,36 @@ class _ControlPanelBridge(QObject):
             f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
+        self._sync_project_update_to_server(project)
         self._sync_project_chat_groups_to_server(project.task_order_no, new_aliases)
+
+    def _sync_project_update_to_server(self, project: ProjectRecord) -> None:
+        worker = ProjectUpdateSyncWorker(
+            config_manager=self._config_manager,
+            payload=_project_update_payload(project),
+        )
+        self._project_update_sync_workers.append(worker)
+        worker.finished.connect(self._handle_project_update_sync_finished)
+        worker.error.connect(self._handle_project_update_sync_error)
+        worker.finished.connect(lambda _task_order_no, current=worker: self._cleanup_project_update_sync_worker(current))
+        worker.error.connect(lambda _task_order_no, _message, current=worker: self._cleanup_project_update_sync_worker(current))
+        worker.start()
+
+    def _handle_project_update_sync_finished(self, _task_order_no: str) -> None:
+        return
+
+    def _handle_project_update_sync_error(self, task_order_no: str, message: str) -> None:
+        self._notification_bridge.notify(
+            "warning",
+            f"项目已本地保存，但同步服务端项目失败：{task_order_no}，{message}",
+            4200,
+            "control_panel",
+        )
+
+    def _cleanup_project_update_sync_worker(self, worker: ProjectUpdateSyncWorker) -> None:
+        if worker in self._project_update_sync_workers:
+            self._project_update_sync_workers.remove(worker)
+        worker.deleteLater()
 
     def _sync_project_chat_groups_to_server(self, task_order_no: str, group_names: list[str]) -> None:
         if not group_names:

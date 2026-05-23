@@ -268,7 +268,6 @@ Rectangle {
         property color fillColor: "#FFFFFF"
         property color inkColor: root.accent
         property int strokeWidth: 1
-        property bool enabled: true
         signal clicked
 
         radius: 16
