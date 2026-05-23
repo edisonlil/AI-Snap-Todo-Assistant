@@ -123,6 +123,25 @@ class HotkeyConfig:
 
 
 @dataclass
+class ServerConfig:
+    enabled: bool = False
+    base_url: str = ""
+    api_key: str = ""
+    timeout_seconds: int = 30
+
+    @classmethod
+    def from_dict(cls, data: object) -> "ServerConfig":
+        if not isinstance(data, dict):
+            return cls()
+        return cls(
+            enabled=_coerce_bool(data.get("enabled"), False),
+            base_url=str(data.get("base_url", "")).strip(),
+            api_key=str(data.get("api_key", "")).strip(),
+            timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 30),
+        )
+
+
+@dataclass
 class FeaturePointProviderConfig:
     enabled: bool = True
     provider: str = "http"
@@ -162,6 +181,7 @@ class AppConfig:
     providers: list[ProviderConfig] = field(default_factory=list)
     task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
     ticket_enrichment: TicketEnrichmentConfig = field(default_factory=TicketEnrichmentConfig)
     max_image_bytes: int = 4 * 1024 * 1024
 
@@ -281,6 +301,7 @@ def build_default_config() -> AppConfig:
         providers=default_provider_configs(),
         task_model_bindings=default_task_model_bindings("siliconflow"),
         hotkeys=HotkeyConfig(),
+        server=ServerConfig(),
         ticket_enrichment=TicketEnrichmentConfig(),
         max_image_bytes=4 * 1024 * 1024,
     )
@@ -292,6 +313,20 @@ def _coerce_positive_int(value: object, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    if value is None:
+        return default
+    return bool(value)
 
 
 def _normalize_provider_configs(providers: list[ProviderConfig], default_provider_id: str) -> list[ProviderConfig]:
@@ -394,6 +429,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         providers=providers,
         task_model_bindings=bindings,
         hotkeys=HotkeyConfig.from_dict(data.get("hotkeys")),
+        server=ServerConfig.from_dict(data.get("server")),
         ticket_enrichment=TicketEnrichmentConfig.from_dict(data.get("ticket_enrichment")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
     )
@@ -422,6 +458,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
         context_summary=TaskModelBinding(provider_id="siliconflow", model_id="analysis-model"),
     )
     migrated.hotkeys = HotkeyConfig()
+    migrated.server = ServerConfig()
     migrated.ticket_enrichment = TicketEnrichmentConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     return migrated

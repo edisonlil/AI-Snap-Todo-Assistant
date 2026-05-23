@@ -596,6 +596,7 @@ ColumnLayout {
                             property real sidePadding: 18
                             property real columnSpacing: 12
                             property real tableInnerWidth: Math.max(780, width - sidePadding * 2 - columnSpacing * 8)
+                            property real tableContentWidth: tableInnerWidth + sidePadding * 2 + columnSpacing * 8
                             property real titleColumnWidth: Math.round(tableInnerWidth * 0.22)
                             property real statusColumnWidth: Math.round(tableInnerWidth * 0.08)
                             property real statusProjectGapWidth: Math.round(tableInnerWidth * 0.06)
@@ -606,152 +607,184 @@ ColumnLayout {
                             property real updatedColumnWidth: Math.round(tableInnerWidth * 0.13)
                             property real actionColumnWidth: Math.round(tableInnerWidth * 0.09)
 
-                            Column {
-                                id: tableColumn
-                                width: tableFlickable.width
-                                spacing: 0
+                            Flickable {
+                                id: tableHorizontalFlickable
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: paginationBar.height
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                contentWidth: tableColumn.width
+                                contentHeight: height
+                                flickableDirection: Flickable.HorizontalFlick
+                                interactive: contentWidth > width
 
-                                Rectangle {
-                                    id: tableHeader
-                                    width: parent.width
-                                    height: 42
-                                    color: "transparent"
+                                ScrollBar.horizontal: ScrollBar {
+                                    policy: ScrollBar.AsNeeded
+                                }
 
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: tableFlickable.sidePadding
-                                        anchors.rightMargin: tableFlickable.sidePadding
-                                        spacing: tableFlickable.columnSpacing
+                                Column {
+                                    id: tableColumn
+                                    width: Math.max(tableHorizontalFlickable.width, tableFlickable.tableContentWidth)
+                                    spacing: 0
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.titleColumnWidth
-                                            text: "\u5de5\u5355\u6807\u9898"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignLeft
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                    Rectangle {
+                                        id: tableHeader
+                                        width: parent.width
+                                        height: 42
+                                        color: "transparent"
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.statusColumnWidth
-                                            text: "\u72b6\u6001"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: tableFlickable.sidePadding
+                                            anchors.rightMargin: tableFlickable.sidePadding
+                                            spacing: tableFlickable.columnSpacing
 
-                                        Item {
-                                            Layout.preferredWidth: tableFlickable.statusProjectGapWidth
-                                            Layout.fillHeight: true
-                                        }
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.titleColumnWidth
+                                                text: "\u5de5\u5355\u6807\u9898"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignLeft
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.projectColumnWidth
-                                            text: "\u9879\u76ee"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignLeft
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.statusColumnWidth
+                                                text: "\u72b6\u6001"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
 
-                                        Item {
-                                            Layout.preferredWidth: tableFlickable.projectProductGapWidth
-                                            Layout.fillHeight: true
-                                        }
+                                            Item {
+                                                Layout.preferredWidth: tableFlickable.statusProjectGapWidth
+                                                Layout.fillHeight: true
+                                            }
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.productColumnWidth
-                                            text: "\u4ea7\u54c1\u7ebf"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignLeft
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.projectColumnWidth
+                                                text: "\u9879\u76ee"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignLeft
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.typeColumnWidth
-                                            text: "\u7c7b\u578b"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignLeft
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                            Item {
+                                                Layout.preferredWidth: tableFlickable.projectProductGapWidth
+                                                Layout.fillHeight: true
+                                            }
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.updatedColumnWidth
-                                            text: "\u66f4\u65b0\u65f6\u95f4"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.productColumnWidth
+                                                text: "\u4ea7\u54c1\u7ebf"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignLeft
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
 
-                                        Text {
-                                            Layout.preferredWidth: tableFlickable.actionColumnWidth
-                                            text: "\u64cd\u4f5c"
-                                            color: "#7A857F"
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: 600
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.typeColumnWidth
+                                                text: "\u7c7b\u578b"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignLeft
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.updatedColumnWidth
+                                                text: "\u66f4\u65b0\u65f6\u95f4"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+
+                                            Text {
+                                                Layout.preferredWidth: tableFlickable.actionColumnWidth
+                                                text: "\u64cd\u4f5c"
+                                                color: "#7A857F"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 11
+                                                font.weight: 600
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
                                         }
                                     }
-                                }
 
-                                Rectangle {
-                                    width: parent.width
-                                    height: 1
-                                    color: theme.panelLine
-                                }
+                                    Rectangle {
+                                        width: parent.width
+                                        height: 1
+                                        color: theme.panelLine
+                                    }
 
-                                ListView {
-                                    id: ticketTableView
-                                    width: parent.width
-                                    height: Math.max(0, tableFlickable.height - paginationBar.height - tableHeader.height - 1)
-                                    clip: true
-                                    spacing: 0
-                                    model: ticketSection.pagedTickets
-                                    boundsBehavior: Flickable.StopAtBounds
+                                    ListView {
+                                        id: ticketTableView
+                                        width: parent.width
+                                        height: Math.max(0, tableHorizontalFlickable.height - tableHeader.height - 1)
+                                        clip: true
+                                        spacing: 0
+                                        model: ticketSection.pagedTickets
+                                        boundsBehavior: Flickable.StopAtBounds
 
-                                    delegate: Item {
-                                        width: ticketTableView.width
-                                        height: 54
+                                        delegate: Item {
+                                            width: ticketTableView.width
+                                            height: 54
 
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            color: "transparent"
-
-                                            RowLayout {
+                                            Rectangle {
                                                 anchors.fill: parent
-                                                anchors.leftMargin: tableFlickable.sidePadding
-                                                anchors.rightMargin: tableFlickable.sidePadding
-                                                spacing: tableFlickable.columnSpacing
+                                                color: "transparent"
 
-                                                Text {
-                                                    Layout.preferredWidth: tableFlickable.titleColumnWidth
-                                                    text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
-                                                    color: theme.titleInk
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 13
-                                                    font.weight: 600
-                                                    elide: Text.ElideRight
-                                                    horizontalAlignment: Text.AlignLeft
-                                                    verticalAlignment: Text.AlignVCenter
+                                                MouseArea {
+                                                    id: rowDetailMouseArea
+                                                    anchors.left: parent.left
+                                                    anchors.top: parent.top
+                                                    anchors.bottom: parent.bottom
+                                                    width: Math.max(0, parent.width - tableFlickable.sidePadding - tableFlickable.actionColumnWidth)
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: function(mouse) {
+                                                        mouse.accepted = true
+                                                        controlPanelBridge.openTicketDetail(modelData.id)
+                                                    }
                                                 }
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: tableFlickable.sidePadding
+                                                    anchors.rightMargin: tableFlickable.sidePadding
+                                                    spacing: tableFlickable.columnSpacing
+
+                                                    Text {
+                                                        Layout.preferredWidth: tableFlickable.titleColumnWidth
+                                                        text: modelData.title || "\u672a\u5206\u7c7b\u4efb\u52a1"
+                                                        color: theme.titleInk
+                                                        font.family: theme.uiFont
+                                                        font.pixelSize: 13
+                                                        font.weight: 600
+                                                        elide: Text.ElideRight
+                                                        horizontalAlignment: Text.AlignLeft
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
 
                                                 Item {
                                                     Layout.preferredWidth: tableFlickable.statusColumnWidth
@@ -913,13 +946,17 @@ ColumnLayout {
                                         }
                                     }
                                 }
+                            }
 
-                                Rectangle {
-                                    id: paginationBar
-                                    width: parent.width
-                                    property bool compactLayout: width < 760
-                                    height: compactLayout ? paginationInfoRow.height + paginationSummary.height + 29 : Math.max(paginationInfoRow.height, paginationSummary.height) + 21
-                                    color: "transparent"
+                            Rectangle {
+                                id: paginationBar
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                property bool compactLayout: width < 760
+                                height: compactLayout ? paginationInfoRow.height + paginationSummary.height + 29 : Math.max(paginationInfoRow.height, paginationSummary.height) + 21
+                                color: "transparent"
 
                                     Rectangle {
                                         anchors.top: parent.top

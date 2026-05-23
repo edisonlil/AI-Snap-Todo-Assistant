@@ -175,6 +175,12 @@ python -m pip install -r requirements-build.txt
  "hotkeys": {
     "capture": "Alt+A"
   },
+  "server": {
+    "enabled": false,
+    "base_url": "",
+    "api_key": "",
+    "timeout_seconds": 30
+  },
   "max_image_bytes": 4194304
 }
 ```

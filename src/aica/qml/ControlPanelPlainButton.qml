@@ -7,6 +7,7 @@ Rectangle {
     property color fillColor: "#FFFFFF"
     property color inkColor: theme.accent
     property int strokeWidth: 1
+    property bool enabled: true
     signal clicked
 
     radius: 16
@@ -15,6 +16,7 @@ Rectangle {
     border.color: buttonRoot.strokeWidth > 0 ? theme.accent : buttonRoot.fillColor
     implicitWidth: buttonText.implicitWidth + 28
     implicitHeight: 38
+    opacity: enabled ? 1 : 0.56
 
     Text {
         id: buttonText
@@ -28,7 +30,8 @@ Rectangle {
 
     MouseArea {
         anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
+        enabled: buttonRoot.enabled
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: buttonRoot.clicked()
     }
 }

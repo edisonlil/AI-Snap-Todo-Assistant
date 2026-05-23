@@ -120,6 +120,7 @@ class SQLiteStorageMigrator:
 
     def ensure_schema(self) -> None:
         with self._connect() as connection:
+            self._preflight_legacy_tables(connection)
             connection.executescript(_load_schema_sql())
             self._migrate_schema(connection)
             connection.execute(
@@ -130,6 +131,30 @@ class SQLiteStorageMigrator:
                 """,
                 (SCHEMA_VERSION,),
             )
+
+    def _preflight_legacy_tables(self, connection: sqlite3.Connection) -> None:
+        preflight_columns = {
+            "todos": {
+                "sort_order": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "projects": {
+                "support_ended_at": "TEXT NOT NULL DEFAULT ''",
+                "task_order_no": "TEXT NOT NULL DEFAULT ''",
+            },
+            "project_environments": {
+                "scope": "TEXT NOT NULL DEFAULT 'project'",
+                "sort_order": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "environment_access_entries": {
+                "sort_order": "INTEGER NOT NULL DEFAULT 0",
+            },
+        }
+        for table_name, columns in preflight_columns.items():
+            if not _table_info(connection, table_name):
+                continue
+            for column_name, column_def in columns.items():
+                if not _has_column(connection, table_name, column_name):
+                    connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
 
     def _migrate_schema(self, connection: sqlite3.Connection) -> None:
         if not _has_column(connection, "todos", "ticket_version"):
@@ -190,6 +215,7 @@ class SQLiteStorageMigrator:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_todos_open_sort_order ON todos(status, sort_order, updated_at DESC)"
         )
+        self._migrate_environment_sort_order_columns(connection)
         self._migrate_project_environments_scope(connection)
         connection.execute(
             """
@@ -198,6 +224,26 @@ class SQLiteStorageMigrator:
             WHERE TRIM(LOWER(COALESCE(access_type, ''))) IN ('', 'http', 'https', 'web')
             """
         )
+
+    def _migrate_environment_sort_order_columns(self, connection: sqlite3.Connection) -> None:
+        environment_columns = _table_info(connection, "project_environments")
+        if environment_columns:
+            if not _has_column(connection, "project_environments", "sort_order"):
+                connection.execute(
+                    "ALTER TABLE project_environments ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_environments_project ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC)"
+            )
+        entry_columns = _table_info(connection, "environment_access_entries")
+        if entry_columns:
+            if not _has_column(connection, "environment_access_entries", "sort_order"):
+                connection.execute(
+                    "ALTER TABLE environment_access_entries ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_environment_access_entries_environment ON environment_access_entries(environment_id, is_active, sort_order, updated_at DESC)"
+            )
 
     def _migrate_project_environments_scope(self, connection: sqlite3.Connection) -> None:
         columns = _table_info(connection, "project_environments")
@@ -493,6 +539,7 @@ class SQLiteProjectRepository:
                       product_version=excluded.product_version,
                       project_manager=excluded.project_manager,
                       project_level=excluded.project_level,
+                      created_at=excluded.created_at,
                       updated_at=excluded.updated_at
                     """,
                     (

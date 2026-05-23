@@ -30,12 +30,24 @@ Rectangle {
 
     function syncFields() {
         syncingFields = true
-        titleEdit.text = resultDialogBridge.title
-        groupNameEdit.text = resultDialogBridge.groupName
-        environmentEdit.text = resultDialogBridge.environment
-        productLineEdit.text = resultDialogBridge.productLine
-        ticketTypeEdit.text = resultDialogBridge.ticketType
-        summaryEdit.text = resultDialogBridge.recognitionConclusion
+        if (titleEdit.text !== resultDialogBridge.title) {
+            titleEdit.text = resultDialogBridge.title
+        }
+        if (groupNameEdit.text !== resultDialogBridge.groupName) {
+            groupNameEdit.text = resultDialogBridge.groupName
+        }
+        if (environmentEdit.text !== resultDialogBridge.environment) {
+            environmentEdit.text = resultDialogBridge.environment
+        }
+        if (productLineEdit.text !== resultDialogBridge.productLine) {
+            productLineEdit.text = resultDialogBridge.productLine
+        }
+        if (ticketTypeEdit.text !== resultDialogBridge.ticketType) {
+            ticketTypeEdit.text = resultDialogBridge.ticketType
+        }
+        if (summaryEdit.text !== resultDialogBridge.recognitionConclusion) {
+            summaryEdit.text = resultDialogBridge.recognitionConclusion
+        }
         syncingFields = false
     }
 
@@ -75,6 +87,15 @@ Rectangle {
                 anchors.top: parent.top
                 height: 52
 
+                MouseArea {
+                    anchors.left: parent.left
+                    anchors.right: headerActions.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: resultDialogBridge.startWindowDrag()
+                }
+
                 Text {
                     x: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
@@ -86,6 +107,7 @@ Rectangle {
                 }
 
                 Row {
+                    id: headerActions
                     anchors.right: parent.right
                     anchors.rightMargin: root.outerPadding
                     anchors.verticalCenter: parent.verticalCenter
