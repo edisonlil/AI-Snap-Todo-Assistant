@@ -268,6 +268,7 @@ Rectangle {
         property color fillColor: "#FFFFFF"
         property color inkColor: root.accent
         property int strokeWidth: 1
+        property bool enabled: true
         signal clicked
 
         radius: 16
@@ -276,6 +277,7 @@ Rectangle {
         border.color: buttonRoot.strokeWidth > 0 ? root.accent : buttonRoot.fillColor
         implicitWidth: buttonText.implicitWidth + 28
         implicitHeight: 38
+        opacity: enabled ? 1 : 0.56
 
         Text {
             id: buttonText
@@ -289,7 +291,8 @@ Rectangle {
 
         MouseArea {
             anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
+            enabled: buttonRoot.enabled
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: buttonRoot.clicked()
         }
     }
@@ -2007,13 +2010,9 @@ Rectangle {
                                             spacing: 10
 
                                             PlainButton {
-                                                label: "导入文件"
-                                                onClicked: controlPanelBridge.chooseProjectImportFile()
-                                            }
-
-                                            PlainButton {
-                                                label: "下载模板"
-                                                onClicked: controlPanelBridge.downloadProjectTemplate()
+                                                label: controlPanelBridge.projectServerSyncing ? "拉取中..." : "从服务端拉取"
+                                                enabled: !controlPanelBridge.projectServerSyncing
+                                                onClicked: controlPanelBridge.syncProjectsFromServer()
                                             }
 
                                             PlainButton {
@@ -2024,6 +2023,24 @@ Rectangle {
                                             PlainButton {
                                                 label: "补关联未解决待办"
                                                 onClicked: controlPanelBridge.relinkOpenUnresolvedTodos()
+                                            }
+
+                                            RowLayout {
+                                                visible: controlPanelBridge.projectServerSyncing
+                                                spacing: 6
+
+                                                BusyIndicator {
+                                                    running: controlPanelBridge.projectServerSyncing
+                                                    implicitWidth: 24
+                                                    implicitHeight: 24
+                                                }
+
+                                                Text {
+                                                    text: controlPanelBridge.projectServerSyncMessage
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 11
+                                                }
                                             }
                                         }
 

@@ -12,7 +12,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QDate, QObject, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import QDate, QObject, QThread, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QDesktopServices
     from PyQt6.QtQuickWidgets import QQuickWidget
     from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
@@ -20,6 +20,19 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
     class QObject:  # type: ignore[no-redef]
         def __init__(self, *args, **kwargs):
             pass
+
+    class QThread:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            self.run()
+
+        def run(self):
+            return None
+
+        def deleteLater(self):
+            return None
 
     class _Signal:
         def __init__(self):
@@ -285,12 +298,12 @@ from aica.environment_access import (
 )
 from aica.otp_secret_extractor import OtpSecretExtractResult, extract_otp_secret_from_qr_image, parse_otpauth_payload
 from aica.project_management import (
-    build_project_template_content,
     find_active_alias_conflicts,
-    import_projects_from_file,
     project_record_from_payload,
     project_to_payload,
+    sync_projects_from_server,
 )
+from aica.server_api import ChattodoServerClient, ChattodoServerError
 from aica.paths import (
     aica_database_file,
     asset_file,
@@ -307,7 +320,7 @@ from aica.paths import (
 )
 from aica.models import TicketSummaryFields, is_unknown_text
 from aica.runtime import RUNTIME_CAPABILITIES
-from aica.storage.adapters import now_iso
+from aica.storage.adapters import normalize_group_alias, now_iso
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
@@ -781,6 +794,73 @@ def _ticket_timeline_scenario(kind: str, scenario: str) -> str:
     return str(scenario or "").strip() or "\u7cfb\u7edf\u8bb0\u5f55"
 
 
+def _new_project_aliases(previous_aliases: list[str], next_aliases: list[str]) -> list[str]:
+    seen = {normalize_group_alias(alias) for alias in previous_aliases if normalize_group_alias(alias)}
+    added: list[str] = []
+    for alias in next_aliases:
+        normalized = normalize_group_alias(alias)
+        if not normalized or normalized in seen:
+            continue
+        added.append(str(alias or "").strip())
+        seen.add(normalized)
+    return added
+
+
+class ProjectServerSyncWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, config_manager: ConfigManager, db_path: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._db_path = db_path
+
+    def run(self) -> None:
+        try:
+            project_repository = SQLiteProjectRepository(self._db_path)
+            todo_store = TodoStore(str(self._db_path))
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            result = sync_projects_from_server(client, project_repository, todo_store)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(result)
+
+
+class ProjectChatGroupsSyncWorker(QThread):
+    finished = pyqtSignal(str, object)
+    error = pyqtSignal(str, str)
+
+    def __init__(
+        self,
+        *,
+        config_manager: ConfigManager,
+        task_order_no: str,
+        group_names: list[str],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._task_order_no = str(task_order_no or "").strip()
+        self._group_names = [str(item or "").strip() for item in group_names if str(item or "").strip()]
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            client.bind_chat_groups_by_task_order_no(
+                task_order_no=self._task_order_no,
+                group_names=self._group_names,
+            )
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(self._task_order_no, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._task_order_no, str(exc))
+        else:
+            self.finished.emit(self._task_order_no, list(self._group_names))
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -832,6 +912,10 @@ class _ControlPanelBridge(QObject):
         self._selected_environment_id = ""
         self._selected_environment = self._empty_environment_detail_payload()
         self._last_project_import_summary = ""
+        self._project_server_syncing = False
+        self._project_server_sync_message = ""
+        self._project_server_sync_worker: ProjectServerSyncWorker | None = None
+        self._project_chat_groups_sync_workers: list[ProjectChatGroupsSyncWorker] = []
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
         self._tickets = self._load_ticket_payloads()
@@ -1083,6 +1167,14 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def lastProjectImportSummary(self) -> str:
         return self._last_project_import_summary
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def projectServerSyncing(self) -> bool:
+        return self._project_server_syncing
+
+    @pyqtProperty(str, notify=dataChanged)
+    def projectServerSyncMessage(self) -> str:
+        return self._project_server_sync_message
 
     @pyqtProperty(str, notify=dataChanged)
     def environmentScopeFilter(self) -> str:
@@ -2155,63 +2247,60 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
 
     @pyqtSlot()
-    def chooseProjectImportFile(self) -> None:
-        selected_path, _ = QFileDialog.getOpenFileName(
-            None,
-            "选择项目文件",
-            str(app_data_dir()),
-            "项目文件 (*.csv *.xlsx);;所有文件 (*.*)",
-        )
-        if selected_path:
-            self.importProjectFile(selected_path)
-
-    @pyqtSlot(str)
-    def importProjectFile(self, path: str) -> None:
+    def syncProjectsFromServer(self) -> None:
+        if self._project_server_syncing:
+            return
         self._clear_messages()
-        try:
-            result = import_projects_from_file(path, self._project_repository, self._todo_store)
-        except ValueError as exc:
-            self._error_message = str(exc)
+        self._project_server_syncing = True
+        self._project_server_sync_message = "正在从服务端拉取项目..."
+        self._status_message = self._project_server_sync_message
+        worker = ProjectServerSyncWorker(
+            config_manager=self._config_manager,
+            db_path=aica_database_file(),
+        )
+        self._project_server_sync_worker = worker
+        worker.finished.connect(self._handle_project_server_sync_finished)
+        worker.error.connect(self._handle_project_server_sync_error)
+        worker.finished.connect(lambda _result, current=worker: self._cleanup_project_server_sync_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_project_server_sync_worker(current))
+        self._emit_data_changed()
+        worker.start()
+
+    def _handle_project_server_sync_finished(self, result: object) -> None:
+        self._refresh_project_payloads()
+        if self._environment_scope_filter == "project" or self._project_environment_project_id:
+            self._refresh_project_environment_payloads(self._project_environment_project_id)
+        if not hasattr(result, "created_count"):
+            self._error_message = "服务端项目拉取失败：同步结果格式错误"
+            self._project_server_sync_message = ""
             self._emit_data_changed()
             return
-        self._refresh_project_payloads()
         self._last_project_import_summary = (
             f"新增 {result.created_count} 个，更新 {result.updated_count} 个，"
             f"跳过 {result.skipped_count} 个，关联 {result.relinked_count} 个"
         )
-        if result.alias_conflicts or result.error_rows:
-            fragments = [self._last_project_import_summary]
-            if result.alias_conflicts:
-                first_conflict = result.alias_conflicts[0]
-                fragments.append(
-                    "别名冲突："
-                    f"第 {first_conflict.row_number} 行，别名 {first_conflict.alias} "
-                    f"已被 {first_conflict.conflicting_project_name}"
-                    f"({first_conflict.conflicting_task_order_no}) 使用"
-                )
-            if result.error_rows:
-                first_error = result.error_rows[0]
-                fragments.append(f"错误示例：第 {first_error['rowNumber']} 行，{first_error['message']}")
-            self._status_message = " ".join(fragments)
+        if result.error_rows:
+            first_error = result.error_rows[0]
+            self._status_message = (
+                f"{self._last_project_import_summary} "
+                f"错误示例：第 {first_error['rowNumber']} 条，{first_error['message']}"
+            )
         else:
             self._status_message = self._last_project_import_summary
+        self._project_server_sync_message = ""
+        self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
+
+    def _handle_project_server_sync_error(self, message: str) -> None:
+        self._error_message = f"服务端项目拉取失败：{message}"
+        self._project_server_sync_message = ""
         self._emit_data_changed()
 
-    @pyqtSlot()
-    def downloadProjectTemplate(self) -> None:
-        selected_path, _ = QFileDialog.getSaveFileName(
-            None,
-            "保存项目导入模板",
-            str(app_data_dir() / "project_import_template.csv"),
-            "CSV 文件 (*.csv)",
-        )
-        if not selected_path:
-            return
-        target = Path(selected_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(build_project_template_content(), encoding="utf-8-sig")
-        self._clear_messages()
-        self._status_message = f"项目导入模板已保存到 {target}"
+    def _cleanup_project_server_sync_worker(self, worker: ProjectServerSyncWorker) -> None:
+        self._project_server_syncing = False
+        if self._project_server_sync_worker is worker:
+            self._project_server_sync_worker = None
+        worker.deleteLater()
         self._emit_data_changed()
 
     @pyqtSlot(str, bool)
@@ -2850,6 +2939,7 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
         previous_aliases = list(existing.aliases) if existing is not None else []
+        new_aliases = _new_project_aliases(previous_aliases, list(project.aliases))
         self._project_repository.upsert_project(project)
         relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(previous_aliases + list(project.aliases))
         self._refresh_project_payloads()
@@ -2859,6 +2949,45 @@ class _ControlPanelBridge(QObject):
             f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
+        self._sync_project_chat_groups_to_server(project.task_order_no, new_aliases)
+
+    def _sync_project_chat_groups_to_server(self, task_order_no: str, group_names: list[str]) -> None:
+        if not group_names:
+            return
+        worker = ProjectChatGroupsSyncWorker(
+            config_manager=self._config_manager,
+            task_order_no=task_order_no,
+            group_names=group_names,
+        )
+        self._project_chat_groups_sync_workers.append(worker)
+        worker.finished.connect(self._handle_project_chat_groups_sync_finished)
+        worker.error.connect(self._handle_project_chat_groups_sync_error)
+        worker.finished.connect(lambda _task_order_no, _group_names, current=worker: self._cleanup_project_chat_groups_sync_worker(current))
+        worker.error.connect(lambda _task_order_no, _message, current=worker: self._cleanup_project_chat_groups_sync_worker(current))
+        worker.start()
+
+    def _handle_project_chat_groups_sync_finished(self, task_order_no: str, group_names: object) -> None:
+        groups = [str(item or "").strip() for item in group_names if str(item or "").strip()] if isinstance(group_names, list) else []
+        if not groups:
+            return
+        self._notification_bridge.notify(
+            "success",
+            f"已同步 {len(groups)} 个项目群名到服务端：{task_order_no}",
+            source="control_panel",
+        )
+
+    def _handle_project_chat_groups_sync_error(self, task_order_no: str, message: str) -> None:
+        self._notification_bridge.notify(
+            "warning",
+            f"项目群名已本地保存，但同步服务端失败：{task_order_no}，{message}",
+            4200,
+            "control_panel",
+        )
+
+    def _cleanup_project_chat_groups_sync_worker(self, worker: ProjectChatGroupsSyncWorker) -> None:
+        if worker in self._project_chat_groups_sync_workers:
+            self._project_chat_groups_sync_workers.remove(worker)
+        worker.deleteLater()
 
     @pyqtSlot(str)
     def deleteProject(self, project_id: str) -> None:

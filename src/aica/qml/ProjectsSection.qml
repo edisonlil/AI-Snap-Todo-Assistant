@@ -51,14 +51,9 @@ ColumnLayout {
 
                 ControlPanelPlainButton {
                     theme: projectSection.theme
-                    label: "导入文件"
-                    onClicked: controlPanelBridge.chooseProjectImportFile()
-                }
-
-                ControlPanelPlainButton {
-                    theme: projectSection.theme
-                    label: "下载模板"
-                    onClicked: controlPanelBridge.downloadProjectTemplate()
+                    label: controlPanelBridge.projectServerSyncing ? "拉取中..." : "从服务端拉取"
+                    enabled: !controlPanelBridge.projectServerSyncing
+                    onClicked: controlPanelBridge.syncProjectsFromServer()
                 }
 
                 ControlPanelPlainButton {
@@ -71,6 +66,24 @@ ColumnLayout {
                     theme: projectSection.theme
                     label: "补关联未解决待办"
                     onClicked: controlPanelBridge.relinkOpenUnresolvedTodos()
+                }
+
+                RowLayout {
+                    visible: controlPanelBridge.projectServerSyncing
+                    spacing: 6
+
+                    BusyIndicator {
+                        running: controlPanelBridge.projectServerSyncing
+                        implicitWidth: 24
+                        implicitHeight: 24
+                    }
+
+                    Text {
+                        text: controlPanelBridge.projectServerSyncMessage
+                        color: theme.labelInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 11
+                    }
                 }
             }
 

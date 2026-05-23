@@ -539,6 +539,7 @@ class SQLiteProjectRepository:
                       product_version=excluded.product_version,
                       project_manager=excluded.project_manager,
                       project_level=excluded.project_level,
+                      created_at=excluded.created_at,
                       updated_at=excluded.updated_at
                     """,
                     (

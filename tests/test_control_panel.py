@@ -12,10 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import aica.control_panel as control_panel  # noqa: E402
 from aica.analysis.metrics import ModelLatencySummary  # noqa: E402
-from aica.config import ConfigManager  # noqa: E402
+from aica.config import ConfigManager, ServerConfig  # noqa: E402
 from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentBundle, ProjectEnvironmentRecord  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.otp_secret_extractor import OtpSecretExtractResult  # noqa: E402
+from aica.storage.contracts import ProjectRecord  # noqa: E402
 from aica.todo.models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
@@ -116,17 +117,34 @@ class _FakeTodoStore:
 
 
 class _FakeProjectRepository:
-    def list_projects(self, *, query: str = "", include_expired: bool = True) -> list[object]:
-        return []
+    def __init__(self) -> None:
+        self.projects: dict[str, ProjectRecord] = {}
 
-    def get_project_by_task_order_no(self, task_order_no: str) -> object | None:
-        return None
+    def list_projects(self, query: str = "", *, include_expired: bool = True) -> list[ProjectRecord]:
+        normalized_query = str(query or "").strip().casefold()
+        projects = list(self.projects.values())
+        if normalized_query:
+            projects = [
+                project
+                for project in projects
+                if normalized_query in project.project_name.casefold()
+                or normalized_query in project.task_order_no.casefold()
+                or any(normalized_query in alias.casefold() for alias in project.aliases)
+            ]
+        return projects
 
-    def upsert_project(self, project: object) -> object:
+    def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
+        return next(
+            (project for project in self.projects.values() if project.task_order_no == task_order_no),
+            None,
+        )
+
+    def upsert_project(self, project: ProjectRecord) -> ProjectRecord:
+        self.projects[project.id] = project
         return project
 
     def delete_project(self, project_id: str) -> bool:
-        return True
+        return self.projects.pop(project_id, None) is not None
 
 
 class _FakeEnvironmentRepository:
@@ -473,6 +491,144 @@ def test_server_config_rejects_invalid_timeout(monkeypatch: pytest.MonkeyPatch) 
     bridge.saveConfig()
 
     assert "服务端超时时间" in bridge.errorMessage
+
+
+def test_sync_projects_from_server_updates_project_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
+
+    class _FakeWorker:
+        def __init__(self, *, config_manager, db_path, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.deleted = False
+
+        def start(self) -> None:
+            project = ProjectRecord(
+                id="project-1",
+                project_name="服务端项目",
+                customer_name="服务端客户",
+                task_order_no="TASK-001",
+                aliases=("服务端群",),
+            )
+            bridge._project_repository.upsert_project(project)
+            self.finished.emit(
+                SimpleNamespace(
+                    created_count=1,
+                    updated_count=0,
+                    skipped_count=0,
+                    relinked_count=0,
+                    error_rows=[],
+                )
+            )
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "ProjectServerSyncWorker", _FakeWorker)
+    refresh_events: list[str] = []
+    syncing_states: list[bool] = []
+    bridge.dataChanged.connect(lambda: syncing_states.append(bridge.projectServerSyncing))
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    bridge.syncProjectsFromServer()
+
+    assert bridge.lastProjectImportSummary == "新增 1 个，更新 0 个，跳过 0 个，关联 0 个"
+    assert bridge.projects[0]["projectName"] == "服务端项目"
+    assert bridge.projects[0]["taskOrderNo"] == "TASK-001"
+    assert bridge.projects[0]["aliases"] == ["服务端群"]
+    assert refresh_events == ["refresh"]
+    assert True in syncing_states
+    assert bridge.projectServerSyncing is False
+    assert bridge.projectServerSyncMessage == ""
+
+
+def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    existing = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="TASK-001",
+        aliases=("old-group",),
+    )
+    bridge._project_repository.upsert_project(existing)
+    bridge._refresh_project_payloads()
+    created_workers: list[object] = []
+
+    class _FakeChatGroupsWorker:
+        def __init__(self, *, config_manager, task_order_no, group_names, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.task_order_no = task_order_no
+            self.group_names = list(group_names)
+            self.deleted = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.finished.emit(self.task_order_no, self.group_names)
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+
+    bridge.saveProject(
+        {
+            "id": "project-1",
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "aliases": ["old-group", "new-group", "new-group"],
+        }
+    )
+
+    assert len(created_workers) == 1
+    worker = created_workers[0]
+    assert worker.task_order_no == "TASK-001"
+    assert worker.group_names == ["new-group"]
+    assert worker.deleted is True
+
+
+def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    existing = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="TASK-001",
+        aliases=("old-group",),
+    )
+    bridge._project_repository.upsert_project(existing)
+    bridge._refresh_project_payloads()
+    created_workers: list[object] = []
+
+    class _FakeChatGroupsWorker:
+        def __init__(self, **kwargs) -> None:
+            created_workers.append(self)
+
+    monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+
+    bridge.saveProject(
+        {
+            "id": "project-1",
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "aliases": ["old-group"],
+        }
+    )
+
+    assert created_workers == []
 
 
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
