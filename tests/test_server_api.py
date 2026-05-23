@@ -93,7 +93,47 @@ def test_bind_chat_groups_by_task_order_no_sends_expected_request() -> None:
         "task_order_no": "TASK-001",
         "group_names": ["group-a", "group-b"],
     }
-    assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_update_project_by_task_order_no_sends_expected_request() -> None:
+    session = _FakeSession(_FakeResponse(200, {"success": True, "data": {}}))
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    client.update_project_by_task_order_no(
+        {
+            "task_order_no": "TASK-001",
+            "project_name": "project a",
+            "customer_name": "customer a",
+            "product_line": "line",
+            "product_version": "V2.0",
+            "project_manager": "Alice",
+            "project_level": "normal",
+            "follow_up_started_at": "2026-05-23",
+            "support_ended_at": "2026-12-31",
+        }
+    )
+
+    assert session.calls[0]["method"] == "PUT"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/projects/by-task-order-no"
+    assert session.calls[0]["json"] == {
+        "task_order_no": "TASK-001",
+        "project_name": "project a",
+        "customer_name": "customer a",
+        "product_line": "line",
+        "product_version": "V2.0",
+        "project_manager": "Alice",
+        "project_level": "normal",
+        "follow_up_started_at": "2026-05-23",
+        "support_ended_at": "2026-12-31",
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
     assert session.calls[0]["timeout"] == 12
 
 

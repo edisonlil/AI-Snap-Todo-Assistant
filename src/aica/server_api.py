@@ -93,6 +93,22 @@ class ChattodoServerClient:
             },
         )
 
+    def update_project_by_task_order_no(self, payload: dict[str, object]) -> None:
+        normalized_payload = {
+            str(key).strip(): value
+            for key, value in dict(payload or {}).items()
+            if str(key).strip()
+        }
+        task_order_no = sanitize_text(normalized_payload.get("task_order_no"))
+        if not task_order_no:
+            raise ChattodoServerError("任务书单号不能为空。")
+        normalized_payload["task_order_no"] = task_order_no
+        self._request_json(
+            "PUT",
+            "/api/open/v1/workbench/projects/by-task-order-no",
+            json=normalized_payload,
+        )
+
     def _request_json(
         self,
         method: str,
@@ -108,12 +124,15 @@ class ChattodoServerClient:
 
         url = f"{self._base_url}{path}"
         try:
+            headers = {"X-API-Key": self._api_key}
+            if json is not None:
+                headers["Content-Type"] = "application/json"
             response = self._session.request(
                 method,
                 url,
                 params=params,
                 json=json,
-                headers={"X-API-Key": self._api_key},
+                headers=headers,
                 timeout=self._timeout_seconds,
             )
         except requests.Timeout as exc:

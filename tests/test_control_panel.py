@@ -598,6 +598,63 @@ def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.Mon
     assert worker.deleted is True
 
 
+def test_save_project_pushes_product_version_update_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    created_update_workers: list[object] = []
+
+    class _FakeUpdateWorker:
+        def __init__(self, *, config_manager, payload, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.payload = dict(payload)
+            self.deleted = False
+            created_update_workers.append(self)
+
+        def start(self) -> None:
+            self.finished.emit(self.payload["task_order_no"])
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    class _FakeChatGroupsWorker:
+        def __init__(self, **_kwargs) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+
+        def start(self) -> None:
+            return None
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "ProjectUpdateSyncWorker", _FakeUpdateWorker)
+    monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+
+    bridge.saveProject(
+        {
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "productLine": "Product Line",
+            "productVersion": "V2.0",
+            "projectManager": "Alice",
+            "projectLevel": "important",
+            "followUpStartedAt": "2026-05-23T00:00:00",
+            "supportEndedAt": "2026-12-31T23:59:59",
+            "aliases": ["group-a"],
+        }
+    )
+
+    assert len(created_update_workers) == 1
+    worker = created_update_workers[0]
+    assert worker.payload == {
+        "task_order_no": "TASK-001",
+        "product_version": "V2.0",
+    }
+    assert worker.deleted is True
+
+
 def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
