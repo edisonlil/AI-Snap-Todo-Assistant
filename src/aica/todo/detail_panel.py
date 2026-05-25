@@ -3867,7 +3867,12 @@ class TodoDetailPanel(QQuickView):
     stage_summary_rewrite_requested = pyqtSignal(str, object)
     assist_analysis_requested = pyqtSignal(str, object)
 
-    def __init__(self, parent=None, *, notification_bridge: AppNotificationBridge | None = None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        notification_bridge: AppNotificationBridge | None = None,
+    ):
         super().__init__(parent)
         self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._bridge = _TodoDetailBridge(notification_bridge=self._notification_bridge)

@@ -148,6 +148,33 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
     assert todo_row == ("", "")
 
 
+def test_project_repair_preserves_selected_product_line_option() -> None:
+    db_path = _make_db_path("todo-product-option")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作, 文档中台",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+    snapshot = _build_snapshot("todo-product-option")
+    snapshot.fields.product_line = "文档中台"
+    todo = repository.create_todo_from_analysis(snapshot, "analysis")
+
+    linked = repository.get_todo(todo.id)
+
+    assert linked is not None
+    assert linked.project_link.match_status == "matched"
+    assert linked.summary_fields.product_line == "文档中台"
+
+
 def test_schema_migration_adds_completed_at_column() -> None:
     db_path = _make_db_path("legacy-todo")
     with sqlite3.connect(db_path) as connection:

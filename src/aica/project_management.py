@@ -29,6 +29,19 @@ def split_project_aliases(raw_value: Any) -> tuple[str, ...]:
     return tuple(aliases)
 
 
+def split_project_product_lines(raw_value: Any) -> tuple[str, ...]:
+    product_lines: list[str] = []
+    seen: set[str] = set()
+    for item in re.split(r"[\n,，;；]+", sanitize_text(raw_value)):
+        product_line = sanitize_text(item)
+        normalized = product_line.casefold()
+        if not product_line or not normalized or normalized in seen:
+            continue
+        product_lines.append(product_line)
+        seen.add(normalized)
+    return tuple(product_lines)
+
+
 def normalize_project_level(value: str) -> str:
     text = sanitize_text(value).casefold()
     if text in {"重要", "important", "high", "critical"}:

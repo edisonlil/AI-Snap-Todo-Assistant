@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
-from aica.project_management import is_project_active
+from aica.project_management import is_project_active, split_project_product_lines
 from aica.log_analysis.models import LogAnalysisTask
 from aica.storage.adapters import (
     build_project_link,
@@ -625,6 +626,74 @@ class SQLiteProjectRepository:
             projects.append(project)
         return projects
 
+    def list_product_lines(
+        self,
+        *,
+        include_expired: bool = False,
+        now: str | None = None,
+    ) -> list[str]:
+        product_lines: list[str] = []
+        seen: set[str] = set()
+        for project in self.list_projects(include_expired=include_expired, now=now):
+            for product_line in split_project_product_lines(project.product_line):
+                normalized = product_line.casefold()
+                if normalized in seen:
+                    continue
+                product_lines.append(product_line)
+                seen.add(normalized)
+        return product_lines
+
+    def list_product_lines_for_group(
+        self,
+        group_name: str,
+        *,
+        now: str | None = None,
+    ) -> list[str]:
+        match = self.match_project_by_group_name(group_name, now=now)
+        if match.status != "matched":
+            return []
+        return list(split_project_product_lines(match.project_snapshot.get("product_line", "")))
+
+    def most_used_product_line_for_group(
+        self,
+        group_name: str,
+        options: list[str] | tuple[str, ...],
+        *,
+        now: str | None = None,
+    ) -> str:
+        product_lines = list(options)
+        if not product_lines:
+            return ""
+        if len(product_lines) == 1:
+            return product_lines[0]
+        match = self.match_project_by_group_name(group_name, now=now)
+        if match.status != "matched":
+            return ""
+        project_id = sanitize_text(match.project_id)
+        normalized_options = {sanitize_text(item).casefold(): item for item in product_lines if sanitize_text(item)}
+        if not project_id or not normalized_options:
+            return product_lines[0]
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT todos.product_line
+                FROM todos
+                JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todo_project_links.project_id = ?
+                  AND todo_project_links.match_status IN ('matched', 'manual', 'expired')
+                  AND TRIM(todos.product_line) <> ''
+                """,
+                (project_id,),
+            ).fetchall()
+        counts: Counter[str] = Counter()
+        for row in rows:
+            normalized = sanitize_text(row["product_line"]).casefold()
+            if normalized in normalized_options:
+                counts[normalized_options[normalized]] += 1
+        if not counts:
+            return product_lines[0]
+        return max(product_lines, key=lambda item: (counts[item], -product_lines.index(item)))
+
     def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
         normalized_task_order = sanitize_text(task_order_no)
         if not normalized_task_order:
@@ -1057,7 +1126,7 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.current_summary),
                     sanitize_text(snapshot.fields.group_name),
                     sanitize_text(snapshot.fields.environment),
-                    "",
+                    sanitize_text(snapshot.fields.product_line),
                     sanitize_text(snapshot.fields.ticket_type),
                     ach_no,
                     ach_filled_at,
@@ -1206,7 +1275,11 @@ class SQLiteTodoRepository:
             updated_summary = sanitize_text(current_summary) if current_summary is not None else str(row["current_summary"])
             updated_group_name = sanitize_text(summary_fields.group_name) if summary_fields is not None else str(row["group_name"])
             updated_environment = sanitize_text(summary_fields.environment) if summary_fields is not None else str(row["environment"])
-            updated_product_line = str(row["product_line"])
+            updated_product_line = (
+                sanitize_text(summary_fields.product_line)
+                if summary_fields is not None
+                else str(row["product_line"])
+            )
             updated_ticket_type = sanitize_text(summary_fields.ticket_type) if summary_fields is not None else str(row["ticket_type"])
             updated_ach_no = (
                 sanitize_text(summary_fields.ach_no)
@@ -1410,22 +1483,26 @@ class SQLiteTodoRepository:
         current_product_line = sanitize_text(row_payload.get("product_line", ""))
         current_ticket_version = sanitize_text(row_payload.get("ticket_version", ""))
         snapshot_product_line = sanitize_text(snapshot.get("product_line", ""))
+        snapshot_product_line_options = split_project_product_lines(snapshot_product_line)
+        next_product_line = snapshot_product_line
+        if current_product_line and current_product_line in snapshot_product_line_options:
+            next_product_line = current_product_line
         snapshot_ticket_version = sanitize_text(snapshot.get("product_version", ""))
         next_ticket_version = current_ticket_version or snapshot_ticket_version
 
-        if current_product_line == snapshot_product_line and current_ticket_version == next_ticket_version:
+        if current_product_line == next_product_line and current_ticket_version == next_ticket_version:
             return row_payload
 
         connection.execute(
             "UPDATE todos SET product_line = ?, ticket_version = ?, updated_at = ? WHERE id = ?",
             (
-                snapshot_product_line,
+                next_product_line,
                 next_ticket_version,
                 now_iso(),
                 sanitize_text(row_payload.get("id", "")),
             ),
         )
-        row_payload["product_line"] = snapshot_product_line
+        row_payload["product_line"] = next_product_line
         row_payload["ticket_version"] = next_ticket_version
         return row_payload
 
@@ -1540,13 +1617,17 @@ class SQLiteTodoRepository:
                 return
             current_product_line = sanitize_text(row["product_line"])
             current_ticket_version = sanitize_text(row["ticket_version"])
+            product_line_options = split_project_product_lines(product_line)
+            next_product_line = product_line
+            if current_product_line and current_product_line in product_line_options:
+                next_product_line = current_product_line
             next_ticket_version = current_ticket_version or ticket_version
-            if current_product_line == product_line and current_ticket_version == next_ticket_version:
+            if current_product_line == next_product_line and current_ticket_version == next_ticket_version:
                 return
             connection.execute(
                 "UPDATE todos SET product_line = ?, ticket_version = ?, updated_at = ? WHERE id = ?",
                 (
-                    product_line,
+                    next_product_line,
                     next_ticket_version,
                     now_iso(),
                     sanitize_text(todo_id),

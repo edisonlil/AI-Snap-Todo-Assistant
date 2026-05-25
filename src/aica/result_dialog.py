@@ -169,8 +169,10 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
 from aica.analysis.metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
-from aica.models import TicketSnapshot, TicketSummaryFields
+from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
+from aica.project_management import split_project_product_lines
 from aica.runtime import RUNTIME_CAPABILITIES
+from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
@@ -194,6 +196,27 @@ def _sanitize_edit_text(value: object) -> str:
     return strip_invalid_surrogates(str(value or ""))
 
 
+def _normalize_product_line_options(raw_options: object) -> list[str]:
+    options: list[str] = []
+    seen: set[str] = set()
+    source = raw_options if isinstance(raw_options, (list, tuple, set)) else [raw_options]
+    for raw_value in source:
+        for product_line in split_project_product_lines(raw_value):
+            normalized = product_line.casefold()
+            if normalized in seen:
+                continue
+            options.append(product_line)
+            seen.add(normalized)
+    return options
+
+
+def _call_product_line_provider(provider, group_name: str) -> object:  # noqa: ANN001
+    try:
+        return provider(group_name)
+    except TypeError:
+        return provider()
+
+
 class _ResultDialogBridge(QObject):
     dataChanged = pyqtSignal()
 
@@ -209,8 +232,12 @@ class _ResultDialogBridge(QObject):
         model: str,
         show_feedback: bool,
         analysis_stats: AnalysisRunStats | None = None,
+        product_line_options_provider=None,
+        default_product_line_provider=None,
     ) -> None:
         super().__init__()
+        self._product_line_options_provider = product_line_options_provider
+        self._default_product_line_provider = default_product_line_provider
         self._scenario = scenario
         self._model = model
         self._timing_summary = analysis_stats.timing_summary if analysis_stats is not None else ""
@@ -220,11 +247,13 @@ class _ResultDialogBridge(QObject):
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
         self._product_line = resolve_product_line(raw_value=result.fields.product_line)
+        self._product_line_error = ""
         self._recognition_conclusion = sanitize_text(result.timeline_entry) or sanitize_text(result.current_summary)
         self._ticket_type = normalize_ticket_type(
             result.fields.ticket_type,
             summary_text=self._recognition_conclusion,
         )
+        self._apply_product_line_default(force=False)
 
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
@@ -258,6 +287,24 @@ class _ResultDialogBridge(QObject):
     def productLine(self) -> str:
         return self._product_line
 
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def productLineOptions(self):  # noqa: ANN201
+        provider = self._product_line_options_provider
+        if callable(provider):
+            try:
+                return _normalize_product_line_options(_call_product_line_provider(provider, self._group_name))
+            except Exception:
+                return []
+        return []
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def productLineRequired(self) -> bool:
+        return bool(self.productLineOptions)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def productLineError(self) -> str:
+        return self._product_line_error
+
     @pyqtProperty(str, notify=dataChanged)
     def ticketType(self) -> str:
         return self._ticket_type
@@ -285,10 +332,13 @@ class _ResultDialogBridge(QObject):
             self._title = text
         elif name == "group_name":
             self._group_name = text
+            self._apply_product_line_default(force=True)
         elif name == "environment":
             self._environment = text
         elif name == "product_line":
             self._product_line = resolve_product_line(raw_value=text)
+            if self._product_line.strip():
+                self._product_line_error = ""
         elif name == "ticket_type":
             self._ticket_type = normalize_ticket_type(text, summary_text=self._recognition_conclusion)
         elif name == "timeline_entry":
@@ -329,7 +379,53 @@ class _ResultDialogBridge(QObject):
 
     @pyqtSlot()
     def saveDialog(self) -> None:
+        if not self._validate_product_line_selection():
+            return
         self.saveRequested.emit()
+
+    def _validate_product_line_selection(self) -> bool:
+        if not self.productLineRequired or not is_unknown_text(self._product_line):
+            if self._product_line_error:
+                self._product_line_error = ""
+                self.dataChanged.emit()
+            return True
+        self._product_line_error = "请选择产品线"
+        self.dataChanged.emit()
+
+    def _resolve_default_product_line(self, options: list[str]) -> str:
+        if not options:
+            return ""
+        if len(options) == 1:
+            return options[0]
+        provider = self._default_product_line_provider
+        if callable(provider):
+            try:
+                candidate = sanitize_text(provider(self._group_name, options))
+            except TypeError:
+                candidate = sanitize_text(provider(options))
+            except Exception:
+                candidate = ""
+            normalized_options = {item.casefold(): item for item in options}
+            if candidate.casefold() in normalized_options:
+                return normalized_options[candidate.casefold()]
+        return options[0]
+
+    def _apply_product_line_default(self, *, force: bool) -> None:
+        options = self.productLineOptions
+        if not options:
+            if force or is_unknown_text(self._product_line):
+                self._product_line = ""
+            self._product_line_error = ""
+            return
+        normalized_options = {item.casefold(): item for item in options}
+        current = sanitize_text(self._product_line)
+        if not force and current.casefold() in normalized_options:
+            self._product_line = normalized_options[current.casefold()]
+            return
+        if force or is_unknown_text(current) or current.casefold() not in normalized_options:
+            self._product_line = self._resolve_default_product_line(options)
+            self._product_line_error = ""
+        return False
 
     @pyqtSlot()
     def feedbackDialog(self) -> None:
@@ -352,6 +448,8 @@ class ResultDialog(QDialog):
         analysis_stats: AnalysisRunStats | None = None,
         feedback_callback: Optional[Callable] = None,
         save_callback: Optional[Callable] = None,
+        product_line_options_provider=None,
+        default_product_line_provider=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -360,6 +458,21 @@ class ResultDialog(QDialog):
         self._model = model
         self._feedback_callback = feedback_callback
         self._save_callback = save_callback
+        self._product_line_repository = (
+            None
+            if callable(product_line_options_provider) and callable(default_product_line_provider)
+            else SQLiteProjectRepository()
+        )
+        self._product_line_options_provider = (
+            product_line_options_provider
+            if callable(product_line_options_provider)
+            else self._product_line_repository.list_product_lines_for_group
+        )
+        self._default_product_line_provider = (
+            default_product_line_provider
+            if callable(default_product_line_provider)
+            else self._product_line_repository.most_used_product_line_for_group
+        )
         self._positioned = False
 
         self._bridge = _ResultDialogBridge(
@@ -368,6 +481,8 @@ class ResultDialog(QDialog):
             model=model,
             show_feedback=feedback_callback is not None,
             analysis_stats=analysis_stats,
+            product_line_options_provider=self._product_line_options_provider,
+            default_product_line_provider=self._default_product_line_provider,
         )
 
         self.setObjectName("resultDialog")

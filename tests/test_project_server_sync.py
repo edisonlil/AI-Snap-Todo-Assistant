@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.project_management import sync_projects_from_server  # noqa: E402
+from aica.project_management import split_project_product_lines, sync_projects_from_server  # noqa: E402
 from aica.storage.contracts import ProjectRecord  # noqa: E402
 
 
@@ -118,3 +118,7 @@ def test_sync_projects_from_server_updates_existing_but_preserves_product_versio
     created = repository.projects["TASK-002"]
     assert created.project_name == "created project"
     assert created.aliases == ("created-group",)
+
+
+def test_split_project_product_lines_deduplicates_comma_separated_values() -> None:
+    assert split_project_product_lines("文档中台, 协作套件，文档中台;  ") == ("文档中台", "协作套件")

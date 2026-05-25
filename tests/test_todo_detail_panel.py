@@ -245,6 +245,16 @@ def test_manual_save_requests_use_manual_mode() -> None:
     assert _notification_messages(bridge)[-1] == "保存成功"
 
 
+def test_todo_detail_product_line_field_stays_read_only() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "id: productLineEdit" in qml_text
+    assert "productLineEdit.text = todoDetailBridge.productLine" in qml_text
+    assert "readOnly: true" in qml_text
+    assert "model: todoDetailBridge.productLineOptions" not in qml_text
+
+
 def test_log_analysis_submission_pushes_notification() -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_build_todo())
