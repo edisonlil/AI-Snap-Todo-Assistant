@@ -137,6 +137,83 @@ def test_update_project_by_task_order_no_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 12
 
 
+def test_match_feature_point_sends_workflow_request_and_returns_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": "协作设置/权限配置",
+                "trace_id": "trace_xxx",
+                "usage": {
+                    "prompt_tokens": 128,
+                    "completion_tokens": 256,
+                    "total_tokens": 384,
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    answer = client.match_feature_point(product_line="产品线", desc="工单描述")
+
+    assert answer == "协作设置/权限配置"
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mphzwo1h/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "product_line": "产品线",
+            "desc": "工单描述",
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_generate_root_cause_sends_single_turn_request_and_parses_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": (
+                    "{\n"
+                    '  "root_cause_description": "测试环境服务节点下线导致文档创建报错15041",\n'
+                    '  "root_cause_category": "环境问题/服务器宕机"\n'
+                    "}"
+                ),
+                "trace_id": "trace_795bbd2f6da04c9f8f5806b83878d90c",
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.generate_root_cause(task_desc="问题描述", answer="问题结论")
+
+    assert payload == {
+        "root_cause_description": "测试环境服务节点下线导致文档创建报错15041",
+        "root_cause_category": "环境问题/服务器宕机",
+    }
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/single-turn-mpkqa7ch/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "task_desc": "问题描述",
+            "answer": "问题结论",
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
 def test_client_rejects_missing_config() -> None:
     with pytest.raises(ChattodoServerError):
         ChattodoServerClient.from_config(ServerConfig())

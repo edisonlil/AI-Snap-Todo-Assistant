@@ -41,6 +41,7 @@ from aica.single_instance import SingleInstanceGuard, show_already_running_messa
 from aica.ticket_enrichment import (
     TicketEnrichmentService,
     build_feature_point_provider,
+    build_root_cause_provider,
     build_ticket_enrichment_job,
     is_ticket_enrichment_job_still_current,
     merge_async_enrichment_fields,
@@ -359,11 +360,13 @@ def main() -> None:
         )
 
     def _save_analysis_to_todo(snapshot) -> tuple[str, str]:
+        previous_todo = todo_controller.get_selected_todo()
         save_result = todo_controller.save_analysis_result(
             snapshot,
             toolbar.get_current_scenario(),
         )
         _refresh_todo_panel()
+        _start_ticket_enrichment(previous_todo or save_result.todo, save_result.todo)
         _start_assist_analysis_prewarm(save_result.todo)
         return save_result.action, save_result.todo.title
 
@@ -414,15 +417,9 @@ def main() -> None:
         )
 
     def _build_ticket_enrichment_service(config):
-        runtime_config = None
-        try:
-            runtime_config = _build_runtime_config(config)
-        except ModelResolutionError:
-            runtime_config = None
-        llm_service = runtime_config.llm_service if runtime_config is not None else None
         return TicketEnrichmentService(
-            feature_point_provider=build_feature_point_provider(config.ticket_enrichment.feature_point),
-            llm_service=llm_service,
+            feature_point_provider=build_feature_point_provider(server_config=config.server),
+            root_cause_provider=build_root_cause_provider(server_config=config.server),
         )
 
     def _cleanup_ticket_enrichment_worker(worker: TicketEnrichmentWorker) -> None:

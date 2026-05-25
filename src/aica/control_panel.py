@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import uuid
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 
@@ -324,7 +325,8 @@ from aica.storage.adapters import normalize_group_alias, now_iso
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
-from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, build_feature_point_provider
+from aica.root_cause_options import ROOT_CAUSE_OPTIONS
+from aica.ticket_enrichment import build_feature_point_provider
 from aica.todo.models import TodoItem, TodoStatus
 from aica.todo.store import TodoStore
 from aica.window_effects import disable_windows_window_border
@@ -823,6 +825,22 @@ def _project_update_payload(project: ProjectRecord) -> dict[str, object]:
     }
 
 
+def _is_server_config_ready(config: object) -> bool:
+    return (
+        bool(getattr(config, "enabled", False))
+        and bool(str(getattr(config, "base_url", "") or "").strip())
+        and bool(str(getattr(config, "api_key", "") or "").strip())
+    )
+
+
+def _delete_finished_thread(worker: QThread) -> None:
+    is_running = getattr(worker, "isRunning", None)
+    wait = getattr(worker, "wait", None)
+    if callable(is_running) and callable(wait) and is_running():
+        wait(3000)
+    worker.deleteLater()
+
+
 class ProjectServerSyncWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -906,6 +924,48 @@ class ProjectChatGroupsSyncWorker(QThread):
             self.finished.emit(self._task_order_no, list(self._group_names))
 
 
+class FeaturePointRefreshWorker(QThread):
+    finished = pyqtSignal(str, str, str)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        config_manager: ConfigManager,
+        todo_id: str,
+        request_id: str,
+        product_line: str,
+        problem_desc: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._product_line = str(product_line or "").strip()
+        self._problem_desc = str(problem_desc or "").strip()
+
+    def run(self) -> None:
+        try:
+            config = self._config_manager.load()
+            provider = build_feature_point_provider(server_config=config.server)
+            result = provider.resolve(
+                product_line=self._product_line,
+                problem_desc=self._problem_desc,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+            return
+        if result.error_message:
+            self.error.emit(self._todo_id, self._request_id, str(result.error_message))
+            return
+        next_feature_point = str(result.value or "").strip()
+        if not next_feature_point:
+            self.error.emit(self._todo_id, self._request_id, "功能点匹配未返回有效结果。")
+            return
+        self.finished.emit(self._todo_id, self._request_id, next_feature_point)
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -962,6 +1022,8 @@ class _ControlPanelBridge(QObject):
         self._project_server_sync_worker: ProjectServerSyncWorker | None = None
         self._project_update_sync_workers: list[ProjectUpdateSyncWorker] = []
         self._project_chat_groups_sync_workers: list[ProjectChatGroupsSyncWorker] = []
+        self._feature_point_refresh_workers: list[FeaturePointRefreshWorker] = []
+        self._pending_feature_point_refreshes: dict[str, str] = {}
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
         self._tickets = self._load_ticket_payloads()
@@ -2346,7 +2408,7 @@ class _ControlPanelBridge(QObject):
         self._project_server_syncing = False
         if self._project_server_sync_worker is worker:
             self._project_server_sync_worker = None
-        worker.deleteLater()
+        _delete_finished_thread(worker)
         self._emit_data_changed()
 
     @pyqtSlot(str, bool)
@@ -2834,31 +2896,39 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
 
-        provider = build_feature_point_provider(self._config_manager.load().ticket_enrichment.feature_point)
-        try:
-            result = provider.resolve(
-                product_line=product_line,
-                problem_desc=problem_desc,
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{exc}"
-            self._emit_data_changed()
-            return
-        if result.error_message:
-            self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{result.error_message}"
-            self._emit_data_changed()
-            return
-        next_feature_point = str(result.value or "").strip()
-        if not next_feature_point:
-            self._error_message = "\u529f\u80fd\u70b9\u5339\u914d\u672a\u8fd4\u56de\u6709\u6548\u7ed3\u679c\u3002"
-            self._emit_data_changed()
-            return
+        request_id = str(uuid.uuid4())
+        worker = FeaturePointRefreshWorker(
+            config_manager=self._config_manager,
+            todo_id=todo.id,
+            request_id=request_id,
+            product_line=product_line,
+            problem_desc=problem_desc,
+        )
+        self._pending_feature_point_refreshes[todo.id] = request_id
+        self._feature_point_refresh_workers.append(worker)
+        worker.finished.connect(self._handle_feature_point_refresh_finished)
+        worker.error.connect(self._handle_feature_point_refresh_error)
+        worker.finished.connect(lambda _todo_id, _request_id, _value, current=worker: self._cleanup_feature_point_refresh_worker(current))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: self._cleanup_feature_point_refresh_worker(current))
+        self._status_message = "\u529f\u80fd\u70b9\u6b63\u5728\u5237\u65b0..."
+        self._emit_data_changed()
+        worker.start()
 
+    def _handle_feature_point_refresh_finished(self, todo_id: str, request_id: str, feature_point: str) -> None:
+        normalized_todo_id = str(todo_id or "").strip()
+        if self._pending_feature_point_refreshes.get(normalized_todo_id) != str(request_id or "").strip():
+            return
+        self._pending_feature_point_refreshes.pop(normalized_todo_id, None)
+        todo = self._todo_store.get_todo(normalized_todo_id)
+        if todo is None:
+            self._error_message = "\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a\u8be5\u5de5\u5355\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002"
+            self._emit_data_changed()
+            return
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(
                 todo,
-                feature_point=next_feature_point,
+                feature_point=str(feature_point or "").strip(),
                 feature_point_source="auto",
             ),
         )
@@ -2866,7 +2936,25 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
-        self._apply_selected_ticket_update(updated, status_message="\u529f\u80fd\u70b9\u5df2\u5237\u65b0")
+        self._refresh_ticket_payloads()
+        if self._selected_ticket_id == normalized_todo_id:
+            self._selected_ticket = self._build_ticket_detail_payload(updated)
+        self._status_message = "\u529f\u80fd\u70b9\u5df2\u5237\u65b0"
+        self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
+
+    def _handle_feature_point_refresh_error(self, todo_id: str, request_id: str, message: str) -> None:
+        normalized_todo_id = str(todo_id or "").strip()
+        if self._pending_feature_point_refreshes.get(normalized_todo_id) != str(request_id or "").strip():
+            return
+        self._pending_feature_point_refreshes.pop(normalized_todo_id, None)
+        self._error_message = f"\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff1a{str(message or '').strip() or '后台任务执行失败'}"
+        self._emit_data_changed()
+
+    def _cleanup_feature_point_refresh_worker(self, worker: FeaturePointRefreshWorker) -> None:
+        if worker in self._feature_point_refresh_workers:
+            self._feature_point_refresh_workers.remove(worker)
+        _delete_finished_thread(worker)
 
     @pyqtSlot(str, str)
     def saveSelectedTicketField(self, field_name: str, value: str) -> None:
@@ -2999,6 +3087,8 @@ class _ControlPanelBridge(QObject):
         self._sync_project_chat_groups_to_server(project.task_order_no, new_aliases)
 
     def _sync_project_update_to_server(self, project: ProjectRecord) -> None:
+        if not _is_server_config_ready(self._config_manager.load().server):
+            return
         worker = ProjectUpdateSyncWorker(
             config_manager=self._config_manager,
             payload=_project_update_payload(project),
@@ -3024,10 +3114,12 @@ class _ControlPanelBridge(QObject):
     def _cleanup_project_update_sync_worker(self, worker: ProjectUpdateSyncWorker) -> None:
         if worker in self._project_update_sync_workers:
             self._project_update_sync_workers.remove(worker)
-        worker.deleteLater()
+        _delete_finished_thread(worker)
 
     def _sync_project_chat_groups_to_server(self, task_order_no: str, group_names: list[str]) -> None:
         if not group_names:
+            return
+        if not _is_server_config_ready(self._config_manager.load().server):
             return
         worker = ProjectChatGroupsSyncWorker(
             config_manager=self._config_manager,
@@ -3062,7 +3154,7 @@ class _ControlPanelBridge(QObject):
     def _cleanup_project_chat_groups_sync_worker(self, worker: ProjectChatGroupsSyncWorker) -> None:
         if worker in self._project_chat_groups_sync_workers:
             self._project_chat_groups_sync_workers.remove(worker)
-        worker.deleteLater()
+        _delete_finished_thread(worker)
 
     @pyqtSlot(str)
     def deleteProject(self, project_id: str) -> None:

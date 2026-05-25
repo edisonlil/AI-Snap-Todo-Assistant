@@ -142,47 +142,12 @@ class ServerConfig:
 
 
 @dataclass
-class FeaturePointProviderConfig:
-    enabled: bool = True
-    provider: str = "http"
-    base_url: str = "http://127.0.0.1:8000/api/v1/recommend/compat"
-    api_key: str = "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY"
-    timeout_seconds: int = 500
-
-    @classmethod
-    def from_dict(cls, data: object) -> "FeaturePointProviderConfig":
-        if not isinstance(data, dict):
-            return cls()
-        return cls(
-            enabled=bool(data.get("enabled", False)),
-            provider=str(data.get("provider", "http")).strip() or "http",
-            base_url=str(data.get("base_url", "")).strip(),
-            api_key=str(data.get("api_key", "fgak_VolZXBWCREhpFMzHPK4CVP3cfuPgKg9PhzSEIILdsIY")).strip(),
-            timeout_seconds=_coerce_positive_int(data.get("timeout_seconds"), 5),
-        )
-
-
-@dataclass
-class TicketEnrichmentConfig:
-    feature_point: FeaturePointProviderConfig = field(default_factory=FeaturePointProviderConfig)
-
-    @classmethod
-    def from_dict(cls, data: object) -> "TicketEnrichmentConfig":
-        if not isinstance(data, dict):
-            return cls()
-        return cls(
-            feature_point=FeaturePointProviderConfig.from_dict(data.get("feature_point")),
-        )
-
-
-@dataclass
 class AppConfig:
     default_provider_id: str = "siliconflow"
     providers: list[ProviderConfig] = field(default_factory=list)
     task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
-    ticket_enrichment: TicketEnrichmentConfig = field(default_factory=TicketEnrichmentConfig)
     max_image_bytes: int = 4 * 1024 * 1024
 
 
@@ -302,7 +267,6 @@ def build_default_config() -> AppConfig:
         task_model_bindings=default_task_model_bindings("siliconflow"),
         hotkeys=HotkeyConfig(),
         server=ServerConfig(),
-        ticket_enrichment=TicketEnrichmentConfig(),
         max_image_bytes=4 * 1024 * 1024,
     )
 
@@ -430,7 +394,6 @@ def _app_config_from_dict(data: object) -> AppConfig:
         task_model_bindings=bindings,
         hotkeys=HotkeyConfig.from_dict(data.get("hotkeys")),
         server=ServerConfig.from_dict(data.get("server")),
-        ticket_enrichment=TicketEnrichmentConfig.from_dict(data.get("ticket_enrichment")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
     )
 
@@ -459,7 +422,6 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     )
     migrated.hotkeys = HotkeyConfig()
     migrated.server = ServerConfig()
-    migrated.ticket_enrichment = TicketEnrichmentConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     return migrated
 

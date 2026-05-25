@@ -42,6 +42,27 @@ class _TextClipboard:
         return None
 
 
+class _FeaturePointWorkflowResponse:
+    status_code = 200
+    text = ""
+
+    def json(self) -> dict[str, object]:
+        return {
+            "answer": "自动匹配功能点",
+            "trace_id": "trace_001",
+            "usage": {"total_tokens": 10},
+        }
+
+
+class _FeaturePointWorkflowSession:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def request(self, method: str, url: str, **kwargs: object) -> object:
+        self.calls.append({"method": method, "url": url, **kwargs})
+        return _FeaturePointWorkflowResponse()
+
+
 class _FakeTodoStore:
     def __init__(self, todo: TodoItem) -> None:
         self._todo = todo
@@ -553,6 +574,13 @@ def test_sync_projects_from_server_updates_project_payloads(monkeypatch: pytest.
 def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
     existing = ProjectRecord(
         id="project-1",
         project_name="Demo Project",
@@ -601,6 +629,13 @@ def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.Mon
 def test_save_project_pushes_product_version_update_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
     created_update_workers: list[object] = []
 
     class _FakeUpdateWorker:
@@ -658,6 +693,13 @@ def test_save_project_pushes_product_version_update_to_server_async(monkeypatch:
 def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
     existing = ProjectRecord(
         id="project-1",
         project_name="Demo Project",
@@ -686,6 +728,40 @@ def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.Monkey
     )
 
     assert created_workers == []
+
+
+def test_save_project_does_not_start_server_workers_when_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    created_update_workers: list[object] = []
+    created_chat_group_workers: list[object] = []
+
+    class _FakeUpdateWorker:
+        def __init__(self, **_kwargs) -> None:
+            created_update_workers.append(self)
+
+    class _FakeChatGroupsWorker:
+        def __init__(self, **_kwargs) -> None:
+            created_chat_group_workers.append(self)
+
+    monkeypatch.setattr(control_panel, "ProjectUpdateSyncWorker", _FakeUpdateWorker)
+    monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+
+    bridge.saveProject(
+        {
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "productLine": "Product Line",
+            "productVersion": "V2.0",
+            "aliases": ["new-group"],
+        }
+    )
+
+    assert bridge.errorMessage == ""
+    assert bridge.statusMessage.startswith("已保存项目 Demo Project")
+    assert created_update_workers == []
+    assert created_chat_group_workers == []
 
 
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -825,6 +901,97 @@ def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeyp
     bridge.refreshSelectedTicketFeaturePoint()
 
     assert bridge.errorMessage
+
+
+def test_refresh_selected_ticket_feature_point_uses_server_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields.product_line = "协作产品线"
+    todo.summary_fields.feature_point = "旧功能点"
+    todo.current_summary = "用户反馈保存失败"
+    session = _FeaturePointWorkflowSession()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)
+    bridge.openTicketDetail(todo.id)
+    monkeypatch.setattr("aica.server_api.requests.Session", lambda: session)
+
+    bridge.refreshSelectedTicketFeaturePoint()
+
+    assert bridge.errorMessage == ""
+    assert bridge.statusMessage == "功能点已刷新"
+    assert bridge.selectedTicket["featurePoint"] == "自动匹配功能点"
+    assert todo.summary_fields.feature_point_source == "auto"
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mphzwo1h/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "product_line": "协作产品线",
+            "desc": "用户反馈保存失败",
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 18
+
+
+def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields.product_line = "协作产品线"
+    todo.summary_fields.feature_point = "旧功能点"
+    todo.current_summary = "用户反馈保存失败"
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            product_line,
+            problem_desc,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.product_line = product_line
+            self.problem_desc = problem_desc
+            self.started = False
+            self.deleted = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "FeaturePointRefreshWorker", _FakeFeaturePointWorker)
+
+    bridge.refreshSelectedTicketFeaturePoint()
+
+    assert len(created_workers) == 1
+    worker = created_workers[0]
+    assert worker.started is True
+    assert bridge.statusMessage == "功能点正在刷新..."
+    assert bridge.selectedTicket["featurePoint"] == "旧功能点"
+    assert worker.product_line == "协作产品线"
+    assert worker.problem_desc == "用户反馈保存失败"
+
+    worker.finished.emit(worker.todo_id, worker.request_id, "异步功能点")
+
+    assert bridge.selectedTicket["featurePoint"] == "异步功能点"
+    assert todo.summary_fields.feature_point_source == "auto"
+    assert bridge.statusMessage == "功能点已刷新"
+    assert worker.deleted is True
 
 
 def test_legacy_environment_sections_map_to_unified_section(monkeypatch: pytest.MonkeyPatch) -> None:

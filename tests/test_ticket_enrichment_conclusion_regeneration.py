@@ -6,31 +6,21 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
-from aica.ticket_enrichment import ROOT_CAUSE_OPTIONS, TicketEnrichmentService, merge_async_enrichment_fields
+from aica.ticket_enrichment import RootCauseResult, TicketEnrichmentService, merge_async_enrichment_fields
 
 
-class _SequentialLLMService:
-    def __init__(self, responses: list[str]) -> None:
-        self._responses = list(responses)
+class _RootCauseProvider:
+    def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def run_task(self, task_name: str, *, messages, temperature: float = 0.2, **_kwargs) -> str:  # noqa: ANN001
-        self.calls.append(
-            {
-                "task_name": task_name,
-                "messages": list(messages),
-                "temperature": temperature,
-            }
-        )
-        if not self._responses:
-            raise AssertionError("unexpected llm call")
-        return self._responses.pop(0)
+    def generate(self, *, problem_desc: str, conclusion: str) -> RootCauseResult:
+        self.calls.append({"problem_desc": problem_desc, "conclusion": conclusion})
+        return RootCauseResult(description="new root cause desc", category="环境问题/服务器宕机")
 
 
 def test_conclusion_change_regenerates_root_cause_fields_even_if_previous_values_were_manual() -> None:
-    service = TicketEnrichmentService(
-        llm_service=_SequentialLLMService(["new root cause desc", ROOT_CAUSE_OPTIONS[0]])
-    )
+    provider = _RootCauseProvider()
+    service = TicketEnrichmentService(root_cause_provider=provider)
 
     outcome = service.enrich_for_update(
         previous_fields=TicketSummaryFields(
@@ -53,9 +43,10 @@ def test_conclusion_change_regenerates_root_cause_fields_even_if_previous_values
         current_conclusion="new conclusion",
     )
 
+    assert provider.calls == [{"problem_desc": "problem desc", "conclusion": "new conclusion"}]
     assert outcome.summary_fields.root_cause_desc == "new root cause desc"
     assert outcome.summary_fields.root_cause_desc_source == "auto"
-    assert outcome.summary_fields.root_cause == ROOT_CAUSE_OPTIONS[0]
+    assert outcome.summary_fields.root_cause == "环境问题/服务器宕机"
     assert outcome.summary_fields.root_cause_source == "auto"
 
 

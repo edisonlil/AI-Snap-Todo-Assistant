@@ -306,7 +306,7 @@ from ..models import TicketSummaryFields
 from ..paths import qml_dir, todo_attachments_dir
 from ..runtime import RUNTIME_CAPABILITIES
 from ..storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
-from ..ticket_enrichment import ROOT_CAUSE_OPTIONS
+from ..root_cause_options import ROOT_CAUSE_OPTIONS
 from ..ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,

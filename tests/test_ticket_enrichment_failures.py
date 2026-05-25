@@ -10,7 +10,7 @@ from aica.ticket_enrichment import TicketEnrichmentService, summarize_enrichment
 
 
 def test_enrich_for_update_reports_root_cause_failures_when_llm_is_missing() -> None:
-    service = TicketEnrichmentService(llm_service=None)
+    service = TicketEnrichmentService()
 
     outcome = service.enrich_for_update(
         previous_fields=TicketSummaryFields(product_line="product"),
@@ -23,7 +23,7 @@ def test_enrich_for_update_reports_root_cause_failures_when_llm_is_missing() -> 
 
     assert outcome.summary_fields.root_cause_desc == ""
     assert outcome.summary_fields.root_cause == ""
-    assert len(outcome.errors) == 2
+    assert outcome.errors == ["根因生成失败: 根因生成服务未配置"]
 
 
 def test_summarize_enrichment_errors_deduplicates_messages() -> None:

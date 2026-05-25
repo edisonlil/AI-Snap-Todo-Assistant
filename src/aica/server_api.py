@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import json
 import requests
 
 from aica.config import ServerConfig
@@ -109,6 +110,53 @@ class ChattodoServerClient:
             json=normalized_payload,
         )
 
+    def match_feature_point(self, *, product_line: str, desc: str) -> str:
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/workflow-mphzwo1h/run",
+            json={
+                "variables": {
+                    "product_line": sanitize_text(product_line),
+                    "desc": sanitize_text(desc),
+                },
+            },
+            require_success_envelope=False,
+        )
+        answer = sanitize_text(payload.get("answer")).strip()
+        if not answer:
+            raise ChattodoServerError("服务端功能点匹配未返回有效结果。")
+        return answer
+
+    def generate_root_cause(self, *, task_desc: str, answer: str) -> dict[str, str]:
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/single-turn-mpkqa7ch/run",
+            json={
+                "variables": {
+                    "task_desc": sanitize_text(task_desc),
+                    "answer": sanitize_text(answer),
+                },
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(payload.get("answer")).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端根因生成未返回有效结果。")
+        try:
+            parsed = json.loads(raw_answer)
+        except ValueError as exc:
+            raise ChattodoServerError("服务端根因生成结果不是有效 JSON。") from exc
+        if not isinstance(parsed, dict):
+            raise ChattodoServerError("服务端根因生成结果格式错误。")
+        description = sanitize_text(parsed.get("root_cause_description")).strip()
+        category = sanitize_text(parsed.get("root_cause_category")).strip()
+        if not description and not category:
+            raise ChattodoServerError("服务端根因生成未返回有效字段。")
+        return {
+            "root_cause_description": description,
+            "root_cause_category": category,
+        }
+
     def _request_json(
         self,
         method: str,
@@ -116,6 +164,7 @@ class ChattodoServerClient:
         *,
         params: dict[str, object] | None = None,
         json: dict[str, object] | None = None,
+        require_success_envelope: bool = True,
     ) -> dict[str, Any]:
         if not self._base_url:
             raise ChattodoServerError("服务端地址不能为空。")
@@ -152,7 +201,7 @@ class ChattodoServerClient:
         if not isinstance(payload, dict):
             raise ChattodoServerError("服务端返回格式错误：根节点不是对象。")
 
-        if payload.get("success") is not True:
+        if require_success_envelope and payload.get("success") is not True:
             code = sanitize_text(payload.get("code"))
             message = sanitize_text(payload.get("message")) or "服务端返回失败。"
             prefix = f"{code}: " if code else ""
