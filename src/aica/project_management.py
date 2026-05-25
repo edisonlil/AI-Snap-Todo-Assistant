@@ -159,7 +159,7 @@ def project_record_from_server_payload(
         follow_up_started_at=_payload_text(payload, "follow_up_started_at", "followUpStartedAt"),
         support_ended_at=_payload_text(payload, "support_ended_at", "supportEndedAt"),
         product_line=_payload_text(payload, "product_line", "productLine"),
-        product_version=_payload_text(payload, "product_version", "productVersion"),
+        product_version=existing.product_version if existing is not None else _payload_text(payload, "product_version", "productVersion"),
         project_manager=_payload_text(payload, "project_manager", "projectManager"),
         project_level=normalize_project_level(_payload_text(payload, "project_level", "projectLevel") or "normal"),
         aliases=_merge_project_aliases(existing, remote_aliases),

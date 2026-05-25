@@ -40,7 +40,7 @@ class _FakeTodoStore:
         return 3
 
 
-def test_sync_projects_from_server_creates_and_updates_by_task_order_no() -> None:
+def test_sync_projects_from_server_updates_existing_but_preserves_product_version() -> None:
     existing = ProjectRecord(
         id="local-project",
         project_name="old project",
@@ -106,7 +106,7 @@ def test_sync_projects_from_server_creates_and_updates_by_task_order_no() -> Non
     assert updated.project_name == "new project"
     assert updated.customer_name == "new customer"
     assert updated.product_line == "new product"
-    assert updated.product_version == "v2"
+    assert updated.product_version == "old version"
     assert updated.project_manager == "Alice"
     assert updated.follow_up_started_at == "2026-02-01T09:00:00"
     assert updated.support_ended_at == "2027-12-31T23:59:59"
@@ -114,6 +114,7 @@ def test_sync_projects_from_server_creates_and_updates_by_task_order_no() -> Non
     assert updated.created_at == "2026-02-01T00:00:00"
     assert updated.updated_at == "2026-02-02T00:00:00"
     assert updated.aliases == ("local-group", "shared-group", "remote-group")
+    assert [project.task_order_no for project in repository.saved] == ["TASK-001", "TASK-002"]
     created = repository.projects["TASK-002"]
     assert created.project_name == "created project"
     assert created.aliases == ("created-group",)

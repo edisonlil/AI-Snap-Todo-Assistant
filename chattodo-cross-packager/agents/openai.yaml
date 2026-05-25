@@ -1,7 +1,0 @@
-interface:
-  display_name: "Chattodo Packager"
-  short_description: "Bootstrap and package Chattodo builds."
-  default_prompt: "Use $chattodo-cross-packager to fetch this repo from git or zip, bootstrap dependencies, and build the requested Windows or macOS artifact."
-
-policy:
-  allow_implicit_invocation: true
