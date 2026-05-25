@@ -335,6 +335,10 @@ Apple Silicon 原生 `arm64` `.app`：
 
 ## Changelog
 
+### 2026-05-25
+
+- 项目同步不覆盖已有产品版本信息
+
 ### 2026-05-24
 
 - Chattodo Windows 云端打包流程上线：
