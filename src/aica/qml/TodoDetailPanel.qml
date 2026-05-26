@@ -1519,7 +1519,7 @@ Rectangle {
                                                     anchors.margins: 1
                                                     fillMode: Image.PreserveAspectCrop
                                                     visible: modelData.isImage
-                                                    source: modelData.fileUrl
+                                                    source: modelData.isImage ? modelData.fileUrl : ""
                                                     asynchronous: true
                                                     cache: false
                                                     smooth: true

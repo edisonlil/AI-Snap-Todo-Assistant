@@ -3110,6 +3110,7 @@ class _TodoDetailBridge(QObject):
     @staticmethod
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
         kind = _attachment_kind(attachment.path, attachment.name)
+        file_url = QUrl.fromLocalFile(attachment.path).toString() if kind == "image" and attachment.path else ""
         return {
             "id": attachment.id,
             "name": attachment.name,
@@ -3119,7 +3120,7 @@ class _TodoDetailBridge(QObject):
             "isImage": kind == "image",
             "isVideo": kind == "video",
             "isPreviewable": kind in {"image", "video"},
-            "fileUrl": QUrl.fromLocalFile(attachment.path).toString() if attachment.path else "",
+            "fileUrl": file_url,
         }
 
     def _copy_attachment(self, file_path: str, event_id: str) -> dict[str, object] | None:

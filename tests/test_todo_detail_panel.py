@@ -15,7 +15,7 @@ from aica.todo.detail_panel import (
     _StageSummaryWindow,
     _TodoDetailBridge,
 )
-from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 
 def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
@@ -42,6 +42,22 @@ def _build_panel(monkeypatch) -> TodoDetailPanel:
 
 def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
     return [str(item["message"]) for item in bridge.notificationBridge.notifications]
+
+
+def test_attachment_payload_does_not_expose_docx_as_image_source() -> None:
+    payload = _TodoDetailBridge._attachment_to_dict(
+        TimelineAttachment(
+            id="attachment-1",
+            name="需求文档.docx",
+            path="C:/Users/ediso/.aica/todo_attachments/todo/event/需求文档.docx",
+            size_bytes=123,
+        )
+    )
+
+    assert payload["kind"] == "file"
+    assert payload["isImage"] is False
+    assert payload["isPreviewable"] is False
+    assert payload["fileUrl"] == ""
 
 
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:
