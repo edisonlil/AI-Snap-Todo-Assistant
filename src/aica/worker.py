@@ -77,7 +77,7 @@ from .analysis.strategy import AnalysisPromptBundle, build_analysis_prompt_bundl
 from .todo.assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
 from .case_search import (
     CaseSearchProvider,
-    KDocsSseCaseSearchProvider,
+    NullCaseSearchProvider,
     build_case_search_queries,
     build_case_search_request,
     empty_case_result,
@@ -89,7 +89,7 @@ from .context_summary.service import ContextSummaryService, format_summary_for_a
 from .error_codes import ErrorCodeLookupService
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
-from .llm.types import Message, TaskRunResult
+from .llm.types import ContentPart, Message, TaskRunResult
 from .models import TicketSummaryFields
 from .parser import ResultParser
 from .server_api import ChattodoServerClient
@@ -464,6 +464,112 @@ class _BaseVisionWorker(QThread):
             return str(getattr(self, "_context_text", "") or "").strip()
         result = summary_service.summarize(context_request)
         return format_summary_for_analysis_context(context_request, result)
+
+    def _server_analysis_ready(self) -> bool:
+        server_config = getattr(self, "_server_config", None)
+        return bool(
+            getattr(server_config, "enabled", False)
+            and str(getattr(server_config, "base_url", "") or "").strip()
+            and str(getattr(server_config, "api_key", "") or "").strip()
+        )
+
+    @staticmethod
+    def _image_payload_for_server(encoded_images: list[EncodedImage]) -> str | list[str]:
+        image_urls = [item.data_url for item in encoded_images]
+        if len(image_urls) == 1:
+            return image_urls[0]
+        return image_urls
+
+    @staticmethod
+    def _analysis_messages(bundle: AnalysisPromptBundle, encoded_images: list[EncodedImage]) -> list[Message]:
+        content_parts = [ContentPart(type="text", text=bundle.user_prompt)]
+        content_parts.extend(ContentPart(type="image_data_url", data_url=item.data_url) for item in encoded_images)
+        return [
+            Message(role="system", content=bundle.system_prompt),
+            Message(role="user", content=content_parts),
+        ]
+
+    def _call_server_analysis(
+        self,
+        *,
+        encoded_images: list[EncodedImage],
+        started_at: float,
+        preprocess_ms: int,
+        input_bytes: int,
+    ) -> str:
+        run_started_at = time.perf_counter()
+        payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
+            image_data_url=self._image_payload_for_server(encoded_images),
+            summary=self._context_text,
+        )
+        llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
+        self._analysis_stats = self._build_server_analysis_stats(
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
+            llm_latency_ms=llm_latency_ms,
+            preprocess_ms=preprocess_ms,
+            image_count=max(1, len(encoded_images)),
+            input_bytes=input_bytes,
+        )
+        self._model = "Chattodo 服务端 / 截图分析"
+        return str(payload.get("answer", "")).strip()
+
+    def _call_local_analysis(
+        self,
+        *,
+        bundle: AnalysisPromptBundle,
+        encoded_images: list[EncodedImage],
+        started_at: float,
+        preprocess_ms: int,
+        input_bytes: int,
+    ) -> str:
+        run_result = self._run_llm_task_detailed(
+            "analysis",
+            messages=self._analysis_messages(bundle, encoded_images),
+            temperature=0.1,
+            timeout=self._timeout,
+        )
+        self._analysis_stats = self._build_analysis_stats(
+            run_result=run_result,
+            preprocess_ms=preprocess_ms,
+            input_bytes=input_bytes,
+            image_count=max(1, len(encoded_images)),
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
+        )
+        self._model = run_result.reference.display_name
+        return run_result.text
+
+    def _call_analysis_with_strategy(
+        self,
+        *,
+        bundle: AnalysisPromptBundle,
+        encoded_images: list[EncodedImage],
+        started_at: float,
+    ) -> str:
+        preprocess_ms = sum(item.preprocess_ms for item in encoded_images)
+        input_bytes = sum(item.byte_size for item in encoded_images)
+        if self._server_analysis_ready():
+            try:
+                raw_text = self._call_server_analysis(
+                    encoded_images=encoded_images,
+                    started_at=started_at,
+                    preprocess_ms=preprocess_ms,
+                    input_bytes=input_bytes,
+                )
+                if not raw_text:
+                    raise ValueError("服务端截图分析返回为空")
+                ResultParser.parse(raw_text)
+                return raw_text
+            except Exception as exc:  # noqa: BLE001 - fallback should catch all server-side failures
+                self._last_server_analysis_error = str(exc)
+                self._analysis_stats = None
+
+        return self._call_local_analysis(
+            bundle=bundle,
+            encoded_images=encoded_images,
+            started_at=started_at,
+            preprocess_ms=preprocess_ms,
+            input_bytes=input_bytes,
+        )
 
     @staticmethod
     def _build_server_analysis_stats(
@@ -958,7 +1064,8 @@ class AssistAnalysisWorker(QThread):
         self._request_id = str(request_id or "").strip()
         self._payload = dict(payload or {})
         self._phase = str(phase or "initial").strip() or "initial"
-        self._case_search_provider = case_search_provider or KDocsSseCaseSearchProvider()
+        self._case_search_enabled = case_search_provider is not None
+        self._case_search_provider = case_search_provider or NullCaseSearchProvider()
         self._error_code_lookup_service = error_code_lookup_service
 
     def run(self) -> None:
@@ -984,15 +1091,20 @@ class AssistAnalysisWorker(QThread):
                     should_update=True,
                     is_final=False,
                 )
-                initial_result["caseResults"] = loading_case_result().to_payload()
+                initial_result["caseResults"] = (
+                    loading_case_result().to_payload()
+                    if self._case_search_enabled
+                    else empty_case_result().to_payload()
+                )
                 initial_result["errorCodeResults"] = self._lookup_error_codes(todo)
                 self.result_ready.emit(self._todo_id, self._request_id, initial_result)
 
                 final_result = dict(initial_result)
-                try:
-                    final_result["caseResults"] = self._search_cases(todo)
-                except Exception as exc:  # noqa: BLE001
-                    final_result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
+                if self._case_search_enabled:
+                    try:
+                        final_result["caseResults"] = self._search_cases(todo)
+                    except Exception as exc:  # noqa: BLE001
+                        final_result["caseResults"] = empty_case_result(error_message=str(exc)).to_payload()
                 result = self._with_metadata(
                     final_result,
                     todo,
@@ -1071,6 +1183,8 @@ class AssistAnalysisWorker(QThread):
         return result
 
     def _search_cases(self, todo: TodoItem) -> dict[str, object]:
+        if not self._case_search_enabled:
+            return empty_case_result().to_payload()
         try:
             request = build_case_search_request(
                 todo_id=todo.id,
@@ -1296,31 +1410,15 @@ class AIWorker(_BaseVisionWorker):
         encoded_image = self._encode_for_api(self._image, image_count=1)
         self._context_text = self._resolve_context_text()
         bundle = self._build_prompt_bundle(image_count=1)
-        try:
-            run_started_at = time.perf_counter()
-            payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
-                image_data_url=encoded_image.data_url,
-                summary=self._context_text,
-            )
-            llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
-        except Exception:
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
-            self._analysis_stats = self._build_server_analysis_stats(
-                latency_ms=elapsed_ms,
-                llm_latency_ms=elapsed_ms,
-                preprocess_ms=encoded_image.preprocess_ms,
-                image_count=1,
-                input_bytes=encoded_image.byte_size,
-            )
-            raise
-        self._analysis_stats = self._build_server_analysis_stats(
-            latency_ms=round((time.perf_counter() - started_at) * 1000),
-            llm_latency_ms=llm_latency_ms,
-            preprocess_ms=encoded_image.preprocess_ms,
-            image_count=1,
-            input_bytes=encoded_image.byte_size,
+        encoded_images = [encoded_image]
+        return (
+            self._call_analysis_with_strategy(
+                bundle=bundle,
+                encoded_images=encoded_images,
+                started_at=started_at,
+            ),
+            encoded_images,
         )
-        return str(payload.get("answer", "")), [encoded_image]
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
@@ -1368,36 +1466,17 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
     def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
         self._context_text = self._resolve_context_text()
-        self._build_prompt_bundle(image_count=len(self._images))
+        bundle = self._build_prompt_bundle(image_count=len(self._images))
         encoded_images: list[EncodedImage] = []
         for index, pixmap in enumerate(self._images, 1):
             encoded_image = self._encode_for_api(pixmap, image_count=len(self._images))
             encoded_images.append(encoded_image)
 
-        preprocess_ms = sum(item.preprocess_ms for item in encoded_images)
-        input_bytes = sum(item.byte_size for item in encoded_images)
-        try:
-            run_started_at = time.perf_counter()
-            payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
-                image_data_url=[item.data_url for item in encoded_images],
-                summary=self._context_text,
-            )
-            llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
-        except Exception:
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
-            self._analysis_stats = self._build_server_analysis_stats(
-                latency_ms=elapsed_ms,
-                llm_latency_ms=elapsed_ms,
-                preprocess_ms=preprocess_ms,
-                image_count=max(1, len(encoded_images)),
-                input_bytes=input_bytes,
-            )
-            raise
-        self._analysis_stats = self._build_server_analysis_stats(
-            latency_ms=round((time.perf_counter() - started_at) * 1000),
-            llm_latency_ms=llm_latency_ms,
-            preprocess_ms=preprocess_ms,
-            image_count=max(1, len(encoded_images)),
-            input_bytes=input_bytes,
+        return (
+            self._call_analysis_with_strategy(
+                bundle=bundle,
+                encoded_images=encoded_images,
+                started_at=started_at,
+            ),
+            encoded_images,
         )
-        return str(payload.get("answer", "")), encoded_images

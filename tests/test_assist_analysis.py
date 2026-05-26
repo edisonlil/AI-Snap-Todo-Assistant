@@ -43,6 +43,13 @@ class _FailingCaseProvider:
         raise RuntimeError("case search down")
 
 
+class _ExplodingQueryLLM(_LLM):
+    def run_task(self, task_name: str, *, messages, temperature: float = 0.2, **_kwargs):  # noqa: ANN001
+        if task_name == "context_summary":
+            return super().run_task(task_name, messages=messages, temperature=temperature, **_kwargs)
+        raise AssertionError("case query rewrite should stay disabled by default")
+
+
 class _SuccessfulCaseProvider:
     def search_many(self, queries):  # noqa: ANN001
         return CaseSearchResult(
@@ -110,6 +117,22 @@ def test_initial_assist_analysis_keeps_llm_result_when_case_search_fails() -> No
     assert result["summary"] == "LLM 第一版建议"
     assert result["caseResults"]["status"] == "error"
     assert "case search down" in result["caseResults"]["errorMessage"]
+
+
+def test_initial_assist_analysis_disables_case_search_by_default() -> None:
+    todo = _todo()
+    worker = AssistAnalysisWorker(
+        llm_service=_ExplodingQueryLLM(),
+        todo_id=todo.id,
+        request_id="req-default",
+        payload={"todoPayload": build_assist_todo_payload(todo)},
+    )
+
+    result = worker._build_initial_result(todo)  # noqa: SLF001
+
+    assert result["summary"] == "LLM 第一版建议"
+    assert result["caseResults"]["status"] == "empty"
+    assert result["caseResults"]["items"] == []
 
 
 def test_assist_analysis_worker_emits_partial_result_before_case_search_finishes() -> None:

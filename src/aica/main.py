@@ -317,7 +317,7 @@ def main() -> None:
         QMessageBox.information(
             None,
             "请先完成设置",
-            "当前未配置可用的服务端地址或 API Key。\n请点击系统托盘中的 Chattodo 图标，打开控制面板完成服务端设置。",
+            "当前未配置可用的服务端地址或本地截图分析模型。\n请点击系统托盘中的 Chattodo 图标，打开控制面板完成设置。",
         )
 
     def _request_capture(source: str) -> None:
@@ -457,7 +457,18 @@ def main() -> None:
 
     def _build_runtime_config(config):
         llm_service = LLMService(config)
-        analysis_timeout_seconds = max(1, int(getattr(config.server, "timeout_seconds", 30) or 30))
+        server_config = config.server
+        server_ready = (
+            bool(getattr(server_config, "enabled", False))
+            and str(getattr(server_config, "base_url", "") or "").strip()
+            and str(getattr(server_config, "api_key", "") or "").strip()
+        )
+        try:
+            analysis_timeout_seconds = llm_service.resolve_task_model("analysis").reference.timeout_seconds
+        except ModelResolutionError:
+            if not server_ready:
+                raise
+            analysis_timeout_seconds = max(1, int(getattr(server_config, "timeout_seconds", 30) or 30))
         try:
             plan_export_timeout_seconds = llm_service.resolve_task_model("plan_export").reference.timeout_seconds
         except ModelResolutionError:
@@ -465,8 +476,8 @@ def main() -> None:
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
-            server_config=config.server,
-            analysis_model_label="Chattodo 服务端 / 截图分析",
+            server_config=server_config,
+            analysis_model_label="Chattodo 服务端优先 / 本地兜底",
             analysis_timeout_seconds=analysis_timeout_seconds,
             plan_export_timeout_seconds=plan_export_timeout_seconds,
         )
@@ -575,18 +586,22 @@ def main() -> None:
     def _ensure_api_key_configured():
         config = config_mgr.load()
         server_config = config.server
-        if not (
+        server_ready = (
             bool(getattr(server_config, "enabled", False))
             and str(getattr(server_config, "base_url", "") or "").strip()
             and str(getattr(server_config, "api_key", "") or "").strip()
-        ):
-            _show_missing_settings_message()
-            return None
+        )
+        if not server_ready:
+            try:
+                LLMService(config).resolve_task_model("analysis")
+            except ModelResolutionError:
+                _show_missing_settings_message()
+                return None
         try:
             return _build_runtime_config(config)
         except ModelResolutionError:
             _show_missing_settings_message()
-        return None
+            return None
 
     def _handle_analysis_finished(
         result,

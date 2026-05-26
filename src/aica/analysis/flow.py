@@ -10,8 +10,6 @@ _PROVIDER_SAFE_IMAGE_LIMITS = {
 
 def _resolve_analysis_image_limit(config: Any) -> int:
     configured_limit = max(1, int(getattr(config.app_config, "max_image_bytes", 4 * 1024 * 1024)))
-    if getattr(config, "server_config", None) is not None:
-        return configured_limit
     llm_service = getattr(config, "llm_service", None)
     if llm_service is None or not hasattr(llm_service, "resolve_task_model"):
         return configured_limit
