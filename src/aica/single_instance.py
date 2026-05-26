@@ -11,6 +11,7 @@ try:
 except Exception:  # pragma: no cover - unavailable on Windows
     fcntl = None  # type: ignore[assignment]
 
+from aica.paths import legacy_app_data_dir, safe_expand_user_path
 from aica.runtime import PLATFORM_WINDOWS, current_platform
 
 
@@ -35,7 +36,7 @@ class SingleInstanceGuard:
         self._name = name
         self._platform_id = platform_id or current_platform()
         self._handle: wintypes.HANDLE | None = None
-        self._lock_file = Path(lock_file).expanduser() if lock_file is not None else Path.home() / ".aica" / LOCK_FILE_NAME
+        self._lock_file = safe_expand_user_path(lock_file) if lock_file is not None else legacy_app_data_dir() / LOCK_FILE_NAME
         self._lock_handle = None
 
     def acquire(self) -> bool:
@@ -76,11 +77,12 @@ class SingleInstanceGuard:
         self._handle = None
 
     def _acquire_lock_file(self) -> bool:
-        if fcntl is None:
-            return True
         lock_key = str(self._lock_file.resolve())
         if lock_key in _PROCESS_LOCKS:
             return False
+        if fcntl is None:
+            _PROCESS_LOCKS.add(lock_key)
+            return True
         self._lock_file.parent.mkdir(parents=True, exist_ok=True)
         handle = self._lock_file.open("a+", encoding="utf-8")
         try:
@@ -100,9 +102,10 @@ class SingleInstanceGuard:
     def _release_lock_file(self) -> None:
         handle = self._lock_handle
         self._lock_handle = None
-        if handle is None:
-            return
         lock_key = str(self._lock_file.resolve())
+        if handle is None:
+            _PROCESS_LOCKS.discard(lock_key)
+            return
         try:
             if fcntl is not None:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

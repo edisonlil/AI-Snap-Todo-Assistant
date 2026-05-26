@@ -10,6 +10,8 @@ _PROVIDER_SAFE_IMAGE_LIMITS = {
 
 def _resolve_analysis_image_limit(config: Any) -> int:
     configured_limit = max(1, int(getattr(config.app_config, "max_image_bytes", 4 * 1024 * 1024)))
+    if getattr(config, "server_config", None) is not None:
+        return configured_limit
     llm_service = getattr(config, "llm_service", None)
     if llm_service is None or not hasattr(llm_service, "resolve_task_model"):
         return configured_limit
@@ -85,7 +87,10 @@ class AnalysisFlowCoordinator:
         scenario = self._get_scenario()
         analysis_intent = self._get_analysis_intent(len(images)) if self._get_analysis_intent is not None else None
         context_text = self._get_analysis_context() if self._get_analysis_context is not None else ""
-        analysis_model_label = config.llm_service.describe_task_model("analysis")
+        analysis_model_label = str(
+            getattr(config, "analysis_model_label", "")
+            or config.llm_service.describe_task_model("analysis")
+        )
         worker_kwargs = dict(
             llm_service=config.llm_service,
             model_label=analysis_model_label,
@@ -94,6 +99,7 @@ class AnalysisFlowCoordinator:
             analysis_intent=analysis_intent,
             context_text=context_text,
             max_image_bytes=_resolve_analysis_image_limit(config),
+            server_config=getattr(config, "server_config", None),
         )
         if len(images) == 1:
             return self._single_worker_factory(images[0], **worker_kwargs)

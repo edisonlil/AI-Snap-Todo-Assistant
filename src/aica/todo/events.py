@@ -113,6 +113,7 @@ class TodoDomainEventType(StrEnum):
     UPDATED = "updated"
     COMPLETED = "completed"
     DELETED = "deleted"
+    REOPENED = "reopened"
     MANUAL_SYNC = "manual_sync"
 
 
@@ -262,6 +263,18 @@ class TodoDomainEvent:
             todo_id=todo.id,
             todo_snapshot=serialize_todo_item(todo),
             delta={"deleted": True},
+        )
+
+    @classmethod
+    def reopened(cls, todo: TodoItem, scenario: str) -> TodoDomainEvent:
+        return cls(
+            event_id=str(uuid.uuid4()),
+            event_type=TodoDomainEventType.REOPENED,
+            occurred_at=_now_iso(),
+            scenario=_sanitize_text(scenario),
+            todo_id=todo.id,
+            todo_snapshot=serialize_todo_item(todo),
+            delta={"status_change": {"from": "done", "to": "open"}},
         )
 
     @classmethod
@@ -550,6 +563,7 @@ class ScriptEventHandler(TodoEventHandler):
         return event_type not in {
             TodoDomainEventType.CREATED,
             TodoDomainEventType.APPENDED,
+            TodoDomainEventType.REOPENED,
             TodoDomainEventType.MANUAL_SYNC,
         }
 

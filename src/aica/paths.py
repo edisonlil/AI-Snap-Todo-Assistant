@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,8 +23,52 @@ class StoragePaths:
     log_dir: Path
 
 
+def _safe_home_dir() -> Path:
+    candidates: list[str] = []
+    for name in ("HOME", "USERPROFILE"):
+        value = os.getenv(name, "").strip()
+        if value:
+            candidates.append(value)
+
+    home_drive = os.getenv("HOMEDRIVE", "").strip()
+    home_path = os.getenv("HOMEPATH", "").strip()
+    if home_drive and home_path:
+        candidates.append(f"{home_drive}{home_path}")
+
+    try:
+        expanded = os.path.expanduser("~")
+        if expanded and expanded != "~":
+            candidates.append(expanded)
+    except Exception:
+        pass
+
+    try:
+        candidates.append(tempfile.gettempdir())
+    except Exception:
+        pass
+
+    for candidate in candidates:
+        try:
+            return Path(candidate)
+        except Exception:
+            continue
+    return Path(".").resolve()
+
+
+def _expand_user_path_text(text: str) -> str:
+    if text == "~":
+        return str(_safe_home_dir())
+    if text.startswith("~/") or text.startswith("~\\"):
+        return str(_safe_home_dir() / text[2:])
+    return text
+
+
+def safe_expand_user_path(value: str | Path) -> Path:
+    return Path(_expand_user_path_text(str(value)))
+
+
 def legacy_app_data_dir() -> Path:
-    return Path.home() / ".aica"
+    return _safe_home_dir() / ".aica"
 
 
 def storage_config_file() -> Path:
@@ -34,7 +79,7 @@ def _normalize_directory(value: object) -> Path | None:
     text = str(value or "").strip()
     if not text:
         return None
-    return Path(text).expanduser()
+    return Path(_expand_user_path_text(text))
 
 
 def _load_storage_config_payload() -> dict[str, object]:

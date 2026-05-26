@@ -9,10 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aica.analysis.intent import (
-    SCENE_API_DETAIL,
     SCENE_CHAT_FEEDBACK,
-    SCENE_CUSTOM,
-    SCENE_ERROR_LOG,
     SCENE_LABELS,
     SCENE_STEP_SEQUENCE,
 )
@@ -22,10 +19,7 @@ from aica.paths import prompt_debug_dir as default_prompt_debug_dir
 
 _SCENE_TYPES = (
     SCENE_CHAT_FEEDBACK,
-    SCENE_ERROR_LOG,
-    SCENE_API_DETAIL,
     SCENE_STEP_SEQUENCE,
-    SCENE_CUSTOM,
 )
 
 _DEFAULT_DEBUG_MAX_RECORDS = 100
@@ -308,7 +302,7 @@ class AnalysisRulesManager:
         return self._config
 
     def update_scene_rule(self, scene_type: str, rule: SceneAnalysisRule) -> None:
-        normalized_scene = scene_type if scene_type in self._config.scenes else SCENE_CUSTOM
+        normalized_scene = scene_type if scene_type in self._config.scenes else SCENE_CHAT_FEEDBACK
         self._config.scenes[normalized_scene] = rule
 
     def update_debug_config(self, *, enabled: bool, max_records: int) -> None:
@@ -330,7 +324,7 @@ class AnalysisRulesManager:
         return self._config.rules
 
     def update_scene_user_rules(self, scene_type: str, rules: UserRuleConfig) -> None:
-        normalized_scene = scene_type if scene_type in self._config.scene_rules else SCENE_CUSTOM
+        normalized_scene = scene_type if scene_type in self._config.scene_rules else SCENE_CHAT_FEEDBACK
         self._config.scene_rules[normalized_scene] = UserRuleConfig.from_dict(rules)
 
     def get_scene_user_rules(self, scene_type: str) -> UserRuleConfig:

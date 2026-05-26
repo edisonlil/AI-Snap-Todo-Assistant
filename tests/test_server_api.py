@@ -137,6 +137,111 @@ def test_update_project_by_task_order_no_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 12
 
 
+def test_upsert_work_order_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "item": {
+                        "id": 1001,
+                        "external_order_no": "todo-1",
+                    }
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.upsert_work_order(
+        {
+            "source_system": "Chattodo",
+            "external_order_no": "todo-1",
+            "title": "测试工单",
+            "status": "in_progress",
+        }
+    )
+
+    assert payload["data"]["item"]["id"] == 1001
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/work-orders"
+    assert session.calls[0]["json"] == {
+        "source_system": "Chattodo",
+        "external_order_no": "todo-1",
+        "title": "测试工单",
+        "status": "in_progress",
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_upsert_work_order_validates_required_fields() -> None:
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        session=_FakeSession(_FakeResponse(200, {"success": True})),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ChattodoServerError, match="外部工单号不能为空"):
+        client.upsert_work_order({"title": "测试工单"})
+
+    with pytest.raises(ChattodoServerError, match="工单标题不能为空"):
+        client.upsert_work_order({"external_order_no": "todo-1"})
+
+
+def test_upload_workbench_file_sends_multipart_request(tmp_path: Path) -> None:
+    file_path = tmp_path / "xiezuo.png"
+    file_path.write_bytes(b"png")
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "file_object_id": "123",
+                    "url": "/api/files/123/download",
+                    "preview_url": "/api/files/123/preview",
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.upload_workbench_file(
+        file_path,
+        source_system="Chattodo",
+        external_order_no="todo-1",
+        external_timeline_id="timeline-1",
+        external_attachment_id="att-1",
+    )
+
+    assert payload["data"]["file_object_id"] == "123"
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/files/upload"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
+    assert session.calls[0]["timeout"] == 12
+    assert session.calls[0]["data"] == {
+        "source_system": "Chattodo",
+        "external_order_no": "todo-1",
+        "external_timeline_id": "timeline-1",
+        "external_attachment_id": "att-1",
+    }
+    file_tuple = session.calls[0]["files"]["upload"]  # type: ignore[index]
+    assert file_tuple[0] == "xiezuo.png"
+    assert file_tuple[2] == "image/png"
+
+
 def test_match_feature_point_sends_workflow_request_and_returns_answer() -> None:
     session = _FakeSession(
         _FakeResponse(
@@ -208,6 +313,69 @@ def test_generate_root_cause_sends_single_turn_request_and_parses_answer() -> No
         "variables": {
             "task_desc": "问题描述",
             "answer": "问题结论",
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_analyze_screenshot_sends_runtime_request_and_parses_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": (
+                    "{\n"
+                    '  "title": "在线编辑跑版",\n'
+                    '  "group_name": "在线编辑群",\n'
+                    '  "environment": "未知",\n'
+                    '  "product_line": "",\n'
+                    '  "ticket_type": "排查类",\n'
+                    '  "current_summary": "传参后仍跑版",\n'
+                    '  "timeline_entry": "待确认 previewMode 参数"\n'
+                    "}"
+                ),
+                "trace_id": "trace_xxx",
+                "usage": {"total_tokens": 384},
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.analyze_screenshot(
+        image_data_url=["data:image/png;base64,YWFh", "data:image/png;base64,YmJi"],
+        summary="待办标题: 在线编辑跑版\n压缩上下文:\n问题概述: 传参后仍跑版",
+    )
+
+    assert payload["result"]["title"] == "在线编辑跑版"
+    assert payload["trace_id"] == "trace_xxx"
+    assert payload["usage"] == {"total_tokens": 384}
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/single-turn-mpmfi35y/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "imags": [
+                {
+                    "type": "image",
+                    "name": "image-1.png",
+                    "mime_type": "image/png",
+                    "size": 3,
+                    "data_url": "data:image/png;base64,YWFh",
+                },
+                {
+                    "type": "image",
+                    "name": "image-2.png",
+                    "mime_type": "image/png",
+                    "size": 3,
+                    "data_url": "data:image/png;base64,YmJi",
+                },
+            ],
+            "summary": "待办标题: 在线编辑跑版\n压缩上下文:\n问题概述: 传参后仍跑版",
         }
     }
     assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}

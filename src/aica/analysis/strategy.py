@@ -7,10 +7,7 @@ from .rules import AnalysisRuleConfig, SceneAnalysisRule, UserRuleConfig
 from .intent import (
     AnalysisIntent,
     CAPTURE_MODE_SEQUENCE,
-    SCENE_API_DETAIL,
     SCENE_CHAT_FEEDBACK,
-    SCENE_CUSTOM,
-    SCENE_ERROR_LOG,
     SCENE_STEP_SEQUENCE,
 )
 
@@ -46,25 +43,10 @@ _SCENE_RULES = {
         "重点提取：问题现象、客户诉求、当前结论、待确认项、下一步动作。"
         "如果聊天里只提到客户补充了截图、参数、日志，但明细不在当前截图里，不要编造具体值。"
     ),
-    SCENE_ERROR_LOG: (
-        "当前场景：错误与日志。"
-        "重点提取：错误信息、错误码、TraceId、关键日志行、推断方向。"
-        "timeline_entry 中要尽量保留原始报错词、关键信息和排查方向。"
-    ),
-    SCENE_API_DETAIL: (
-        "当前场景：参数与接口详情。"
-        "重点提取：请求 URL、请求参数、返回参数、结果码、关键字段。"
-        "需要尽量保留字段名和字段值，不要只总结成“客户提供了请求参数”。"
-    ),
     SCENE_STEP_SEQUENCE: (
         "当前场景：连续步骤截图。"
         "重点提取：按截图顺序归纳操作步骤、在哪一步出现异常、有哪些关键观察。"
         "timeline_entry 需要体现步骤链路或异常出现点。"
-    ),
-    SCENE_CUSTOM: (
-        "当前场景：其他自定义。"
-        "请根据用户补充重点决定提取重心。"
-        "若截图包含参数、日志或返回结果，也直接写进 timeline_entry。"
     ),
 }
 
@@ -133,7 +115,7 @@ def build_analysis_prompt_bundle(
         _build_context_section(context_text),
         f"{_JSON_CONTRACT}\n",
         f"{_COMMON_RULES}\n",
-        f"{_SCENE_RULES.get(intent.scene_type, _SCENE_RULES[SCENE_CUSTOM])}\n",
+        f"{_SCENE_RULES.get(intent.scene_type, _SCENE_RULES[SCENE_CHAT_FEEDBACK])}\n",
         f"{_build_sequence_section(intent, image_count)}\n",
         _build_focus_section(intent),
         "\n",

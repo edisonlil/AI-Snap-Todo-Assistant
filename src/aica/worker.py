@@ -89,9 +89,10 @@ from .context_summary.service import ContextSummaryService, format_summary_for_a
 from .error_codes import ErrorCodeLookupService
 from .image_utils import EncodedImage, encode_image_for_api
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
-from .llm.types import ContentPart, Message, TaskRunResult
+from .llm.types import Message, TaskRunResult
 from .models import TicketSummaryFields
 from .parser import ResultParser
+from .server_api import ChattodoServerClient
 from .text_sanitize import sanitize_text
 from .todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
@@ -455,11 +456,36 @@ class _BaseVisionWorker(QThread):
         context_request = getattr(self, "_context_request", None)
         if not isinstance(context_request, ContextSummaryRequest):
             return str(getattr(self, "_context_text", "") or "").strip()
+        if context_request.summary_goal == "append_screenshot_context":
+            result = ContextSummaryService().summarize(context_request)
+            return format_summary_for_analysis_context(context_request, result)
         summary_service = getattr(self, "_context_summary_service", None)
         if not isinstance(summary_service, ContextSummaryService):
             return str(getattr(self, "_context_text", "") or "").strip()
         result = summary_service.summarize(context_request)
         return format_summary_for_analysis_context(context_request, result)
+
+    @staticmethod
+    def _build_server_analysis_stats(
+        *,
+        latency_ms: int,
+        llm_latency_ms: int,
+        preprocess_ms: int,
+        image_count: int,
+        input_bytes: int,
+    ) -> AnalysisRunStats:
+        return AnalysisRunStats(
+            provider_id="chattodo_server",
+            provider_name="Chattodo 服务端",
+            model_id="single-turn-mpmfi35y",
+            model_name="截图分析",
+            latency_ms=latency_ms,
+            llm_latency_ms=llm_latency_ms,
+            preprocess_ms=preprocess_ms,
+            attempts=1,
+            image_count=image_count,
+            input_bytes=input_bytes,
+        )
 
     def _record_prompt_trace(
         self,
@@ -1230,6 +1256,7 @@ class AIWorker(_BaseVisionWorker):
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
+                 server_config=None,
                  parent=None):
         super().__init__(parent)
         self._image = image
@@ -1243,6 +1270,7 @@ class AIWorker(_BaseVisionWorker):
         self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
         self._context_text = context_text.strip() if isinstance(context_text, str) else ""
         self._context_summary_service = ContextSummaryService(llm_service)
+        self._server_config = server_config
 
     def run(self) -> None:
         encoded_images: list[EncodedImage] = []
@@ -1268,45 +1296,31 @@ class AIWorker(_BaseVisionWorker):
         encoded_image = self._encode_for_api(self._image, image_count=1)
         self._context_text = self._resolve_context_text()
         bundle = self._build_prompt_bundle(image_count=1)
-        messages = [
-            Message(role="system", content=bundle.system_prompt),
-            Message(
-                role="user",
-                content=[
-                    ContentPart(type="text", text=bundle.user_prompt),
-                    ContentPart(type="image_data_url", data_url=encoded_image.data_url),
-                ],
-            ),
-        ]
         try:
-            run_result = self._run_llm_task_detailed(
-                "analysis",
-                messages=messages,
-                temperature=0.3,
-                timeout=self._timeout,
+            run_started_at = time.perf_counter()
+            payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
+                image_data_url=encoded_image.data_url,
+                summary=self._context_text,
             )
-        except TaskExecutionError as exc:
-            self._analysis_stats = AnalysisRunStats(
-                provider_id=exc.reference.provider_id,
-                provider_name=exc.reference.provider_name,
-                model_id=exc.reference.model_id,
-                model_name=exc.reference.model_name,
-                latency_ms=round((time.perf_counter() - started_at) * 1000),
-                llm_latency_ms=exc.latency_ms,
+            llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
+        except Exception:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            self._analysis_stats = self._build_server_analysis_stats(
+                latency_ms=elapsed_ms,
+                llm_latency_ms=elapsed_ms,
                 preprocess_ms=encoded_image.preprocess_ms,
-                attempts=exc.attempts,
                 image_count=1,
                 input_bytes=encoded_image.byte_size,
             )
             raise
-        self._analysis_stats = self._build_analysis_stats(
-            run_result=run_result,
-            preprocess_ms=encoded_image.preprocess_ms,
-            input_bytes=encoded_image.byte_size,
-            image_count=1,
+        self._analysis_stats = self._build_server_analysis_stats(
             latency_ms=round((time.perf_counter() - started_at) * 1000),
+            llm_latency_ms=llm_latency_ms,
+            preprocess_ms=encoded_image.preprocess_ms,
+            image_count=1,
+            input_bytes=encoded_image.byte_size,
         )
-        return run_result.text, [encoded_image]
+        return str(payload.get("answer", "")), [encoded_image]
 
 
 class MultiCaptureAIWorker(_BaseVisionWorker):
@@ -1316,6 +1330,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
                  analysis_intent: AnalysisIntent | None = None,
                  context_text: str | ContextSummaryRequest = "",
                  max_image_bytes: int = 4 * 1024 * 1024,
+                 server_config=None,
                  parent=None):
         super().__init__(parent)
         self._images = images
@@ -1329,6 +1344,7 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
         self._context_request = context_text if isinstance(context_text, ContextSummaryRequest) else None
         self._context_text = context_text.strip() if isinstance(context_text, str) else ""
         self._context_summary_service = ContextSummaryService(llm_service)
+        self._server_config = server_config
 
     def run(self) -> None:
         encoded_images: list[EncodedImage] = []
@@ -1352,48 +1368,36 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
     def _call_api(self) -> tuple[str, list[EncodedImage]]:
         started_at = time.perf_counter()
         self._context_text = self._resolve_context_text()
-        bundle = self._build_prompt_bundle(image_count=len(self._images))
-        content: list[ContentPart] = [
-            ContentPart(type="text", text=bundle.user_prompt)
-        ]
+        self._build_prompt_bundle(image_count=len(self._images))
         encoded_images: list[EncodedImage] = []
         for index, pixmap in enumerate(self._images, 1):
             encoded_image = self._encode_for_api(pixmap, image_count=len(self._images))
             encoded_images.append(encoded_image)
-            content.append(ContentPart(type="text", text=f"第 {index} 张截图"))
-            content.append(ContentPart(type="image_data_url", data_url=encoded_image.data_url))
 
         preprocess_ms = sum(item.preprocess_ms for item in encoded_images)
         input_bytes = sum(item.byte_size for item in encoded_images)
         try:
-            run_result = self._run_llm_task_detailed(
-                "analysis",
-                messages=[
-                    Message(role="system", content=bundle.system_prompt),
-                    Message(role="user", content=content),
-                ],
-                temperature=0.3,
-                timeout=self._timeout,
+            run_started_at = time.perf_counter()
+            payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
+                image_data_url=[item.data_url for item in encoded_images],
+                summary=self._context_text,
             )
-        except TaskExecutionError as exc:
-            self._analysis_stats = AnalysisRunStats(
-                provider_id=exc.reference.provider_id,
-                provider_name=exc.reference.provider_name,
-                model_id=exc.reference.model_id,
-                model_name=exc.reference.model_name,
-                latency_ms=round((time.perf_counter() - started_at) * 1000),
-                llm_latency_ms=exc.latency_ms,
+            llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
+        except Exception:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            self._analysis_stats = self._build_server_analysis_stats(
+                latency_ms=elapsed_ms,
+                llm_latency_ms=elapsed_ms,
                 preprocess_ms=preprocess_ms,
-                attempts=exc.attempts,
-                image_count=max(1, len(self._images)),
+                image_count=max(1, len(encoded_images)),
                 input_bytes=input_bytes,
             )
             raise
-        self._analysis_stats = self._build_analysis_stats(
-            run_result=run_result,
-            preprocess_ms=preprocess_ms,
-            input_bytes=input_bytes,
-            image_count=max(1, len(self._images)),
+        self._analysis_stats = self._build_server_analysis_stats(
             latency_ms=round((time.perf_counter() - started_at) * 1000),
+            llm_latency_ms=llm_latency_ms,
+            preprocess_ms=preprocess_ms,
+            image_count=max(1, len(encoded_images)),
+            input_bytes=input_bytes,
         )
-        return run_result.text, encoded_images
+        return str(payload.get("answer", "")), encoded_images

@@ -329,6 +329,7 @@ from aica.root_cause_options import ROOT_CAUSE_OPTIONS
 from aica.ticket_enrichment import build_feature_point_provider
 from aica.todo.models import TodoItem, TodoStatus
 from aica.todo.store import TodoStore
+from aica.todo.events import TodoDomainEvent, TodoEventPublisher
 from aica.window_effects import disable_windows_window_border
 
 _QT_KEY_ESCAPE = 0x01000000
@@ -984,9 +985,11 @@ class _ControlPanelBridge(QObject):
         config_manager: ConfigManager,
         *,
         notification_bridge: AppNotificationBridge | None = None,
+        event_publisher: TodoEventPublisher | None = None,
     ) -> None:
         super().__init__()
         self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._event_publisher = event_publisher
         self._config_manager = config_manager
         self._config = config_manager.load()
         self._analysis_metrics = AnalysisMetricsStore()
@@ -2814,6 +2817,20 @@ class _ControlPanelBridge(QObject):
         self._notification_bridge.notify("success", "工单内容已复制", source="control_panel")
         self._emit_data_changed()
 
+    def _publish_todo_event(self, event: TodoDomainEvent) -> None:
+        if self._event_publisher is None:
+            return
+        self._event_publisher.publish(event)
+
+    def _publish_ticket_update(self, todo: TodoItem, changed_fields: list[str]) -> None:
+        self._publish_todo_event(
+            TodoDomainEvent.updated(
+                todo,
+                "控制面板工单更新",
+                changed_fields,
+            )
+        )
+
     @pyqtSlot()
     def reopenSelectedTicket(self) -> None:
         if not self._selected_ticket_id:
@@ -2832,6 +2849,7 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u5de5\u5355\u72b6\u6001\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
+        self._publish_todo_event(TodoDomainEvent.reopened(updated, "重新打开工单"))
         self._apply_selected_ticket_update(updated, status_message="\u5de5\u5355\u5df2\u91cd\u65b0\u6253\u5f00")
 
     @pyqtSlot()
@@ -2847,6 +2865,7 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u5220\u9664\u5de5\u5355\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
+        self._publish_todo_event(TodoDomainEvent.deleted(todo, "控制面板删除工单"))
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._refresh_ticket_payloads()
@@ -2868,6 +2887,7 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u89e3\u9664\u5173\u8054\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
+        self._publish_ticket_update(updated, ["summary_fields", "project_link"])
         self._apply_selected_ticket_update(
             updated,
             status_message="\u5df2\u89e3\u9664\u9879\u76ee\u5173\u8054",
@@ -2936,6 +2956,7 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u529f\u80fd\u70b9\u5237\u65b0\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
+        self._publish_ticket_update(updated, ["summary_fields"])
         self._refresh_ticket_payloads()
         if self._selected_ticket_id == normalized_todo_id:
             self._selected_ticket = self._build_ticket_detail_payload(updated)
@@ -2993,6 +3014,7 @@ class _ControlPanelBridge(QObject):
             self._error_message = "\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
             self._emit_data_changed()
             return
+        self._publish_ticket_update(updated, ["summary_fields"])
         field_labels = {
             "ach_no": "ach单号",
             "ticket_version": "\u7248\u672c\u53f7",
@@ -3229,6 +3251,7 @@ class ControlPanelWindow(QWidget):
         parent=None,
         *,
         notification_bridge: AppNotificationBridge | None = None,
+        event_publisher: TodoEventPublisher | None = None,
     ) -> None:
         super().__init__(parent)
         self._positioned = False
@@ -3236,6 +3259,7 @@ class ControlPanelWindow(QWidget):
         self._bridge = _ControlPanelBridge(
             config_manager,
             notification_bridge=self._notification_bridge,
+            event_publisher=event_publisher,
         )
         self._layout: QVBoxLayout | None = None
 

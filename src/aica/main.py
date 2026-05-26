@@ -54,6 +54,7 @@ from aica.todo.detail_save_policy import should_run_ticket_enrichment_for_todo_d
 from aica.todo.events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo.panel import TodoPanel
 from aica.todo.store import TodoConclusion, TodoStore
+from aica.todo.work_order_sync import WorkOrderSyncEventHandler
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
@@ -90,25 +91,65 @@ def _append_startup_log(log_file: Path, message: str) -> None:
         pass
 
 
+def _write_unhandled_exception(log_file: Path, exc_type, exc_value, exc_tb) -> None:
+    try:
+        formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    except Exception as format_error:
+        formatted = (
+            f"{getattr(exc_type, '__name__', 'UnknownError')}: {exc_value}\n"
+            f"格式化异常堆栈失败: {format_error}\n"
+        )
+
+    try:
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(f"\n{'=' * 60}\n")
+            handle.write(f"时间: {datetime.now().isoformat()}\n")
+            handle.write(formatted)
+    except Exception:
+        pass
+
+
+def _request_shutdown_after_unhandled_exception(exit_code: int = 1) -> None:
+    app = QApplication.instance()
+    if app is not None:
+        try:
+            app.exit(exit_code)
+        except Exception:
+            pass
+
+
 def _setup_exception_handler() -> Path:
     """Install a global exception hook and persist uncaught errors to disk."""
     log_file = _resolve_error_log_file()
     _append_startup_log(log_file, "startup: exception handler ready")
+    handling_exception = False
 
     def exception_hook(exc_type, exc_value, exc_tb):
-        try:
-            with log_file.open("a", encoding="utf-8") as handle:
-                handle.write(f"\n{'=' * 60}\n")
-                handle.write(f"时间: {datetime.now().isoformat()}\n")
-                handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
-        except Exception:
-            pass
+        nonlocal handling_exception
+        _write_unhandled_exception(log_file, exc_type, exc_value, exc_tb)
 
-        QMessageBox.critical(
-            None,
-            "程序错误",
-            f"发生未处理异常，已记录到日志:\n{log_file}\n\n{exc_type.__name__}: {exc_value}",
-        )
+        if handling_exception:
+            _request_shutdown_after_unhandled_exception()
+            return
+
+        handling_exception = True
+        try:
+            if QApplication.instance() is None:
+                _append_startup_log(log_file, "unhandled exception dialog skipped: QApplication unavailable")
+            else:
+                try:
+                    QMessageBox.critical(
+                        None,
+                        "程序错误",
+                        f"发生未处理异常，已记录到日志:\n{log_file}\n\n{exc_type.__name__}: {exc_value}",
+                    )
+                except Exception as dialog_error:
+                    _append_startup_log(
+                        log_file,
+                        f"unhandled exception dialog failed: {dialog_error}",
+                    )
+        finally:
+            _request_shutdown_after_unhandled_exception()
 
     sys.excepthook = exception_hook
     return log_file
@@ -198,13 +239,17 @@ def main() -> None:
     _append_startup_log(startup_log_file, f"startup: capture hotkey configured={hotkey_mgr.hotkey}")
     notification_bridge = AppNotificationBridge()
     notification_window = AppNotificationWindow(notification_bridge)
-    control_panel = ControlPanelWindow(config_mgr, notification_bridge=notification_bridge)
+    control_panel = None
     toolbar = FloatingToolbar()
     todo_store = TodoStore()
     log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
     todo_event_bus = TodoEventBus(
         handlers=[
+            WorkOrderSyncEventHandler(
+                binding_store=binding_store,
+                config_provider=config_mgr.load,
+            ),
             ScriptEventHandler(binding_store=binding_store),
             KnowledgeArchiveEventHandler(
                 todo_store=todo_store,
@@ -214,6 +259,11 @@ def main() -> None:
         binding_store=binding_store,
     )
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
+    control_panel = ControlPanelWindow(
+        config_mgr,
+        notification_bridge=notification_bridge,
+        event_publisher=todo_event_bus,
+    )
     todo_panel = TodoPanel()
     todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge)
     todo_detail_panel.set_pinned(todo_panel.pinned)
@@ -267,7 +317,7 @@ def main() -> None:
         QMessageBox.information(
             None,
             "请先完成设置",
-            "当前未配置可用的 API Key 或模型绑定。\n请点击系统托盘中的 AICA 图标，打开控制面板完成设置。",
+            "当前未配置可用的服务端地址或 API Key。\n请点击系统托盘中的 Chattodo 图标，打开控制面板完成服务端设置。",
         )
 
     def _request_capture(source: str) -> None:
@@ -407,13 +457,18 @@ def main() -> None:
 
     def _build_runtime_config(config):
         llm_service = LLMService(config)
-        analysis_ref = llm_service.resolve_task_model("analysis").reference
-        plan_export_ref = llm_service.resolve_task_model("plan_export").reference
+        analysis_timeout_seconds = max(1, int(getattr(config.server, "timeout_seconds", 30) or 30))
+        try:
+            plan_export_timeout_seconds = llm_service.resolve_task_model("plan_export").reference.timeout_seconds
+        except ModelResolutionError:
+            plan_export_timeout_seconds = 30
         return SimpleNamespace(
             app_config=config,
             llm_service=llm_service,
-            analysis_timeout_seconds=analysis_ref.timeout_seconds,
-            plan_export_timeout_seconds=plan_export_ref.timeout_seconds,
+            server_config=config.server,
+            analysis_model_label="Chattodo 服务端 / 截图分析",
+            analysis_timeout_seconds=analysis_timeout_seconds,
+            plan_export_timeout_seconds=plan_export_timeout_seconds,
         )
 
     def _build_ticket_enrichment_service(config):
@@ -500,7 +555,7 @@ def main() -> None:
 
     result_flow = ResultFlowCoordinator(
         get_scenario=toolbar.get_current_scenario,
-        get_model=lambda: _build_runtime_config(config_mgr.load()).llm_service.describe_task_model("analysis"),
+        get_model=lambda: "Chattodo 服务端 / 截图分析",
         save_result_to_todo=_save_analysis_to_todo,
         clear_capture_state=_clear_capture_state,
     )
@@ -519,6 +574,14 @@ def main() -> None:
 
     def _ensure_api_key_configured():
         config = config_mgr.load()
+        server_config = config.server
+        if not (
+            bool(getattr(server_config, "enabled", False))
+            and str(getattr(server_config, "base_url", "") or "").strip()
+            and str(getattr(server_config, "api_key", "") or "").strip()
+        ):
+            _show_missing_settings_message()
+            return None
         try:
             return _build_runtime_config(config)
         except ModelResolutionError:

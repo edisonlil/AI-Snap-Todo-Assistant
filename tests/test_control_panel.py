@@ -63,6 +63,14 @@ class _FeaturePointWorkflowSession:
         return _FeaturePointWorkflowResponse()
 
 
+class _EventPublisher:
+    def __init__(self) -> None:
+        self.events = []
+
+    def publish(self, event) -> None:  # noqa: ANN001
+        self.events.append(event)
+
+
 class _FakeTodoStore:
     def __init__(self, todo: TodoItem) -> None:
         self._todo = todo
@@ -292,7 +300,12 @@ def _build_todo() -> TodoItem:
     )
 
 
-def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_panel._ControlPanelBridge:
+def _build_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+    todo: TodoItem,
+    *,
+    event_publisher: object | None = None,
+) -> control_panel._ControlPanelBridge:
     temp_dir = Path(tempfile.mkdtemp(prefix="control-panel-", dir=Path.cwd()))
     fake_environment_repository = _FakeEnvironmentRepository()
 
@@ -313,7 +326,10 @@ def _build_bridge(monkeypatch: pytest.MonkeyPatch, todo: TodoItem) -> control_pa
     monkeypatch.setattr(control_panel, "aica_database_file", lambda: temp_dir / "aica.db")
     monkeypatch.setattr(control_panel, "integrations_file", lambda: temp_dir / "integrations.json")
 
-    return control_panel._ControlPanelBridge(ConfigManager(str(temp_dir / "config.json")))
+    return control_panel._ControlPanelBridge(
+        ConfigManager(str(temp_dir / "config.json")),
+        event_publisher=event_publisher,
+    )
 
 
 def _notification_messages(bridge: control_panel._ControlPanelBridge) -> list[str]:
@@ -322,7 +338,8 @@ def _notification_messages(bridge: control_panel._ControlPanelBridge) -> list[st
 
 def test_task_bindings_use_readable_chinese_labels(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge._analysis_metrics = SimpleNamespace(get_summary=lambda *_args: None)
 
     bindings = {item["id"]: item for item in bridge.taskBindings}
@@ -573,7 +590,8 @@ def test_sync_projects_from_server_updates_project_payloads(monkeypatch: pytest.
 
 def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge._config.server = ServerConfig(
         enabled=True,
         base_url="https://server.example.com",
@@ -628,7 +646,8 @@ def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.Mon
 
 def test_save_project_pushes_product_version_update_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge._config.server = ServerConfig(
         enabled=True,
         base_url="https://server.example.com",
@@ -692,7 +711,8 @@ def test_save_project_pushes_product_version_update_to_server_async(monkeypatch:
 
 def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge._config.server = ServerConfig(
         enabled=True,
         base_url="https://server.example.com",
@@ -732,7 +752,8 @@ def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.Monkey
 
 def test_save_project_does_not_start_server_workers_when_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     created_update_workers: list[object] = []
     created_chat_group_workers: list[object] = []
 
@@ -770,7 +791,8 @@ def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypa
     todo.completed_at = "2026-04-21T09:30:00"
     todo.updated_at = todo.completed_at
 
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     refresh_events: list[str] = []
     bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
 
@@ -792,14 +814,53 @@ def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypa
     assert bridge.tickets == []
 
 
+def test_reopen_selected_ticket_publishes_reopened_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.status = TodoStatus.DONE
+    publisher = _EventPublisher()
+    temp_dir = Path(tempfile.mkdtemp(prefix="control-panel-", dir=Path.cwd()))
+
+    monkeypatch.setattr(control_panel, "AnalysisMetricsStore", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        control_panel,
+        "AnalysisRulesManager",
+        lambda: SimpleNamespace(config=SimpleNamespace(scene_rules={"default": {}}), reload=lambda: SimpleNamespace(scene_rules={"default": {}})),
+    )
+    monkeypatch.setattr(control_panel, "PromptDebugStore", lambda: SimpleNamespace(list_records=lambda limit=1: [], load_record=lambda _id: None))
+    monkeypatch.setattr(control_panel, "load_integration_config", lambda _path: {})
+    monkeypatch.setattr(control_panel, "list_script_integrations", lambda _payload: [])
+    monkeypatch.setattr(control_panel, "SQLiteProjectRepository", lambda _path: _FakeProjectRepository())
+    monkeypatch.setattr(control_panel, "SQLiteProjectEnvironmentRepository", lambda _path: _FakeEnvironmentRepository())
+    monkeypatch.setattr(control_panel, "TodoStore", lambda _path: _FakeTodoStore(todo))
+    monkeypatch.setattr(control_panel, "app_data_dir", lambda: temp_dir)
+    monkeypatch.setattr(control_panel, "log_dir", lambda: temp_dir / "logs")
+    monkeypatch.setattr(control_panel, "aica_database_file", lambda: temp_dir / "aica.db")
+    monkeypatch.setattr(control_panel, "integrations_file", lambda: temp_dir / "integrations.json")
+    bridge = control_panel._ControlPanelBridge(
+        ConfigManager(str(temp_dir / "config.json")),
+        event_publisher=publisher,
+    )
+
+    bridge.listTickets("", "done")
+    bridge.openTicketDetail(todo.id)
+    bridge.reopenSelectedTicket()
+
+    assert [str(event.event_type) for event in publisher.events] == ["reopened"]
+    assert publisher.events[0].todo_snapshot["status"] == TodoStatus.OPEN
+
+
 def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge.openTicketDetail(todo.id)
 
     bridge.saveSelectedTicketField("ach_no", "ACH-2026")
 
     assert bridge.selectedTicket["achNo"] == "ACH-2026"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+    assert publisher.events[0].delta == {"changed_fields": ["summary_fields"]}
+    assert publisher.events[0].todo_snapshot["summary_fields"]["ach_no"] == "ACH-2026"
     assert _notification_messages(bridge)
 
 
@@ -847,7 +908,8 @@ def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.Monke
             "project_manager": "Alice",
         },
     )
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     refresh_events: list[str] = []
     bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
 
@@ -865,6 +927,8 @@ def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.Monke
     assert bridge.selectedTicket["ticketVersion"] == ""
     assert bridge.statusMessage == "已解除项目关联"
     assert bridge.errorMessage == ""
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+    assert publisher.events[0].delta == {"changed_fields": ["summary_fields", "project_link"]}
     assert refresh_events == ["refresh"]
     assert _notification_messages(bridge)
 
@@ -895,7 +959,8 @@ def test_unlink_selected_ticket_project_without_selection_is_noop(monkeypatch: p
 def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.summary_fields.product_line = ""
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge.openTicketDetail(todo.id)
 
     bridge.refreshSelectedTicketFeaturePoint()
@@ -909,7 +974,8 @@ def test_refresh_selected_ticket_feature_point_uses_server_workflow(monkeypatch:
     todo.summary_fields.feature_point = "旧功能点"
     todo.current_summary = "用户反馈保存失败"
     session = _FeaturePointWorkflowSession()
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge._config.server = ServerConfig(
         enabled=True,
         base_url="https://server.example.com/",
@@ -943,7 +1009,8 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
     todo.summary_fields.product_line = "协作产品线"
     todo.summary_fields.feature_point = "旧功能点"
     todo.current_summary = "用户反馈保存失败"
-    bridge = _build_bridge(monkeypatch, todo)
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge.openTicketDetail(todo.id)
     created_workers: list[object] = []
 
@@ -991,6 +1058,8 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
     assert bridge.selectedTicket["featurePoint"] == "异步功能点"
     assert todo.summary_fields.feature_point_source == "auto"
     assert bridge.statusMessage == "功能点已刷新"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+    assert publisher.events[0].todo_snapshot["summary_fields"]["feature_point"] == "异步功能点"
     assert worker.deleted is True
 
 
