@@ -245,6 +245,24 @@ def test_manual_save_requests_use_manual_mode() -> None:
     assert _notification_messages(bridge)[-1] == "保存成功"
 
 
+def test_detail_save_preserves_existing_ach_fields() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields(
+        ach_no="ACH-2026-001",
+        ach_filled_at="2026-05-26T10:00:00",
+        ticket_version="release_dc_v7",
+    )
+    bridge.set_todo(todo)
+
+    payload = bridge._build_payload()  # noqa: SLF001
+    summary_fields = payload["summary_fields"]
+
+    assert summary_fields["ach_no"] == "ACH-2026-001"
+    assert summary_fields["ach_filled_at"] == "2026-05-26T10:00:00"
+    assert summary_fields["ticket_version"] == "release_dc_v7"
+
+
 def test_todo_detail_product_line_field_stays_read_only() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
     qml_text = qml_path.read_text(encoding="utf-8")

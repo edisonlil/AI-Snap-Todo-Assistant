@@ -955,8 +955,8 @@ ColumnLayout {
                                 anchors.bottom: parent.bottom
                                 width: parent.width
                                 property bool compactLayout: width < 760
-                                height: compactLayout ? paginationInfoRow.height + paginationSummary.height + 29 : Math.max(paginationInfoRow.height, paginationSummary.height) + 21
-                                color: "transparent"
+                                height: compactLayout ? paginationInfoRow.implicitHeight + paginationSummary.implicitHeight + 29 : Math.max(paginationInfoRow.implicitHeight, paginationSummary.implicitHeight) + 21
+                                color: theme.panelBg
 
                                     Rectangle {
                                         anchors.top: parent.top

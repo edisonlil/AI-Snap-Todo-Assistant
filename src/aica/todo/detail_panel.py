@@ -715,6 +715,8 @@ class _TodoDetailBridge(QObject):
         self._project_name = ""
         self._project_task_order_no = ""
         self._project_manager = ""
+        self._ach_no = ""
+        self._ach_filled_at = ""
         self._ticket_version = ""
         self._project_link = TodoProjectLink()
         self._sync_integration_id = ""
@@ -1360,6 +1362,8 @@ class _TodoDetailBridge(QObject):
         self._root_cause_desc_source = str(todo.summary_fields.root_cause_desc_source or "").strip()
         self._root_cause = str(todo.summary_fields.root_cause or "").strip()
         self._root_cause_source = str(todo.summary_fields.root_cause_source or "").strip()
+        self._ach_no = str(todo.summary_fields.ach_no or "").strip()
+        self._ach_filled_at = str(todo.summary_fields.ach_filled_at or "").strip()
         self._ticket_version = str(todo.summary_fields.ticket_version or "").strip()
         self._current_summary = todo.current_summary.strip()
         self._conclusion_content = str(todo.conclusion.content or "").strip()
@@ -2421,6 +2425,9 @@ class _TodoDetailBridge(QObject):
                 root_cause_desc_source=self._root_cause_desc_source,
                 root_cause=self._root_cause.strip(),
                 root_cause_source=self._root_cause_source,
+                ach_no=self._ach_no,
+                ach_filled_at=self._ach_filled_at,
+                ticket_version=self._ticket_version,
             ).to_dict(),
             "conclusion": TodoConclusion(
                 content=self._conclusion_content.strip(),
