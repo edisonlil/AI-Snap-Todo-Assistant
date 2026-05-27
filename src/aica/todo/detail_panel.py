@@ -2568,6 +2568,7 @@ class _TodoDetailBridge(QObject):
             return
         if not default_rewrite and not preset_key and not instruction:
             return
+        todo_payload = self._build_payload()
         request_id = str(uuid.uuid4())
         self._stage_summary_busy = True
         self._stage_summary_error = ""
@@ -2582,6 +2583,7 @@ class _TodoDetailBridge(QObject):
                 "presetKey": preset_key,
                 "instruction": instruction,
                 "defaultRewrite": default_rewrite,
+                "todoPayload": todo_payload or {},
             },
         )
 

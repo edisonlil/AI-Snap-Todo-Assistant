@@ -382,6 +382,78 @@ def test_analyze_screenshot_sends_runtime_request_and_parses_answer() -> None:
     assert session.calls[0]["timeout"] == 12
 
 
+def test_generate_stage_summary_sends_single_turn_request_and_returns_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": "### 阶段现状\n- 已收集客户反馈",
+                "trace_id": "trace_stage",
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    answer = client.generate_stage_summary(
+        current_markdown="已有总结",
+        stage_materials="阶段材料",
+        task_title="测试待办",
+        stage_name="当前阶段",
+        stage_goal="整理客户反馈",
+    )
+
+    assert answer == "### 阶段现状\n- 已收集客户反馈"
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/single-turn-mpmrkccz/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "current_markdown": "已有总结",
+            "stage_materials": "阶段材料",
+            "task_title": "测试待办",
+            "stage_name": "当前阶段",
+            "stage_goal": "整理客户反馈",
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_generate_stage_summary_accepts_nested_runtime_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "data": {
+                    "outputs": {
+                        "answer": "### 嵌套结果\n- 服务端已返回",
+                    }
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    answer = client.generate_stage_summary(
+        current_markdown="",
+        stage_materials="阶段材料",
+        task_title="测试待办",
+        stage_name="当前阶段",
+        stage_goal="整理客户反馈",
+    )
+
+    assert answer == "### 嵌套结果\n- 服务端已返回"
+
+
 def test_client_rejects_missing_config() -> None:
     with pytest.raises(ChattodoServerError):
         ChattodoServerClient.from_config(ServerConfig())

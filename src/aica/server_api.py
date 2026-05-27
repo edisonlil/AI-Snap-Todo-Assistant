@@ -191,7 +191,7 @@ class ChattodoServerClient:
             },
             require_success_envelope=False,
         )
-        raw_answer = sanitize_text(payload.get("answer")).strip()
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
         if not raw_answer:
             raise ChattodoServerError("服务端根因生成未返回有效结果。")
         try:
@@ -229,7 +229,7 @@ class ChattodoServerClient:
             },
             require_success_envelope=False,
         )
-        raw_answer = sanitize_text(payload.get("answer")).strip()
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
         if not raw_answer:
             raise ChattodoServerError("服务端截图分析未返回有效结果。")
         try:
@@ -244,6 +244,61 @@ class ChattodoServerClient:
             "trace_id": sanitize_text(payload.get("trace_id")).strip(),
             "usage": dict(payload.get("usage")) if isinstance(payload.get("usage"), dict) else {},
         }
+
+    def generate_stage_summary(
+        self,
+        *,
+        current_markdown: str,
+        stage_materials: str,
+        task_title: str,
+        stage_name: str,
+        stage_goal: str,
+    ) -> str:
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/single-turn-mpmrkccz/run",
+            json={
+                "variables": {
+                    "current_markdown": sanitize_text(current_markdown).strip(),
+                    "stage_materials": sanitize_text(stage_materials).strip(),
+                    "task_title": sanitize_text(task_title).strip(),
+                    "stage_name": sanitize_text(stage_name).strip(),
+                    "stage_goal": sanitize_text(stage_goal).strip(),
+                },
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端阶段总结未返回有效结果。")
+        return raw_answer
+
+    @staticmethod
+    def _runtime_answer(payload: dict[str, Any]) -> object:
+        answer = payload.get("answer")
+        if answer:
+            return answer
+        data = payload.get("data")
+        if isinstance(data, dict):
+            answer = data.get("answer")
+            if answer:
+                return answer
+            outputs = data.get("outputs")
+            if isinstance(outputs, dict):
+                answer = outputs.get("answer") or outputs.get("text") or outputs.get("markdown")
+                if answer:
+                    return answer
+            result = data.get("result")
+            if isinstance(result, dict):
+                answer = result.get("answer") or result.get("text") or result.get("markdown")
+                if answer:
+                    return answer
+            if isinstance(result, str):
+                return result
+        outputs = payload.get("outputs")
+        if isinstance(outputs, dict):
+            return outputs.get("answer") or outputs.get("text") or outputs.get("markdown") or ""
+        return ""
 
     @staticmethod
     def _image_variable_payload(data_url: str, index: int) -> dict[str, object]:

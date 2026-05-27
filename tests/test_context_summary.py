@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, TaskModelBinding, TaskModelBindings
+from aica.config import AppConfig, ProviderConfig, ProviderModelConfig, ServerConfig, TaskModelBinding, TaskModelBindings
 from aica.context_summary.agent import DefaultContextSummaryAgent
 from aica.context_summary.models import ContextSummaryRequest, ContextSummaryResult, build_context_summary_request_for_todo
 from aica.context_summary.service import ContextSummaryService, format_summary_for_analysis_context
@@ -44,6 +44,44 @@ class _RecordingLLMService:
             }
         )
         return self.response_text
+
+
+class _RecordingStageSummaryClient:
+    calls: list[dict[str, str]] = []
+    response_text = "### 服务端阶段总结\n- 已整理当前阶段进展"
+
+    @classmethod
+    def from_config(cls, _config):  # noqa: ANN001
+        return cls()
+
+    def generate_stage_summary(
+        self,
+        *,
+        current_markdown: str,
+        stage_materials: str,
+        task_title: str,
+        stage_name: str,
+        stage_goal: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "current_markdown": current_markdown,
+                "stage_materials": stage_materials,
+                "task_title": task_title,
+                "stage_name": stage_name,
+                "stage_goal": stage_goal,
+            }
+        )
+        return self.response_text
+
+
+class _FailingStageSummaryClient:
+    @classmethod
+    def from_config(cls, _config):  # noqa: ANN001
+        return cls()
+
+    def generate_stage_summary(self, **_kwargs) -> str:  # noqa: ANN003
+        raise RuntimeError("server down")
 
 
 def _build_todo() -> TodoItem:
@@ -473,3 +511,87 @@ def test_stage_summary_default_rewrite_calls_llm() -> None:
     messages = llm_service.calls[0]["messages"]
     assert "不要套固定四段模板" in messages[0].content
     assert "不要套固定模板" in messages[1].content
+
+
+def test_stage_summary_rollup_prefers_server_runtime(monkeypatch) -> None:
+    _RecordingStageSummaryClient.calls = []
+    monkeypatch.setattr("aica.worker.ChattodoServerClient", _RecordingStageSummaryClient)
+    llm_service = _RecordingLLMService("本地阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rollup",
+        payload={"todoPayload": _build_todo()},
+        server_config=ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com",
+            api_key="server-key",
+        ),
+    )
+
+    result = worker._build_rollup_summary()  # noqa: SLF001
+
+    assert result == "### 服务端阶段总结\n- 已整理当前阶段进展"
+    assert llm_service.calls == []
+    assert _RecordingStageSummaryClient.calls[0]["current_markdown"] == ""
+    assert _RecordingStageSummaryClient.calls[0]["task_title"] == "接口调用失败"
+    assert _RecordingStageSummaryClient.calls[0]["stage_name"] == "当前阶段"
+    assert "客户反馈接口调用失败" in _RecordingStageSummaryClient.calls[0]["stage_materials"]
+    assert "request_id=req-1" in _RecordingStageSummaryClient.calls[0]["stage_materials"]
+
+
+def test_stage_summary_rewrite_sends_current_markdown_and_materials_to_server(monkeypatch) -> None:
+    _RecordingStageSummaryClient.calls = []
+    monkeypatch.setattr("aica.worker.ChattodoServerClient", _RecordingStageSummaryClient)
+    llm_service = _RecordingLLMService("本地阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rewrite",
+        payload={
+            "currentText": "### 原阶段总结\n- 待确认权限配置",
+            "presetKey": "customer",
+            "todoPayload": _build_todo(),
+        },
+        server_config=ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com",
+            api_key="server-key",
+        ),
+    )
+
+    result = worker._rewrite_summary()  # noqa: SLF001
+
+    assert result == "### 服务端阶段总结\n- 已整理当前阶段进展"
+    assert llm_service.calls == []
+    assert _RecordingStageSummaryClient.calls[0]["current_markdown"] == "### 原阶段总结\n- 待确认权限配置"
+    assert _RecordingStageSummaryClient.calls[0]["stage_goal"] == "把现有总结整理成更适合发给客户的表述，语气克制、清楚，弱化内部排查术语。"
+    assert "客户反馈接口调用失败" in _RecordingStageSummaryClient.calls[0]["stage_materials"]
+
+
+def test_stage_summary_rollup_reports_server_failure_when_server_ready(monkeypatch) -> None:
+    monkeypatch.setattr("aica.worker.ChattodoServerClient", _FailingStageSummaryClient)
+    llm_service = _RecordingLLMService("本地阶段总结")
+    worker = StageSummaryWorker(
+        llm_service=llm_service,
+        todo_id="todo-1",
+        request_id="req-1",
+        mode="rollup",
+        payload={"todoPayload": _build_todo()},
+        server_config=ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com",
+            api_key="server-key",
+        ),
+    )
+
+    try:
+        worker._build_rollup_summary()  # noqa: SLF001
+    except RuntimeError as exc:
+        assert "服务端阶段总结失败" in str(exc)
+        assert "server down" in str(exc)
+    else:
+        raise AssertionError("expected server failure")
+    assert llm_service.calls == []

@@ -849,6 +849,8 @@ def append_plan_export_attachment_section(
 
 
 def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
+    if isinstance(todo_payload, TodoItem):
+        return todo_payload
     payload = dict(todo_payload or {}) if isinstance(todo_payload, dict) else {}
     timeline_payload = payload.get("timeline", [])
     timeline: list[TimelineEvent] = []
@@ -898,6 +900,64 @@ def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
         summary_fields=TicketSummaryFields.from_dict(payload.get("summary_fields")),
         timeline=timeline,
         conclusion=conclusion,
+    )
+
+
+def _format_stage_summary_materials(request: ContextSummaryRequest) -> str:
+    lines: list[str] = []
+    title = sanitize_text(request.extra_context.get("title")).strip()
+    group_name = sanitize_text(request.extra_context.get("group_name")).strip()
+    environment = sanitize_text(request.extra_context.get("environment")).strip()
+    product_line = sanitize_text(request.extra_context.get("product_line")).strip()
+    ticket_type = sanitize_text(request.extra_context.get("ticket_type")).strip()
+    current_summary = sanitize_text(request.extra_context.get("current_summary")).strip()
+    conclusion = sanitize_text(request.extra_context.get("conclusion_content")).strip()
+    description = sanitize_text(request.description).strip()
+
+    metadata_parts = [
+        f"任务标题：{title}" if title else "",
+        f"客户群：{group_name}" if group_name else "",
+        f"环境：{environment}" if environment else "",
+        f"产品线：{product_line}" if product_line else "",
+        f"工单类型：{ticket_type}" if ticket_type else "",
+    ]
+    metadata = "\n".join(part for part in metadata_parts if part)
+    if metadata:
+        lines.extend(["## 任务信息", metadata, ""])
+    if description:
+        lines.extend(["## 阶段目标", description, ""])
+    if current_summary:
+        lines.extend(["## 当前摘要", current_summary, ""])
+    if conclusion:
+        lines.extend(["## 当前结论", conclusion, ""])
+
+    event_lines: list[str] = []
+    for index, entry in enumerate(request.timeline_entries[: request.max_items], 1):
+        content = sanitize_text(entry.content).strip()
+        if not content:
+            continue
+        prefix_parts = [
+            sanitize_text(entry.timestamp).strip(),
+            sanitize_text(entry.scenario).strip(),
+            sanitize_text(entry.event_type).strip(),
+        ]
+        prefix = " / ".join(part for part in prefix_parts if part)
+        heading = f"{index}. [{prefix}]" if prefix else f"{index}."
+        event_lines.append(f"{heading}\n{content}")
+        if entry.attachment_summaries:
+            event_lines.append("附件：" + "、".join(entry.attachment_summaries))
+    if event_lines:
+        lines.extend(["## 时间线材料", "\n\n".join(event_lines)])
+
+    materials = "\n".join(lines).strip()
+    return materials[: request.max_chars].strip()
+
+
+def _stage_summary_server_ready(server_config: object) -> bool:
+    return bool(
+        getattr(server_config, "enabled", False)
+        and str(getattr(server_config, "base_url", "") or "").strip()
+        and str(getattr(server_config, "api_key", "") or "").strip()
     )
 
 
@@ -1286,6 +1346,7 @@ class StageSummaryWorker(QThread):
         request_id: str,
         mode: str,
         payload: dict[str, object],
+        server_config=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -1294,6 +1355,7 @@ class StageSummaryWorker(QThread):
         self._request_id = str(request_id or "").strip()
         self._mode = str(mode or "rollup").strip() or "rollup"
         self._payload = dict(payload or {})
+        self._server_config = server_config
         self._result_notice = ""
 
     def run(self) -> None:
@@ -1317,6 +1379,22 @@ class StageSummaryWorker(QThread):
             max_items=12,
             max_chars=2200,
         )
+        if _stage_summary_server_ready(self._server_config):
+            try:
+                summary_text = ChattodoServerClient.from_config(self._server_config).generate_stage_summary(
+                    current_markdown="",
+                    stage_materials=_format_stage_summary_materials(request),
+                    task_title=sanitize_text(todo.title).strip(),
+                    stage_name="当前阶段",
+                    stage_goal=sanitize_text(request.description).strip(),
+                )
+                normalized = normalize_markdown_content(sanitize_text(summary_text).strip())
+                if normalized:
+                    self._result_notice = "已使用服务端生成阶段总结"
+                    return normalized
+                raise ValueError("服务端返回内容为空")
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"服务端阶段总结失败：{exc}") from exc
         result = ContextSummaryService(self._llm_service).summarize(request)
         summary_text = sanitize_text(result.summary_text).strip()
         return summary_text or "暂无可查看的阶段总结"
@@ -1334,6 +1412,34 @@ class StageSummaryWorker(QThread):
                 instruction = _DEFAULT_STAGE_SUMMARY_REWRITE_INSTRUCTION
             else:
                 return current_text
+        if _stage_summary_server_ready(self._server_config):
+            try:
+                todo = _build_stage_summary_todo(self._todo_id, self._payload.get("todoPayload"))
+                request = build_context_summary_request_for_todo(
+                    todo,
+                    summary_goal="timeline_rollup",
+                    description=sanitize_text(todo.current_summary).strip() or sanitize_text(todo.title).strip(),
+                    extra_context={"rewrite_instruction": instruction},
+                    max_items=12,
+                    max_chars=2200,
+                )
+                summary_text = ChattodoServerClient.from_config(self._server_config).generate_stage_summary(
+                    current_markdown=current_text,
+                    stage_materials=_format_stage_summary_materials(request),
+                    task_title=sanitize_text(todo.title).strip(),
+                    stage_name="当前阶段",
+                    stage_goal=instruction,
+                )
+                normalized = normalize_markdown_content(sanitize_text(summary_text).strip())
+                if normalized:
+                    if normalized == current_text:
+                        self._result_notice = "已调用服务端重写，但返回内容未变化"
+                    else:
+                        self._result_notice = "已使用服务端重写阶段总结"
+                    return normalized
+                raise ValueError("服务端返回内容为空")
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"服务端阶段总结失败：{exc}") from exc
         try:
             rewritten = self._llm_service.run_task(
                 "context_summary",

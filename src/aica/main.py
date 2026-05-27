@@ -923,6 +923,7 @@ def main() -> None:
             request_id=request_id,
             mode=mode,
             payload=payload,
+            server_config=config.server,
         )
         stage_summary_workers.append(worker)
         worker.finished.connect(_on_stage_summary_finished)
