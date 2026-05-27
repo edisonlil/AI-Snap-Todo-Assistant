@@ -985,8 +985,25 @@ def main() -> None:
             hotkey_mgr.update_hotkey(RUNTIME_CAPABILITIES.default_capture_hotkey)
         log_analysis_orchestrator.update_app_config(saved_config)
 
+    def _on_project_saved(project_id: str) -> None:
+        normalized_project_id = str(project_id or "").strip()
+        current_todo_id = todo_controller.detail_todo_id
+        if current_todo_id is None:
+            return
+        todo = todo_store.get_todo(current_todo_id)
+        if todo is None:
+            return
+        if str(todo.project_link.project_id or "").strip() == normalized_project_id:
+            if not todo_detail_panel.refresh_project_product_lines(project_id):
+                _show_todo_detail(current_todo_id)
+            return
+        refreshed_todo = todo_controller.get_todo_detail(current_todo_id)
+        if refreshed_todo is not None and str(refreshed_todo.project_link.project_id or "").strip() == normalized_project_id:
+            _show_todo_detail(current_todo_id)
+
     control_panel.config_saved.connect(_on_control_panel_saved)
     control_panel.todo_list_refresh_requested.connect(_refresh_todo_panel)
+    control_panel.project_saved.connect(_on_project_saved)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
     toolbar.summarize_clicked.connect(_on_summarize)
     toolbar.continue_capture_clicked.connect(_on_continue_capture)

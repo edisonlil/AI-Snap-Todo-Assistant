@@ -826,6 +826,29 @@ def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.Monkey
     assert created_workers == []
 
 
+def test_save_project_emits_project_saved(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    saved_project_ids: list[str] = []
+    bridge.projectSaved.connect(saved_project_ids.append)
+
+    bridge.saveProject(
+        {
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "productLine": "私网文档中心;zhongt",
+            "productVersion": "V2.0",
+            "aliases": ["new-group"],
+        }
+    )
+
+    assert saved_project_ids
+    saved_project = bridge._project_repository.get_project_by_task_order_no("TASK-001")  # noqa: SLF001
+    assert saved_project is not None
+    assert saved_project_ids == [saved_project.id]
+
+
 def test_save_project_does_not_start_server_workers_when_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()

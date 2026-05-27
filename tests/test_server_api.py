@@ -366,6 +366,22 @@ def test_download_workbench_file_accepts_file_id(tmp_path: Path) -> None:
     assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
 
 
+def test_download_workbench_file_accepts_non_numeric_file_id(tmp_path: Path) -> None:
+    session = _FakeSession(_FakeResponse(200, content=b"file-content"))
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/root/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    client.download_workbench_file("file-123", tmp_path / "downloaded.docx")
+
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/root/api/open/v1/files/file-123/download"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
+
+
 def test_match_feature_point_sends_workflow_request_and_returns_answer() -> None:
     session = _FakeSession(
         _FakeResponse(

@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS todo_timeline_attachments (
   name TEXT NOT NULL,
   path TEXT NOT NULL,
   size_bytes INTEGER NOT NULL DEFAULT 0,
+  file_object_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   FOREIGN KEY(event_id) REFERENCES todo_timeline_events(id) ON DELETE CASCADE
 );
@@ -132,6 +133,7 @@ CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
   name TEXT NOT NULL,
   path TEXT NOT NULL,
   size_bytes INTEGER NOT NULL DEFAULT 0,
+  file_object_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
 );

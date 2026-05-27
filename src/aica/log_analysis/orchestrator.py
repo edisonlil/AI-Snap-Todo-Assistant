@@ -92,6 +92,7 @@ class LogAnalysisOrchestrator:
                     name=str(item.get("name", "")),
                     path=str(item.get("path", "")),
                     size_bytes=int(item.get("sizeBytes", item.get("size_bytes", 0)) or 0),
+                    file_object_id=str(item.get("fileObjectId", item.get("file_object_id", ""))).strip(),
                 )
                 for item in task.attachment_snapshot_json
                 if isinstance(item, dict)

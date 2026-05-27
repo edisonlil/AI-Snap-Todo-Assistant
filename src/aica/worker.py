@@ -880,6 +880,12 @@ def _build_stage_summary_todo(todo_id: str, todo_payload: object) -> TodoItem:
                             name=str(dict(attachment or {}).get("name", "")).strip(),
                             path=str(dict(attachment or {}).get("path", "")).strip(),
                             size_bytes=int(dict(attachment or {}).get("sizeBytes", dict(attachment or {}).get("size_bytes", 0)) or 0),
+                            file_object_id=str(
+                                dict(attachment or {}).get(
+                                    "fileObjectId",
+                                    dict(attachment or {}).get("file_object_id", ""),
+                                )
+                            ).strip(),
                         )
                         for attachment in list(item.get("attachments", []) or [])
                         if isinstance(attachment, (dict, TimelineAttachment))

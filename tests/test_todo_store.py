@@ -236,8 +236,8 @@ def test_schema_migration_creates_error_codes_table_and_updates_version() -> Non
             "SELECT value FROM schema_meta WHERE key='schema_version'"
         ).fetchone()[0]
 
-    assert SCHEMA_VERSION == "14"
-    assert version == "14"
+    assert SCHEMA_VERSION == "15"
+    assert version == "15"
     assert "error_codes" in tables
     assert "idx_error_codes_category" in indexes
     assert "idx_error_codes_last_seen" in indexes

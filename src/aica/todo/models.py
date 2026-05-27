@@ -26,11 +26,13 @@ class TimelineAttachment:
     name: str = ""
     path: str = ""
     size_bytes: int = 0
+    file_object_id: str = ""
 
     def __post_init__(self) -> None:
         self.id = sanitize_text(self.id) or str(uuid.uuid4())
         self.name = sanitize_text(self.name)
         self.path = sanitize_text(self.path)
+        self.file_object_id = sanitize_text(self.file_object_id)
         try:
             self.size_bytes = max(0, int(self.size_bytes))
         except (TypeError, ValueError):

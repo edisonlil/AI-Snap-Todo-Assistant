@@ -11,6 +11,8 @@ from aica.storage.adapters import normalize_group_alias
 from aica.storage.contracts import ProjectRecord
 from aica.text_sanitize import sanitize_text
 
+_PROJECT_FIELD_SEPARATOR_RE = re.compile(r"[\n,;\uFF0C\uFF1B\u3001]+")
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
@@ -32,7 +34,7 @@ def split_project_aliases(raw_value: Any) -> tuple[str, ...]:
 def split_project_product_lines(raw_value: Any) -> tuple[str, ...]:
     product_lines: list[str] = []
     seen: set[str] = set()
-    for item in re.split(r"[\n,，;；]+", sanitize_text(raw_value)):
+    for item in _PROJECT_FIELD_SEPARATOR_RE.split(sanitize_text(raw_value)):
         product_line = sanitize_text(item)
         normalized = product_line.casefold()
         if not product_line or not normalized or normalized in seen:

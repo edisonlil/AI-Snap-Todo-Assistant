@@ -75,6 +75,7 @@ def serialize_timeline_attachment(attachment: TimelineAttachment) -> dict[str, A
         "name": attachment.name,
         "path": attachment.path,
         "size_bytes": attachment.size_bytes,
+        "file_object_id": attachment.file_object_id,
     }
 
 

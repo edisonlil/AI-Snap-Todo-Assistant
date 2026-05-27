@@ -397,7 +397,37 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
     assert todo.summary_fields.feature_point == "文档中台-上传-失败"
     assert todo.project_link.match_status == "matched"
     assert todo.project_link.project_snapshot["task_order_no"] == "PJ-24080225"
-    assert todo.timeline[0].attachments[0].path == "/api/open/v1/files/123/download"
+    assert todo.timeline[0].attachments[0].file_object_id == "123"
+    assert todo.timeline[0].attachments[0].path == "https://example.com/install-log.txt"
+
+
+def test_todo_from_server_work_order_uses_file_id_when_url_missing() -> None:
+    todo = todo_from_server_work_order(
+        {
+            "id": "1001",
+            "external_id": "WO-003",
+            "external_order_no": "WO-003",
+            "title": "附件无 URL",
+            "status": "in_progress",
+            "timeline": [
+                {
+                    "external_timeline_id": "timeline-1",
+                    "content": "附件只返回 file id",
+                    "attachments": [
+                        {
+                            "external_attachment_id": "att-1",
+                            "file_object_id": "file-123",
+                            "file_name": "install-log.txt",
+                            "file_size": 2048,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert todo.timeline[0].attachments[0].file_object_id == "file-123"
+    assert todo.timeline[0].attachments[0].path == ""
 
 
 def test_pull_my_in_progress_work_orders_imports_new_items_and_skips_existing() -> None:

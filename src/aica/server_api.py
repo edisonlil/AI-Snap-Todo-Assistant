@@ -6,7 +6,7 @@ import mimetypes
 import base64
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 
@@ -449,11 +449,11 @@ class ChattodoServerClient:
             return file_url_or_id
         if not self._base_url:
             raise ChattodoServerError("服务端地址不能为空。")
-        if file_url_or_id.isdigit():
-            return f"{self._base_url}/api/open/v1/files/{file_url_or_id}/download"
         if file_url_or_id.startswith("/"):
             base = urlparse(self._base_url)
             return f"{base.scheme}://{base.netloc}{file_url_or_id}"
+        if "/" not in file_url_or_id:
+            return f"{self._base_url}/api/open/v1/files/{quote(file_url_or_id, safe='')}/download"
         return urljoin(f"{self._base_url}/", file_url_or_id.lstrip("/"))
 
     def _request_json(

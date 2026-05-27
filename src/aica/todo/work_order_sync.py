@@ -140,7 +140,7 @@ def _attachment_payload(item: dict[str, Any]) -> dict[str, object]:
     url = _clean(item.get("url"))
     if url:
         payload["url"] = url
-    file_object_id = _clean(item.get("file_object_id"))
+    file_object_id = _clean(item.get("file_object_id") or item.get("fileObjectId"))
     if file_object_id:
         payload["file_object_id"] = file_object_id
     preview_url = _clean(item.get("preview_url"))
@@ -510,7 +510,7 @@ def _timeline_from_server_item(item: dict[str, Any]) -> TimelineEvent:
 def _attachment_from_server_item(item: dict[str, Any]) -> TimelineAttachment:
     file_name = _clean(item.get("file_name") or item.get("name"))
     file_id = _clean(item.get("file_object_id") or item.get("file_id"))
-    file_url = f"/api/open/v1/files/{file_id}/download" if file_id else _clean(item.get("url") or item.get("preview_url"))
+    file_url = _clean(item.get("url") or item.get("preview_url"))
     try:
         file_size = max(0, int(item.get("file_size") or item.get("size_bytes") or 0))
     except (TypeError, ValueError):
@@ -520,6 +520,7 @@ def _attachment_from_server_item(item: dict[str, Any]) -> TimelineAttachment:
         name=file_name,
         path=file_url,
         size_bytes=file_size,
+        file_object_id=file_id,
     )
 
 

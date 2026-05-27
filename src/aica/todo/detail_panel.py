@@ -305,9 +305,11 @@ from ..environment_access import EnvironmentAccessService
 from ..log_analysis.commands import format_log_analysis_focus, is_log_analysis_command, parse_log_analysis_command
 from ..models import TicketSummaryFields
 from ..paths import qml_dir, todo_attachments_dir
+from ..project_management import split_project_product_lines
 from ..runtime import RUNTIME_CAPABILITIES
 from ..server_api import ChattodoServerClient, ChattodoServerError
 from ..storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
+from ..storage.sqlite.repositories import SQLiteProjectRepository
 from ..root_cause_options import ROOT_CAUSE_OPTIONS
 from ..ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
@@ -351,6 +353,22 @@ _ENTRY_COMMAND_PREFIXES = {
     "/问题跟进": _ENTRY_TYPE_FOLLOW_UP,
     "/问题结论": _ENTRY_TYPE_CONCLUSION,
 }
+
+
+def _normalize_product_line_options(raw_options: object) -> list[str]:
+    options: list[str] = []
+    seen: set[str] = set()
+    source = raw_options if isinstance(raw_options, (list, tuple, set)) else [raw_options]
+    for raw_value in source:
+        for product_line in split_project_product_lines(raw_value):
+            normalized = product_line.casefold()
+            if normalized in seen:
+                continue
+            options.append(product_line)
+            seen.add(normalized)
+    return options
+
+
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
@@ -468,6 +486,12 @@ def _clone_attachment_payloads(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
     return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _attachment_file_object_id(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return str(value.get("fileObjectId") or value.get("file_object_id") or value.get("file_id") or "").strip()
 
 
 def _project_status_label(status: str) -> str:
@@ -703,11 +727,14 @@ class _TodoDetailBridge(QObject):
         notification_bridge: AppNotificationBridge | None = None,
         config_manager: ConfigManager | None = None,
         server_client_factory=ChattodoServerClient.from_config,
+        project_product_line_provider=None,
     ) -> None:
         super().__init__()
         self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._config_manager = config_manager or ConfigManager()
         self._server_client_factory = server_client_factory
+        self._project_product_line_provider = project_product_line_provider
+        self._product_line_options: list[str] = []
         self._todo_id: str | None = None
         self._title = ""
         self._group_name = _EMPTY_TEXT
@@ -841,6 +868,43 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def productLine(self) -> str:
         return self._product_line
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def productLineOptions(self):  # noqa: ANN201
+        return list(self._product_line_options)
+
+    def _refresh_product_line_options(self) -> None:
+        self._product_line_options = _normalize_product_line_options(self._current_project_product_line())
+        if not self._product_line_options:
+            return
+        option_by_key = {
+            option.casefold(): option
+            for option in self._product_line_options
+        }
+        current_key = self._product_line.casefold()
+        self._product_line = option_by_key.get(current_key, self._product_line_options[0])
+
+    def _current_project_product_line(self) -> object:
+        project_id = sanitize_text(self._project_link.project_id)
+        provider = self._project_product_line_provider
+        if project_id and callable(provider):
+            try:
+                current_product_line = provider(project_id)
+            except Exception:
+                current_product_line = ""
+            if _normalize_product_line_options(current_product_line):
+                return current_product_line
+        return self._project_link.project_snapshot.get("product_line", "")
+
+    def refresh_project_product_lines(self, project_id: str) -> bool:
+        if sanitize_text(project_id) != sanitize_text(self._project_link.project_id):
+            return False
+        previous_options = list(self._product_line_options)
+        previous_product_line = self._product_line
+        self._refresh_product_line_options()
+        if previous_options != self._product_line_options or previous_product_line != self._product_line:
+            self.dataChanged.emit()
+        return True
 
     @pyqtProperty(str, notify=dataChanged)
     def ticketType(self) -> str:
@@ -1441,6 +1505,7 @@ class _TodoDetailBridge(QObject):
         self._project_task_order_no = str(todo.project_link.project_snapshot.get("task_order_no") or "").strip()
         self._project_manager = str(todo.project_link.project_snapshot.get("project_manager") or "").strip()
         self._project_link = TodoProjectLink.from_dict(todo.project_link.to_dict())
+        self._refresh_product_line_options()
         self._load_environment_access(todo.project_link.project_id)
         self._apply_sync_records(sync_records or [])
         self.dataChanged.emit()
@@ -1795,6 +1860,24 @@ class _TodoDetailBridge(QObject):
             return
         self.dataChanged.emit()
 
+    @pyqtSlot(str)
+    def selectProductLine(self, value: str) -> None:
+        selected = resolve_product_line(raw_value=value)
+        if not selected:
+            return
+        option_by_key = {
+            option.casefold(): option
+            for option in self._product_line_options
+        }
+        normalized_key = selected.casefold()
+        if normalized_key not in option_by_key:
+            return
+        selected = option_by_key[normalized_key]
+        if self._product_line == selected:
+            return
+        self._product_line = selected
+        self.dataChanged.emit()
+
     @pyqtSlot(str, str)
     def updateTimelineContent(self, event_id: str, value: str) -> None:
         item = self._find_timeline_item(event_id)
@@ -2032,6 +2115,7 @@ class _TodoDetailBridge(QObject):
                                 name=str(attachment.get("name", "")).strip(),
                                 path=str(attachment.get("path", "")).strip(),
                                 size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                                file_object_id=_attachment_file_object_id(attachment),
                             )
                             for attachment in self._conclusion_attachments
                             if isinstance(attachment, dict)
@@ -2093,6 +2177,7 @@ class _TodoDetailBridge(QObject):
                             name=str(attachment.get("name", "")).strip(),
                             path=str(attachment.get("path", "")).strip(),
                             size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                            file_object_id=_attachment_file_object_id(attachment),
                         )
                         for attachment in attachments
                         if isinstance(attachment, dict)
@@ -2467,6 +2552,7 @@ class _TodoDetailBridge(QObject):
                         name=str(attachment.get("name", "")).strip(),
                         path=str(attachment.get("path", "")).strip(),
                         size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        file_object_id=_attachment_file_object_id(attachment),
                     )
                     for attachment in self._conclusion_attachments
                     if isinstance(attachment, dict)
@@ -2495,6 +2581,7 @@ class _TodoDetailBridge(QObject):
                         name=str(attachment.get("name", "")).strip(),
                         path=str(attachment.get("path", "")).strip(),
                         size_bytes=int(attachment.get("sizeBytes", attachment.get("size_bytes", 0)) or 0),
+                        file_object_id=_attachment_file_object_id(attachment),
                     )
                     for attachment in item.get("attachments", [])
                     if isinstance(attachment, dict)
@@ -3142,11 +3229,14 @@ class _TodoDetailBridge(QObject):
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
         kind = _attachment_kind(attachment.path, attachment.name)
         file_url = QUrl.fromLocalFile(attachment.path).toString() if kind == "image" and attachment.path else ""
+        file_object_id = str(getattr(attachment, "file_object_id", "") or "").strip()
         return {
             "id": attachment.id,
             "name": attachment.name,
             "path": attachment.path,
             "sizeBytes": attachment.size_bytes,
+            "fileObjectId": file_object_id,
+            "downloadSource": file_object_id or attachment.path,
             "kind": kind,
             "isImage": kind == "image",
             "isVideo": kind == "video",
@@ -3299,9 +3389,9 @@ class _TodoDetailBridge(QObject):
         local_path = Path(value).expanduser()
         if local_path.exists():
             return local_path
-        if not _is_remote_url(value):
-            return None
         attachment_context = self._find_attachment_context(value)
+        if not _is_remote_url(value) and attachment_context is None:
+            return None
         if attachment_context is None:
             return None
         event_id, attachment = attachment_context
@@ -3315,7 +3405,8 @@ class _TodoDetailBridge(QObject):
             return target
         try:
             client = self._server_client_factory(self._config_manager.load().server)
-            downloaded = client.download_workbench_file(value, target)
+            download_source = _attachment_file_object_id(attachment) or value
+            downloaded = client.download_workbench_file(download_source, target)
         except (ChattodoServerError, OSError, ValueError) as exc:
             self._notification_bridge.notify("error", f"附件下载失败：{exc}", source="todo_detail")
             return None
@@ -3333,10 +3424,24 @@ class _TodoDetailBridge(QObject):
             if not event_id or not isinstance(attachments, list):
                 continue
             for attachment in attachments:
-                if isinstance(attachment, dict) and str(attachment.get("path") or "").strip() == value:
+                if (
+                    isinstance(attachment, dict)
+                    and (
+                        str(attachment.get("path") or "").strip() == value
+                        or _attachment_file_object_id(attachment) == value
+                        or str(attachment.get("downloadSource") or "").strip() == value
+                    )
+                ):
                     return event_id, attachment
         for attachment in self._conclusion_attachments:
-            if isinstance(attachment, dict) and str(attachment.get("path") or "").strip() == value:
+            if (
+                isinstance(attachment, dict)
+                and (
+                    str(attachment.get("path") or "").strip() == value
+                    or _attachment_file_object_id(attachment) == value
+                    or str(attachment.get("downloadSource") or "").strip() == value
+                )
+            ):
                 return "conclusion", attachment
         return None
 
@@ -3980,7 +4085,11 @@ class TodoDetailPanel(QQuickView):
     ):
         super().__init__(parent)
         self._notification_bridge = notification_bridge or AppNotificationBridge()
-        self._bridge = _TodoDetailBridge(notification_bridge=self._notification_bridge)
+        self._project_repository: SQLiteProjectRepository | None = None
+        self._bridge = _TodoDetailBridge(
+            notification_bridge=self._notification_bridge,
+            project_product_line_provider=self._project_product_line,
+        )
         self._panel_width = 396
         self._stage_summary_window_width = 443
         self._stage_summary_window_gap = 18
@@ -4093,6 +4202,17 @@ class TodoDetailPanel(QQuickView):
         errors = "\n".join(error.toString() for error in self.errors())
         raise RuntimeError(f"Failed to load TodoDetailPanel.qml:\n{errors}")
 
+    def _project_product_line(self, project_id: str) -> str:
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
+            return ""
+        if self._project_repository is None:
+            self._project_repository = SQLiteProjectRepository()
+        for project in self._project_repository.list_projects(include_expired=True):
+            if sanitize_text(project.id) == normalized_project_id:
+                return sanitize_text(project.product_line)
+        return ""
+
     def _select_attachments(self, event_id: str) -> None:
         self._hold_auto_collapse()
         try:
@@ -4164,6 +4284,9 @@ class TodoDetailPanel(QQuickView):
         self.requestActivate()
         self._sync_stage_summary_window()
         self._sync_assist_troubleshooting_window()
+
+    def refresh_project_product_lines(self, project_id: str) -> bool:
+        return self._bridge.refresh_project_product_lines(project_id)
 
     def _sync_stage_summary_window(self) -> None:
         should_show = bool(self._bridge.stageSummaryVisible) and self.isVisible()

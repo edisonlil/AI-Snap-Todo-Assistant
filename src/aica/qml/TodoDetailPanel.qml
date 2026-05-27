@@ -1,4 +1,5 @@
 ﻿import QtQuick
+import QtQuick.Controls
 import "TimelineCardMapper.js" as TimelineCardMapper
 
 Rectangle {
@@ -200,6 +201,20 @@ Rectangle {
         cancelActiveTimelineEdit()
     }
 
+    function selectProductLine(value) {
+        todoDetailBridge.selectProductLine(value)
+    }
+
+    function optionIndex(options, value) {
+        var target = String(value || "")
+        for (var index = 0; index < options.length; index += 1) {
+            if (String(options[index] || "") === target) {
+                return index
+            }
+        }
+        return -1
+    }
+
     function updateTimelineCommandMenuGeometry() {
         if (!timelineCommandMenuVisible || !addTimelineEdit || !timelineCommandOverlayLayer) {
             return
@@ -232,7 +247,8 @@ Rectangle {
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
         environmentEdit.text = todoDetailBridge.environment
-        productLineEdit.text = todoDetailBridge.productLine
+        productLineFallbackEdit.text = todoDetailBridge.productLine
+        productLineEdit.currentIndex = optionIndex(todoDetailBridge.productLineOptions, todoDetailBridge.productLine)
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
@@ -592,9 +608,10 @@ Rectangle {
 
                     Item {
                         width: parent.width
-                        height: root.fieldCardHeight * 2 + root.fieldGap
+                        height: Math.max(leftFieldColumn.implicitHeight, rightFieldColumn.implicitHeight)
 
                         Column {
+                            id: leftFieldColumn
                             anchors.left: parent.left
                             anchors.top: parent.top
                             width: root.fieldWidth
@@ -635,6 +652,7 @@ Rectangle {
                             }
 
                             Rectangle {
+                                id: productLineField
                                 width: parent.width
                                 height: root.fieldCardHeight
                                 radius: 16
@@ -653,11 +671,12 @@ Rectangle {
                                 }
 
                                 TextInput {
-                                    id: productLineEdit
+                                    id: productLineFallbackEdit
                                     x: root.fieldTextInset
                                     y: 35
                                     width: parent.width - root.fieldTextInset * 2
                                     height: 22
+                                    visible: todoDetailBridge.productLineOptions.length <= 1
                                     clip: true
                                     readOnly: true
                                     selectByMouse: true
@@ -666,10 +685,107 @@ Rectangle {
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
                                 }
+
+                                ComboBox {
+                                    id: productLineEdit
+                                    x: root.fieldTextInset
+                                    y: 35
+                                    width: parent.width - root.fieldTextInset * 2
+                                    height: 22
+                                    visible: todoDetailBridge.productLineOptions.length > 1
+                                    model: todoDetailBridge.productLineOptions
+                                    currentIndex: root.optionIndex(todoDetailBridge.productLineOptions, todoDetailBridge.productLine)
+                                    enabled: todoDetailBridge.productLineOptions.length > 1
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    onActivated: if (currentIndex >= 0) root.selectProductLine(todoDetailBridge.productLineOptions[currentIndex])
+
+                                    contentItem: Text {
+                                        text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : productLineFallbackEdit.text
+                                        color: root.titleInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: root.bodyWeight
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+
+                                    indicator: Text {
+                                        x: productLineEdit.width - width
+                                        y: 0
+                                        width: 14
+                                        height: productLineEdit.height
+                                        text: productLineEdit.popup.visible ? "⌃" : "⌄"
+                                        color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
+                                        visible: todoDetailBridge.productLineOptions.length > 1
+                                        font.family: root.uiFont
+                                        font.pixelSize: 14
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    background: Item {}
+
+                                    delegate: ItemDelegate {
+                                        id: productLineOption
+                                        width: productLineEdit.width
+                                        height: 36
+                                        padding: 0
+                                        highlighted: productLineEdit.highlightedIndex === index
+
+                                        background: Rectangle {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 4
+                                            anchors.rightMargin: 4
+                                            anchors.topMargin: 2
+                                            anchors.bottomMargin: 2
+                                            radius: 10
+                                            color: productLineEdit.currentIndex === index ? root.accentTint : (productLineOption.hovered || productLineOption.highlighted ? "#F6F8FA" : "transparent")
+                                        }
+
+                                        contentItem: Text {
+                                            leftPadding: 12
+                                            rightPadding: 12
+                                            text: modelData
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 13
+                                            font.weight: productLineEdit.currentIndex === index ? root.labelWeight : root.bodyWeight
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    popup: Popup {
+                                        y: productLineEdit.height + 8
+                                        width: productLineEdit.width
+                                        implicitHeight: Math.min(contentItem.implicitHeight + 8, 148)
+                                        padding: 4
+                                        modal: false
+                                        focus: true
+                                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+
+                                        background: Rectangle {
+                                            radius: 14
+                                            color: "#FFFFFF"
+                                            border.width: 1
+                                            border.color: "#DDE3EB"
+                                        }
+
+                                        contentItem: ListView {
+                                            clip: true
+                                            implicitHeight: contentHeight
+                                            model: productLineEdit.popup.visible ? productLineEdit.delegateModel : null
+                                            currentIndex: productLineEdit.highlightedIndex
+                                            boundsBehavior: Flickable.StopAtBounds
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         Column {
+                            id: rightFieldColumn
                             anchors.right: parent.right
                             anchors.top: parent.top
                             width: root.fieldWidth
@@ -1541,7 +1657,7 @@ Rectangle {
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
                                                         if (modelData.isPreviewable) {
-                                                            todoDetailBridge.previewAttachment(modelData.path)
+                                                            todoDetailBridge.previewAttachment(modelData.downloadSource)
                                                         }
                                                     }
                                                 }
@@ -1599,7 +1715,7 @@ Rectangle {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.previewAttachment(modelData.path)
+                                                        onClicked: todoDetailBridge.previewAttachment(modelData.downloadSource)
                                                     }
                                                 }
 
@@ -1616,7 +1732,7 @@ Rectangle {
                                                         cursorShape: Qt.PointingHandCursor
                                                         onClicked: {
                                                             todoDetailBridge.copyAttachment(
-                                                                modelData.path,
+                                                                modelData.downloadSource,
                                                                 modelData.isImage,
                                                                 modelData.isVideo
                                                             )
@@ -1650,7 +1766,7 @@ Rectangle {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.copyAttachmentPath(modelData.path)
+                                                        onClicked: todoDetailBridge.copyAttachmentPath(modelData.downloadSource)
                                                     }
                                                 }
 
@@ -1665,7 +1781,7 @@ Rectangle {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.openAttachmentFolder(modelData.path)
+                                                        onClicked: todoDetailBridge.openAttachmentFolder(modelData.downloadSource)
                                                     }
                                                 }
 
@@ -1680,7 +1796,7 @@ Rectangle {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         cursorShape: Qt.PointingHandCursor
-                                                        onClicked: todoDetailBridge.downloadAttachment(modelData.path, modelData.name)
+                                                        onClicked: todoDetailBridge.downloadAttachment(modelData.downloadSource, modelData.name)
                                                     }
                                                 }
 

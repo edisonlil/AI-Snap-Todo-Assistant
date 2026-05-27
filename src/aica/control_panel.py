@@ -1026,6 +1026,7 @@ class _ControlPanelBridge(QObject):
     resizeRequested = pyqtSignal(str)
     configSaved = pyqtSignal(object)
     projectDateSelected = pyqtSignal(str, str)
+    projectSaved = pyqtSignal(str)
 
     def __init__(
         self,
@@ -1746,6 +1747,7 @@ class _ControlPanelBridge(QObject):
                     "id": attachment.id,
                     "name": str(attachment.name or "").strip() or Path(str(attachment.path or "")).name,
                     "path": str(attachment.path or "").strip(),
+                    "fileObjectId": str(getattr(attachment, "file_object_id", "") or "").strip(),
                     "sizeBytes": int(attachment.size_bytes),
                     "sizeLabel": _format_attachment_size(attachment.size_bytes),
                 }
@@ -3261,6 +3263,7 @@ class _ControlPanelBridge(QObject):
             f"关联 {relinked_count} 个未解决待办"
         )
         self._emit_data_changed()
+        self.projectSaved.emit(project.id)
         self._sync_project_update_to_server(project)
         self._sync_project_chat_groups_to_server(project.task_order_no, new_aliases)
 
@@ -3400,6 +3403,7 @@ class _ControlPanelBridge(QObject):
 class ControlPanelWindow(QWidget):
     config_saved = pyqtSignal(object)
     todo_list_refresh_requested = pyqtSignal()
+    project_saved = pyqtSignal(str)
 
     def __init__(
         self,
@@ -3435,6 +3439,7 @@ class ControlPanelWindow(QWidget):
         self._bridge.resizeRequested.connect(self._start_system_resize)
         self._bridge.configSaved.connect(lambda payload: self.config_saved.emit(payload))
         self._bridge.todoListRefreshRequested.connect(lambda: self.todo_list_refresh_requested.emit())
+        self._bridge.projectSaved.connect(lambda project_id: self.project_saved.emit(project_id))
         self._sync_window_state()
 
     def _setup_ui(self) -> None:

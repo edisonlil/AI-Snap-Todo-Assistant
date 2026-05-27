@@ -135,6 +135,7 @@ def build_todo_item(
                 name=row.get("name", ""),
                 path=row.get("path", ""),
                 size_bytes=row.get("size_bytes", 0),
+                file_object_id=row.get("file_object_id", ""),
             )
         )
 
@@ -177,6 +178,7 @@ def build_todo_item(
             name=row.get("name", ""),
             path=row.get("path", ""),
             size_bytes=row.get("size_bytes", 0),
+            file_object_id=row.get("file_object_id", ""),
         )
         for row in (conclusion_attachment_rows or [])
     ]
@@ -274,8 +276,9 @@ def deserialize_legacy_timeline_attachments(payload: Any) -> list[TimelineAttach
             name=item.get("name", ""),
             path=item.get("path", ""),
             size_bytes=item.get("size_bytes", item.get("sizeBytes", 0)),
+            file_object_id=item.get("file_object_id", item.get("fileObjectId", "")),
         )
-        if attachment.name and attachment.path:
+        if attachment.name and (attachment.path or attachment.file_object_id):
             attachments.append(attachment)
     return attachments
 

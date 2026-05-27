@@ -27,7 +27,7 @@ from aica.text_sanitize import sanitize_text
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 
 
-SCHEMA_VERSION = "14"
+SCHEMA_VERSION = "15"
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -194,6 +194,20 @@ class SQLiteStorageMigrator:
         for column_name, column_def in todo_columns.items():
             if not _has_column(connection, "todos", column_name):
                 connection.execute(f"ALTER TABLE todos ADD COLUMN {column_name} {column_def}")
+        attachment_columns = {
+            "todo_timeline_attachments": {
+                "file_object_id": "TEXT NOT NULL DEFAULT ''",
+            },
+            "todo_conclusion_attachments": {
+                "file_object_id": "TEXT NOT NULL DEFAULT ''",
+            },
+        }
+        for table_name, columns in attachment_columns.items():
+            if not _table_info(connection, table_name):
+                continue
+            for column_name, column_def in columns.items():
+                if not _has_column(connection, table_name, column_name):
+                    connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
         if not _has_column(connection, "todos", "sort_order"):
             return
         connection.execute(
@@ -1448,6 +1462,7 @@ class SQLiteTodoRepository:
                   todo_timeline_attachments.name,
                   todo_timeline_attachments.path,
                   todo_timeline_attachments.size_bytes,
+                  todo_timeline_attachments.file_object_id,
                   todo_timeline_attachments.created_at
                 FROM todo_timeline_attachments
                 JOIN todo_timeline_events ON todo_timeline_events.id = todo_timeline_attachments.event_id
@@ -1461,7 +1476,7 @@ class SQLiteTodoRepository:
             dict(item)
             for item in connection.execute(
                 """
-                SELECT id, todo_id, name, path, size_bytes, created_at
+                SELECT id, todo_id, name, path, size_bytes, file_object_id, created_at
                 FROM todo_conclusion_attachments
                 WHERE todo_id = ?
                 ORDER BY created_at ASC, id ASC
@@ -1571,8 +1586,8 @@ class SQLiteTodoRepository:
         connection.execute(
             """
             INSERT INTO todo_timeline_attachments(
-              id, event_id, name, path, size_bytes, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?)
+              id, event_id, name, path, size_bytes, file_object_id, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 sanitize_text(attachment.id) or str(uuid.uuid4()),
@@ -1580,6 +1595,7 @@ class SQLiteTodoRepository:
                 sanitize_text(attachment.name),
                 sanitize_text(attachment.path),
                 max(0, int(attachment.size_bytes)),
+                sanitize_text(attachment.file_object_id),
                 now_iso(),
             ),
         )
@@ -1593,8 +1609,8 @@ class SQLiteTodoRepository:
         connection.execute(
             """
             INSERT INTO todo_conclusion_attachments(
-              id, todo_id, name, path, size_bytes, created_at
-            ) VALUES(?, ?, ?, ?, ?, ?)
+              id, todo_id, name, path, size_bytes, file_object_id, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 sanitize_text(attachment.id) or str(uuid.uuid4()),
@@ -1602,6 +1618,7 @@ class SQLiteTodoRepository:
                 sanitize_text(attachment.name),
                 sanitize_text(attachment.path),
                 max(0, int(attachment.size_bytes)),
+                sanitize_text(attachment.file_object_id),
                 now_iso(),
             ),
         )
