@@ -559,7 +559,38 @@ ColumnLayout {
                                     ticketSection.refreshTicketListView(true)
                                 }
                             }
+
+                            ControlPanelPlainButton {
+                                theme: ticketSection.theme
+                                label: controlPanelBridge.workOrderSyncing ? "\u540c\u6b65\u4e2d" : "\u4e00\u952e\u540c\u6b65"
+                                height: 40
+                                enabled: !controlPanelBridge.workOrderSyncing
+                                fillColor: theme.accent
+                                inkColor: "#FFFFFF"
+                                strokeWidth: 0
+                                onClicked: controlPanelBridge.syncWorkOrdersToServer()
+                            }
+
+                            ControlPanelPlainButton {
+                                theme: ticketSection.theme
+                                label: controlPanelBridge.workOrderSyncing ? "\u62c9\u53d6\u4e2d" : "\u4e00\u952e\u62c9\u53d6"
+                                height: 40
+                                enabled: !controlPanelBridge.workOrderSyncing
+                                onClicked: controlPanelBridge.pullWorkOrdersFromServer()
+                            }
                         }
+                    }
+
+                    Text {
+                        visible: controlPanelBridge.workOrderSyncMessage.length > 0
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 18
+                        Layout.rightMargin: 18
+                        text: controlPanelBridge.workOrderSyncMessage
+                        color: theme.mutedInk
+                        font.family: theme.uiFont
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
                     }
 
                     Rectangle {

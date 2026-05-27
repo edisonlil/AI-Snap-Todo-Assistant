@@ -13,10 +13,11 @@ from aica.server_api import ChattodoServerClient, ChattodoServerError  # noqa: E
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, payload: object = None, text: str = "") -> None:
+    def __init__(self, status_code: int, payload: object = None, text: str = "", content: bytes = b"") -> None:
         self.status_code = status_code
         self._payload = payload
         self.text = text
+        self.content = content
 
     def json(self) -> object:
         if isinstance(self._payload, BaseException):
@@ -195,6 +196,94 @@ def test_upsert_work_order_validates_required_fields() -> None:
         client.upsert_work_order({"external_order_no": "todo-1"})
 
 
+def test_sync_my_work_orders_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "created_count": 1,
+                    "updated_count": 0,
+                    "skipped_count": 0,
+                    "total_count": 1,
+                    "results": [],
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.sync_my_work_orders(
+        [
+            {
+                "source_system": "Chattodo",
+                "external_order_no": "todo-1",
+                "title": "上传失败",
+            }
+        ]
+    )
+
+    assert payload["data"]["created_count"] == 1
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/work-orders/sync-my"
+    assert session.calls[0]["json"] == {
+        "items": [
+            {
+                "source_system": "Chattodo",
+                "external_order_no": "todo-1",
+                "title": "上传失败",
+            }
+        ]
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+
+
+def test_pull_my_in_progress_work_orders_sends_existing_ids() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [],
+                    "pagination": {"page": 1, "page_size": 100, "total": 0},
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    client.pull_my_in_progress_work_orders(
+        page=2,
+        page_size=600,
+        source_system="Chattodo",
+        existing_external_order_nos=["todo-1", ""],
+        existing_external_ids=["local-1"],
+    )
+
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/work-orders/pull-my-in-progress"
+    assert session.calls[0]["json"] == {
+        "page": 2,
+        "page_size": 500,
+        "source_system": "Chattodo",
+        "existing_external_order_nos": ["todo-1"],
+        "existing_external_ids": ["local-1"],
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+
+
 def test_upload_workbench_file_sends_multipart_request(tmp_path: Path) -> None:
     file_path = tmp_path / "xiezuo.png"
     file_path.write_bytes(b"png")
@@ -240,6 +329,41 @@ def test_upload_workbench_file_sends_multipart_request(tmp_path: Path) -> None:
     file_tuple = session.calls[0]["files"]["upload"]  # type: ignore[index]
     assert file_tuple[0] == "xiezuo.png"
     assert file_tuple[2] == "image/png"
+
+
+def test_download_workbench_file_writes_relative_url_with_api_key(tmp_path: Path) -> None:
+    session = _FakeSession(_FakeResponse(200, content=b"file-content"))
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/root/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+    target = tmp_path / "downloaded.docx"
+
+    saved = client.download_workbench_file("/api/files/123/download", target)
+
+    assert saved == target
+    assert target.read_bytes() == b"file-content"
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/api/files/123/download"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
+
+
+def test_download_workbench_file_accepts_file_id(tmp_path: Path) -> None:
+    session = _FakeSession(_FakeResponse(200, content=b"file-content"))
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/root/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    client.download_workbench_file("123", tmp_path / "downloaded.docx")
+
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/root/api/open/v1/files/123/download"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key"}
 
 
 def test_match_feature_point_sends_workflow_request_and_returns_answer() -> None:

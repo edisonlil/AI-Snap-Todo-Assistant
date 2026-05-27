@@ -72,3 +72,6 @@ class TodoStore:
 
     def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
         return self._repository.unlink_todo_project(todo_id)
+
+    def upsert_imported_todo(self, todo: TodoItem) -> TodoItem | None:
+        return self._repository.upsert_imported_todo(todo)

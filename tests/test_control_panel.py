@@ -588,6 +588,82 @@ def test_sync_projects_from_server_updates_project_payloads(monkeypatch: pytest.
     assert bridge.projectServerSyncMessage == ""
 
 
+def test_sync_work_orders_to_server_updates_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    class _FakeWorker:
+        def __init__(self, *, config_manager, db_path, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.deleted = False
+
+        def start(self) -> None:
+            self.finished.emit(
+                SimpleNamespace(
+                    created_count=1,
+                    updated_count=2,
+                    skipped_count=0,
+                    total_count=3,
+                    results=[],
+                )
+            )
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "WorkOrderPushSyncWorker", _FakeWorker)
+    refresh_events: list[str] = []
+    syncing_states: list[bool] = []
+    bridge.dataChanged.connect(lambda: syncing_states.append(bridge.workOrderSyncing))
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    bridge.syncWorkOrdersToServer()
+
+    assert "新增 1 条，更新 2 条，跳过 0 条，共 3 条" in bridge.statusMessage
+    assert bridge.workOrderSyncing is False
+    assert bridge.workOrderSyncMessage == ""
+    assert refresh_events == ["refresh"]
+    assert True in syncing_states
+
+
+def test_pull_work_orders_from_server_updates_ticket_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    class _FakeWorker:
+        def __init__(self, *, config_manager, db_path, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.deleted = False
+
+        def start(self) -> None:
+            bridge._todo_store._todo.title = "服务端新工单"  # noqa: SLF001
+            self.finished.emit(
+                SimpleNamespace(
+                    created_count=1,
+                    skipped_count=1,
+                    total_count=2,
+                    page_count=1,
+                )
+            )
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "WorkOrderPullSyncWorker", _FakeWorker)
+    refresh_events: list[str] = []
+    bridge.todoListRefreshRequested.connect(lambda: refresh_events.append("refresh"))
+
+    bridge.pullWorkOrdersFromServer()
+
+    assert bridge.tickets[0]["title"] == "服务端新工单"
+    assert "新增 1 条，跳过 1 条，扫描 2 条" in bridge.statusMessage
+    assert bridge.workOrderSyncing is False
+    assert bridge.workOrderSyncMessage == ""
+    assert refresh_events == ["refresh"]
+
+
 def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()

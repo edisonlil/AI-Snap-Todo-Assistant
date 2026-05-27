@@ -6,6 +6,7 @@ import mimetypes
 import base64
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -133,6 +134,62 @@ class ChattodoServerClient:
             json=normalized_payload,
         )
 
+    def sync_my_work_orders(self, items: list[dict[str, object]]) -> dict[str, Any]:
+        normalized_items = [
+            {
+                str(key).strip(): value
+                for key, value in dict(item or {}).items()
+                if str(key).strip()
+            }
+            for item in list(items or [])
+            if isinstance(item, dict)
+        ]
+        if not normalized_items:
+            raise ChattodoServerError("同步工单列表不能为空。")
+        return self._request_json(
+            "POST",
+            "/api/open/v1/workbench/work-orders/sync-my",
+            json={"items": normalized_items},
+        )
+
+    def pull_my_in_progress_work_orders(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        source_system: str = "",
+        existing_external_order_nos: list[str] | None = None,
+        existing_external_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        normalized_page = max(1, int(page or 1))
+        normalized_page_size = min(500, max(1, int(page_size or 100)))
+        payload: dict[str, object] = {
+            "page": normalized_page,
+            "page_size": normalized_page_size,
+        }
+        normalized_source = sanitize_text(source_system).strip()
+        if normalized_source:
+            payload["source_system"] = normalized_source
+        order_nos = [
+            sanitize_text(item).strip()
+            for item in list(existing_external_order_nos or [])[:500]
+            if sanitize_text(item).strip()
+        ]
+        external_ids = [
+            sanitize_text(item).strip()
+            for item in list(existing_external_ids or [])[:500]
+            if sanitize_text(item).strip()
+        ]
+        if order_nos:
+            payload["existing_external_order_nos"] = order_nos
+        if external_ids:
+            payload["existing_external_ids"] = external_ids
+        return self._request_json(
+            "POST",
+            "/api/open/v1/workbench/work-orders/pull-my-in-progress",
+            json=payload,
+        )
+
     def upload_workbench_file(
         self,
         file_path: str | Path,
@@ -161,6 +218,31 @@ class ChattodoServerClient:
                 "external_attachment_id": sanitize_text(external_attachment_id).strip(),
             },
         )
+
+    def download_workbench_file(self, file_url_or_id: str, target_path: str | Path) -> Path:
+        normalized_url = sanitize_text(file_url_or_id).strip()
+        if not normalized_url:
+            raise ChattodoServerError("附件下载地址不能为空。")
+        target = Path(target_path).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        url = self._resolve_file_download_url(normalized_url)
+        try:
+            response = self._session.request(
+                "GET",
+                url,
+                headers={"X-API-Key": self._api_key},
+                timeout=self._timeout_seconds,
+            )
+        except requests.Timeout as exc:
+            raise ChattodoServerError(f"服务端请求超时：{self._timeout_seconds} 秒。") from exc
+        except requests.RequestException as exc:
+            raise ChattodoServerError(f"服务端请求失败：{exc}") from exc
+        if response.status_code >= 400:
+            detail = sanitize_text(getattr(response, "text", ""))
+            suffix = f"：{detail[:200]}" if detail else ""
+            raise ChattodoServerError(f"服务端返回 HTTP {response.status_code}{suffix}")
+        target.write_bytes(bytes(getattr(response, "content", b"") or b""))
+        return target
 
     def match_feature_point(self, *, product_line: str, desc: str) -> str:
         payload = self._request_json(
@@ -360,6 +442,19 @@ class ChattodoServerClient:
             raise ChattodoServerError(f"服务端请求失败：{exc}") from exc
 
         return self._parse_response_json(response, require_success_envelope=True)
+
+    def _resolve_file_download_url(self, file_url_or_id: str) -> str:
+        parsed = urlparse(file_url_or_id)
+        if parsed.scheme in {"http", "https"}:
+            return file_url_or_id
+        if not self._base_url:
+            raise ChattodoServerError("服务端地址不能为空。")
+        if file_url_or_id.isdigit():
+            return f"{self._base_url}/api/open/v1/files/{file_url_or_id}/download"
+        if file_url_or_id.startswith("/"):
+            base = urlparse(self._base_url)
+            return f"{base.scheme}://{base.netloc}{file_url_or_id}"
+        return urljoin(f"{self._base_url}/", file_url_or_id.lstrip("/"))
 
     def _request_json(
         self,

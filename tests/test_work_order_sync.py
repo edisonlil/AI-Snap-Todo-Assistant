@@ -11,7 +11,13 @@ from aica.models import TicketSummaryFields  # noqa: E402
 from aica.server_api import ChattodoServerError  # noqa: E402
 from aica.todo.events import TodoDomainEvent  # noqa: E402
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
-from aica.todo.work_order_sync import WorkOrderSyncEventHandler, build_work_order_payload  # noqa: E402
+from aica.todo.work_order_sync import (  # noqa: E402
+    WorkOrderSyncEventHandler,
+    build_work_order_payload,
+    pull_my_in_progress_work_orders,
+    sync_all_my_work_orders,
+    todo_from_server_work_order,
+)
 
 
 def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
@@ -147,6 +153,20 @@ class _BindingStore:
         )
 
 
+class _TodoStore:
+    def __init__(self, todos: list[TodoItem]) -> None:
+        self.todos = list(todos)
+        self.imported: list[TodoItem] = []
+
+    def list_todos(self, *, query: str = "", status: str = "all") -> list[TodoItem]:
+        return list(self.todos)
+
+    def upsert_imported_todo(self, todo: TodoItem) -> TodoItem | None:
+        self.imported.append(todo)
+        self.todos.append(todo)
+        return todo
+
+
 class _Client:
     def __init__(self, response=None, error: Exception | None = None) -> None:
         self.response = response or {
@@ -161,6 +181,26 @@ class _Client:
         if self.error is not None:
             raise self.error
         self.payloads.append(payload)
+        return self.response
+
+    def sync_my_work_orders(self, items: list[dict[str, object]]) -> dict[str, object]:
+        self.payloads.extend(items)
+        return {
+            "success": True,
+            "data": {
+                "created_count": 1,
+                "updated_count": 1,
+                "skipped_count": 0,
+                "total_count": len(items),
+                "results": [
+                    {"index": index, "status": "updated", "id": 1000 + index}
+                    for index, _item in enumerate(items)
+                ],
+            },
+        }
+
+    def pull_my_in_progress_work_orders(self, **kwargs):  # noqa: ANN001
+        self.payloads.append(kwargs)
         return self.response
 
     def upload_workbench_file(  # noqa: ANN001
@@ -291,3 +331,96 @@ def test_work_order_sync_handler_marks_deleted_and_failures() -> None:
     failed_handler.handle(TodoDomainEvent.created(_todo(), "创建"))
 
     assert failed_store.status_updates[0]["sync_status"] == "failed:boom"
+
+
+def test_sync_all_my_work_orders_batches_and_records_bindings() -> None:
+    todo = _todo()
+    store = _TodoStore([todo])
+    binding_store = _BindingStore()
+    client = _Client()
+
+    result = sync_all_my_work_orders(client, store, binding_store)  # type: ignore[arg-type]
+
+    assert result.total_count == 1
+    assert result.updated_count == 1
+    assert client.payloads[0]["external_order_no"] == "todo-1"
+    assert binding_store.upserts[0]["external_id"] == "1000"
+    assert binding_store.upserts[0]["sync_status"] == "ok:updated"
+
+
+def test_todo_from_server_work_order_maps_pull_payload() -> None:
+    todo = todo_from_server_work_order(
+        {
+            "id": 102,
+            "external_id": "server-local-2",
+            "external_order_no": "WO-002",
+            "external_filled_at": "2026-05-24T00:50:00+08:00",
+            "ach_order_no": "ACH-002",
+            "ach_filled_at": "2026-05-24T08:30:00+08:00",
+            "title": "需要下拉的工单",
+            "description": "问题描述",
+            "status": "in_progress",
+            "project_hit_status": "matched",
+            "project_task_order_no": "PJ-24080225",
+            "project_snapshot": "某客户文档中台项目",
+            "group_name": "客户支持群",
+            "environment": "生产环境",
+            "work_order_type": "排查类",
+            "product_line": "私网文档中台",
+            "product_version": "v1.2.3",
+            "function_point": "文档中台-上传-失败",
+            "root_cause": "待分析",
+            "root_cause_description": "上游超时",
+            "timeline": [
+                {
+                    "external_timeline_id": "timeline-1",
+                    "occurred_at": "2026-05-24T00:55:00+08:00",
+                    "event_type": "工单跟进",
+                    "content": "建议升级后重试",
+                    "attachments": [
+                        {
+                            "external_attachment_id": "att-1",
+                            "file_object_id": "123",
+                            "file_name": "install-log.txt",
+                            "file_size": 2048,
+                            "url": "https://example.com/install-log.txt",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert todo.id == "WO-002"
+    assert todo.status == TodoStatus.OPEN
+    assert todo.summary_fields.ach_no == "ACH-002"
+    assert todo.summary_fields.feature_point == "文档中台-上传-失败"
+    assert todo.project_link.match_status == "matched"
+    assert todo.project_link.project_snapshot["task_order_no"] == "PJ-24080225"
+    assert todo.timeline[0].attachments[0].path == "/api/open/v1/files/123/download"
+
+
+def test_pull_my_in_progress_work_orders_imports_new_items_and_skips_existing() -> None:
+    store = _TodoStore([_todo()])
+    binding_store = _BindingStore()
+    client = _Client(
+        response={
+            "success": True,
+            "data": {
+                "items": [
+                    {"external_order_no": "todo-1", "title": "重复工单"},
+                    {"id": 102, "external_order_no": "WO-002", "title": "新工单"},
+                ],
+                "pagination": {"page": 1, "page_size": 100, "total": 2},
+            },
+        }
+    )
+
+    result = pull_my_in_progress_work_orders(client, store, binding_store)  # type: ignore[arg-type]
+
+    assert result.created_count == 1
+    assert result.skipped_count == 1
+    assert store.imported[0].id == "WO-002"
+    assert client.payloads[0]["existing_external_order_nos"] == ["todo-1"]
+    assert binding_store.upserts[0]["external_id"] == "102"
+    assert binding_store.upserts[0]["sync_status"] == "ok:pulled"

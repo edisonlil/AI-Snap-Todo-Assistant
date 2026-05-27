@@ -329,7 +329,8 @@ from aica.root_cause_options import ROOT_CAUSE_OPTIONS
 from aica.ticket_enrichment import build_feature_point_provider
 from aica.todo.models import TodoItem, TodoStatus
 from aica.todo.store import TodoStore
-from aica.todo.events import TodoDomainEvent, TodoEventPublisher
+from aica.todo.events import TodoBindingStore, TodoDomainEvent, TodoEventPublisher
+from aica.todo.work_order_sync import pull_my_in_progress_work_orders, sync_all_my_work_orders
 from aica.window_effects import disable_windows_window_border
 
 _QT_KEY_ESCAPE = 0x01000000
@@ -925,6 +926,52 @@ class ProjectChatGroupsSyncWorker(QThread):
             self.finished.emit(self._task_order_no, list(self._group_names))
 
 
+class WorkOrderPushSyncWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, config_manager: ConfigManager, db_path: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._db_path = db_path
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            todo_store = TodoStore(str(self._db_path))
+            binding_store = TodoBindingStore(str(self._db_path))
+            result = sync_all_my_work_orders(client, todo_store, binding_store)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(result)
+
+
+class WorkOrderPullSyncWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, config_manager: ConfigManager, db_path: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._db_path = db_path
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            todo_store = TodoStore(str(self._db_path))
+            binding_store = TodoBindingStore(str(self._db_path))
+            result = pull_my_in_progress_work_orders(client, todo_store, binding_store)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(result)
+
+
 class FeaturePointRefreshWorker(QThread):
     finished = pyqtSignal(str, str, str)
     error = pyqtSignal(str, str, str)
@@ -1025,6 +1072,11 @@ class _ControlPanelBridge(QObject):
         self._project_server_sync_worker: ProjectServerSyncWorker | None = None
         self._project_update_sync_workers: list[ProjectUpdateSyncWorker] = []
         self._project_chat_groups_sync_workers: list[ProjectChatGroupsSyncWorker] = []
+        self._work_order_push_syncing = False
+        self._work_order_pull_syncing = False
+        self._work_order_sync_message = ""
+        self._work_order_push_sync_worker: WorkOrderPushSyncWorker | None = None
+        self._work_order_pull_sync_worker: WorkOrderPullSyncWorker | None = None
         self._feature_point_refresh_workers: list[FeaturePointRefreshWorker] = []
         self._pending_feature_point_refreshes: dict[str, str] = {}
         self._ticket_query = ""
@@ -1326,6 +1378,14 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty("QVariantMap", notify=dataChanged)
     def selectedTicket(self):  # noqa: ANN201
         return dict(self._selected_ticket)
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def workOrderSyncing(self) -> bool:
+        return self._work_order_push_syncing or self._work_order_pull_syncing
+
+    @pyqtProperty(str, notify=dataChanged)
+    def workOrderSyncMessage(self) -> str:
+        return self._work_order_sync_message
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def locations(self):  # noqa: ANN201
@@ -2411,6 +2471,102 @@ class _ControlPanelBridge(QObject):
         self._project_server_syncing = False
         if self._project_server_sync_worker is worker:
             self._project_server_sync_worker = None
+        _delete_finished_thread(worker)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def syncWorkOrdersToServer(self) -> None:
+        if self.workOrderSyncing:
+            return
+        self._clear_messages()
+        self._work_order_push_syncing = True
+        self._work_order_sync_message = "正在同步工单到服务端..."
+        self._status_message = self._work_order_sync_message
+        worker = WorkOrderPushSyncWorker(
+            config_manager=self._config_manager,
+            db_path=aica_database_file(),
+        )
+        self._work_order_push_sync_worker = worker
+        worker.finished.connect(self._handle_work_order_push_sync_finished)
+        worker.error.connect(self._handle_work_order_push_sync_error)
+        worker.finished.connect(lambda _result, current=worker: self._cleanup_work_order_push_sync_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_work_order_push_sync_worker(current))
+        self._emit_data_changed()
+        worker.start()
+
+    def _handle_work_order_push_sync_finished(self, result: object) -> None:
+        if not hasattr(result, "total_count"):
+            self._error_message = "工单同步失败：同步结果格式错误"
+            self._work_order_sync_message = ""
+            self._emit_data_changed()
+            return
+        self._status_message = (
+            f"工单已同步：新增 {result.created_count} 条，更新 {result.updated_count} 条，"
+            f"跳过 {result.skipped_count} 条，共 {result.total_count} 条"
+        )
+        self._work_order_sync_message = ""
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
+
+    def _handle_work_order_push_sync_error(self, message: str) -> None:
+        self._error_message = f"工单同步失败：{str(message or '').strip() or '后台任务执行失败'}"
+        self._work_order_sync_message = ""
+        self._emit_data_changed()
+
+    def _cleanup_work_order_push_sync_worker(self, worker: WorkOrderPushSyncWorker) -> None:
+        self._work_order_push_syncing = False
+        if self._work_order_push_sync_worker is worker:
+            self._work_order_push_sync_worker = None
+        _delete_finished_thread(worker)
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def pullWorkOrdersFromServer(self) -> None:
+        if self.workOrderSyncing:
+            return
+        self._clear_messages()
+        self._work_order_pull_syncing = True
+        self._work_order_sync_message = "正在从服务端拉取工单..."
+        self._status_message = self._work_order_sync_message
+        worker = WorkOrderPullSyncWorker(
+            config_manager=self._config_manager,
+            db_path=aica_database_file(),
+        )
+        self._work_order_pull_sync_worker = worker
+        worker.finished.connect(self._handle_work_order_pull_sync_finished)
+        worker.error.connect(self._handle_work_order_pull_sync_error)
+        worker.finished.connect(lambda _result, current=worker: self._cleanup_work_order_pull_sync_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_work_order_pull_sync_worker(current))
+        self._emit_data_changed()
+        worker.start()
+
+    def _handle_work_order_pull_sync_finished(self, result: object) -> None:
+        if not hasattr(result, "created_count"):
+            self._error_message = "工单拉取失败：同步结果格式错误"
+            self._work_order_sync_message = ""
+            self._emit_data_changed()
+            return
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        self._status_message = (
+            f"工单已拉取：新增 {result.created_count} 条，跳过 {result.skipped_count} 条，"
+            f"扫描 {result.total_count} 条"
+        )
+        self._work_order_sync_message = ""
+        self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
+
+    def _handle_work_order_pull_sync_error(self, message: str) -> None:
+        self._error_message = f"工单拉取失败：{str(message or '').strip() or '后台任务执行失败'}"
+        self._work_order_sync_message = ""
+        self._emit_data_changed()
+
+    def _cleanup_work_order_pull_sync_worker(self, worker: WorkOrderPullSyncWorker) -> None:
+        self._work_order_pull_syncing = False
+        if self._work_order_pull_sync_worker is worker:
+            self._work_order_pull_sync_worker = None
         _delete_finished_thread(worker)
         self._emit_data_changed()
 

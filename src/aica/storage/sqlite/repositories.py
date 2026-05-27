@@ -1415,6 +1415,13 @@ class SQLiteTodoRepository:
             )
         return self.get_todo(sanitized_id)
 
+    def upsert_imported_todo(self, todo: TodoItem) -> TodoItem | None:
+        if not sanitize_text(todo.id):
+            return None
+        with self._connect() as connection:
+            _upsert_todo(connection, todo)
+        return self.get_todo(todo.id)
+
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:
         row_payload = dict(row)
         project_link = self._project_repository.get_project_link(str(row["id"]))

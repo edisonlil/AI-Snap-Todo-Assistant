@@ -298,6 +298,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return "", ""
 
 from ..app_notifications import AppNotificationBridge
+from ..config import ConfigManager
 from .assist_analysis import build_assist_analysis_cache_key
 from .conclusion_timeline import build_conclusion_timeline_content
 from ..environment_access import EnvironmentAccessService
@@ -305,6 +306,7 @@ from ..log_analysis.commands import format_log_analysis_focus, is_log_analysis_c
 from ..models import TicketSummaryFields
 from ..paths import qml_dir, todo_attachments_dir
 from ..runtime import RUNTIME_CAPABILITIES
+from ..server_api import ChattodoServerClient, ChattodoServerError
 from ..storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from ..root_cause_options import ROOT_CAUSE_OPTIONS
 from ..ticket_field_resolver import (
@@ -646,6 +648,28 @@ def _is_openable_target(value: str) -> bool:
     return bool(parsed.scheme and parsed.netloc)
 
 
+def _filename_from_url(value: str) -> str:
+    parsed = urlsplit(str(value or "").strip())
+    name = Path(unquote(parsed.path or "")).name
+    return name.strip()
+
+
+def _safe_attachment_filename(value: str) -> str:
+    name = Path(str(value or "").strip()).name
+    return name or "attachment"
+
+
+def _is_remote_url(value: str) -> bool:
+    text = str(value or "").strip()
+    parsed = urlparse(text)
+    return (
+        bool(parsed.scheme in {"http", "https"} and parsed.netloc)
+        or text.isdigit()
+        or text.startswith("/api/")
+        or text.startswith("api/")
+    )
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
@@ -677,9 +701,13 @@ class _TodoDetailBridge(QObject):
         *,
         environment_access_service: EnvironmentAccessService | None = None,
         notification_bridge: AppNotificationBridge | None = None,
+        config_manager: ConfigManager | None = None,
+        server_client_factory=ChattodoServerClient.from_config,
     ) -> None:
         super().__init__()
         self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._config_manager = config_manager or ConfigManager()
+        self._server_client_factory = server_client_factory
         self._todo_id: str | None = None
         self._title = ""
         self._group_name = _EMPTY_TEXT
@@ -698,6 +726,7 @@ class _TodoDetailBridge(QObject):
         self._conclusion_attachments: list[dict[str, object]] = []
         self._conclusion_dirty = False
         self._draft_timeline_attachments: list[dict[str, object]] = []
+        self._attachment_download_cache: dict[str, str] = {}
         self._timeline_draft_text = ""
         self._timeline_draft_entry_type = _ENTRY_TYPE_FOLLOW_UP
         self._timeline_draft_entry_type_selected = False
@@ -1852,15 +1881,15 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def previewAttachment(self, file_path: str) -> None:
-        path = str(file_path or "").strip()
-        if not path:
+        path = self._ensure_local_attachment_path(file_path)
+        if path is None:
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     @pyqtSlot(str, bool, bool)
     def copyAttachment(self, file_path: str, is_image: bool, is_video: bool) -> None:
-        path = Path(str(file_path or "").strip()).expanduser()
-        if not path.is_file():
+        path = self._ensure_local_attachment_path(file_path)
+        if path is None or not path.is_file():
             return
         if bool(is_image):
             self._copy_image_attachment(path)
@@ -1877,23 +1906,23 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str)
     def copyAttachmentPath(self, file_path: str) -> None:
-        path = Path(str(file_path or "").strip()).expanduser()
-        if not path.is_file():
+        path = self._ensure_local_attachment_path(file_path)
+        if path is None or not path.is_file():
             return
         self._copy_file_path_to_clipboard(path)
 
     @pyqtSlot(str)
     def openAttachmentFolder(self, file_path: str) -> None:
-        path = Path(str(file_path or "").strip()).expanduser()
-        if not path.exists():
+        path = self._ensure_local_attachment_path(file_path)
+        if path is None or not path.exists():
             return
         target_dir = path.parent if path.is_file() else path
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir)))
 
     @pyqtSlot(str, str)
     def downloadAttachment(self, file_path: str, file_name: str) -> None:
-        path = Path(str(file_path or "").strip()).expanduser()
-        if not path.is_file():
+        path = self._ensure_local_attachment_path(file_path, suggested_name=file_name)
+        if path is None or not path.is_file():
             return
         self._download_attachment(path, str(file_name or path.name).strip() or path.name)
 
@@ -1906,8 +1935,8 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str, bool, bool, str)
     def activateAttachment(self, file_path: str, _is_image: bool, _is_video: bool, _file_name: str) -> None:
-        path = Path(str(file_path or "").strip()).expanduser()
-        if not path.exists():
+        path = self._ensure_local_attachment_path(file_path, suggested_name=_file_name)
+        if path is None or not path.exists():
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -3257,6 +3286,72 @@ class _TodoDetailBridge(QObject):
 
     def _copy_file_path_to_clipboard(self, path: Path) -> None:
         QGuiApplication.clipboard().setText(str(path))
+
+    def _ensure_local_attachment_path(self, file_path: str, *, suggested_name: str = "") -> Path | None:
+        value = str(file_path or "").strip()
+        if not value:
+            return None
+        cached = str(self._attachment_download_cache.get(value, "")).strip()
+        if cached:
+            cached_path = Path(cached).expanduser()
+            if cached_path.exists():
+                return cached_path
+        local_path = Path(value).expanduser()
+        if local_path.exists():
+            return local_path
+        if not _is_remote_url(value):
+            return None
+        attachment_context = self._find_attachment_context(value)
+        if attachment_context is None:
+            return None
+        event_id, attachment = attachment_context
+        target_name = _safe_attachment_filename(
+            str(attachment.get("name") or suggested_name or _filename_from_url(value) or "attachment")
+        )
+        target_dir = self._attachment_root / str(self._todo_id or "") / event_id
+        target = target_dir / target_name
+        if target.exists():
+            self._mark_attachment_downloaded(attachment, target)
+            return target
+        try:
+            client = self._server_client_factory(self._config_manager.load().server)
+            downloaded = client.download_workbench_file(value, target)
+        except (ChattodoServerError, OSError, ValueError) as exc:
+            self._notification_bridge.notify("error", f"附件下载失败：{exc}", source="todo_detail")
+            return None
+        self._attachment_download_cache[value] = str(downloaded)
+        self._mark_attachment_downloaded(attachment, downloaded)
+        return downloaded
+
+    def _find_attachment_context(self, file_path: str) -> tuple[str, dict[str, object]] | None:
+        value = str(file_path or "").strip()
+        if not value:
+            return None
+        for item in self._timeline:
+            event_id = str(item.get("id") or "").strip()
+            attachments = item.get("attachments", [])
+            if not event_id or not isinstance(attachments, list):
+                continue
+            for attachment in attachments:
+                if isinstance(attachment, dict) and str(attachment.get("path") or "").strip() == value:
+                    return event_id, attachment
+        for attachment in self._conclusion_attachments:
+            if isinstance(attachment, dict) and str(attachment.get("path") or "").strip() == value:
+                return "conclusion", attachment
+        return None
+
+    def _mark_attachment_downloaded(self, attachment: dict[str, object], target: Path) -> None:
+        attachment["path"] = str(target)
+        attachment["sizeBytes"] = target.stat().st_size if target.exists() else int(attachment.get("sizeBytes") or 0)
+        kind = _attachment_kind(str(target), str(attachment.get("name") or target.name))
+        attachment["kind"] = kind
+        attachment["isImage"] = kind == "image"
+        attachment["isVideo"] = kind == "video"
+        attachment["isPreviewable"] = kind in {"image", "video"}
+        attachment["fileUrl"] = QUrl.fromLocalFile(str(target)).toString() if kind == "image" else ""
+        self.timelineChanged.emit()
+        self.dataChanged.emit()
+        self._emit_save_request()
 
     def _download_attachment(self, source: Path, suggested_name: str) -> None:
         target_path, _ = QFileDialog.getSaveFileName(

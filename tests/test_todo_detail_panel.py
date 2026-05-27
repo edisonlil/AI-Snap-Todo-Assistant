@@ -28,6 +28,18 @@ def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
     )
 
 
+class _DownloadClient:
+    def __init__(self) -> None:
+        self.downloads: list[tuple[str, Path]] = []
+
+    def download_workbench_file(self, file_url: str, target_path: str | Path) -> Path:
+        target = Path(target_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"remote-file")
+        self.downloads.append((file_url, target))
+        return target
+
+
 def _build_panel(monkeypatch) -> TodoDetailPanel:
     monkeypatch.setattr(
         "aica.todo.detail_panel.SQLiteProjectEnvironmentRepository",
@@ -58,6 +70,46 @@ def test_attachment_payload_does_not_expose_docx_as_image_source() -> None:
     assert payload["isImage"] is False
     assert payload["isPreviewable"] is False
     assert payload["fileUrl"] == ""
+
+
+def test_remote_attachment_downloads_lazily_and_caches_path(tmp_path: Path) -> None:
+    client = _DownloadClient()
+    bridge = _TodoDetailBridge(
+        attachment_root=tmp_path,
+        environment_access_service=SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
+        ),
+        config_manager=SimpleNamespace(load=lambda: SimpleNamespace(server=SimpleNamespace())),
+        server_client_factory=lambda _server: client,
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            attachments=[
+                TimelineAttachment(
+                    id="attachment-1",
+                    name="测试红头模板.docx",
+                    path="/api/files/123/download",
+                )
+            ],
+        )
+    ]
+    saved_payloads: list[object] = []
+    bridge.saveRequested.connect(lambda _todo_id, payload: saved_payloads.append(payload))
+    bridge.set_todo(todo)
+
+    local_path = bridge._ensure_local_attachment_path("/api/files/123/download")  # noqa: SLF001
+    cached_path = bridge._ensure_local_attachment_path("/api/files/123/download")  # noqa: SLF001
+
+    assert local_path is not None
+    assert local_path == tmp_path / "todo-1" / "event-1" / "测试红头模板.docx"
+    assert local_path.read_bytes() == b"remote-file"
+    assert cached_path == local_path
+    assert client.downloads == [("/api/files/123/download", local_path)]
+    assert bridge.timeline[0]["attachments"][0]["path"] == str(local_path)
+    assert saved_payloads
 
 
 def _build_todo(todo_id: str = "todo-1") -> TodoItem:

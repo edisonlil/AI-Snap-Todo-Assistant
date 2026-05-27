@@ -15,6 +15,7 @@ Rectangle {
     readonly property color titleInk: "#2A313F"
     readonly property color bodyInk: "#4A5565"
     readonly property color labelInk: "#7C8795"
+    readonly property color mutedInk: "#A9B1BD"
     readonly property color accent: "#2A313F"
     readonly property color accentSoft: "#F1F3F6"
     readonly property color navIdle: "#F8F9FA"
