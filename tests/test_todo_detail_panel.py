@@ -57,6 +57,22 @@ def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
     return [str(item["message"]) for item in bridge.notificationBridge.notifications]
 
 
+def test_timeline_draft_text_update_does_not_emit_draft_changed(tmp_path: Path) -> None:
+    bridge = _build_bridge(tmp_path)
+    signal_count = 0
+
+    def _record_signal() -> None:
+        nonlocal signal_count
+        signal_count += 1
+
+    bridge.timelineDraftChanged.connect(_record_signal)
+
+    bridge.updateTimelineDraftText("正在输入中文")
+
+    assert bridge.timelineDraftText == "正在输入中文"
+    assert signal_count == 0
+
+
 def test_attachment_payload_does_not_expose_docx_as_image_source() -> None:
     payload = _TodoDetailBridge._attachment_to_dict(
         TimelineAttachment(

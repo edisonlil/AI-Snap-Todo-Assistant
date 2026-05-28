@@ -53,13 +53,13 @@ jobs:
 
       - name: Compress app bundle
         run: |
-          ditto -c -k --sequesterRsrc --keepParent dist/AICA.app dist/AICA-${{ matrix.name }}.zip
+          ditto -c -k --sequesterRsrc --keepParent dist/Chattodo.app dist/Chattodo-${{ matrix.name }}.zip
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}-app
-          path: dist/AICA.app
+          path: dist/Chattodo.app
           if-no-files-found: error
           retention-days: 1
 
@@ -67,6 +67,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}-zip
-          path: dist/AICA-${{ matrix.name }}.zip
+          path: dist/Chattodo-${{ matrix.name }}.zip
           if-no-files-found: error
           retention-days: 1

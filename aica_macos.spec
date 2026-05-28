@@ -16,11 +16,12 @@ datas = [
     (str(project_root / "assets"), "assets"),
 ]
 info_plist = {
-    "CFBundleDisplayName": "AICA",
-    "CFBundleName": "AICA",
+    "CFBundleDisplayName": "Chattodo",
+    "CFBundleName": "Chattodo",
     "CFBundleIdentifier": "com.aica.snap.todo.assistant",
     "CFBundleShortVersionString": "1.0.0",
     "CFBundleVersion": "1.0.0",
+    "NSInputMonitoringUsageDescription": "Chattodo 需要监听你设置的全局截图快捷键，用于快速开始截图。",
     "LSUIElement": True,
 }
 
@@ -44,7 +45,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="AICA",
+    name="Chattodo",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -61,12 +62,12 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="AICA",
+    name="Chattodo",
 )
 
 app = BUNDLE(
     coll,
-    name="AICA.app",
+    name="Chattodo.app",
     icon=str(icon_path),
     bundle_identifier="com.aica.snap.todo.assistant",
     info_plist=info_plist,

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aica.control_panel import hotkey_from_qt_key_event  # noqa: E402
 from aica.hotkey import (  # noqa: E402
     HotkeyManager,
+    _connect_signal_queued,
     _macos_hotkey_registration,
     hotkey_to_pynput_expression,
     hotkey_to_windows_registration,
@@ -52,10 +53,20 @@ def test_hotkey_to_pynput_expression_maps_macos_command_key() -> None:
     assert hotkey_to_pynput_expression("Command+Shift+A", PLATFORM_MACOS) == "<cmd>+<shift>+a"
 
 
-def test_macos_hotkey_registration_builds_flags_and_keycode() -> None:
+def test_macos_hotkey_registration_builds_flags_and_keycode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "aica.hotkey._MACOS_MODIFIER_FLAGS",
+        {
+            "Command": 0x01,
+            "Option": 0x02,
+            "Control": 0x04,
+            "Shift": 0x08,
+        },
+    )
+
     modifier_flags, vk = _macos_hotkey_registration("Command+Option+A")
 
-    assert modifier_flags != 0
+    assert modifier_flags == 0x03
     assert vk == 0
 
 
@@ -161,6 +172,31 @@ def test_hotkey_manager_uses_native_listener_on_macos(monkeypatch: pytest.Monkey
 
     assert created == ["Command+Shift+A"]
     assert isinstance(listener, _MacOSListener)
+
+
+def test_hotkey_signal_connection_prefers_queued_qt_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _ConnectionType:
+        QueuedConnection = object()
+
+    class _Qt:
+        ConnectionType = _ConnectionType
+
+    class _Signal:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, object | None]] = []
+
+        def connect(self, slot, connection_type=None) -> None:
+            self.calls.append((slot, connection_type))
+
+    def _slot() -> None:
+        return None
+
+    signal = _Signal()
+    monkeypatch.setattr("aica.hotkey.Qt", _Qt)
+
+    _connect_signal_queued(signal, _slot)
+
+    assert signal.calls == [(_slot, _ConnectionType.QueuedConnection)]
 
 
 def test_hotkey_from_qt_key_event_builds_windows_shortcut() -> None:

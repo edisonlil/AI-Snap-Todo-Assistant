@@ -117,4 +117,4 @@ fi
 "$PYTHON_BIN" -m PyInstaller --noconfirm --clean aica_macos.spec
 
 echo
-echo "Build complete: dist/AICA.app"
+echo "Build complete: dist/Chattodo.app"

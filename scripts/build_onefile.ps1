@@ -15,4 +15,4 @@ if (-not $SkipInstall) {
 python -m PyInstaller --noconfirm --clean aica_onefile.spec
 
 Write-Host ""
-Write-Host "Build complete: dist\AICA.exe"
+Write-Host "Build complete: dist\Chattodo.exe"

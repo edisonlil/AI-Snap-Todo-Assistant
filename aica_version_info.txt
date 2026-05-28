@@ -15,11 +15,11 @@ VSVersionInfo(
         '080404B0',
         [
           StringStruct('CompanyName', 'edison'),
-          StringStruct('FileDescription', 'AI Capture Assistant'),
+          StringStruct('FileDescription', 'Chattodo'),
           StringStruct('FileVersion', '1.2.0'),
-          StringStruct('InternalName', 'AICA'),
-          StringStruct('OriginalFilename', 'AICA.exe'),
-          StringStruct('ProductName', 'AI Capture Assistant'),
+          StringStruct('InternalName', 'Chattodo'),
+          StringStruct('OriginalFilename', 'Chattodo.exe'),
+          StringStruct('ProductName', 'Chattodo'),
           StringStruct('ProductVersion', '1.2.0')
         ]
       )

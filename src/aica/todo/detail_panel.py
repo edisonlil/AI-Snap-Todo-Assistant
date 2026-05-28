@@ -1923,7 +1923,6 @@ class _TodoDetailBridge(QObject):
             return
         self._timeline_draft_text = text
         self._store_current_timeline_draft()
-        self._emit_timeline_draft_changed()
 
     @pyqtSlot(str)
     def setTimelineDraftEntryType(self, entry_type: str) -> None:

@@ -13,7 +13,7 @@ _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
-    from PyQt6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, pyqtSignal
+    from PyQt6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, Qt, pyqtSignal
 
     _QT_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
@@ -61,6 +61,8 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
     def pyqtSignal(*_args, **_kwargs):  # type: ignore[no-redef]
         return _SignalDescriptor()
+
+    Qt = None  # type: ignore[assignment]
 
 try:
     from pynput import keyboard
@@ -569,9 +571,21 @@ def _format_registration_debug_info(modifier_flags: int, vk: int) -> str:
     return f"modifiers=0x{modifier_flags:04X}, vk=0x{vk:02X}"
 
 
+def _connect_signal_queued(signal, slot) -> None:
+    queued_connection = getattr(getattr(Qt, "ConnectionType", None), "QueuedConnection", None)
+    if queued_connection is not None:
+        try:
+            signal.connect(slot, queued_connection)
+            return
+        except TypeError:
+            pass
+    signal.connect(slot)
+
+
 class HotkeyManager(QObject):
     hotkey_triggered = pyqtSignal()
     hotkey_changed = pyqtSignal(str)
+    _native_hotkey_triggered = pyqtSignal()
 
     def __init__(self, hotkey: str | None = None, parent=None, platform_id: str | None = None):
         super().__init__(parent)
@@ -579,6 +593,7 @@ class HotkeyManager(QObject):
         self._listener: _PynputHotkeyListener | _MacOSNativeHotkeyListener | _WindowsNativeHotkeyListener | None = None
         resolved_hotkey = hotkey if hotkey is not None else default_capture_hotkey(self._platform_id)
         self._hotkey = normalize_hotkey(resolved_hotkey, self._platform_id)
+        _connect_signal_queued(self._native_hotkey_triggered, self._emit_hotkey_triggered)
 
     @property
     def hotkey(self) -> str:
@@ -615,4 +630,7 @@ class HotkeyManager(QObject):
         return _PynputHotkeyListener(self._hotkey, self._on_hotkey, platform_id=self._platform_id)
 
     def _on_hotkey(self) -> None:
+        self._native_hotkey_triggered.emit()
+
+    def _emit_hotkey_triggered(self) -> None:
         self.hotkey_triggered.emit()
