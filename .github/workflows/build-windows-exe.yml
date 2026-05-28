@@ -59,6 +59,7 @@ jobs:
           name: windows-onedir-zip
           path: dist\AICA-windows-onedir.zip
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload onefile exe
         uses: actions/upload-artifact@v4
@@ -66,3 +67,4 @@ jobs:
           name: windows-onefile-exe
           path: dist\AICA.exe
           if-no-files-found: error
+          retention-days: 1
