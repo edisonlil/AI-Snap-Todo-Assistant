@@ -44,6 +44,14 @@ class WorkOrderClient(Protocol):
     ) -> dict[str, Any]:
         """Pull current user's in-progress work orders from the server."""
 
+    def get_work_order_ach_statuses(
+        self,
+        external_order_nos: list[str],
+        *,
+        source_system: str = "",
+    ) -> dict[str, Any]:
+        """Fetch ACH statuses for existing work orders."""
+
     def upload_workbench_file(
         self,
         file_path: str | Path,
@@ -271,6 +279,7 @@ class WorkOrderBatchSyncResult:
 @dataclass
 class WorkOrderPullResult:
     created_count: int = 0
+    updated_count: int = 0
     skipped_count: int = 0
     total_count: int = 0
     page_count: int = 0
@@ -366,6 +375,62 @@ def pull_my_in_progress_work_orders(
 
         if len(items) < normalized_page_size or page * normalized_page_size >= total:
             break
+    return result
+
+
+def refresh_missing_ach_work_orders(
+    client: WorkOrderClient,
+    todo_store: TodoStore,
+    todo_ids: list[str] | None = None,
+    *,
+    page_size: int = 500,
+) -> WorkOrderPullResult:
+    requested_ids = {_clean(todo_id) for todo_id in list(todo_ids or []) if _clean(todo_id)}
+    candidates = [
+        todo
+        for todo in todo_store.list_todos(query="", status="done_missing_ach")
+        if not requested_ids or _clean(todo.id) in requested_ids
+    ]
+    result = WorkOrderPullResult(total_count=len(candidates))
+    if not candidates:
+        return result
+
+    candidates_by_id = {_clean(todo.id): todo for todo in candidates if _clean(todo.id)}
+    batch_size = max(1, min(500, int(page_size or 500)))
+    for start in range(0, len(candidates_by_id), batch_size):
+        batch_ids = list(candidates_by_id)[start:start + batch_size]
+        response = client.get_work_order_ach_statuses(
+            batch_ids,
+            source_system=SOURCE_SYSTEM,
+        )
+        data = _response_data(response)
+        items = [dict(item) for item in list(data.get("items") or []) if isinstance(item, dict)]
+        result.page_count += 1
+
+        for item in items:
+            external_order_no = _clean(item.get("external_order_no") or item.get("external_id") or item.get("id"))
+            todo = candidates_by_id.get(external_order_no)
+            if todo is None:
+                result.skipped_count += 1
+                continue
+            ach_no = _clean(item.get("ach_order_no"))
+            if not ach_no:
+                result.skipped_count += 1
+                continue
+            updated = todo_store.update_todo(
+                todo.id,
+                summary_fields=TicketSummaryFields.from_dict(
+                    {
+                        **todo.summary_fields.to_dict(),
+                        "ach_no": ach_no,
+                        "ach_filled_at": _clean(item.get("ach_filled_at") or item.get("external_filled_at")),
+                    }
+                ),
+            )
+            if updated is None:
+                result.skipped_count += 1
+                continue
+            result.updated_count += 1
     return result
 
 

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import uuid
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
@@ -321,7 +322,7 @@ from aica.paths import (
 )
 from aica.models import TicketSummaryFields, is_unknown_text
 from aica.runtime import RUNTIME_CAPABILITIES
-from aica.storage.adapters import normalize_group_alias, now_iso
+from aica.storage.adapters import normalize_group_alias
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
@@ -330,7 +331,11 @@ from aica.ticket_enrichment import build_feature_point_provider
 from aica.todo.models import TodoItem, TodoStatus
 from aica.todo.store import TodoStore
 from aica.todo.events import TodoBindingStore, TodoDomainEvent, TodoEventPublisher
-from aica.todo.work_order_sync import pull_my_in_progress_work_orders, sync_all_my_work_orders
+from aica.todo.work_order_sync import (
+    pull_my_in_progress_work_orders,
+    refresh_missing_ach_work_orders,
+    sync_all_my_work_orders,
+)
 from aica.window_effects import disable_windows_window_border
 
 _QT_KEY_ESCAPE = 0x01000000
@@ -705,49 +710,6 @@ def _todo_status_tone(status: str) -> str:
     return "done" if str(status or "").strip() == TodoStatus.DONE else "open"
 
 
-def _ticket_field_text(value: object) -> str:
-    if value is None:
-        return ""
-    return str(value)
-
-
-def _format_ticket_product(product: object) -> str:
-    value = _ticket_field_text(product).strip()
-    if not value:
-        return ""
-    if value == "WPS协作":
-        return "WPS协作（泛微）协作-私网"
-    if value == "文档中台":
-        return "文档中台/V7"
-    if value == "文档中心":
-        return "文档中心/V7"
-    return value
-
-
-def _format_ticket_project_name(project_name: object) -> str:
-    if project_name is None:
-        return ""
-    if isinstance(project_name, list):
-        return ",".join(str(item) for item in project_name)
-    return str(project_name)
-
-
-def _format_ticket_copy_text(ticket: dict[str, object]) -> str:
-    return (
-        f"标题: {_ticket_field_text(ticket.get('title'))}\n"
-        "二线: 否\n"
-        f"结论: {_ticket_field_text(ticket.get('conclusionContent'))}\n"
-        f"客户名称: {_ticket_field_text(ticket.get('customerName'))}\n"
-        f"项目名称: {_format_ticket_project_name(ticket.get('projectName'))}\n"
-        f"功能点: {_ticket_field_text(ticket.get('featurePoint'))}\n"
-        f"版本: {_ticket_field_text(ticket.get('ticketVersion'))}\n"
-        f"根因分类: {_ticket_field_text(ticket.get('rootCause'))}\n"
-        f"根因描述: {_ticket_field_text(ticket.get('rootCauseDesc'))}\n"
-        f"产品: {_format_ticket_product(ticket.get('productLine'))}\n"
-        f"描述: {_ticket_field_text(ticket.get('summary'))}"
-    )
-
-
 def _ticket_project_status_label(status: str) -> str:
     mapping = {
         "matched": "\u5df2\u5173\u8054\u9879\u76ee",
@@ -972,6 +934,36 @@ class WorkOrderPullSyncWorker(QThread):
             self.finished.emit(result)
 
 
+class MissingAchRefreshWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        config_manager: ConfigManager,
+        db_path: Path | str,
+        todo_ids: list[str],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._db_path = db_path
+        self._todo_ids = [str(todo_id or "").strip() for todo_id in todo_ids if str(todo_id or "").strip()]
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            todo_store = TodoStore(str(self._db_path))
+            result = refresh_missing_ach_work_orders(client, todo_store, self._todo_ids)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(result)
+
+
 class FeaturePointRefreshWorker(QThread):
     finished = pyqtSignal(str, str, str)
     error = pyqtSignal(str, str, str)
@@ -1078,6 +1070,9 @@ class _ControlPanelBridge(QObject):
         self._work_order_sync_message = ""
         self._work_order_push_sync_worker: WorkOrderPushSyncWorker | None = None
         self._work_order_pull_sync_worker: WorkOrderPullSyncWorker | None = None
+        self._missing_ach_refresh_worker: MissingAchRefreshWorker | None = None
+        self._missing_ach_refreshing = False
+        self._missing_ach_refresh_cache: dict[str, float] = {}
         self._feature_point_refresh_workers: list[FeaturePointRefreshWorker] = []
         self._pending_feature_point_refreshes: dict[str, str] = {}
         self._ticket_query = ""
@@ -1382,7 +1377,7 @@ class _ControlPanelBridge(QObject):
 
     @pyqtProperty(bool, notify=dataChanged)
     def workOrderSyncing(self) -> bool:
-        return self._work_order_push_syncing or self._work_order_pull_syncing
+        return self._work_order_push_syncing or self._work_order_pull_syncing or self._missing_ach_refreshing
 
     @pyqtProperty(str, notify=dataChanged)
     def workOrderSyncMessage(self) -> str:
@@ -1878,6 +1873,66 @@ class _ControlPanelBridge(QObject):
             self._selected_ticket = self._empty_ticket_detail_payload()
             return
         self._selected_ticket = self._build_ticket_detail_payload(todo)
+
+    def _missing_ach_candidates(self, todo_ids: list[str] | None = None) -> list[str]:
+        requested_ids = {str(todo_id or "").strip() for todo_id in list(todo_ids or []) if str(todo_id or "").strip()}
+        return [
+            todo.id
+            for todo in self._todo_store.list_todos(query="", status="done_missing_ach")
+            if todo.id and (not requested_ids or todo.id in requested_ids)
+        ]
+
+    @staticmethod
+    def _missing_ach_refresh_key(trigger: str, todo_ids: list[str]) -> str:
+        return f"{trigger}:{','.join(sorted(set(todo_ids)))}"
+
+    def _maybe_refresh_missing_ach(self, *, trigger: str, todo_ids: list[str] | None = None, force: bool = False) -> None:
+        if self._missing_ach_refreshing:
+            return
+        candidates = self._missing_ach_candidates(todo_ids)
+        if not candidates:
+            return
+        cache_key = self._missing_ach_refresh_key(trigger, candidates)
+        now = time.monotonic()
+        if not force and now - self._missing_ach_refresh_cache.get(cache_key, 0.0) < 120:
+            return
+        self._missing_ach_refresh_cache[cache_key] = now
+        self._missing_ach_refreshing = True
+        self._work_order_sync_message = "正在校准服务端 ACH 状态..."
+        worker = MissingAchRefreshWorker(
+            config_manager=self._config_manager,
+            db_path=aica_database_file(),
+            todo_ids=candidates,
+        )
+        self._missing_ach_refresh_worker = worker
+        worker.finished.connect(self._handle_missing_ach_refresh_finished)
+        worker.error.connect(self._handle_missing_ach_refresh_error)
+        worker.finished.connect(lambda _result, current=worker: self._cleanup_missing_ach_refresh_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_missing_ach_refresh_worker(current))
+        self._emit_data_changed()
+        worker.start()
+
+    def _handle_missing_ach_refresh_finished(self, result: object) -> None:
+        updated_count = getattr(result, "updated_count", 0)
+        self._refresh_ticket_payloads()
+        self._refresh_selected_ticket_payload()
+        if updated_count:
+            self._status_message = f"已校准服务端 ACH 状态，更新 {updated_count} 条工单。"
+        self._work_order_sync_message = ""
+        self._emit_data_changed()
+        self.todoListRefreshRequested.emit()
+
+    def _handle_missing_ach_refresh_error(self, message: str) -> None:
+        self._error_message = f"服务端 ACH 状态校准失败：{str(message or '').strip() or '后台任务执行失败'}"
+        self._work_order_sync_message = ""
+        self._emit_data_changed()
+
+    def _cleanup_missing_ach_refresh_worker(self, worker: MissingAchRefreshWorker) -> None:
+        self._missing_ach_refreshing = False
+        if self._missing_ach_refresh_worker is worker:
+            self._missing_ach_refresh_worker = None
+        _delete_finished_thread(worker)
+        self._emit_data_changed()
 
     def _find_cached_project(self, project_id: str) -> dict[str, object] | None:
         normalized_id = str(project_id or "").strip()
@@ -2913,6 +2968,8 @@ class _ControlPanelBridge(QObject):
         self._refresh_ticket_payloads()
         self._refresh_selected_ticket_payload()
         self._emit_data_changed()
+        if normalized_status == "done_missing_ach":
+            self._maybe_refresh_missing_ach(trigger="filter")
 
     @pyqtSlot()
     def refreshTickets(self) -> None:
@@ -2943,6 +3000,7 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = normalized_id
         self._selected_ticket = self._build_ticket_detail_payload(todo)
         self._emit_data_changed()
+        self._maybe_refresh_missing_ach(trigger="detail", todo_ids=[normalized_id])
 
     @pyqtSlot()
     def backToTicketList(self) -> None:
@@ -2951,28 +3009,6 @@ class _ControlPanelBridge(QObject):
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._clear_messages()
-        self._emit_data_changed()
-
-    @pyqtSlot()
-    def copySelectedTicket(self) -> None:
-        if not self._selected_ticket_id:
-            return
-        self.copyTicket(self._selected_ticket_id)
-
-    @pyqtSlot(str)
-    def copyTicket(self, todo_id: str) -> None:
-        normalized_id = str(todo_id or "").strip()
-        if not normalized_id:
-            return
-        todo = self._todo_store.get_todo(normalized_id)
-        if todo is None:
-            self._error_message = "未找到对应待办"
-            self._emit_data_changed()
-            return
-        payload = self._build_ticket_detail_payload(todo)
-        QApplication.clipboard().setText(_format_ticket_copy_text(payload))
-        self._clear_messages()
-        self._notification_bridge.notify("success", "工单内容已复制", source="control_panel")
         self._emit_data_changed()
 
     def _publish_todo_event(self, event: TodoDomainEvent) -> None:
@@ -3140,25 +3176,17 @@ class _ControlPanelBridge(QObject):
         if not self._selected_ticket_id:
             return
         normalized_field = str(field_name or "").strip()
-        if normalized_field not in {"ach_no", "ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
+        if normalized_field not in {"ticket_version", "feature_point", "root_cause", "root_cause_desc"}:
             return
         self._clear_messages()
         todo = self._resolve_selected_ticket_for_update()
         if todo is None:
             return
         next_value = str(value or "").strip()
-        ach_filled_at = todo.summary_fields.ach_filled_at
-        if normalized_field == "ach_no":
-            if next_value and not str(todo.summary_fields.ach_no or "").strip():
-                ach_filled_at = now_iso()
-            elif not next_value:
-                ach_filled_at = ""
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(
                 todo,
-                ach_no=next_value if normalized_field == "ach_no" else todo.summary_fields.ach_no,
-                ach_filled_at=ach_filled_at,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
                 feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
                 feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
@@ -3174,7 +3202,6 @@ class _ControlPanelBridge(QObject):
             return
         self._publish_ticket_update(updated, ["summary_fields"])
         field_labels = {
-            "ach_no": "ach单号",
             "ticket_version": "\u7248\u672c\u53f7",
             "feature_point": "\u529f\u80fd\u70b9",
             "root_cause": "\u95ee\u9898\u6839\u56e0",

@@ -15,6 +15,7 @@ from aica.todo.work_order_sync import (  # noqa: E402
     WorkOrderSyncEventHandler,
     build_work_order_payload,
     pull_my_in_progress_work_orders,
+    refresh_missing_ach_work_orders,
     sync_all_my_work_orders,
     todo_from_server_work_order,
 )
@@ -159,12 +160,29 @@ class _TodoStore:
         self.imported: list[TodoItem] = []
 
     def list_todos(self, *, query: str = "", status: str = "all") -> list[TodoItem]:
-        return list(self.todos)
+        normalized_status = str(status or "all").strip().lower()
+        if normalized_status == "done_missing_ach":
+            return [
+                todo
+                for todo in self.todos
+                if todo.status == TodoStatus.DONE and not str(todo.summary_fields.ach_no or "").strip()
+            ]
+        if normalized_status == "all":
+            return list(self.todos)
+        return [todo for todo in self.todos if str(todo.status or "").strip().lower() == normalized_status]
 
     def upsert_imported_todo(self, todo: TodoItem) -> TodoItem | None:
         self.imported.append(todo)
         self.todos.append(todo)
         return todo
+
+    def update_todo(self, todo_id: str, *, summary_fields: TicketSummaryFields) -> TodoItem | None:
+        for todo in self.todos:
+            if todo.id != todo_id:
+                continue
+            todo.summary_fields = summary_fields
+            return todo
+        return None
 
 
 class _Client:
@@ -201,6 +219,10 @@ class _Client:
 
     def pull_my_in_progress_work_orders(self, **kwargs):  # noqa: ANN001
         self.payloads.append(kwargs)
+        return self.response
+
+    def get_work_order_ach_statuses(self, external_order_nos, **kwargs):  # noqa: ANN001
+        self.payloads.append({"external_order_nos": list(external_order_nos), **kwargs})
         return self.response
 
     def upload_workbench_file(  # noqa: ANN001
@@ -454,3 +476,46 @@ def test_pull_my_in_progress_work_orders_imports_new_items_and_skips_existing() 
     assert client.payloads[0]["existing_external_order_nos"] == ["todo-1"]
     assert binding_store.upserts[0]["external_id"] == "102"
     assert binding_store.upserts[0]["sync_status"] == "ok:pulled"
+
+
+def test_refresh_missing_ach_work_orders_updates_completed_candidates_only() -> None:
+    missing_ach = _todo(status=TodoStatus.DONE)
+    missing_ach.id = "todo-missing"
+    missing_ach.summary_fields = TicketSummaryFields.from_dict(
+        {**missing_ach.summary_fields.to_dict(), "ach_no": "", "ach_filled_at": ""}
+    )
+    has_ach = _todo(status=TodoStatus.DONE)
+    has_ach.id = "todo-has-ach"
+    open_missing = _todo(status=TodoStatus.OPEN)
+    open_missing.id = "todo-open"
+    open_missing.summary_fields = TicketSummaryFields.from_dict(
+        {**open_missing.summary_fields.to_dict(), "ach_no": "", "ach_filled_at": ""}
+    )
+    store = _TodoStore([missing_ach, has_ach, open_missing])
+    client = _Client(
+        response={
+            "success": True,
+            "data": {
+                "items": [
+                    {
+                        "external_order_no": "todo-missing",
+                        "ach_order_no": "ACH-2026",
+                        "ach_filled_at": "2026-05-29T10:00:00+08:00",
+                    },
+                    {
+                        "external_order_no": "todo-open",
+                        "ach_order_no": "ACH-OPEN",
+                    },
+                ],
+                "pagination": {"page": 1, "page_size": 100, "total": 2},
+            },
+        }
+    )
+
+    result = refresh_missing_ach_work_orders(client, store)  # type: ignore[arg-type]
+
+    assert result.updated_count == 1
+    assert missing_ach.summary_fields.ach_no == "ACH-2026"
+    assert missing_ach.summary_fields.ach_filled_at == "2026-05-29T10:00:00+08:00"
+    assert open_missing.summary_fields.ach_no == ""
+    assert client.payloads[0]["external_order_nos"] == ["todo-missing"]

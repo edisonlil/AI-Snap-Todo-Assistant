@@ -20,14 +20,6 @@ from aica.storage.contracts import ProjectRecord  # noqa: E402
 from aica.todo.models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
-class _Clipboard:
-    def __init__(self) -> None:
-        self.text = ""
-
-    def setText(self, value: str) -> None:
-        self.text = value
-
-
 class _TextClipboard:
     def __init__(self, text: str) -> None:
         self._text = text
@@ -442,44 +434,10 @@ def test_import_otp_from_clipboard_text(monkeypatch: pytest.MonkeyPatch) -> None
     assert bridge.statusMessage == "OTP 配置已从剪贴板导入"
 
 
-def test_copy_ticket_keeps_success_message_silent(monkeypatch: pytest.MonkeyPatch) -> None:
-    todo = _build_todo()
-    clipboard = _Clipboard()
-
-    monkeypatch.setattr(control_panel.QApplication, "clipboard", lambda: clipboard)
-    bridge = _build_bridge(monkeypatch, todo)
-    bridge._status_message = "should be cleared"
-
-    bridge.copyTicket(todo.id)
-
-    assert "copy ticket test" in clipboard.text
-    assert bridge.statusMessage == ""
-    assert bridge.errorMessage == ""
-    assert _notification_messages(bridge)
-
-
-def test_control_panel_readable_chinese_copy_and_locations(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_control_panel_readable_chinese_locations(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
 
-    copy_text = control_panel._format_ticket_copy_text(
-        {
-            "title": "标题A",
-            "conclusionContent": "结论B",
-            "customerName": "客户C",
-            "projectName": "项目D",
-            "featurePoint": "功能E",
-            "ticketVersion": "V7",
-            "rootCause": "分类F",
-            "rootCauseDesc": "描述G",
-            "productLine": "文档中台",
-            "summary": "说明H",
-        }
-    )
-
-    assert "标题: 标题A" in copy_text
-    assert "项目名称: 项目D" in copy_text
-    assert "产品: 文档中台/V7" in copy_text
     assert [item["title"] for item in bridge.locations] == [
         "本地数据目录",
         "知识库归档目录",
@@ -661,7 +619,67 @@ def test_pull_work_orders_from_server_updates_ticket_payloads(monkeypatch: pytes
     assert "新增 1 条，跳过 1 条，扫描 2 条" in bridge.statusMessage
     assert bridge.workOrderSyncing is False
     assert bridge.workOrderSyncMessage == ""
-    assert refresh_events == ["refresh"]
+
+
+def test_done_missing_ach_filter_starts_async_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.status = TodoStatus.DONE
+    todo.completed_at = "2026-05-29T09:00:00"
+    created_workers: list[object] = []
+
+    class _FakeWorker:
+        finished = control_panel.pyqtSignal(object)
+        error = control_panel.pyqtSignal(str)
+
+        def __init__(self, *, config_manager, db_path, todo_ids, parent=None) -> None:  # noqa: ANN001
+            self.todo_ids = todo_ids
+            self.deleted = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.finished.emit(SimpleNamespace(updated_count=0))
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "MissingAchRefreshWorker", _FakeWorker)
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.listTickets("", "done_missing_ach")
+    bridge.listTickets("", "done_missing_ach")
+
+    assert len(created_workers) == 1
+    assert created_workers[0].todo_ids == ["ticket-1"]
+    assert created_workers[0].deleted is True
+
+
+def test_open_ticket_detail_starts_missing_ach_refresh_for_selected_ticket(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.status = TodoStatus.DONE
+    todo.completed_at = "2026-05-29T09:00:00"
+    created_workers: list[object] = []
+
+    class _FakeWorker:
+        finished = control_panel.pyqtSignal(object)
+        error = control_panel.pyqtSignal(str)
+
+        def __init__(self, *, config_manager, db_path, todo_ids, parent=None) -> None:  # noqa: ANN001
+            self.todo_ids = todo_ids
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.finished.emit(SimpleNamespace(updated_count=0))
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "MissingAchRefreshWorker", _FakeWorker)
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail("ticket-1")
+
+    assert len(created_workers) == 1
+    assert created_workers[0].todo_ids == ["ticket-1"]
 
 
 def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -948,7 +966,7 @@ def test_reopen_selected_ticket_publishes_reopened_event(monkeypatch: pytest.Mon
     assert publisher.events[0].todo_snapshot["status"] == TodoStatus.OPEN
 
 
-def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_selected_ticket_field_ignores_readonly_ach_no(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()
     bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
@@ -956,11 +974,8 @@ def test_save_selected_ticket_field_pushes_success_notification(monkeypatch: pyt
 
     bridge.saveSelectedTicketField("ach_no", "ACH-2026")
 
-    assert bridge.selectedTicket["achNo"] == "ACH-2026"
-    assert [str(event.event_type) for event in publisher.events] == ["updated"]
-    assert publisher.events[0].delta == {"changed_fields": ["summary_fields"]}
-    assert publisher.events[0].todo_snapshot["summary_fields"]["ach_no"] == "ACH-2026"
-    assert _notification_messages(bridge)
+    assert bridge.selectedTicket["achNo"] == ""
+    assert publisher.events == []
 
 
 def test_external_ticket_refresh_updates_list_and_selected_detail(monkeypatch: pytest.MonkeyPatch) -> None:

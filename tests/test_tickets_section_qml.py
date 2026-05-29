@@ -22,6 +22,6 @@ def test_tickets_section_rows_open_detail_without_covering_actions() -> None:
     assert "id: rowDetailMouseArea" in qml_text
     assert "parent.width - tableFlickable.sidePadding - tableFlickable.actionColumnWidth" in qml_text
     assert "controlPanelBridge.openTicketDetail(modelData.id)" in qml_text
-    assert "id: copyMouseArea" in qml_text
+    assert "id: copyMouseArea" not in qml_text
     assert "id: detailMouseArea" in qml_text
-    assert qml_text.count("mouse.accepted = true") >= 3
+    assert qml_text.count("mouse.accepted = true") >= 2

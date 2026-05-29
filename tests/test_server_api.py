@@ -284,6 +284,34 @@ def test_pull_my_in_progress_work_orders_sends_existing_ids() -> None:
     assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
 
 
+def test_get_work_order_ach_statuses_sends_batch_order_numbers() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {"items": []},
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    client.get_work_order_ach_statuses(["todo-1", "", "todo-2"], source_system="Chattodo")
+
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/work-orders/ach-status/batch"
+    assert session.calls[0]["json"] == {
+        "external_order_nos": ["todo-1", "todo-2"],
+        "source_system": "Chattodo",
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+
+
 def test_upload_workbench_file_sends_multipart_request(tmp_path: Path) -> None:
     file_path = tmp_path / "xiezuo.png"
     file_path.write_bytes(b"png")

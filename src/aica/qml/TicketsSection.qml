@@ -50,14 +50,6 @@ ColumnLayout {
         { value: 50, text: "50 \u6761/\u9875" }
     ]
 
-    function copyTicketForTool(todoId) {
-        var targetId = String(todoId || controlPanelBridge.selectedTicket.id || "").trim()
-        if (!targetId) {
-            return
-        }
-        controlPanelBridge.copyTicket(targetId)
-    }
-
     function currentStatusValue() {
         var index = ticketStatusCombo.currentIndex
         if (index < 0 || index >= statusOptions.length) {
@@ -916,29 +908,6 @@ ColumnLayout {
                                                         spacing: 12
 
                                                         Text {
-                                                            text: "\u590d\u5236"
-                                                            color: copyMouseArea.containsMouse ? theme.accent : "#7D8793"
-                                                            font.family: theme.uiFont
-                                                            font.pixelSize: 12
-                                                            verticalAlignment: Text.AlignVCenter
-
-                                                            Behavior on color {
-                                                                ColorAnimation { duration: 100 }
-                                                            }
-
-                                                            MouseArea {
-                                                                id: copyMouseArea
-                                                                anchors.fill: parent
-                                                                hoverEnabled: true
-                                                                cursorShape: Qt.PointingHandCursor
-                                                                onClicked: function(mouse) {
-                                                                    mouse.accepted = true
-                                                                    ticketSection.copyTicketForTool(modelData.id)
-                                                                }
-                                                            }
-                                                        }
-
-                                                        Text {
                                                             text: "\u8be6\u60c5"
                                                             color: detailMouseArea.containsMouse ? theme.accent : "#7D8793"
                                                             font.family: theme.uiFont
@@ -1152,12 +1121,6 @@ ColumnLayout {
 
                     Item {
                         Layout.fillWidth: true
-                    }
-
-                    ControlPanelPlainButton {
-                        theme: ticketSection.theme
-                        label: "\u590d\u5236\u5de5\u5355"
-                        onClicked: ticketSection.copyTicketForTool(controlPanelBridge.selectedTicket.id)
                     }
 
                     ControlPanelPlainButton {
@@ -1494,22 +1457,12 @@ ColumnLayout {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "ach单号"
-                                            value: ticketSection.isFieldEditing("achNo") ? ticketSection.getFieldDraft("achNo") : controlPanelBridge.selectedTicket.achNo
+                                            value: controlPanelBridge.selectedTicket.achNo
                                             placeholderText: "未填写"
-                                            editable: true
-                                            editing: ticketSection.isFieldEditing("achNo")
-                                            saving: ticketSection.isFieldSaving("achNo")
+                                            editable: false
+                                            editing: false
+                                            saving: false
                                             compact: ticketSection.detailGridColumns === 1
-                                            draftValue: ticketSection.getFieldDraft("achNo")
-                                            onClicked: ticketSection.beginTicketFieldEdit("achNo")
-                                            onDraftChanged: function(value) {
-                                                ticketSection.setFieldState("achNo", { draft: value })
-                                            }
-                                            onAccepted: function(value) {
-                                                ticketSection.setFieldState("achNo", { draft: value })
-                                                ticketSection.commitTicketFieldEdit("achNo", "ach_no")
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit("achNo")
                                         }
 
                                         DetailField {

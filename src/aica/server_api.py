@@ -190,6 +190,29 @@ class ChattodoServerClient:
             json=payload,
         )
 
+    def get_work_order_ach_statuses(
+        self,
+        external_order_nos: list[str],
+        *,
+        source_system: str = "",
+    ) -> dict[str, Any]:
+        order_nos = [
+            sanitize_text(item).strip()
+            for item in list(external_order_nos or [])[:500]
+            if sanitize_text(item).strip()
+        ]
+        if not order_nos:
+            raise ChattodoServerError("工单号列表不能为空。")
+        payload: dict[str, object] = {"external_order_nos": order_nos}
+        normalized_source = sanitize_text(source_system).strip()
+        if normalized_source:
+            payload["source_system"] = normalized_source
+        return self._request_json(
+            "POST",
+            "/api/open/v1/workbench/work-orders/ach-status/batch",
+            json=payload,
+        )
+
     def upload_workbench_file(
         self,
         file_path: str | Path,
