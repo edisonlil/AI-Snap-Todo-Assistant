@@ -462,43 +462,18 @@ ColumnLayout {
         }
     }
 
-    ControlPanelSectionCard {
-        id: ticketSectionCard
+    PageRuntime {
+        id: ticketListRuntime
+        visible: controlPanelBridge.selectedTicket.id.length === 0
         theme: ticketSection.theme
         Layout.fillWidth: true
-        implicitHeight: ticketContent.implicitHeight + 32
-        color: theme.panelBg
+        Layout.fillHeight: true
+        listMinimumHeight: ticketTotalCount > 0 ? 520 : 180
 
-        ColumnLayout {
-            id: ticketContent
-            anchors.fill: parent
-            anchors.margins: 16
-            spacing: 14
-
-            // 统一卡片容器 - 搜索区 + 表格
-
-            Rectangle {
-                visible: controlPanelBridge.selectedTicket.id.length === 0
-                Layout.fillWidth: true
-                implicitHeight: ticketTotalCount > 0 ? 676 : 220
-                radius: 14
-                color: theme.panelBg
-                border.width: 1
-                border.color: theme.panelLine
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 0
-
-                    Item {
-                        Layout.fillWidth: true
-                        implicitHeight: searchToolbar.implicitHeight + 28
-
-                        Flow {
-                            id: searchToolbar
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 10
+        filterContent: Flow {
+            id: searchToolbar
+            Layout.fillWidth: true
+            spacing: 10
 
                             ControlPanelSettingsInput {
                                 id: ticketSearchInput
@@ -552,44 +527,52 @@ ColumnLayout {
                                 }
                             }
 
-                            ControlPanelPlainButton {
-                                theme: ticketSection.theme
-                                label: controlPanelBridge.workOrderSyncing ? "\u540c\u6b65\u4e2d" : "\u4e00\u952e\u540c\u6b65"
-                                height: 40
-                                enabled: !controlPanelBridge.workOrderSyncing
-                                fillColor: theme.accent
-                                inkColor: "#FFFFFF"
-                                strokeWidth: 0
-                                onClicked: controlPanelBridge.syncWorkOrdersToServer()
-                            }
+        }
 
-                            ControlPanelPlainButton {
-                                theme: ticketSection.theme
-                                label: controlPanelBridge.workOrderSyncing ? "\u62c9\u53d6\u4e2d" : "\u4e00\u952e\u62c9\u53d6"
-                                height: 40
-                                enabled: !controlPanelBridge.workOrderSyncing
-                                onClicked: controlPanelBridge.pullWorkOrdersFromServer()
-                            }
-                        }
-                    }
+        actionContent: ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
 
-                    Text {
-                        visible: controlPanelBridge.workOrderSyncMessage.length > 0
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 18
-                        Layout.rightMargin: 18
-                        text: controlPanelBridge.workOrderSyncMessage
-                        color: theme.mutedInk
-                        font.family: theme.uiFont
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
+            Flow {
+                id: ticketActionToolbar
+                Layout.fillWidth: true
+                spacing: 10
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: 1
-                        color: theme.panelLine
-                    }
+                ControlPanelPlainButton {
+                    theme: ticketSection.theme
+                    label: controlPanelBridge.workOrderSyncing ? "\u540c\u6b65\u4e2d" : "\u4e00\u952e\u540c\u6b65"
+                    height: 40
+                    enabled: !controlPanelBridge.workOrderSyncing
+                    fillColor: theme.accent
+                    inkColor: "#FFFFFF"
+                    strokeWidth: 0
+                    onClicked: controlPanelBridge.syncWorkOrdersToServer()
+                }
+
+                ControlPanelPlainButton {
+                    theme: ticketSection.theme
+                    label: controlPanelBridge.workOrderSyncing ? "\u62c9\u53d6\u4e2d" : "\u4e00\u952e\u62c9\u53d6"
+                    height: 40
+                    enabled: !controlPanelBridge.workOrderSyncing
+                    onClicked: controlPanelBridge.pullWorkOrdersFromServer()
+                }
+            }
+
+            Text {
+                visible: controlPanelBridge.workOrderSyncMessage.length > 0
+                Layout.fillWidth: true
+                text: controlPanelBridge.workOrderSyncMessage
+                color: theme.mutedInk
+                font.family: theme.uiFont
+                font.pixelSize: 12
+                elide: Text.ElideRight
+            }
+        }
+
+        listContent: ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 0
 
                     Item {
                         visible: ticketTotalCount === 0
@@ -636,7 +619,6 @@ ColumnLayout {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
-                                anchors.bottomMargin: paginationBar.height
                                 clip: true
                                 boundsBehavior: Flickable.StopAtBounds
                                 contentWidth: tableColumn.width
@@ -948,114 +930,127 @@ ColumnLayout {
                                 }
                             }
 
-                            Rectangle {
-                                id: paginationBar
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                width: parent.width
-                                property bool compactLayout: width < 760
-                                height: compactLayout ? paginationInfoRow.implicitHeight + paginationSummary.implicitHeight + 29 : Math.max(paginationInfoRow.implicitHeight, paginationSummary.implicitHeight) + 21
-                                color: theme.panelBg
 
-                                    Rectangle {
-                                        anchors.top: parent.top
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        height: 1
-                                        color: theme.panelLine
-                                    }
-
-                                    Row {
-                                        id: paginationInfoRow
-                                        anchors.left: parent.left
-                                        anchors.top: parent.top
-                                        anchors.leftMargin: 14
-                                        anchors.topMargin: 10
-                                        spacing: 16
-
-                                        Text {
-                                            text: "\u5171 " + ticketSection.ticketTotalCount + " \u6761"
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                        }
-
-                                        Text {
-                                            text: "\u7b2c " + ticketSection.ticketCurrentPage + " / " + ticketSection.ticketTotalPages + " \u9875"
-                                            color: theme.bodyInk
-                                            font.family: theme.uiFont
-                                            font.pixelSize: 12
-                                        }
-                                    }
-
-                                    Flow {
-                                        id: paginationSummary
-                                        anchors.top: paginationBar.compactLayout ? paginationInfoRow.bottom : parent.top
-                                        anchors.left: paginationBar.compactLayout ? parent.left : undefined
-                                        anchors.right: paginationBar.compactLayout ? undefined : parent.right
-                                        anchors.topMargin: paginationBar.compactLayout ? 10 : 10
-                                        anchors.leftMargin: paginationBar.compactLayout ? 14 : 0
-                                        anchors.rightMargin: paginationBar.compactLayout ? 0 : 14
-                                        spacing: 10
-
-                                        ControlPanelSettingsCombo {
-                                            id: pageSizeCombo
-                                            theme: ticketSection.theme
-                                            width: 108
-                                            height: 36
-                                            model: ticketSection.pageSizeOptions
-                                            currentIndex: ticketSection.theme.optionIndex(ticketSection.pageSizeOptions, ticketSection.ticketPageSize)
-                                            onActivated: {
-                                                if (currentIndex < 0) {
-                                                    return
-                                                }
-                                                ticketSection.ticketPageSize = ticketSection.pageSizeOptions[currentIndex].value
-                                                ticketSection.refreshTicketListView(true)
-                                            }
-                                        }
-
-                                        Repeater {
-                                            model: [
-                                                { label: "\u4e0a\u4e00\u9875", enabled: ticketSection.ticketCurrentPage > 1, page: Math.max(1, ticketSection.ticketCurrentPage - 1), current: false },
-                                                { label: String(ticketSection.ticketCurrentPage), enabled: true, page: ticketSection.ticketCurrentPage, current: true },
-                                                { label: "\u4e0b\u4e00\u9875", enabled: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages, page: Math.min(ticketSection.ticketTotalPages, ticketSection.ticketCurrentPage + 1), current: false }
-                                            ]
-
-                                            delegate: Rectangle {
-                                                property var pageItem: modelData
-                                                width: pageItem.current ? 44 : 60
-                                                height: 36
-                                                radius: 16
-                                                color: pageItem.current ? theme.accent : theme.panelBg
-                                                border.width: 1
-                                                border.color: theme.accent
-                                                opacity: pageItem.enabled ? 1.0 : 0.56
-
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: parent.pageItem.label
-                                                    color: parent.pageItem.current ? "#FFFFFF" : theme.accent
-                                                    font.family: theme.uiFont
-                                                    font.pixelSize: 12
-                                                    font.weight: parent.pageItem.current ? 600 : 500
-                                                }
-
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    enabled: parent.pageItem.enabled
-                                                    cursorShape: parent.pageItem.current ? Qt.ArrowCursor : Qt.PointingHandCursor
-                                                    onClicked: ticketSection.setTicketPage(parent.pageItem.page)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
             }
+
+        footerContent: Rectangle {
+            id: paginationBar
+            visible: ticketTotalCount > 0
+            Layout.fillWidth: true
+            property bool compactLayout: width < 760
+            implicitHeight: compactLayout ? paginationInfoRow.implicitHeight + paginationSummary.implicitHeight + 29 : Math.max(paginationInfoRow.implicitHeight, paginationSummary.implicitHeight) + 21
+            color: theme.panelBg
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: theme.panelLine
+            }
+
+            Row {
+                id: paginationInfoRow
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.leftMargin: 14
+                anchors.topMargin: 10
+                spacing: 16
+
+                Text {
+                    text: "\u5171 " + ticketSection.ticketTotalCount + " \u6761"
+                    color: theme.bodyInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 12
+                }
+
+                Text {
+                    text: "\u7b2c " + ticketSection.ticketCurrentPage + " / " + ticketSection.ticketTotalPages + " \u9875"
+                    color: theme.bodyInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 12
+                }
+            }
+
+            Flow {
+                id: paginationSummary
+                anchors.top: paginationBar.compactLayout ? paginationInfoRow.bottom : parent.top
+                anchors.left: paginationBar.compactLayout ? parent.left : undefined
+                anchors.right: paginationBar.compactLayout ? undefined : parent.right
+                anchors.topMargin: 10
+                anchors.leftMargin: paginationBar.compactLayout ? 14 : 0
+                anchors.rightMargin: paginationBar.compactLayout ? 0 : 14
+                spacing: 10
+
+                ControlPanelSettingsCombo {
+                    id: pageSizeCombo
+                    theme: ticketSection.theme
+                    width: 108
+                    height: 36
+                    model: ticketSection.pageSizeOptions
+                    currentIndex: ticketSection.theme.optionIndex(ticketSection.pageSizeOptions, ticketSection.ticketPageSize)
+                    onActivated: {
+                        if (currentIndex < 0) {
+                            return
+                        }
+                        ticketSection.ticketPageSize = ticketSection.pageSizeOptions[currentIndex].value
+                        ticketSection.refreshTicketListView(true)
+                    }
+                }
+
+                Repeater {
+                    model: [
+                        { label: "\u4e0a\u4e00\u9875", enabled: ticketSection.ticketCurrentPage > 1, page: Math.max(1, ticketSection.ticketCurrentPage - 1), current: false },
+                        { label: String(ticketSection.ticketCurrentPage), enabled: true, page: ticketSection.ticketCurrentPage, current: true },
+                        { label: "\u4e0b\u4e00\u9875", enabled: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages, page: Math.min(ticketSection.ticketTotalPages, ticketSection.ticketCurrentPage + 1), current: false }
+                    ]
+
+                    delegate: Rectangle {
+                        property var pageItem: modelData
+                        width: pageItem.current ? 44 : 60
+                        height: 36
+                        radius: 16
+                        color: pageItem.current ? theme.accent : theme.panelBg
+                        border.width: 1
+                        border.color: theme.accent
+                        opacity: pageItem.enabled ? 1.0 : 0.56
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: parent.pageItem.label
+                            color: parent.pageItem.current ? "#FFFFFF" : theme.accent
+                            font.family: theme.uiFont
+                            font.pixelSize: 12
+                            font.weight: parent.pageItem.current ? 600 : 500
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: parent.pageItem.enabled
+                            cursorShape: parent.pageItem.current ? Qt.ArrowCursor : Qt.PointingHandCursor
+                            onClicked: ticketSection.setTicketPage(parent.pageItem.page)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ControlPanelSectionCard {
+        visible: controlPanelBridge.selectedTicket.id.length > 0
+        theme: ticketSection.theme
+        Layout.fillWidth: true
+        implicitHeight: ticketDetailContent.implicitHeight + 32
+        color: theme.panelBg
+
+        ColumnLayout {
+            id: ticketDetailContent
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 18
 
             ColumnLayout {
                 visible: controlPanelBridge.selectedTicket.id.length > 0

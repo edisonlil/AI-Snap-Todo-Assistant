@@ -3,6 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def test_tickets_section_uses_page_runtime_slots() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "PageRuntime {" in qml_text
+    assert "filterContent: Flow" in qml_text
+    assert "actionContent: ColumnLayout" in qml_text
+    assert "listContent: ColumnLayout" in qml_text
+    assert "footerContent: Rectangle" in qml_text
+    page_runtime_start = qml_text.index("PageRuntime {")
+    filter_content_start = qml_text.index("filterContent: Flow")
+    page_runtime_header = qml_text[page_runtime_start:filter_content_start]
+    assert "title:" not in page_runtime_header
+    assert "description:" not in page_runtime_header
+    assert qml_text.index("filterContent: Flow") < qml_text.index("actionContent: ColumnLayout")
+    assert qml_text.index("actionContent: ColumnLayout") < qml_text.index("listContent: ColumnLayout")
+    assert qml_text.index("listContent: ColumnLayout") < qml_text.index("footerContent: Rectangle")
+
+
 def test_tickets_section_table_supports_horizontal_scroll() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -13,6 +32,7 @@ def test_tickets_section_table_supports_horizontal_scroll() -> None:
     assert "property real tableContentWidth" in qml_text
     assert "width: Math.max(tableHorizontalFlickable.width, tableFlickable.tableContentWidth)" in qml_text
     assert "anchors.bottom: paginationBar.top" not in qml_text
+    assert "anchors.bottomMargin: paginationBar.height" not in qml_text
 
 
 def test_tickets_section_rows_open_detail_without_covering_actions() -> None:
