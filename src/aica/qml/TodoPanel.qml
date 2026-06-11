@@ -30,6 +30,7 @@ Rectangle {
         readonly property bool hasSelected: false
         readonly property string expandLabel: ""
         readonly property string logoSource: ""
+        readonly property string headerStatusText: todoCount + " 进行中"
 
         function startDrag() {}
         function moveDrag() {}
@@ -86,7 +87,7 @@ Rectangle {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.verticalCenterOffset: 1
-                        text: root.bridge.todoCount + " 进行中"
+                        text: root.bridge.headerStatusText
                         font.pixelSize: 11
                         color: "#7B7B7B"
                     }

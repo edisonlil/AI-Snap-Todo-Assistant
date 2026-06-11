@@ -31,7 +31,6 @@ from aica.log_analysis.models import LogAnalysisTask
 from aica.log_analysis.orchestrator import LogAnalysisOrchestrator
 from aica.log_analysis.store import LogAnalysisTaskStore
 from aica.log_analysis.worker import LogAnalysisWorker
-from aica.loading_dialog import LoadingDialog
 from aica.models import TicketSummaryFields
 from aica.overlay import OverlayWindow
 from aica.paths import error_log_file, icon_file
@@ -267,7 +266,6 @@ def main() -> None:
     todo_panel = TodoPanel()
     todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge)
     todo_detail_panel.set_pinned(todo_panel.pinned)
-    loading_dialog = LoadingDialog()
     toolbar.set_scenario_selector_visible(True)
 
     capture_session = CaptureSession()
@@ -375,10 +373,6 @@ def main() -> None:
     color_scheme_changed = getattr(style_hints, "colorSchemeChanged", None)
     if RUNTIME_CAPABILITIES.is_macos and color_scheme_changed is not None:
         color_scheme_changed.connect(lambda *_args: _update_tray_icon())
-    todo_panel.geometry_changed.connect(
-        lambda: loading_dialog.show_loading(todo_panel) if loading_dialog.isVisible() else None
-    )
-
     def _refresh_todo_panel() -> None:
         todo_panel.set_todos(
             todo_controller.get_active_todos(),
@@ -632,8 +626,8 @@ def main() -> None:
         multi_worker_factory=MultiCaptureAIWorker,
         show_warning=lambda title, message: QMessageBox.warning(None, title, message),
         record_analysis_metrics=lambda stats, success: analysis_metrics_store.record(stats, success=success),
-        show_loading=lambda: (_refresh_todo_panel(), loading_dialog.show_loading(todo_panel)),
-        hide_loading=loading_dialog.hide_loading,
+        show_loading=lambda: (_refresh_todo_panel(), todo_panel.set_analysis_loading(True)),
+        hide_loading=lambda: todo_panel.set_analysis_loading(False),
     )
 
     def _on_summarize() -> None:

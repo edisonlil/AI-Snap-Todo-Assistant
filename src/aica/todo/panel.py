@@ -41,6 +41,8 @@ class _TodoPanelBridge(QObject):
     canExpandChanged = pyqtSignal()
     minimizedChanged = pyqtSignal()
     pinnedChanged = pyqtSignal()
+    analysisLoadingChanged = pyqtSignal()
+    headerStatusTextChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
@@ -58,6 +60,7 @@ class _TodoPanelBridge(QObject):
         self._visible_limit = visible_limit
         self._minimized = False
         self._pinned = True
+        self._analysis_loading = False
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -97,11 +100,20 @@ class _TodoPanelBridge(QObject):
     def pinned(self) -> bool:
         return self._pinned
 
+    @pyqtProperty(bool, notify=analysisLoadingChanged)
+    def analysisLoading(self) -> bool:
+        return self._analysis_loading
+
     @pyqtProperty(str, notify=expandedChanged)
     def expandLabel(self) -> str:
         if not self.canExpand:
             return ""
         return "收起" if self._expanded else "展开"
+
+    @pyqtProperty(str, notify=headerStatusTextChanged)
+    def headerStatusText(self) -> str:
+        status_text = "截图分析中..." if self._analysis_loading else "进行中"
+        return f"{len(self._todos)} {status_text}"
 
     @pyqtProperty(str, constant=True)
     def logoSource(self) -> str:
@@ -129,6 +141,8 @@ class _TodoPanelBridge(QObject):
         self.expandedChanged.emit()
         self.canExpandChanged.emit()
         self.minimizedChanged.emit()
+        self.analysisLoadingChanged.emit()
+        self.headerStatusTextChanged.emit()
 
     @pyqtSlot()
     def toggleExpanded(self) -> None:
@@ -177,6 +191,14 @@ class _TodoPanelBridge(QObject):
     def clearSelection(self) -> None:
         self.selectionCleared.emit()
 
+    def set_analysis_loading(self, loading: bool) -> None:
+        loading = bool(loading)
+        if self._analysis_loading == loading:
+            return
+        self._analysis_loading = loading
+        self.analysisLoadingChanged.emit()
+        self.headerStatusTextChanged.emit()
+
 
 class TodoPanel(QQuickView):
     todo_selected = pyqtSignal(str)
@@ -201,7 +223,6 @@ class TodoPanel(QQuickView):
         self._custom_position = None
         self._snap_margin = 18
         self._snap_threshold = 28
-        self._top_reserved_space = 0
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -273,13 +294,8 @@ class TodoPanel(QQuickView):
     def pinned(self) -> bool:
         return self._bridge.pinned
 
-    def set_top_reserved_space(self, height: int) -> None:
-        reserved = max(0, int(height))
-        if self._top_reserved_space == reserved:
-            return
-        self._top_reserved_space = reserved
-        if self.isVisible():
-            self._reposition()
+    def set_analysis_loading(self, loading: bool) -> None:
+        self._bridge.set_analysis_loading(loading)
 
     def _apply_window_flags(self) -> None:
         was_visible = self.isVisible()
@@ -304,7 +320,7 @@ class TodoPanel(QQuickView):
         if screen is None:
             return
         available = screen.availableGeometry()
-        min_y = available.top() + self._snap_margin + self._top_reserved_space
+        min_y = available.top() + self._snap_margin
         max_y = available.bottom() - self.height() - self._snap_margin
         if self._custom_position is not None:
             x = min(max(self._custom_position.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
@@ -333,7 +349,7 @@ class TodoPanel(QQuickView):
         candidate = cursor_pos - self._drag_offset
         x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
         y = min(
-            max(candidate.y(), available.top() + self._snap_margin + self._top_reserved_space),
+            max(candidate.y(), available.top() + self._snap_margin),
             available.bottom() - self.height() - self._snap_margin,
         )
         self.setPosition(x, y)
@@ -358,7 +374,7 @@ class TodoPanel(QQuickView):
         right_snap = available.right() - self.width() - self._snap_margin
         x = left_snap if abs(x - left_snap) <= abs(x - right_snap) else right_snap
 
-        top_snap = available.top() + self._snap_margin + self._top_reserved_space
+        top_snap = available.top() + self._snap_margin
         if abs(y - top_snap) <= self._snap_threshold:
             y = top_snap
         if abs((available.bottom() - self.height() - self._snap_margin) - y) <= self._snap_threshold:

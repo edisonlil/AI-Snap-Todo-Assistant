@@ -181,7 +181,6 @@ def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> No
     panel._custom_position = FakePoint(500, 120)  # noqa: SLF001
     panel._snap_margin = 18  # noqa: SLF001
     panel._snap_threshold = 28  # noqa: SLF001
-    panel._top_reserved_space = 0  # noqa: SLF001
     panel.geometry_changed = FakeSignal()
     panel.position = lambda: FakePoint(500, 120)
     panel.width = lambda: 286
