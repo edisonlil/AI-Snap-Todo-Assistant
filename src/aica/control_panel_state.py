@@ -10,20 +10,11 @@ from typing import Any
 
 from aica.config import AppConfig
 from aica.hotkey import normalize_hotkey
-from aica.llm.service import LLMService, ModelResolutionError
 from aica.paths import save_storage_paths, storage_config_file
 from aica.runtime import build_script_command, current_platform, describe_script_support_for_command
 
 
 MEGABYTE = 1024 * 1024
-TASK_NAMES = (
-    "analysis",
-    "log_analysis",
-    "plan_export",
-    "context_summary",
-)
-
-
 def format_image_limit_megabytes(image_bytes: int) -> str:
     value = max(1, int(image_bytes)) / MEGABYTE
     formatted = f"{value:.2f}".rstrip("0").rstrip(".")
@@ -41,15 +32,6 @@ def parse_image_limit_megabytes(value: str) -> int:
     if parsed <= 0:
         raise ValueError("图片压缩阈值必须大于 0")
     return max(1, int(round(parsed * MEGABYTE)))
-
-
-def validate_runtime_bindings(config: AppConfig) -> None:
-    service = LLMService(config)
-    try:
-        for task_name in TASK_NAMES:
-            service.resolve_task_model(task_name)
-    except ModelResolutionError as exc:
-        raise ValueError(str(exc)) from exc
 
 
 def normalize_directory_path(value: str) -> str:
@@ -125,7 +107,6 @@ def persist_control_panel_config(
     updated.hotkeys.capture = normalize_hotkey(capture_hotkey)
     updated.max_image_bytes = parse_image_limit_megabytes(max_image_megabytes)
     updated.default_provider_id = updated.task_model_bindings.analysis.provider_id
-    validate_runtime_bindings(updated)
     config_manager.save(updated)
     return updated
 

@@ -455,7 +455,6 @@ def test_server_config_updates_and_persists(monkeypatch: pytest.MonkeyPatch) -> 
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
 
-    bridge.updateProviderField("siliconflow", "api_key", "model-key")
     bridge.updateServerField("enabled", "true")
     bridge.updateServerField("base_url", "https://server.example.com")
     bridge.updateServerField("api_key", "server-key")
@@ -475,6 +474,7 @@ def test_server_config_updates_and_persists(monkeypatch: pytest.MonkeyPatch) -> 
     assert saved.server.base_url == "https://server.example.com"
     assert saved.server.api_key == "server-key"
     assert saved.server.timeout_seconds == 45
+    assert next(provider for provider in saved.providers if provider.id == "siliconflow").api_key == ""
     assert bridge.statusMessage
 
 
@@ -482,7 +482,6 @@ def test_server_config_rejects_invalid_timeout(monkeypatch: pytest.MonkeyPatch) 
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
 
-    bridge.updateProviderField("siliconflow", "api_key", "model-key")
     bridge.updateServerField("timeout_seconds", "0")
     bridge.saveConfig()
 
