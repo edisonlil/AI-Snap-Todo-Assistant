@@ -88,4 +88,13 @@ def test_control_panel_buttons_use_shared_button_tokens() -> None:
     assert "theme.buttonPrimaryBgPressed" in button
     assert "buttonMouse.containsMouse" in button
     assert "component PlainButton: ControlPanelPlainButton" in control_panel
-    assert "component PlainButton: Rectangle" not in control_panel
+
+
+def test_control_panel_spin_box_is_custom_drawn() -> None:
+    spin_box = _qml("ControlPanelSettingsSpinBox.qml")
+
+    assert "SpinBox {" not in spin_box
+    assert "Rectangle {" in spin_box
+    assert "signal valueModified" in spin_box
+    assert "TextInput {" in spin_box
+    assert "MouseArea {" in spin_box
