@@ -49,3 +49,18 @@ def test_control_panel_sections_use_shared_form_components() -> None:
     assert "component MultiLineInput: ControlPanelSettingsArea" in control_panel
     assert "component ModelFieldInput: ControlPanelSettingsInput" in control_panel
     assert "component ModelFieldCombo: ControlPanelSettingsCombo" in control_panel
+
+
+def test_project_alias_chips_render_normalized_alias_text() -> None:
+    projects = _qml("ProjectsSection.qml")
+    control_panel = _qml("ControlPanel.qml")
+
+    assert "function projectAliasText(value)" in control_panel
+    assert "function normalizedProjectAliases(values)" in control_panel
+    assert "aliases: normalizedProjectAliases(source.aliases)" in control_panel
+    assert "required property var modelData" in projects
+    assert "required property var modelData" in control_panel
+    assert "label: theme.projectAliasText(modelData)" in projects
+    assert "label: root.projectAliasText(modelData)" in control_panel
+    assert "label: modelData" not in projects
+    assert "label: modelData" not in control_panel

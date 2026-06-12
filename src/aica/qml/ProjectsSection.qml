@@ -364,9 +364,11 @@ ColumnLayout {
                                 model: theme.projectDraft.aliases
 
                                 delegate: ControlPanelChip {
+                                    required property var modelData
+
                                     theme: projectSection.theme
-                                    label: modelData
-                                    onRemoveClicked: theme.removeProjectAlias(modelData)
+                                    label: theme.projectAliasText(modelData)
+                                    onRemoveClicked: theme.removeProjectAlias(theme.projectAliasText(modelData))
                                 }
                             }
                         }

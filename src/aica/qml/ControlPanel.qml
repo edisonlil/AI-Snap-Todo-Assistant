@@ -161,6 +161,38 @@ Rectangle {
         }
     }
 
+    function projectAliasText(value) {
+        if (value === null || value === undefined) {
+            return ""
+        }
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            return value.toString().trim()
+        }
+        var keys = ["alias", "aliasName", "alias_name", "name", "text", "label", "groupName", "group_name", "modelData"]
+        for (var index = 0; index < keys.length; index += 1) {
+            var key = keys[index]
+            if (value[key] !== undefined && value[key] !== null) {
+                var text = projectAliasText(value[key])
+                if (text.length > 0) {
+                    return text
+                }
+            }
+        }
+        return ""
+    }
+
+    function normalizedProjectAliases(values) {
+        var source = values || []
+        var result = []
+        for (var index = 0; index < source.length; index += 1) {
+            var alias = projectAliasText(source[index])
+            if (alias.length > 0) {
+                result.push(alias)
+            }
+        }
+        return result
+    }
+
     function copyProjectDraft(source) {
         return {
             id: source.id || "",
@@ -173,7 +205,7 @@ Rectangle {
             productVersion: source.productVersion || "",
             projectManager: source.projectManager || "",
             projectLevel: source.projectLevel || "normal",
-            aliases: source.aliases ? source.aliases.slice(0) : []
+            aliases: normalizedProjectAliases(source.aliases)
         }
     }
 
@@ -243,7 +275,7 @@ Rectangle {
         }
         var next = copyProjectDraft(projectDraft)
         for (var index = 0; index < next.aliases.length; index += 1) {
-            if ((next.aliases[index] || "").trim().toLowerCase() === alias.toLowerCase()) {
+            if (projectAliasText(next.aliases[index]).toLowerCase() === alias.toLowerCase()) {
                 projectAliasInput = ""
                 return
             }
@@ -256,8 +288,9 @@ Rectangle {
     function removeProjectAlias(alias) {
         var next = copyProjectDraft(projectDraft)
         var updatedAliases = []
+        var targetAlias = projectAliasText(alias)
         for (var index = 0; index < next.aliases.length; index += 1) {
-            if (next.aliases[index] !== alias) {
+            if (projectAliasText(next.aliases[index]) !== targetAlias) {
                 updatedAliases.push(next.aliases[index])
             }
         }
@@ -2511,9 +2544,11 @@ Rectangle {
                                                             model: root.projectDraft.aliases
 
                                                             delegate: ControlPanelChip {
+                                                                required property var modelData
+
                                                                 theme: root
-                                                                label: modelData
-                                                                onRemoveClicked: root.removeProjectAlias(modelData)
+                                                                label: root.projectAliasText(modelData)
+                                                                onRemoveClicked: root.removeProjectAlias(root.projectAliasText(modelData))
                                                             }
                                                         }
                                                     }
