@@ -152,16 +152,15 @@ ColumnLayout {
         }
     }
 
-    ControlPanelSectionCard {
+    PageRuntime {
+        visible: root.environmentViewMode === "list"
         theme: root.theme
         Layout.fillWidth: true
-        implicitHeight: filterContent.implicitHeight + 24
-        color: theme.panelBg
+        Layout.fillHeight: true
+        listMinimumHeight: 360
 
-        ColumnLayout {
-            id: filterContent
-            anchors.fill: parent
-            anchors.margins: 12
+        filterContent: ColumnLayout {
+            Layout.fillWidth: true
             spacing: 12
 
             RowLayout {
@@ -223,157 +222,161 @@ ColumnLayout {
                 }
             }
         }
-    }
 
-    ControlPanelSectionCard {
-        visible: root.environmentViewMode === "list"
-        theme: root.theme
-        Layout.fillWidth: true
-        implicitHeight: listContent.implicitHeight + 24
-        color: theme.panelBg
+        actionContent: RowLayout {
+            Layout.fillWidth: true
 
-        ColumnLayout {
-            id: listContent
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 12
-
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 4
+
+                Text {
+                    text: root.isProjectScope ? "项目环境列表" : "全局环境列表"
+                    color: theme.titleInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 15
+                    font.weight: 700
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "列表页只保留环境摘要。点击进入详情后，再维护环境配置和访问信息。"
+                    color: theme.labelInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            ControlPanelPlainButton {
+                theme: root.theme
+                label: "新建环境"
+                visible: !root.isProjectScope || (controlPanelBridge.projectEnvironmentProjectId || "").length > 0
+                onClicked: root.startCreateEnvironment()
+            }
+        }
+
+        listContent: Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            Flickable {
+                anchors.fill: parent
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                contentWidth: width
+                contentHeight: environmentListColumn.implicitHeight
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
+                    id: environmentListColumn
+                    width: parent.width
+                    spacing: 12
 
                     Text {
-                        text: root.isProjectScope ? "项目环境列表" : "全局环境列表"
-                        color: theme.titleInk
-                        font.family: theme.uiFont
-                        font.pixelSize: 15
-                        font.weight: 700
-                    }
-
-                    Text {
+                        visible: root.filteredGroups.length === 0
                         Layout.fillWidth: true
-                        text: "列表页只保留环境摘要。点击进入详情后，再维护环境配置和访问信息。"
-                        color: theme.labelInk
+                        text: root.emptyStateMessage()
+                        color: theme.bodyInk
                         font.family: theme.uiFont
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                         wrapMode: Text.Wrap
                     }
-                }
 
-                ControlPanelPlainButton {
-                    theme: root.theme
-                    label: "新建环境"
-                    visible: !root.isProjectScope || (controlPanelBridge.projectEnvironmentProjectId || "").length > 0
-                    onClicked: root.startCreateEnvironment()
-                }
-            }
+                    Repeater {
+                        model: root.filteredGroups
 
-            Text {
-                visible: root.filteredGroups.length === 0
-                Layout.fillWidth: true
-                text: root.emptyStateMessage()
-                color: theme.bodyInk
-                font.family: theme.uiFont
-                font.pixelSize: 12
-                wrapMode: Text.Wrap
-            }
-
-            Repeater {
-                model: root.filteredGroups
-
-                delegate: Rectangle {
-                    Layout.fillWidth: true
-                    radius: 18
-                    color: theme.panelAltBg
-                    border.width: 1
-                    border.color: theme.panelLine
-                    implicitHeight: cardColumn.implicitHeight + 24
-
-                    ColumnLayout {
-                        id: cardColumn
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 10
-
-                        RowLayout {
+                        delegate: Rectangle {
                             Layout.fillWidth: true
-                            spacing: 10
+                            radius: 18
+                            color: theme.panelAltBg
+                            border.width: 1
+                            border.color: theme.panelLine
+                            implicitHeight: cardColumn.implicitHeight + 24
 
                             ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
+                                id: cardColumn
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 10
 
-                                Text {
-                                    text: modelData.name || ""
-                                    color: theme.titleInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 14
-                                    font.weight: 700
-                                }
-
-                                Text {
-                                    visible: (modelData.type || "").length > 0 || (modelData.note || "").length > 0
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: ((modelData.type || "").length > 0 ? ("类型：" + modelData.type) : "")
-                                          + (((modelData.type || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
-                                          + ((modelData.note || "").length > 0 ? modelData.note : "")
-                                    color: theme.bodyInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 11
-                                    wrapMode: Text.Wrap
+                                    spacing: 10
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 4
+
+                                        Text {
+                                            text: modelData.name || ""
+                                            color: theme.titleInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 14
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            visible: (modelData.type || "").length > 0 || (modelData.note || "").length > 0
+                                            Layout.fillWidth: true
+                                            text: ((modelData.type || "").length > 0 ? ("类型：" + modelData.type) : "")
+                                                  + (((modelData.type || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
+                                                  + ((modelData.note || "").length > 0 ? modelData.note : "")
+                                            color: theme.bodyInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        radius: 10
+                                        color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
+                                        border.width: 1
+                                        border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
+                                        implicitWidth: scopeText.implicitWidth + 16
+                                        implicitHeight: 24
+
+                                        Text {
+                                            id: scopeText
+                                            anchors.centerIn: parent
+                                            text: modelData.scopeLabel || ""
+                                            color: modelData.isGlobal ? "#26418F" : "#17663A"
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 10
+                                            font.weight: 700
+                                        }
+                                    }
                                 }
-                            }
 
-                            Rectangle {
-                                radius: 10
-                                color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
-                                border.width: 1
-                                border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
-                                implicitWidth: scopeText.implicitWidth + 16
-                                implicitHeight: 24
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
 
-                                Text {
-                                    id: scopeText
-                                    anchors.centerIn: parent
-                                    text: modelData.scopeLabel || ""
-                                    color: modelData.isGlobal ? "#26418F" : "#17663A"
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: 700
+                                    Text {
+                                        text: "访问项 " + Number(modelData.entryCount || 0) + " 个"
+                                        color: theme.labelInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                    }
+
+                                    Text {
+                                        text: !!modelData.isActive ? "已启用" : "已停用"
+                                        color: !!modelData.isActive ? "#17663A" : theme.labelInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                        font.weight: 600
+                                    }
+
+                                    Item {
+                                        Layout.fillWidth: true
+                                    }
+
+                                    ControlPanelPlainButton {
+                                        theme: root.theme
+                                        label: "查看详情"
+                                        onClicked: root.openEnvironmentDetail(modelData.id)
+                                    }
                                 }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-
-                            Text {
-                                text: "访问项 " + Number(modelData.entryCount || 0) + " 个"
-                                color: theme.labelInk
-                                font.family: theme.uiFont
-                                font.pixelSize: 11
-                            }
-
-                            Text {
-                                text: !!modelData.isActive ? "已启用" : "已停用"
-                                color: !!modelData.isActive ? "#17663A" : theme.labelInk
-                                font.family: theme.uiFont
-                                font.pixelSize: 11
-                                font.weight: 600
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                            }
-
-                            ControlPanelPlainButton {
-                                theme: root.theme
-                                label: "查看详情"
-                                onClicked: root.openEnvironmentDetail(modelData.id)
                             }
                         }
                     }
