@@ -7,9 +7,9 @@ Rectangle {
     property bool selected: false
     signal clicked
 
-    radius: theme.formFieldRadius || 16
+    radius: theme.componentRadius || theme.formFieldRadius || 8
     implicitWidth: segmentLabel.implicitWidth + 28
-    implicitHeight: theme.formFieldHeight || 44
+    implicitHeight: theme.componentHeight || theme.formFieldHeight || 36
     color: selected ? theme.accentSoft : (theme.formFieldBg || theme.inputBg || "#FFFFFF")
     border.width: 1
     border.color: selected ? theme.accent : (theme.formFieldBorder || theme.panelLine || "#E5E7EB")

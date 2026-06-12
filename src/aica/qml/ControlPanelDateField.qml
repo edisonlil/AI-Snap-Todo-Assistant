@@ -8,8 +8,8 @@ Rectangle {
     readonly property bool hasValue: text.length > 0
     signal clicked
 
-    implicitHeight: theme.formFieldHeight || 44
-    radius: theme.formFieldRadius || 16
+    implicitHeight: theme.componentHeight || theme.formFieldHeight || 36
+    radius: theme.componentRadius || theme.formFieldRadius || 8
     color: theme.formFieldBg || theme.inputBg || "#FFFFFF"
     border.width: 1
     border.color: theme.formFieldBorder || theme.panelLine || "#E5E7EB"

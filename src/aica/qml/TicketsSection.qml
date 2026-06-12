@@ -479,7 +479,6 @@ ColumnLayout {
                                 id: ticketSearchInput
                                 theme: ticketSection.theme
                                 width: Math.max(320, parent.width - 366)
-                                height: 40
                                 text: controlPanelBridge.ticketQuery
                                 placeholderText: "\u641c\u7d22\u5de5\u5355\u6807\u9898"
                                 onTextEdited: controlPanelBridge.listTickets(text, ticketSection.currentStatusValue())
@@ -489,7 +488,6 @@ ColumnLayout {
                                 id: ticketStatusCombo
                                 theme: ticketSection.theme
                                 width: 108
-                                height: 40
                                 model: ticketSection.statusOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.statusOptions, controlPanelBridge.ticketStatusFilter)
                                 onActivated: if (currentIndex >= 0) controlPanelBridge.listTickets(ticketSearchInput.text, ticketSection.statusOptions[currentIndex].value)
@@ -499,7 +497,6 @@ ColumnLayout {
                                 id: ticketProductLineCombo
                                 theme: ticketSection.theme
                                 width: 112
-                                height: 40
                                 model: ticketSection.productLineOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.productLineOptions, ticketSection.selectedProductLine)
                                 onActivated: {
@@ -515,7 +512,6 @@ ColumnLayout {
                                 id: ticketTypeCombo
                                 theme: ticketSection.theme
                                 width: 96
-                                height: 40
                                 model: ticketSection.ticketTypeOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.ticketTypeOptions, ticketSection.selectedTicketType)
                                 onActivated: {
@@ -541,10 +537,8 @@ ColumnLayout {
                 ControlPanelPlainButton {
                     theme: ticketSection.theme
                     label: controlPanelBridge.workOrderSyncing ? "\u540c\u6b65\u4e2d" : "\u4e00\u952e\u540c\u6b65"
-                    height: 40
                     enabled: !controlPanelBridge.workOrderSyncing
-                    fillColor: theme.accent
-                    inkColor: "#FFFFFF"
+                    primary: true
                     strokeWidth: 0
                     onClicked: controlPanelBridge.syncWorkOrdersToServer()
                 }
@@ -552,7 +546,6 @@ ColumnLayout {
                 ControlPanelPlainButton {
                     theme: ticketSection.theme
                     label: controlPanelBridge.workOrderSyncing ? "\u62c9\u53d6\u4e2d" : "\u4e00\u952e\u62c9\u53d6"
-                    height: 40
                     enabled: !controlPanelBridge.workOrderSyncing
                     onClicked: controlPanelBridge.pullWorkOrdersFromServer()
                 }
@@ -989,7 +982,6 @@ ColumnLayout {
                     id: pageSizeCombo
                     theme: ticketSection.theme
                     width: 108
-                    height: 36
                     model: ticketSection.pageSizeOptions
                     currentIndex: ticketSection.theme.optionIndex(ticketSection.pageSizeOptions, ticketSection.ticketPageSize)
                     onActivated: {
@@ -1183,8 +1175,7 @@ ColumnLayout {
                             ControlPanelPlainButton {
                                 theme: ticketSection.theme
                                 label: "\u786e\u8ba4\u5220\u9664"
-                                fillColor: theme.accent
-                                inkColor: "#FFFFFF"
+                                primary: true
                                 strokeWidth: 0
                                 onClicked: ticketSection.confirmDeleteSelectedTicket()
                             }
@@ -1537,8 +1528,7 @@ ColumnLayout {
                                                         ControlPanelPlainButton {
                                                             theme: ticketSection.theme
                                                             label: "确认解除"
-                                                            fillColor: theme.accent
-                                                            inkColor: "#FFFFFF"
+                                                            primary: true
                                                             strokeWidth: 0
                                                             onClicked: ticketSection.confirmUnlinkSelectedTicketProject()
                                                         }

@@ -2085,9 +2085,23 @@ class _ControlPanelBridge(QObject):
     def updateThemeNumberField(self, field_name: str, value: float) -> None:
         payload = self._theme_draft.to_dict()
         normalized = str(field_name or "").strip()
-        if normalized not in {"radius_scale", "font_scale", "font_size_px"}:
+        if normalized not in {
+            "component_radius",
+            "component_height",
+            "button_radius",
+            "button_height",
+            "radius_scale",
+            "font_scale",
+            "font_size_px",
+        }:
             return
-        payload[normalized] = int(value) if normalized == "font_size_px" else float(value)
+        payload[normalized] = int(value) if normalized in {
+            "component_radius",
+            "component_height",
+            "button_radius",
+            "button_height",
+            "font_size_px",
+        } else float(value)
         self._theme_draft = ThemeConfig.from_dict(payload)
         self._clear_messages()
         self._emit_data_changed()

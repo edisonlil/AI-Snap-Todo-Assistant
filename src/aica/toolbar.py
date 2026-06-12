@@ -228,38 +228,38 @@ class FloatingToolbar(QWidget):
                 selection-background-color: %(accentTint)s;
             }
             QPushButton {
-                border-radius: %(radiusSm)spx;
+                border-radius: %(buttonRadius)spx;
                 padding: 5px 10px;
-                font-size: %(fontCaption)spx;
+                font-size: %(buttonFontSize)spx;
                 font-weight: 600;
                 min-height: 18px;
             }
             QPushButton#primaryButton {
-                color: %(accentInk)s;
-                background-color: %(accent)s;
-                border: 1px solid %(accent)s;
+                color: %(buttonPrimaryInk)s;
+                background-color: %(buttonPrimaryBg)s;
+                border: 1px solid %(buttonPrimaryBg)s;
                 min-width: 56px;
             }
             QPushButton#primaryButton:hover {
-                background-color: %(accentHover)s;
-                border: 1px solid %(accentHover)s;
+                background-color: %(buttonPrimaryBgHover)s;
+                border: 1px solid %(buttonPrimaryBgHover)s;
             }
             QPushButton#primaryButton:pressed {
-                background-color: %(accentPressed)s;
-                border: 1px solid %(accentPressed)s;
+                background-color: %(buttonPrimaryBgPressed)s;
+                border: 1px solid %(buttonPrimaryBgPressed)s;
             }
             QPushButton#secondaryButton {
-                color: %(bodyInk)s;
-                background-color: %(hoverBg)s;
-                border: 1px solid %(panelLine)s;
+                color: %(buttonDefaultInk)s;
+                background-color: %(buttonDefaultBg)s;
+                border: 1px solid %(buttonBorder)s;
                 min-width: 52px;
             }
             QPushButton#secondaryButton:hover {
-                background-color: %(pressedBg)s;
+                background-color: %(buttonDefaultBgHover)s;
                 border: 1px solid %(fieldLine)s;
             }
             QPushButton#secondaryButton:pressed {
-                background-color: %(pressedBg)s;
+                background-color: %(buttonDefaultBgPressed)s;
             }
             QPushButton#modeButton {
                 min-width: 28px;
@@ -315,9 +315,9 @@ class FloatingToolbar(QWidget):
                 border: 1px solid %(fieldLine)s;
             }
             QPushButton:disabled {
-                color: %(subtleInkAlpha)s;
-                background-color: %(panelAltBg)s;
-                border: 1px solid %(panelLine)s;
+                color: %(buttonDisabledInk)s;
+                background-color: %(buttonDisabledBg)s;
+                border: 1px solid %(buttonBorder)s;
             }
             """
             % {

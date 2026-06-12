@@ -439,8 +439,7 @@ ColumnLayout {
                 ControlPanelPlainButton {
                     theme: root.theme
                     label: "保存环境"
-                    fillColor: theme.accent
-                    inkColor: "#FFFFFF"
+                    primary: true
                     strokeWidth: 0
                     onClicked: root.saveEnvironment()
                 }
@@ -968,8 +967,7 @@ ColumnLayout {
                 ControlPanelPlainButton {
                     theme: root.theme
                     label: "保存访问项"
-                    fillColor: theme.accent
-                    inkColor: "#FFFFFF"
+                    primary: true
                     strokeWidth: 0
                     onClicked: root.saveAccess()
                 }

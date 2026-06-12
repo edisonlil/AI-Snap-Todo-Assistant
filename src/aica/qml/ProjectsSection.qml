@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -417,8 +417,7 @@ ColumnLayout {
                             ControlPanelPlainButton {
                                 theme: projectSection.theme
                                 label: "保存项目"
-                                fillColor: theme.accent
-                                inkColor: "#FFFFFF"
+                                primary: true
                                 strokeWidth: 0
                                 onClicked: theme.saveCurrentProject()
                             }

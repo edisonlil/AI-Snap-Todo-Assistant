@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -20,6 +20,23 @@ Rectangle {
     readonly property color accent: themeTokens.accent || "#2A313F"
     readonly property color accentSoft: themeTokens.accentSoft || "#F1F3F6"
     readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
+    readonly property color buttonPrimaryBg: themeTokens.buttonPrimaryBg || accent
+    readonly property color buttonPrimaryBgHover: themeTokens.buttonPrimaryBgHover || buttonPrimaryBg
+    readonly property color buttonPrimaryBgPressed: themeTokens.buttonPrimaryBgPressed || buttonPrimaryBgHover
+    readonly property color buttonPrimaryInk: themeTokens.buttonPrimaryInk || "#FFFFFF"
+    readonly property color buttonDefaultBg: themeTokens.buttonDefaultBg || "#FFFFFF"
+    readonly property color buttonDefaultBgHover: themeTokens.buttonDefaultBgHover || hoverBg
+    readonly property color buttonDefaultBgPressed: themeTokens.buttonDefaultBgPressed || pressedBg
+    readonly property color buttonDefaultInk: themeTokens.buttonDefaultInk || bodyInk
+    readonly property color buttonDisabledBg: themeTokens.buttonDisabledBg || panelAltBg
+    readonly property color buttonDisabledInk: themeTokens.buttonDisabledInk || mutedInk
+    readonly property color buttonBorder: themeTokens.buttonBorder || panelLine
+    readonly property int buttonRadius: themeTokens.buttonRadius || 6
+    readonly property int buttonHeight: themeTokens.buttonHeight || 35
+    readonly property int buttonPaddingH: themeTokens.buttonPaddingH || 12
+    readonly property int buttonFontSize: themeTokens.buttonFontSize || fontBody
+    readonly property int componentRadius: themeTokens.componentRadius || 8
+    readonly property int componentHeight: themeTokens.componentHeight || 36
     readonly property color navIdle: themeTokens.navIdle || "#F8F9FA"
     readonly property color inputBg: themeTokens.inputBg || "#FFFFFF"
     readonly property color hoverBg: themeTokens.hoverBg || "#F3F4F6"
@@ -37,13 +54,13 @@ Rectangle {
     readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
     readonly property int fontSection: themeTokens.fontSection || 15
     readonly property int fontTitle: themeTokens.fontTitle || 18
-    readonly property int formFieldHeight: themeTokens.formFieldHeight || 44
-    readonly property int formFieldCompactHeight: themeTokens.formFieldCompactHeight || 32
-    readonly property int formFieldRadius: themeTokens.formFieldRadius || 16
+    readonly property int formFieldHeight: themeTokens.formFieldHeight || 36
+    readonly property int formFieldCompactHeight: themeTokens.formFieldCompactHeight || 28
+    readonly property int formFieldRadius: themeTokens.formFieldRadius || 8
     readonly property int formFieldCompactRadius: themeTokens.formFieldCompactRadius || 8
-    readonly property int formFieldPaddingH: themeTokens.formFieldPaddingH || 14
-    readonly property int formFieldPaddingV: themeTokens.formFieldPaddingV || 11
-    readonly property int formFieldCompactPaddingH: themeTokens.formFieldCompactPaddingH || 10
+    readonly property int formFieldPaddingH: themeTokens.formFieldPaddingH || 12
+    readonly property int formFieldPaddingV: themeTokens.formFieldPaddingV || 8
+    readonly property int formFieldCompactPaddingH: themeTokens.formFieldCompactPaddingH || 8
     readonly property int formFieldFontSize: themeTokens.formFieldFontSize || fontBody
     readonly property int formFieldCompactFontSize: themeTokens.formFieldCompactFontSize || fontBodyLg
     readonly property color formFieldBg: themeTokens.formFieldBg || inputBg
@@ -338,38 +355,8 @@ Rectangle {
 
     Component.onCompleted: ensureSelectedProvider()
 
-    component PlainButton: Rectangle {
-        id: buttonRoot
-        property string label: ""
-        property color fillColor: "#FFFFFF"
-        property color inkColor: root.accent
-        property int strokeWidth: 1
-        signal clicked
-
-        radius: 16
-        color: fillColor
-        border.width: strokeWidth
-        border.color: buttonRoot.strokeWidth > 0 ? root.accent : buttonRoot.fillColor
-        implicitWidth: buttonText.implicitWidth + 28
-        implicitHeight: 38
-        opacity: enabled ? 1 : 0.56
-
-        Text {
-            id: buttonText
-            anchors.centerIn: parent
-            text: buttonRoot.label
-            color: buttonRoot.inkColor
-            font.family: root.uiFont
-            font.pixelSize: 12
-            font.weight: 700
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            enabled: buttonRoot.enabled
-            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: buttonRoot.clicked()
-        }
+    component PlainButton: ControlPanelPlainButton {
+        theme: root
     }
 
     component StatusToggle: Item {
@@ -461,8 +448,58 @@ Rectangle {
         theme: root
     }
 
+    component PixelInput: ControlPanelPixelInput {
+        theme: root
+    }
+
     component MultiLineInput: ControlPanelSettingsArea {
         theme: root
+    }
+
+    component StyleTokenRow: Rectangle {
+        id: styleRow
+        property string title: ""
+        property string tokenPath: ""
+        property string valueText: ""
+        property int minimumValue: 0
+        property int maximumValue: 999
+        signal valueEdited(int value)
+
+        Layout.fillWidth: true
+        implicitHeight: 54
+        color: "transparent"
+
+        Column {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Text {
+                text: styleRow.title
+                color: root.titleInk
+                font.family: root.uiFont
+                font.pixelSize: root.fontBodyLg
+                font.weight: 700
+            }
+
+            Text {
+                text: styleRow.tokenPath
+                color: root.bodyInk
+                font.family: root.uiFont
+                font.pixelSize: root.fontCaption
+            }
+        }
+
+        PixelInput {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            minimumValue: styleRow.minimumValue
+            maximumValue: styleRow.maximumValue
+            text: styleRow.valueText
+            onValueEdited: function(value) {
+                styleRow.valueEdited(value)
+            }
+        }
     }
 
     component SearchableModelCombo: Item {
@@ -1006,8 +1043,7 @@ Rectangle {
 
                             PlainButton {
                                 label: root.currentSectionMeta.primaryActionLabel || ""
-                                fillColor: root.accent
-                                inkColor: "#FFFFFF"
+                                primary: true
                                 strokeWidth: 0
                                 border.color: root.accent
                                 onClicked: {
@@ -1538,21 +1574,133 @@ Rectangle {
                                                 }
                                                 RowLayout {
                                                     Layout.fillWidth: true
-                                                    spacing: 8
-                                                    SettingsInput {
+                                                    PixelInput {
                                                         id: themeFontSizeInput
-                                                        Layout.fillWidth: true
+                                                        maximumValue: 18
+                                                        minimumValue: 11
                                                         text: String(controlPanelBridge.themeConfig.font_size_px || 12)
-                                                        inputMethodHints: Qt.ImhDigitsOnly
-                                                        onEditingFinished: controlPanelBridge.updateThemeNumberField("font_size_px", Number(text))
+                                                        onValueEdited: function(value) {
+                                                            controlPanelBridge.updateThemeNumberField("font_size_px", value)
+                                                        }
                                                     }
-                                                    Text {
-                                                        text: "px"
-                                                        color: root.bodyInk
-                                                        font.family: root.uiFont
-                                                        font.pixelSize: root.fontBodyLg
-                                                        font.weight: 700
-                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: root.currentSection === "theme"
+                                    Layout.fillWidth: true
+                                    implicitHeight: commonStyleContent.implicitHeight + 32
+                                    color: root.panelBg
+                                    border.width: 1
+                                    border.color: root.panelLine
+
+                                    ColumnLayout {
+                                        id: commonStyleContent
+                                        anchors.fill: parent
+                                        anchors.margins: 22
+                                        spacing: 0
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.bottomMargin: 10
+                                            text: "通用组件样式"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: root.fontSection
+                                            font.weight: 800
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 0
+
+                                            StyleTokenRow {
+                                                title: "圆角"
+                                                tokenPath: "component.Common.radius"
+                                                minimumValue: 4
+                                                maximumValue: 32
+                                                valueText: String(controlPanelBridge.themeConfig.component_radius || 8)
+                                                onValueEdited: function(value) {
+                                                    controlPanelBridge.updateThemeNumberField("component_radius", value)
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: 1
+                                                color: root.panelLine
+                                            }
+
+                                            StyleTokenRow {
+                                                title: "高度"
+                                                tokenPath: "component.Common.height"
+                                                minimumValue: 28
+                                                maximumValue: 56
+                                                valueText: String(controlPanelBridge.themeConfig.component_height || 36)
+                                                onValueEdited: function(value) {
+                                                    controlPanelBridge.updateThemeNumberField("component_height", value)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: root.currentSection === "theme"
+                                    Layout.fillWidth: true
+                                    implicitHeight: buttonStyleContent.implicitHeight + 32
+                                    color: root.panelBg
+                                    border.width: 1
+                                    border.color: root.panelLine
+
+                                    ColumnLayout {
+                                        id: buttonStyleContent
+                                        anchors.fill: parent
+                                        anchors.margins: 22
+                                        spacing: 0
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.bottomMargin: 10
+                                            text: "按钮样式"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: root.fontSection
+                                            font.weight: 800
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 0
+
+                                            StyleTokenRow {
+                                                title: "圆角"
+                                                tokenPath: "component.Button.radius"
+                                                minimumValue: 4
+                                                maximumValue: 32
+                                                valueText: String(controlPanelBridge.themeConfig.button_radius || 6)
+                                                onValueEdited: function(value) {
+                                                    controlPanelBridge.updateThemeNumberField("button_radius", value)
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: 1
+                                                color: root.panelLine
+                                            }
+
+                                            StyleTokenRow {
+                                                title: "高度"
+                                                tokenPath: "component.Button.height"
+                                                minimumValue: 28
+                                                maximumValue: 56
+                                                valueText: String(controlPanelBridge.themeConfig.button_height || 35)
+                                                onValueEdited: function(value) {
+                                                    controlPanelBridge.updateThemeNumberField("button_height", value)
                                                 }
                                             }
                                         }
@@ -2592,8 +2740,7 @@ Rectangle {
 
                                                         PlainButton {
                                                             label: "保存项目"
-                                                            fillColor: root.accent
-                                                            inkColor: "#FFFFFF"
+                                                            primary: true
                                                             strokeWidth: 0
                                                             onClicked: root.saveCurrentProject()
                                                         }

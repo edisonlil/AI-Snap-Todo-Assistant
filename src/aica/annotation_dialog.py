@@ -300,27 +300,34 @@ class AnnotationDialog(QDialog):
                 font-size: %(fontCaption)spx;
             }
             QPushButton {
-                border-radius: %(radiusSm)spx;
+                border-radius: %(buttonRadius)spx;
                 padding: 6px 10px;
-                font-size: %(fontCaption)spx;
+                font-size: %(buttonFontSize)spx;
                 font-weight: 600;
                 min-height: 16px;
-                color: %(titleInk)s;
-                background-color: %(panelBg)s;
-                border: 1px solid %(fieldLine)s;
+                color: %(buttonDefaultInk)s;
+                background-color: %(buttonDefaultBg)s;
+                border: 1px solid %(buttonBorder)s;
             }
             QPushButton:hover {
-                background-color: %(hoverBg)s;
+                background-color: %(buttonDefaultBgHover)s;
                 border: 1px solid %(panelLine)s;
             }
+            QPushButton:pressed {
+                background-color: %(buttonDefaultBgPressed)s;
+            }
             QPushButton#primaryButton {
-                color: %(accentInk)s;
-                background-color: %(accent)s;
-                border: 1px solid %(accent)s;
+                color: %(buttonPrimaryInk)s;
+                background-color: %(buttonPrimaryBg)s;
+                border: 1px solid %(buttonPrimaryBg)s;
             }
             QPushButton#primaryButton:hover {
-                background-color: %(accentHover)s;
-                border: 1px solid %(accentHover)s;
+                background-color: %(buttonPrimaryBgHover)s;
+                border: 1px solid %(buttonPrimaryBgHover)s;
+            }
+            QPushButton#primaryButton:pressed {
+                background-color: %(buttonPrimaryBgPressed)s;
+                border: 1px solid %(buttonPrimaryBgPressed)s;
             }
             QScrollArea {
                 background-color: %(panelBg)s;

@@ -7,7 +7,7 @@ ComboBox {
     property int popupMaxHeight: 280
     property int popupItemMinHeight: theme.formPopupItemHeight || 38
     property int popupTextMaximumLineCount: 1
-    property int fieldRadius: theme.formFieldRadius || 16
+    property int fieldRadius: theme.componentRadius || theme.formFieldRadius || 8
     property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
     property color fieldBg: theme.formFieldBg || theme.inputBg || "#FFFFFF"
     property color fieldBorder: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
@@ -26,7 +26,7 @@ ComboBox {
     textRole: "text"
     font.family: theme.uiFont
     font.pixelSize: fieldFontSize
-    implicitHeight: theme.formFieldHeight || 44
+    implicitHeight: theme.componentHeight || theme.formFieldHeight || 36
     leftPadding: theme.formFieldPaddingH || 14
     rightPadding: Math.max(34, (theme.formFieldPaddingH || 14) + 20)
     topPadding: theme.formFieldPaddingV || 11

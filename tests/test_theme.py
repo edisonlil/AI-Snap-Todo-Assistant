@@ -43,6 +43,10 @@ def test_theme_config_sanitizes_invalid_values() -> None:
             "base_color": "xxx",
             "accent_color": "bad",
             "component_style": "glass",
+            "component_radius": 99,
+            "component_height": 3,
+            "button_radius": 99,
+            "button_height": 3,
             "radius_scale": 9,
             "font_scale": 0.1,
             "density": "huge",
@@ -53,6 +57,10 @@ def test_theme_config_sanitizes_invalid_values() -> None:
     assert theme.base_color == "#FFFFFF"
     assert theme.accent_color == "#2A313F"
     assert theme.component_style == "soft"
+    assert theme.component_radius == 32
+    assert theme.component_height == 28
+    assert theme.button_radius == 32
+    assert theme.button_height == 28
     assert theme.radius_scale == 1.4
     assert theme.font_scale == 0.9
     assert theme.density == "comfortable"
@@ -77,6 +85,10 @@ def test_theme_tokens_include_base_presets_and_scaled_values() -> None:
             preset_id="qingyun",
             base_color="#F5F7FB",
             accent_color="#1677FF",
+            component_radius=10,
+            component_height=40,
+            button_radius=22,
+            button_height=42,
             radius_scale=1.25,
             font_scale=1.1,
             density="spacious",
@@ -92,11 +104,17 @@ def test_theme_tokens_include_base_presets_and_scaled_values() -> None:
     assert tokens["accent"] == "#1677FF"
     assert tokens["accentSoft"] != tokens["accent"]
     assert tokens["hoverBg"] != "#F3F4F6"
+    assert tokens["buttonRadius"] == 22
+    assert tokens["buttonHeight"] == 42
+    assert tokens["buttonPaddingH"] >= 14
+    assert tokens["buttonFontSize"] == tokens["fontBody"]
+    assert tokens["componentRadius"] == 10
+    assert tokens["componentHeight"] == 40
     assert tokens["radiusCard"] == 30
     assert tokens["fontBody"] == 13
     assert tokens["spacingMd"] > 12
-    assert tokens["formFieldHeight"] > 44
-    assert tokens["formFieldRadius"] == 20
+    assert tokens["formFieldHeight"] == 40
+    assert tokens["formFieldRadius"] == 10
     assert tokens["formFieldFontSize"] == tokens["fontBody"]
     assert tokens["formFieldBorder"] == tokens["componentLine"]
     assert tokens["formFieldFocusBorder"] == tokens["accent"]
@@ -106,18 +124,40 @@ def test_theme_tokens_include_base_presets_and_scaled_values() -> None:
 def test_theme_tokens_include_form_defaults() -> None:
     tokens = build_theme_tokens(ThemeConfig()).to_dict()
 
-    assert tokens["formFieldHeight"] == 44
-    assert tokens["formFieldCompactHeight"] == 32
-    assert tokens["formFieldRadius"] == 16
-    assert tokens["formFieldPaddingH"] == 14
-    assert tokens["formFieldPaddingV"] == 11
+    assert tokens["componentHeight"] == 36
+    assert tokens["componentRadius"] == 8
+    assert tokens["formFieldHeight"] == 36
+    assert tokens["formFieldCompactHeight"] == 28
+    assert tokens["formFieldRadius"] == 8
+    assert tokens["formFieldPaddingH"] == 12
+    assert tokens["formFieldPaddingV"] == 8
     assert tokens["formFieldFontSize"] == 12
     assert tokens["formFieldBg"] == tokens["inputBg"]
     assert tokens["formFieldBorder"] == tokens["componentLine"]
     assert tokens["formFieldFocusBorder"] == tokens["accent"]
     assert tokens["formPopupRadius"] == 12
-    assert tokens["formPopupItemHeight"] == 38
+    assert tokens["formPopupItemHeight"] == 36
     assert tokens["formChipHeight"] == 28
+    assert tokens["buttonRadius"] == 6
+    assert tokens["buttonHeight"] == 35
+
+
+def test_theme_tokens_fall_back_from_independent_to_common_component_values() -> None:
+    tokens = build_theme_tokens(
+        {
+            "component_radius": 12,
+            "component_height": 40,
+            "button_radius": 0,
+            "button_height": 0,
+        }
+    ).to_dict()
+
+    assert tokens["componentRadius"] == 12
+    assert tokens["componentHeight"] == 40
+    assert tokens["formFieldRadius"] == 12
+    assert tokens["formFieldHeight"] == 40
+    assert tokens["buttonRadius"] == 12
+    assert tokens["buttonHeight"] == 40
 
 
 def test_theme_presets_drive_accent_and_auxiliary_colors() -> None:
@@ -157,6 +197,10 @@ def test_theme_is_saved_to_config_json(tmp_path: Path) -> None:
             "preset_id": "sufa",
             "base_color": "FBFAF4",
             "accent_color": "3355AA",
+            "component_radius": 9,
+            "component_height": 34,
+            "button_radius": 22,
+            "button_height": 36,
             "density": "compact",
         }
     )
@@ -167,7 +211,12 @@ def test_theme_is_saved_to_config_json(tmp_path: Path) -> None:
     assert payload["theme"]["preset_id"] == "sufa"
     assert payload["theme"]["base_color"] == "#FBFAF4"
     assert payload["theme"]["accent_color"] == "#3355AA"
-    assert ConfigManager(str(config_path)).load().theme.density == "compact"
+    loaded_theme = ConfigManager(str(config_path)).load().theme
+    assert loaded_theme.density == "compact"
+    assert loaded_theme.component_radius == 9
+    assert loaded_theme.component_height == 34
+    assert loaded_theme.button_radius == 22
+    assert loaded_theme.button_height == 36
 
 
 def test_key_qml_windows_consume_theme_tokens() -> None:
@@ -205,6 +254,20 @@ def test_control_panel_theme_color_uses_segmented_slider_without_unimplemented_m
     assert "implicitHeight: providerForm.implicitHeight + 40" in source
     assert "implicitHeight: taskBindingColumn.implicitHeight + 40" in source
     assert "color: root.panelAltBg" in source
+    assert 'text: "通用组件样式"' in source
+    assert 'tokenPath: "component.Common.radius"' in source
+    assert 'tokenPath: "component.Common.height"' in source
+    assert 'text: "按钮样式"' in source
+    assert 'text: "主按钮背景"' not in source
+    assert 'text: "主按钮悬停"' not in source
+    assert 'text: "主按钮按下"' not in source
+    assert 'tokenPath: "component.Button.radius"' in source
+    assert 'tokenPath: "component.Button.height"' in source
+    assert 'component PixelInput: ControlPanelPixelInput' in source
+    assert 'controlPanelBridge.updateThemeNumberField("component_radius", value)' in source
+    assert 'controlPanelBridge.updateThemeNumberField("component_height", value)' in source
+    assert 'controlPanelBridge.updateThemeNumberField("button_radius", value)' in source
+    assert 'controlPanelBridge.updateThemeNumberField("button_height", value)' in source
 
 
 def test_control_panel_navigation_selection_uses_compact_rect_style() -> None:

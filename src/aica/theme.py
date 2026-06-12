@@ -50,6 +50,10 @@ class ThemeConfig:
     base_color: str = "#FFFFFF"
     accent_color: str = DEFAULT_ACCENT_COLOR
     component_style: str = DEFAULT_COMPONENT_STYLE
+    component_radius: int = 8
+    component_height: int = 36
+    button_radius: int = 6
+    button_height: int = 35
     radius_scale: float = 1.0
     font_scale: float = 1.0
     font_size_px: int = 12
@@ -77,6 +81,10 @@ class ThemeConfig:
             base_color=normalize_color(raw_base_color, preset_base),
             accent_color=normalize_color(raw_accent_color, preset_accent),
             component_style=component_style if component_style in COMPONENT_STYLES else DEFAULT_COMPONENT_STYLE,
+            component_radius=_clamp_optional_int(data.get("component_radius"), 4, 32, 8),
+            component_height=_clamp_optional_int(data.get("component_height"), 28, 56, 36),
+            button_radius=_clamp_optional_int(data.get("button_radius"), 4, 32, 6),
+            button_height=_clamp_optional_int(data.get("button_height"), 28, 56, 35),
             radius_scale=_clamp_float(data.get("radius_scale"), 0.75, 1.4, 1.0),
             font_scale=_clamp_float(data.get("font_scale"), 0.9, 1.15, 1.0),
             font_size_px=_clamp_int(data.get("font_size_px"), 11, 18, _font_size_default(data.get("font_scale"))),
@@ -157,10 +165,19 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
     accent_tint = _mix(base, accent, 0.16)
     component_line = "transparent" if theme.component_style == "flat" else line_color
     component_fill = panel_alt if theme.component_style == "soft" else base
-    form_field_height = _scale_int(44, density_scale)
-    form_field_compact_height = _scale_int(32, density_scale)
-    form_popup_item_height = _scale_int(38, density_scale)
+    fallback_component_height = _scale_int(36, density_scale)
+    fallback_component_radius = _scale_int(8, theme.radius_scale)
+    component_height = max(0, int(theme.component_height)) or fallback_component_height
+    component_radius = max(0, int(theme.component_radius)) or fallback_component_radius
+    form_field_height = component_height
+    form_field_compact_height = _scale_int(28, density_scale)
+    form_popup_item_height = max(32, component_height)
     form_chip_height = _scale_int(28, density_scale)
+    button_primary_bg = accent
+    button_primary_bg_hover = _mix(button_primary_bg, "#000000", 0.1)
+    button_primary_bg_pressed = _mix(button_primary_bg, "#000000", 0.18)
+    button_height = max(0, int(theme.button_height)) or component_height
+    button_radius = max(0, int(theme.button_radius)) or component_radius
 
     tokens: dict[str, object] = {
         "presetId": theme.preset_id,
@@ -186,17 +203,34 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
         "accentHover": _mix(accent, "#000000", 0.1),
         "accentPressed": _mix(accent, "#000000", 0.18),
         "accentInk": "#FFFFFF",
+        "buttonPrimaryBg": button_primary_bg,
+        "buttonPrimaryBgHover": button_primary_bg_hover,
+        "buttonPrimaryBgPressed": button_primary_bg_pressed,
+        "buttonPrimaryInk": "#FFFFFF",
+        "buttonDefaultBg": "#FFFFFF",
+        "buttonDefaultBgHover": hover,
+        "buttonDefaultBgPressed": pressed,
+        "buttonDefaultInk": "#4A5565",
+        "buttonDisabledBg": _mix(base, "#EAECF0", 0.74),
+        "buttonDisabledInk": "#98A2B3",
+        "buttonBorder": component_line,
+        "buttonRadius": button_radius,
+        "buttonHeight": button_height,
+        "buttonPaddingH": _scale_int(12, density_scale),
+        "buttonFontSize": font_body,
         "hoverBg": hover,
         "pressedBg": pressed,
         "componentBg": component_fill,
         "componentLine": component_line,
+        "componentRadius": component_radius,
+        "componentHeight": component_height,
         "formFieldHeight": form_field_height,
         "formFieldCompactHeight": form_field_compact_height,
-        "formFieldRadius": _scale_int(16, theme.radius_scale),
-        "formFieldCompactRadius": _scale_int(8, theme.radius_scale),
-        "formFieldPaddingH": _scale_int(14, density_scale),
-        "formFieldPaddingV": _scale_int(11, density_scale),
-        "formFieldCompactPaddingH": _scale_int(10, density_scale),
+        "formFieldRadius": component_radius,
+        "formFieldCompactRadius": max(4, min(component_radius, _scale_int(6, theme.radius_scale))),
+        "formFieldPaddingH": _scale_int(12, density_scale),
+        "formFieldPaddingV": _scale_int(8, density_scale),
+        "formFieldCompactPaddingH": _scale_int(8, density_scale),
         "formFieldFontSize": font_body,
         "formFieldCompactFontSize": font_body + 1,
         "formFieldBg": "#FFFFFF",
@@ -268,6 +302,15 @@ def _clamp_int(value: object, minimum: int, maximum: int, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return min(max(parsed, minimum), maximum)
+
+
+def _clamp_optional_int(value: object, minimum: int, maximum: int, default: int) -> int:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return default
+    if text == "0":
+        return 0
+    return _clamp_int(text, minimum, maximum, default)
 
 
 def _font_size_default(font_scale: object) -> int:

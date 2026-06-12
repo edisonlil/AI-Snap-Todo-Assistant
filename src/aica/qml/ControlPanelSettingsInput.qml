@@ -4,7 +4,7 @@ import QtQuick.Controls
 TextField {
     id: input
     required property var theme
-    property int fieldRadius: theme.formFieldRadius || 16
+    property int fieldRadius: theme.componentRadius || theme.formFieldRadius || 8
     property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
     property color fieldBg: theme.formFieldBg || theme.inputBg || "#FFFFFF"
     property color fieldBorder: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
@@ -14,7 +14,7 @@ TextField {
     font.family: theme.uiFont
     font.pixelSize: fieldFontSize
     selectByMouse: true
-    implicitHeight: theme.formFieldHeight || 44
+    implicitHeight: theme.componentHeight || theme.formFieldHeight || 36
     leftPadding: theme.formFieldPaddingH || 14
     rightPadding: theme.formFieldPaddingH || 14
     topPadding: theme.formFieldPaddingV || 11

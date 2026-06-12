@@ -4,7 +4,7 @@ import QtQuick.Controls
 TextArea {
     id: area
     required property var theme
-    property int fieldRadius: theme.formFieldRadius || 16
+    property int fieldRadius: theme.componentRadius || theme.formFieldRadius || 8
     property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
     property color fieldBg: theme.formFieldBg || theme.inputBg || "#FFFFFF"
     property color fieldBorder: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
