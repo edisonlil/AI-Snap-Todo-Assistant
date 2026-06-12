@@ -202,34 +202,16 @@ Rectangle {
 
                 Text {
                     anchors.left: parent.left
+                    anchors.right: parent.right
                     anchors.leftMargin: 14
+                    anchors.rightMargin: 14
                     anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 148
                     elide: Text.ElideRight
                     text: resultDialogBridge.productLineError.length > 0 ? resultDialogBridge.productLineError : resultDialogBridge.saveHint
                     color: resultDialogBridge.productLineError.length > 0 ? "#D93025" : root.mutedInk
                     font.family: root.uiFont
                     font.pixelSize: 11
                     font.weight: root.bodyWeight
-                }
-
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 14
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: resultDialogBridge.showFeedbackAction
-                    text: "\u53cd\u9988\u4fee\u6b63"
-                    color: root.titleInk
-                    font.family: root.uiFont
-                    font.pixelSize: 12
-                    font.weight: root.labelWeight
-
-                    MouseArea {
-                        anchors.fill: parent
-                        visible: parent.visible
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: resultDialogBridge.feedbackDialog()
-                    }
                 }
             }
 

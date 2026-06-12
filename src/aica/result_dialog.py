@@ -168,7 +168,6 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
 from aica.analysis.metrics import AnalysisRunStats
-from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
 from aica.project_management import split_project_product_lines
 from aica.runtime import RUNTIME_CAPABILITIES
@@ -223,7 +222,6 @@ class _ResultDialogBridge(QObject):
 
     closeRequested = pyqtSignal()
     saveRequested = pyqtSignal()
-    feedbackRequested = pyqtSignal()
     dragRequested = pyqtSignal()
 
     def __init__(
@@ -231,7 +229,6 @@ class _ResultDialogBridge(QObject):
         result: TicketSnapshot,
         scenario: str,
         model: str,
-        show_feedback: bool,
         analysis_stats: AnalysisRunStats | None = None,
         product_line_options_provider=None,
         default_product_line_provider=None,
@@ -242,7 +239,6 @@ class _ResultDialogBridge(QObject):
         self._scenario = scenario
         self._model = model
         self._timing_summary = analysis_stats.timing_summary if analysis_stats is not None else ""
-        self._show_feedback = show_feedback
         self._fallback_title = sanitize_text(result.title) or _UNCLASSIFIED_TASK
         self._title = sanitize_text(result.title)
         self._group_name = _clean_text(result.fields.group_name)
@@ -317,10 +313,6 @@ class _ResultDialogBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def recognitionConclusion(self) -> str:
         return self._recognition_conclusion
-
-    @pyqtProperty(bool, notify=dataChanged)
-    def showFeedbackAction(self) -> bool:
-        return self._show_feedback
 
     @pyqtProperty(str, constant=True)
     def saveHint(self) -> str:
@@ -429,11 +421,6 @@ class _ResultDialogBridge(QObject):
         return False
 
     @pyqtSlot()
-    def feedbackDialog(self) -> None:
-        if self._show_feedback:
-            self.feedbackRequested.emit()
-
-    @pyqtSlot()
     def startWindowDrag(self) -> None:
         self.dragRequested.emit()
 
@@ -447,7 +434,6 @@ class ResultDialog(QDialog):
         scenario: str,
         model: str,
         analysis_stats: AnalysisRunStats | None = None,
-        feedback_callback: Optional[Callable] = None,
         save_callback: Optional[Callable] = None,
         product_line_options_provider=None,
         default_product_line_provider=None,
@@ -459,7 +445,6 @@ class ResultDialog(QDialog):
         self._original_result = result
         self._scenario = scenario
         self._model = model
-        self._feedback_callback = feedback_callback
         self._save_callback = save_callback
         self._product_line_repository = (
             None
@@ -482,7 +467,6 @@ class ResultDialog(QDialog):
             result=result,
             scenario=scenario,
             model=model,
-            show_feedback=feedback_callback is not None,
             analysis_stats=analysis_stats,
             product_line_options_provider=self._product_line_options_provider,
             default_product_line_provider=self._default_product_line_provider,
@@ -500,7 +484,6 @@ class ResultDialog(QDialog):
 
         self._bridge.closeRequested.connect(self.reject)
         self._bridge.saveRequested.connect(self._on_save)
-        self._bridge.feedbackRequested.connect(self._on_feedback)
         self._bridge.dragRequested.connect(self._start_system_move)
 
     def _setup_ui(self) -> None:
@@ -566,18 +549,3 @@ class ResultDialog(QDialog):
         if self._save_callback:
             self._save_callback(snapshot)
         self.accept()
-
-    def _on_feedback(self) -> None:
-        snapshot = self._build_snapshot()
-        feedback_data = FeedbackData(
-            scenario=self._scenario,
-            model=self._model,
-            ai_output=self._original_result.to_dict(),
-            user_edited=(snapshot.to_dict() != self._original_result.to_dict()),
-            original_result=str(self._original_result),
-            edited_result=str(snapshot),
-            feedback_status="incorrect",
-        )
-        if self._feedback_callback:
-            self._feedback_callback(snapshot, feedback_data)
-        self.reject()

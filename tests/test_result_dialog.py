@@ -23,7 +23,6 @@ def test_result_dialog_edit_keeps_trailing_space_until_save() -> None:
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
     )
 
     bridge.updateField("timeline_entry", "\u521d\u59cb\u7ed3\u8bba ")
@@ -37,7 +36,6 @@ def test_result_dialog_defaults_and_saves_when_multiple_product_lines_exist() ->
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: ["文档中台, 协作套件"] if group_name == "测试群" else [],
     )
     bridge.updateField("group_name", "测试群")
@@ -57,7 +55,6 @@ def test_result_dialog_saves_selected_product_line() -> None:
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: ["文档中台, 协作套件"] if group_name == "测试群" else [],
     )
     bridge.updateField("group_name", "测试群")
@@ -77,7 +74,6 @@ def test_result_dialog_does_not_require_product_line_when_group_has_no_project_m
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: [],
     )
     saved: list[bool] = []
@@ -95,7 +91,6 @@ def test_result_dialog_defaults_single_product_line() -> None:
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: ["私网文档中台"],
     )
 
@@ -107,7 +102,6 @@ def test_result_dialog_rematches_product_lines_after_group_name_edit() -> None:
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: ["私网WPS协作, 私网文档中台"] if group_name == "匹配群" else [],
         default_product_line_provider=lambda group_name, options: "私网文档中台",
     )
@@ -126,7 +120,6 @@ def test_result_dialog_defaults_most_used_product_line() -> None:
         result=_build_snapshot(),
         scenario="\u5de5\u5355\u8ddf\u8fdb",
         model="test-model",
-        show_feedback=False,
         product_line_options_provider=lambda group_name: ["私网WPS协作, 私网文档中台, 私网文档中台"],
         default_product_line_provider=lambda group_name, options: "私网文档中台",
     )
@@ -147,4 +140,6 @@ def test_result_dialog_product_line_field_uses_combo_box() -> None:
     assert "popup: Popup" in qml_text
     assert "enabled: resultDialogBridge.productLineOptions.length > 1" in qml_text
     assert "未匹配项目" in qml_text
-
+    assert "反馈修正" not in qml_text
+    assert r"\u53cd\u9988\u4fee\u6b63" not in qml_text
+    assert "feedbackDialog" not in qml_text
