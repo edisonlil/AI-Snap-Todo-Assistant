@@ -12,9 +12,13 @@ from aica.config import AppConfig
 from aica.hotkey import normalize_hotkey
 from aica.paths import save_storage_paths, storage_config_file
 from aica.runtime import build_script_command, current_platform, describe_script_support_for_command
+from aica.theme import ThemeConfig
 
 
 MEGABYTE = 1024 * 1024
+TASK_NAMES = ("analysis", "log_analysis", "plan_export", "context_summary")
+
+
 def format_image_limit_megabytes(image_bytes: int) -> str:
     value = max(1, int(image_bytes)) / MEGABYTE
     formatted = f"{value:.2f}".rstrip("0").rstrip(".")
@@ -102,10 +106,13 @@ def persist_control_panel_config(
     *,
     capture_hotkey: str,
     max_image_megabytes: str,
+    theme: object | None = None,
 ) -> AppConfig:
     updated = deepcopy(config)
     updated.hotkeys.capture = normalize_hotkey(capture_hotkey)
     updated.max_image_bytes = parse_image_limit_megabytes(max_image_megabytes)
+    if theme is not None:
+        updated.theme = ThemeConfig.from_dict(theme)
     updated.default_provider_id = updated.task_model_bindings.analysis.provider_id
     config_manager.save(updated)
     return updated

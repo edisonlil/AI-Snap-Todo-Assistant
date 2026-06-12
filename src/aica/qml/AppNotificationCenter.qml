@@ -4,6 +4,17 @@ Item {
     id: root
     property var bridge: null
     property string uiFont: "Microsoft YaHei UI"
+    property var theme: ({})
+    readonly property color panelBg: theme.panelBg || "#FFFFFF"
+    readonly property color panelLine: theme.panelLine || "#E5E7EB"
+    readonly property color titleInk: theme.titleInk || "#18202E"
+    readonly property color bodyInk: theme.bodyInk || "#4A5565"
+    readonly property color errorInk: theme.errorInk || "#B42318"
+    readonly property color warningInk: theme.warningInk || "#B7791F"
+    readonly property color successInk: theme.successInk || "#17663A"
+    readonly property int radiusLg: theme.radiusLg || 18
+    readonly property int fontCaption: theme.fontCaption || 11
+    readonly property int fontBodyLg: theme.fontBodyLg || 13
     property real maxCardWidth: 336
     property real cardSpacing: 10
 
@@ -133,10 +144,10 @@ Item {
                 id: cardShell
                 width: parent.width
                 implicitHeight: Math.max(70, contentColumn.implicitHeight + 24)
-                radius: 18
-                color: "#FFFFFF"
+                radius: root.radiusLg
+                color: root.panelBg
                 border.width: 1
-                border.color: "#E5E7EB"
+                border.color: root.panelLine
 
                 Column {
                     id: contentColumn
@@ -156,15 +167,15 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             color: {
                                 if (level === "error") {
-                                    return "#B42318"
+                                    return root.errorInk
                                 }
                                 if (level === "warning") {
-                                    return "#B7791F"
+                                    return root.warningInk
                                 }
                                 if (level === "success") {
-                                    return "#17663A"
+                                    return root.successInk
                                 }
-                                return "#4A5565"
+                                return root.bodyInk
                             }
                         }
 
@@ -181,9 +192,9 @@ Item {
                                 }
                                 return "通知"
                             }
-                            color: "#18202E"
+                            color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 11
+                            font.pixelSize: root.fontCaption
                             font.weight: 600
                         }
                     }
@@ -191,9 +202,9 @@ Item {
                     Text {
                         width: parent.width
                         text: String(message || "")
-                        color: "#4A5565"
+                        color: root.bodyInk
                         font.family: root.uiFont
-                        font.pixelSize: 13
+                        font.pixelSize: root.fontBodyLg
                         wrapMode: Text.Wrap
                         lineHeight: 1.15
                     }

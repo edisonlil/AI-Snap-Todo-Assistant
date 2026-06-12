@@ -9,3 +9,4 @@ def test_assist_troubleshooting_qml_reads_dynamic_error_code_results() -> None:
 
     assert "assistErrorCodeResults" in qml_text
     assert "模拟 2 条结果" not in qml_text
+    assert 'readonly property color contentFill: root.themeTokens.panelAltBg || "#F5F5F5"' in qml_text

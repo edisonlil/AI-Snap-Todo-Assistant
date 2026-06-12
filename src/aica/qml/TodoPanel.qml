@@ -8,6 +8,22 @@ Rectangle {
     color: "transparent"
 
     readonly property var bridge: (typeof todoPanelBridge !== "undefined" && todoPanelBridge) ? todoPanelBridge : fallbackBridge
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property color panelBg: themeTokens.panelBg || "#FFFFFF"
+    readonly property color panelAltBg: themeTokens.panelAltBg || "#F8F9FA"
+    readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
+    readonly property color titleInk: themeTokens.titleInk || "#2A313F"
+    readonly property color bodyInk: themeTokens.bodyInk || "#4A5565"
+    readonly property color labelInk: themeTokens.labelInk || "#7C8795"
+    readonly property color accent: themeTokens.accent || "#2A313F"
+    readonly property color accentSoft: themeTokens.accentSoft || "#ECEFF3"
+    readonly property color hoverBg: themeTokens.hoverBg || "#F3F4F6"
+    readonly property string uiFont: themeTokens.uiFont || "Microsoft YaHei UI"
+    readonly property int radiusLg: themeTokens.radiusLg || 16
+    readonly property int radiusCard: themeTokens.radiusCard || 20
+    readonly property int fontTiny: themeTokens.fontTiny || 10
+    readonly property int fontCaption: themeTokens.fontCaption || 11
+    readonly property int fontBody: themeTokens.fontBody || 12
     readonly property int outerPadding: 12
     readonly property int headerHeight: 26
     readonly property int sectionGap: 6
@@ -46,8 +62,8 @@ Rectangle {
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: root.bridge.minimized ? height / 2 : 20
-        color: "#FFFFFF"
+        radius: root.bridge.minimized ? height / 2 : root.radiusCard
+        color: root.panelBg
         opacity: 1
         border.width: 0
         border.color: "transparent"
@@ -88,8 +104,9 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.verticalCenterOffset: 1
                         text: root.bridge.headerStatusText
-                        font.pixelSize: 11
-                        color: "#7B7B7B"
+                        font.family: root.uiFont
+                        font.pixelSize: root.fontCaption
+                        color: root.labelInk
                     }
                 }
 
@@ -100,8 +117,9 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: root.bridge.canExpand && !root.bridge.minimized
                     text: root.bridge.expandLabel
-                    font.pixelSize: 10
-                    color: "#9B9B9B"
+                    font.family: root.uiFont
+                    font.pixelSize: root.fontTiny
+                    color: root.labelInk
 
                     MouseArea {
                         anchors.fill: parent
@@ -118,17 +136,18 @@ Rectangle {
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     radius: 999
-                    color: "#FFFFFF"
+                    color: root.panelBg
                     border.width: 1
-                    border.color: "#E5E7EB"
+                    border.color: root.panelLine
                     width: 24
                     height: 24
 
                     Text {
                         anchors.centerIn: parent
                         text: root.bridge.minimized ? "+" : "−"
+                        font.family: root.uiFont
                         font.pixelSize: 14
-                        color: "#5D5D5D"
+                        color: root.bodyInk
                     }
 
                     MouseArea {
@@ -147,9 +166,9 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: root.bridge.hasSelected
                     radius: 999
-                    color: "#FFFFFF"
+                    color: root.panelBg
                     border.width: 1
-                    border.color: "#E5E7EB"
+                    border.color: root.panelLine
                     width: clearLabel.width + 14
                     height: 24
 
@@ -157,8 +176,9 @@ Rectangle {
                         id: clearLabel
                         anchors.centerIn: parent
                         text: "清除选中"
-                        font.pixelSize: 10
-                        color: "#5D5D5D"
+                        font.family: root.uiFont
+                        font.pixelSize: root.fontTiny
+                        color: root.bodyInk
                     }
 
                     MouseArea {

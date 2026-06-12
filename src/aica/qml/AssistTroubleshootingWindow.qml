@@ -5,7 +5,12 @@ Rectangle {
     width: 443
     height: 632
     color: "transparent"
-    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property string uiFont: themeTokens.uiFont || (todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI")
+    readonly property int fontCaption: themeTokens.fontCaption || 11
+    readonly property int fontBody: themeTokens.fontBody || 12
+    readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
+    readonly property int fontSection: themeTokens.fontSection || 15
     readonly property real preferredHeight: 632
 
     Rectangle {
@@ -21,19 +26,30 @@ Rectangle {
         readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
         readonly property real scrollbarRightMargin: 8
-        readonly property color panelBorder: "#E5E7EB"
-        readonly property color titleText: "#18202E"
-        readonly property color bodyText: "#4A5565"
-        readonly property color mutedText: "#7A8795"
-        readonly property color subtleFill: "#F5F5F5"
-        readonly property color contentBorder: "#E5E7EB"
-        readonly property color primaryFill: "#2A313F"
-        readonly property color secondaryInk: "#4A5565"
-        readonly property color chipBorder: "#E5E7EB"
-        readonly property color chipText: "#5B6574"
+        readonly property color panelFill: root.themeTokens.panelBg || "#FFFFFF"
+        readonly property color panelBorder: root.themeTokens.panelLine || "#E5E7EB"
+        readonly property color titleText: root.themeTokens.titleInk || "#18202E"
+        readonly property color bodyText: root.themeTokens.bodyInk || "#4A5565"
+        readonly property color mutedText: root.themeTokens.labelInk || "#7A8795"
+        readonly property color subtleFill: root.themeTokens.panelAltBg || "#F5F5F5"
+        readonly property color contentFill: root.themeTokens.panelAltBg || "#F5F5F5"
+        readonly property color contentBorder: root.themeTokens.fieldLine || "#E5E7EB"
+        readonly property color primaryFill: root.themeTokens.accent || "#2A313F"
+        readonly property color primaryTint: root.themeTokens.accentTint || "#ECEFF3"
+        readonly property color primarySoft: root.themeTokens.accentSoft || "#F1F3F6"
+        readonly property color primaryInk: root.themeTokens.accentInk || "#FFFFFF"
+        readonly property color secondaryInk: root.themeTokens.bodyInk || "#4A5565"
+        readonly property color chipBorder: root.themeTokens.fieldLine || "#E5E7EB"
+        readonly property color chipText: root.themeTokens.bodyInk || "#5B6574"
+        readonly property color hoverFill: root.themeTokens.hoverBg || "#F3F5F8"
+        readonly property color warningFill: root.themeTokens.warningBg || "#FFF4EC"
+        readonly property color warningInk: root.themeTokens.warningInk || "#D65A19"
+        readonly property color scrollbarFill: root.themeTokens.mutedInk || "#BEC6D2"
+        readonly property color toastFill: root.themeTokens.titleInk || "#111827"
+        readonly property color resizeHandleStroke: root.themeTokens.subtleInkAlpha || "rgba(17, 24, 39, 0.18)"
         readonly property real chipHeight: 28
         readonly property real chipRadius: 14
-        readonly property real chipFontSize: 11
+        readonly property real chipFontSize: root.fontCaption
         readonly property real headerHeight: 28
         readonly property real helperHeight: 48
         readonly property real bodyHeight: root.height
@@ -254,8 +270,8 @@ Rectangle {
             onTriggered: panel.toastText = ""
         }
 
-        color: "#FFFFFF"
-        radius: 18
+        color: panel.panelFill
+        radius: root.themeTokens.radiusLg || 18
         border.width: 1
         border.color: panel.panelBorder
         clip: true
@@ -300,15 +316,15 @@ Rectangle {
                     Rectangle {
                         width: 26
                         height: 26
-                        radius: 9
-                        color: "#EEF2FF"
+                        radius: root.themeTokens.radiusMd || 9
+                        color: panel.primarySoft
 
                         Text {
                             anchors.centerIn: parent
                             text: "✦"
-                            color: "#4F73FF"
+                            color: panel.primaryFill
                             font.family: root.uiFont
-                            font.pixelSize: 14
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 700
                         }
                     }
@@ -318,7 +334,7 @@ Rectangle {
                         text: "辅助排查"
                         color: panel.titleText
                         font.family: root.uiFont
-                        font.pixelSize: 17
+                        font.pixelSize: root.fontSection
                         font.weight: 600
                     }
                 }
@@ -327,17 +343,17 @@ Rectangle {
                     id: closeButton
                     width: 20
                     height: 20
-                    radius: 6
+                    radius: root.themeTokens.radiusSm || 6
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    color: closeMouse.containsMouse ? "#F3F5F8" : "transparent"
+                    color: closeMouse.containsMouse ? panel.hoverFill : "transparent"
 
                     Text {
                         anchors.centerIn: parent
                         text: "×"
-                        color: closeMouse.containsMouse ? "#667085" : panel.mutedText
+                        color: closeMouse.containsMouse ? panel.secondaryInk : panel.mutedText
                         font.family: root.uiFont
-                        font.pixelSize: 15
+                        font.pixelSize: root.fontSection
                         font.weight: 400
                     }
 
@@ -363,7 +379,7 @@ Rectangle {
                     wrapMode: Text.Wrap
                     color: panel.bodyText
                     font.family: root.uiFont
-                    font.pixelSize: 13
+                    font.pixelSize: root.fontBodyLg
                     font.weight: 400
                     lineHeight: 1.22
                 }
@@ -373,7 +389,7 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     height: 1
-                    color: "#EEF1F5"
+                    color: panel.contentBorder
                 }
             }
 
@@ -406,8 +422,8 @@ Rectangle {
                                 delegate: Rectangle {
                                     width: tabText.implicitWidth + 20
                                     height: panel.chipHeight
-                                    radius: 8
-                                    color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#ECEFF3" : "transparent"
+                                    radius: root.themeTokens.radiusSm || 8
+                                    color: panel.resultExpanded && panel.selectedKey === modelData.key ? panel.primaryTint : "transparent"
                                     border.width: 1
                                     border.color: "transparent"
 
@@ -415,7 +431,7 @@ Rectangle {
                                         id: tabText
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: panel.resultExpanded && panel.selectedKey === modelData.key ? "#2A313F" : "#667085"
+                                        color: panel.resultExpanded && panel.selectedKey === modelData.key ? panel.primaryFill : panel.secondaryInk
                                         font.family: root.uiFont
                                         font.pixelSize: panel.chipFontSize
                                         font.weight: 500
@@ -442,8 +458,8 @@ Rectangle {
                         visible: panel.resultExpanded
                         width: parent.width
                         height: visible ? resultColumn.implicitHeight + 24 : 0
-                        radius: 14
-                        color: "#FFFFFF"
+                        radius: root.themeTokens.radiusLg || 14
+                        color: panel.contentFill
                         border.width: 1
                         border.color: panel.contentBorder
 
@@ -465,7 +481,7 @@ Rectangle {
                                     text: panel.currentResults().title
                                     color: panel.titleText
                                     font.family: root.uiFont
-                                    font.pixelSize: 13
+                                    font.pixelSize: root.fontBodyLg
                                     font.weight: 600
                                 }
 
@@ -475,7 +491,7 @@ Rectangle {
                                     text: panel.currentResults().count
                                     color: panel.mutedText
                                     font.family: root.uiFont
-                                    font.pixelSize: 12
+                                    font.pixelSize: root.fontBody
                                     font.weight: 400
                                 }
                             }
@@ -487,7 +503,7 @@ Rectangle {
                                 wrapMode: Text.Wrap
                                 color: panel.mutedText
                                 font.family: root.uiFont
-                                font.pixelSize: 12
+                                font.pixelSize: root.fontBody
                                 font.weight: 400
                                 lineHeight: 1.25
                             }
@@ -498,8 +514,8 @@ Rectangle {
                                 delegate: Rectangle {
                                     width: parent.width
                                     height: resultCardColumn.implicitHeight + 20
-                                    radius: 12
-                                    color: "#FFFFFF"
+                                    radius: root.themeTokens.radiusMd || 12
+                                    color: panel.contentFill
                                     border.width: 1
                                     border.color: panel.contentBorder
 
@@ -522,7 +538,7 @@ Rectangle {
                                                 wrapMode: Text.Wrap
                                                 color: panel.titleText
                                                 font.family: root.uiFont
-                                                font.pixelSize: 13
+                                                font.pixelSize: root.fontBodyLg
                                                 font.weight: 600
                                                 lineHeight: 1.2
                                             }
@@ -535,13 +551,13 @@ Rectangle {
                                                 width: scoreText.implicitWidth + 12
                                                 height: 22
                                                 radius: 11
-                                                color: "#ECEFF3"
+                                                color: panel.primaryTint
 
                                                 Text {
                                                     id: scoreText
                                                     anchors.centerIn: parent
                                                     text: modelData.scoreLabel || ""
-                                                    color: "#2A313F"
+                                                    color: panel.primaryFill
                                                     font.family: root.uiFont
                                                     font.pixelSize: 11
                                                     font.weight: 600
@@ -555,7 +571,7 @@ Rectangle {
                                             wrapMode: Text.Wrap
                                             color: panel.bodyText
                                             font.family: root.uiFont
-                                            font.pixelSize: 12
+                                            font.pixelSize: root.fontBody
                                             font.weight: 400
                                             lineHeight: 1.25
                                         }
@@ -566,9 +582,9 @@ Rectangle {
 
                                             Text {
                                                 text: "引用到跟进"
-                                                color: "#2A313F"
+                                                color: panel.primaryFill
                                                 font.family: root.uiFont
-                                                font.pixelSize: 12
+                                                font.pixelSize: root.fontBody
                                                 font.weight: 500
 
                                                 MouseArea {
@@ -581,9 +597,9 @@ Rectangle {
                                             Text {
                                                 text: "查看详情"
                                                 visible: String(modelData.detailUrl || "").length > 0
-                                                color: "#2A313F"
+                                                color: panel.primaryFill
                                                 font.family: root.uiFont
-                                                font.pixelSize: 12
+                                                font.pixelSize: root.fontBody
                                                 font.weight: 500
 
                                                 MouseArea {
@@ -607,7 +623,7 @@ Rectangle {
                             text: "信息状态"
                             color: panel.titleText
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 600
                         }
 
@@ -617,7 +633,7 @@ Rectangle {
                             wrapMode: Text.Wrap
                             color: panel.bodyText
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 400
                             lineHeight: 1.2
                         }
@@ -636,7 +652,7 @@ Rectangle {
                                     wrapMode: Text.Wrap
                                     color: panel.bodyText
                                     font.family: root.uiFont
-                                    font.pixelSize: 13
+                                    font.pixelSize: root.fontBodyLg
                                     font.weight: 400
                                     lineHeight: 1.2
                                 }
@@ -648,7 +664,7 @@ Rectangle {
                                     wrapMode: Text.Wrap
                                     color: panel.mutedText
                                     font.family: root.uiFont
-                                    font.pixelSize: 12
+                                    font.pixelSize: root.fontBody
                                     font.weight: 400
                                     lineHeight: 1.2
                                 }
@@ -664,7 +680,7 @@ Rectangle {
                             text: "仍需补充"
                             color: panel.titleText
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 600
                         }
 
@@ -681,7 +697,7 @@ Rectangle {
                                     wrapMode: Text.Wrap
                                     color: panel.titleText
                                     font.family: root.uiFont
-                                    font.pixelSize: 13
+                                    font.pixelSize: root.fontBodyLg
                                     font.weight: 500
                                     lineHeight: 1.2
                                 }
@@ -692,7 +708,7 @@ Rectangle {
                                     wrapMode: Text.Wrap
                                     color: panel.mutedText
                                     font.family: root.uiFont
-                                    font.pixelSize: 12
+                                    font.pixelSize: root.fontBody
                                     font.weight: 400
                                     lineHeight: 1.2
                                 }
@@ -720,7 +736,7 @@ Rectangle {
                                 text: panel.upgradeDecisionText()
                                 color: panel.titleText
                                 font.family: root.uiFont
-                                font.pixelSize: 14
+                                font.pixelSize: root.fontBodyLg
                                 font.weight: 600
                             }
 
@@ -730,13 +746,13 @@ Rectangle {
                                 radius: 12
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                color: "#FFF4EC"
+                                color: panel.warningFill
 
                                 Text {
                                     id: riskText
                                     anchors.centerIn: parent
                                     text: "证据不足"
-                                    color: "#D65A19"
+                                    color: panel.warningInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
                                     font.weight: 500
@@ -750,7 +766,7 @@ Rectangle {
                             wrapMode: Text.Wrap
                             color: panel.bodyText
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 400
                             lineHeight: 1.25
                         }
@@ -769,7 +785,7 @@ Rectangle {
             width: 4
             height: Math.max(48, (bodyFlick.height / Math.max(bodyFlick.contentHeight, 1)) * (bodyFlick.height - 16))
             radius: 2
-            color: "#BEC6D2"
+            color: panel.scrollbarFill
         }
 
         Rectangle {
@@ -779,7 +795,7 @@ Rectangle {
             width: toastTextItem.implicitWidth + 24
             height: 32
             radius: 16
-            color: "#111827"
+            color: panel.toastFill
             opacity: panel.toastText.length > 0 ? 0.94 : 0
             visible: opacity > 0
 
@@ -787,9 +803,9 @@ Rectangle {
                 id: toastTextItem
                 anchors.centerIn: parent
                 text: panel.toastText
-                color: "#FFFFFF"
+                color: panel.primaryInk
                 font.family: root.uiFont
-                font.pixelSize: 12
+                font.pixelSize: root.fontBody
                 font.weight: 500
             }
         }
@@ -805,7 +821,7 @@ Rectangle {
                 onPaint: {
                     var ctx = getContext("2d")
                     ctx.clearRect(0, 0, width, height)
-                    ctx.strokeStyle = "rgba(17, 24, 39, 0.18)"
+                    ctx.strokeStyle = panel.resizeHandleStroke
                     ctx.lineWidth = 2
                     ctx.beginPath()
                     ctx.moveTo(width - 10, height - 5)

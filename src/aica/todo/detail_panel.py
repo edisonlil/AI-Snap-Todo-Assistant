@@ -310,6 +310,7 @@ from ..runtime import RUNTIME_CAPABILITIES
 from ..server_api import ChattodoServerClient, ChattodoServerError
 from ..storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from ..storage.sqlite.repositories import SQLiteProjectRepository
+from ..theme_controller import ThemeController
 from ..root_cause_options import ROOT_CAUSE_OPTIONS
 from ..ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
@@ -3534,10 +3535,12 @@ class _StageSummaryWindow(QQuickView):
         panel_width: int,
         panel_height: int,
         screen_margin: int,
+        theme_controller: ThemeController | None = None,
     ) -> None:
         super().__init__()
         self._owner_panel: TodoDetailPanel | None = None
         self._bridge = bridge
+        self._theme_controller = theme_controller or ThemeController()
         self._panel_width = panel_width
         self._panel_height = panel_height
         self._screen_margin = screen_margin
@@ -3558,6 +3561,7 @@ class _StageSummaryWindow(QQuickView):
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
+        self._theme_controller.apply_to_context(self.rootContext())
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.rootContext().setContextProperty("stageSummaryWindowBridge", self)
         self.setSource(
@@ -3805,10 +3809,12 @@ class _AssistTroubleshootingWindow(QQuickView):
         panel_width: int,
         panel_height: int,
         screen_margin: int,
+        theme_controller: ThemeController | None = None,
     ) -> None:
         super().__init__()
         self._owner_panel: TodoDetailPanel | None = None
         self._bridge = bridge
+        self._theme_controller = theme_controller or ThemeController()
         self._panel_width = panel_width
         self._panel_height = panel_height
         self._screen_margin = screen_margin
@@ -3829,6 +3835,7 @@ class _AssistTroubleshootingWindow(QQuickView):
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
+        self._theme_controller.apply_to_context(self.rootContext())
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.rootContext().setContextProperty("assistTroubleshootingWindowBridge", self)
         self.setSource(
@@ -4081,9 +4088,11 @@ class TodoDetailPanel(QQuickView):
         parent=None,
         *,
         notification_bridge: AppNotificationBridge | None = None,
+        theme_controller: ThemeController | None = None,
     ):
         super().__init__(parent)
         self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._theme_controller = theme_controller or ThemeController()
         self._project_repository: SQLiteProjectRepository | None = None
         self._bridge = _TodoDetailBridge(
             notification_bridge=self._notification_bridge,
@@ -4114,6 +4123,7 @@ class TodoDetailPanel(QQuickView):
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self._theme_controller.apply_to_context(self.rootContext())
         self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
         self.setSource(
             QUrl.fromLocalFile(
@@ -4126,6 +4136,7 @@ class TodoDetailPanel(QQuickView):
             panel_width=self._stage_summary_window_width,
             panel_height=self._stage_summary_window_height,
             screen_margin=self._screen_margin,
+            theme_controller=self._theme_controller,
         )
         self._stage_summary_window.set_owner_panel(self)
         self._stage_summary_window.set_pinned(self._pinned)
@@ -4134,6 +4145,7 @@ class TodoDetailPanel(QQuickView):
             panel_width=self._assist_troubleshooting_window_width,
             panel_height=self._assist_troubleshooting_window_height,
             screen_margin=self._screen_margin,
+            theme_controller=self._theme_controller,
         )
         self._assist_troubleshooting_window.set_owner_panel(self)
         self._assist_troubleshooting_window.set_pinned(self._pinned)

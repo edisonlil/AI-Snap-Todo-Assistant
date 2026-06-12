@@ -9,6 +9,7 @@ from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from aica.runtime import RUNTIME_CAPABILITIES
+from aica.theme_controller import ThemeController
 
 
 class _FocusHintBridge(QObject):
@@ -54,8 +55,15 @@ class _FocusHintBridge(QObject):
 
 
 class FocusHintDialog(QDialog):
-    def __init__(self, initial_text: str = "", parent=None) -> None:
+    def __init__(
+        self,
+        initial_text: str = "",
+        parent=None,
+        *,
+        theme_controller: ThemeController | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._bridge = _FocusHintBridge(initial_text)
         self._positioned = False
 
@@ -84,6 +92,7 @@ class FocusHintDialog(QDialog):
         self._view = QQuickWidget(self)
         self._view.setClearColor(QColor(0, 0, 0, 0))
         self._view.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        self._theme_controller.apply_to_context(self._view.rootContext())
         self._view.rootContext().setContextProperty("focusHintBridge", self._bridge)
         self._view.setSource(
             QUrl.fromLocalFile(

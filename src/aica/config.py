@@ -10,6 +10,7 @@ from aica.runtime import (
     DEFAULT_WINDOWS_CAPTURE_HOTKEY,
     default_capture_hotkey,
 )
+from aica.theme import ThemeConfig
 
 
 DEFAULT_CAPTURE_HOTKEY = DEFAULT_WINDOWS_CAPTURE_HOTKEY
@@ -148,6 +149,7 @@ class AppConfig:
     task_model_bindings: TaskModelBindings = field(default_factory=lambda: default_task_model_bindings("siliconflow"))
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    theme: ThemeConfig = field(default_factory=ThemeConfig)
     max_image_bytes: int = 4 * 1024 * 1024
 
 
@@ -267,6 +269,7 @@ def build_default_config() -> AppConfig:
         task_model_bindings=default_task_model_bindings("siliconflow"),
         hotkeys=HotkeyConfig(),
         server=ServerConfig(),
+        theme=ThemeConfig(),
         max_image_bytes=4 * 1024 * 1024,
     )
 
@@ -394,6 +397,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         task_model_bindings=bindings,
         hotkeys=HotkeyConfig.from_dict(data.get("hotkeys")),
         server=ServerConfig.from_dict(data.get("server")),
+        theme=ThemeConfig.from_dict(data.get("theme")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
     )
 
@@ -422,6 +426,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     )
     migrated.hotkeys = HotkeyConfig()
     migrated.server = ServerConfig()
+    migrated.theme = ThemeConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     return migrated
 

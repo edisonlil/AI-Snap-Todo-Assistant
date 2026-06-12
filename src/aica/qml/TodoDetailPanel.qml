@@ -15,20 +15,21 @@ Rectangle {
         }
     }
 
-    readonly property color shellBg: "#FFFFFF"
-    readonly property color panelBg: "#FFFFFF"
-    readonly property color panelLine: "#E5E7EB"
-    readonly property color sectionLine: "#E5E7EB"
-    readonly property color titleInk: "#18202E"
-    readonly property color bodyInk: "#4A5565"
-    readonly property color labelInk: "#9AA4B3"
-    readonly property color mutedInk: "#A9B1BD"
-    readonly property color fieldBg: "#F8F9FA"
-    readonly property color fieldLine: "#E5E7EB"
-    readonly property color timelineBg: "#F8F9FA"
-    readonly property color accent: "#2A313F"
-    readonly property color accentTint: "#ECEFF3"
-    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property color shellBg: themeTokens.shellBg || "#FFFFFF"
+    readonly property color panelBg: themeTokens.panelBg || "#FFFFFF"
+    readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
+    readonly property color sectionLine: themeTokens.sectionLine || "#E5E7EB"
+    readonly property color titleInk: themeTokens.titleInk || "#18202E"
+    readonly property color bodyInk: themeTokens.bodyInk || "#4A5565"
+    readonly property color labelInk: themeTokens.labelInk || "#9AA4B3"
+    readonly property color mutedInk: themeTokens.mutedInk || "#A9B1BD"
+    readonly property color fieldBg: themeTokens.fieldBg || "#F8F9FA"
+    readonly property color fieldLine: themeTokens.fieldLine || "#E5E7EB"
+    readonly property color timelineBg: themeTokens.timelineBg || "#F8F9FA"
+    readonly property color accent: themeTokens.accent || "#2A313F"
+    readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
+    readonly property string uiFont: themeTokens.uiFont || (todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI")
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16
@@ -910,7 +911,7 @@ Rectangle {
                             width: parent.width
                             height: 120
                             radius: 18
-                            color: "#F8F9FA"
+                            color: root.fieldBg
                             border.width: 0
                             border.color: root.fieldLine
 

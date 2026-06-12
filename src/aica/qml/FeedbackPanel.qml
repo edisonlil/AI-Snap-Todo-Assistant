@@ -4,21 +4,28 @@ Rectangle {
     id: root
     width: 780
     height: 580
-    color: "#FFFFFF"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    color: themeTokens.panelBg || "#FFFFFF"
 
-    readonly property string uiFont: feedbackPanelBridge ? feedbackPanelBridge.uiFont : "Microsoft YaHei UI"
+    readonly property string uiFont: themeTokens.uiFont || (feedbackPanelBridge ? feedbackPanelBridge.uiFont : "Microsoft YaHei UI")
     readonly property string monospaceFont: feedbackPanelBridge ? feedbackPanelBridge.monospaceFont : "Consolas"
-    readonly property color ink: "#111827"
-    readonly property color subtleInk: "#667085"
-    readonly property color chipInk: "#344054"
-    readonly property color panelLine: "#E5E7EB"
-    readonly property color fieldLine: "#E5E7EB"
-    readonly property color accent: "#2A313F"
-    readonly property color cardBg: "#F5F5F5"
-    readonly property color chipBg: "#F5F5F5"
-    readonly property color editorBg: "#FFFFFF"
+    readonly property color ink: themeTokens.titleInk || "#111827"
+    readonly property color subtleInk: themeTokens.bodyInk || "#667085"
+    readonly property color chipInk: themeTokens.bodyInk || "#344054"
+    readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
+    readonly property color fieldLine: themeTokens.fieldLine || "#E5E7EB"
+    readonly property color accent: themeTokens.accent || "#2A313F"
+    readonly property color cardBg: themeTokens.panelAltBg || "#F5F5F5"
+    readonly property color chipBg: themeTokens.accentSoft || "#F5F5F5"
+    readonly property color editorBg: themeTokens.inputBg || "#FFFFFF"
+    readonly property int radiusMd: themeTokens.radiusMd || 10
+    readonly property int fontTiny: themeTokens.fontTiny || 10
+    readonly property int fontCaption: themeTokens.fontCaption || 11
+    readonly property int fontBody: themeTokens.fontBody || 12
+    readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
+    readonly property int fontTitle: themeTokens.fontTitle || 18
     readonly property int outerPadding: 16
-    readonly property int cardRadius: 10
+    readonly property int cardRadius: root.radiusMd
     readonly property int sectionGap: 10
     readonly property int labelWeight: 600
     readonly property int titleWeight: 700
@@ -55,7 +62,7 @@ Rectangle {
 
     Rectangle {
         anchors.fill: parent
-        color: "#FFFFFF"
+        color: root.editorBg
 
         Column {
             anchors.fill: parent
@@ -74,7 +81,7 @@ Rectangle {
                         text: "\u53cd\u9988\u4fee\u6b63"
                         color: root.ink
                         font.family: root.uiFont
-                        font.pixelSize: 18
+                        font.pixelSize: root.fontTitle
                         font.weight: root.titleWeight
                     }
 
@@ -95,7 +102,7 @@ Rectangle {
                                 text: feedbackPanelBridge.scenario
                                 color: root.chipInk
                                 font.family: root.uiFont
-                                font.pixelSize: 10
+                                font.pixelSize: root.fontTiny
                                 font.weight: root.labelWeight
                             }
                         }
@@ -117,7 +124,7 @@ Rectangle {
                                 text: feedbackPanelBridge.model
                                 color: root.chipInk
                                 font.family: root.uiFont
-                                font.pixelSize: 10
+                                font.pixelSize: root.fontTiny
                                 font.weight: root.labelWeight
                             }
                         }
@@ -129,7 +136,7 @@ Rectangle {
                         text: "\u5c06\u7ed3\u679c\u4fee\u6b63\u4e3a\u4f60\u771f\u6b63\u60f3\u8981\u7684\u5185\u5bb9\uff0c\u53ef\u8865\u5145\u9519\u8bef\u539f\u56e0\u6216\u683c\u5f0f\u8981\u6c42\u3002"
                         color: root.subtleInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: root.fontBody
                         font.weight: root.bodyWeight
                     }
                 }
@@ -139,7 +146,7 @@ Rectangle {
                     text: "\u5173\u95ed"
                     color: root.ink
                     font.family: root.uiFont
-                    font.pixelSize: 11
+                    font.pixelSize: root.fontCaption
                     font.weight: root.labelWeight
 
                     MouseArea {
@@ -167,7 +174,7 @@ Rectangle {
                         text: "\u4fee\u6b63\u540e\u7684\u7ed3\u679c"
                         color: root.ink
                         font.family: root.uiFont
-                        font.pixelSize: 13
+                        font.pixelSize: root.fontBodyLg
                         font.weight: root.titleWeight
                     }
 
@@ -177,7 +184,7 @@ Rectangle {
                         text: "\u76f4\u63a5\u4fee\u6539\u6210\u4f60\u771f\u6b63\u60f3\u8981\u7684\u8f93\u51fa\u7ed3\u679c\u3002"
                         color: root.subtleInk
                         font.family: root.uiFont
-                        font.pixelSize: 11
+                        font.pixelSize: root.fontCaption
                         font.weight: root.bodyWeight
                     }
 
@@ -206,7 +213,7 @@ Rectangle {
                                 textFormat: TextEdit.PlainText
                                 color: root.ink
                                 font.family: root.monospaceFont
-                                font.pixelSize: 12
+                                font.pixelSize: root.fontBody
                                 onTextChanged: root.pushResult(text)
                             }
                         }

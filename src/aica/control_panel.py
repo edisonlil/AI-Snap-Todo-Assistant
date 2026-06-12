@@ -15,7 +15,7 @@ try:
     if _SKIP_QT_IMPORT:
         raise RuntimeError("Skip Qt import while running tests")
     from PyQt6.QtCore import QDate, QObject, QThread, Qt, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
-    from PyQt6.QtGui import QColor, QDesktopServices
+    from PyQt6.QtGui import QColor, QDesktopServices, QFontDatabase
     from PyQt6.QtQuickWidgets import QQuickWidget
     from PyQt6.QtWidgets import QApplication, QCalendarWidget, QDialog, QDialogButtonBox, QFileDialog, QWidget, QVBoxLayout
 except Exception:  # pragma: no cover - fallback for test environments without Qt runtime
@@ -140,6 +140,11 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         @staticmethod
         def openUrl(*_args, **_kwargs):
             return False
+
+    class QFontDatabase:  # type: ignore[no-redef]
+        @staticmethod
+        def families():
+            return []
 
     class _DummyContext:
         def setContextProperty(self, *_args, **_kwargs):
@@ -276,6 +281,13 @@ from aica.analysis.rules import (
 from aica.app_notifications import AppNotificationBridge
 from aica.config import ConfigManager, ProviderConfig, ProviderModelConfig, TaskModelBinding
 from aica.hotkey import normalize_hotkey
+from aica.theme import (
+    ThemeConfig,
+    component_style_options,
+    density_options,
+    preset_options,
+)
+from aica.theme_controller import ThemeController
 from aica.control_panel_state import (
     build_script_integration,
     describe_script_integration_support,
@@ -471,6 +483,11 @@ _SECTION_GROUPS = [
         "title": "\u8fd0\u884c\u4e0e\u96c6\u6210",
         "items": [
             {
+                "id": "theme",
+                "title": "\u4e3b\u9898\u6837\u5f0f",
+                "description": "\u8c03\u6574 Chattodo \u7684\u5e95\u8272\u9884\u8bbe\u3001\u5f3a\u8c03\u8272\u3001\u5706\u89d2\u3001\u5b57\u4f53\u548c\u754c\u9762\u5bc6\u5ea6\u3002",
+            },
+            {
                 "id": "hotkeys",
                 "title": "\u5feb\u6377\u952e",
                 "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
@@ -504,6 +521,11 @@ _SECTION_VIEW_META = {
         "title": "\u622a\u56fe\u70ed\u952e",
         "description": "\u622a\u56fe\u70ed\u952e\u4fdd\u5b58\u540e\u4f1a\u7acb\u5373\u91cd\u7ed1\uff0c\u65e0\u9700\u91cd\u542f\u5e94\u7528\u3002",
         "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
+    },
+    "theme": {
+        "title": "\u4e3b\u9898\u6837\u5f0f",
+        "description": "\u7edf\u4e00\u7ba1\u7406\u754c\u9762 token\uff0c\u4fdd\u5b58\u540e\u5df2\u6253\u5f00\u7684\u7a97\u53e3\u4f1a\u5c3d\u91cf\u7acb\u5373\u5237\u65b0\u3002",
+        "primaryActionLabel": "\u4fdd\u5b58\u4e3b\u9898",
     },
     "analysis_rules": {
         "title": "\u89c4\u5219\u4e0e Prompt \u8c03\u8bd5",
@@ -1024,6 +1046,7 @@ class _ControlPanelBridge(QObject):
         self,
         config_manager: ConfigManager,
         *,
+        theme_controller: ThemeController | None = None,
         notification_bridge: AppNotificationBridge | None = None,
         event_publisher: TodoEventPublisher | None = None,
     ) -> None:
@@ -1032,6 +1055,8 @@ class _ControlPanelBridge(QObject):
         self._event_publisher = event_publisher
         self._config_manager = config_manager
         self._config = config_manager.load()
+        self._theme_controller = theme_controller or ThemeController(self._config.theme)
+        self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
         self._analysis_metrics = AnalysisMetricsStore()
         self._analysis_rules_manager = AnalysisRulesManager()
         self._analysis_rules = self._analysis_rules_manager.config
@@ -1115,7 +1140,45 @@ class _ControlPanelBridge(QObject):
 
     @pyqtProperty(str, constant=True)
     def uiFont(self) -> str:
-        return RUNTIME_CAPABILITIES.ui_font
+        return str(self._theme_controller.tokens.get("uiFont") or RUNTIME_CAPABILITIES.ui_font)
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def themeConfig(self):  # noqa: ANN201
+        return self._theme_draft.to_dict()
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def themeTokens(self):  # noqa: ANN201
+        return self._theme_controller.tokens
+
+    @pyqtProperty("QVariantList", constant=True)
+    def themePresetOptions(self):  # noqa: ANN201
+        return preset_options()
+
+    @pyqtProperty("QVariantList", constant=True)
+    def themeComponentStyleOptions(self):  # noqa: ANN201
+        return component_style_options()
+
+    @pyqtProperty("QVariantList", constant=True)
+    def themeDensityOptions(self):  # noqa: ANN201
+        return density_options()
+
+    @pyqtProperty("QVariantList", constant=True)
+    def themeFontOptions(self):  # noqa: ANN201
+        families = [str(item).strip() for item in QFontDatabase.families() if str(item).strip()]
+        preferred = [
+            RUNTIME_CAPABILITIES.ui_font,
+            "Microsoft YaHei UI",
+            "PingFang SC",
+            "Noto Sans CJK SC",
+            "Segoe UI",
+            "Arial",
+            "Helvetica Neue",
+        ]
+        ordered: list[str] = []
+        for family in [*preferred, *families]:
+            if family and family not in ordered:
+                ordered.append(family)
+        return [{"value": "", "text": "系统默认"}, *[{"value": family, "text": family} for family in ordered]]
 
     @pyqtProperty(str, constant=True)
     def logoSource(self) -> str:
@@ -1970,6 +2033,8 @@ class _ControlPanelBridge(QObject):
     def reloadConfig(self) -> None:
         self._config_manager = ConfigManager()
         self._config = self._config_manager.load()
+        self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
+        self._theme_controller.set_config(self._config.theme)
         self._analysis_rules = self._analysis_rules_manager.reload()
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
@@ -2002,6 +2067,47 @@ class _ControlPanelBridge(QObject):
             records = self._prompt_debug_store.list_records(limit=1)
             if records:
                 self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, str)
+    def updateThemeField(self, field_name: str, value: str) -> None:
+        payload = self._theme_draft.to_dict()
+        normalized = str(field_name or "").strip()
+        if normalized not in payload:
+            return
+        payload[normalized] = str(value or "").strip()
+        self._theme_draft = ThemeConfig.from_dict(payload)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str, float)
+    def updateThemeNumberField(self, field_name: str, value: float) -> None:
+        payload = self._theme_draft.to_dict()
+        normalized = str(field_name or "").strip()
+        if normalized not in {"radius_scale", "font_scale", "font_size_px"}:
+            return
+        payload[normalized] = int(value) if normalized == "font_size_px" else float(value)
+        self._theme_draft = ThemeConfig.from_dict(payload)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(str)
+    def selectThemePreset(self, preset_id: str) -> None:
+        normalized = str(preset_id or "").strip()
+        payload = self._theme_draft.to_dict()
+        payload["preset_id"] = normalized
+        preset = next((item for item in preset_options() if item["id"] == normalized), None)
+        if preset is not None:
+            payload["base_color"] = preset["baseColor"]
+            payload["accent_color"] = preset["accentColor"]
+        self._theme_draft = ThemeConfig.from_dict(payload)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot()
+    def resetThemeDefaults(self) -> None:
+        self._theme_draft = ThemeConfig()
         self._clear_messages()
         self._emit_data_changed()
 
@@ -2378,6 +2484,7 @@ class _ControlPanelBridge(QObject):
                 self._config,
                 capture_hotkey=self._capture_hotkey,
                 max_image_megabytes=self._max_image_megabytes,
+                theme=self._theme_draft.to_dict(),
             )
         except ValueError as exc:
             self._error_message = str(exc)
@@ -2386,6 +2493,8 @@ class _ControlPanelBridge(QObject):
 
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
+        self._theme_controller.set_config(self._config.theme)
         self._status_message = "配置已保存"
         self._emit_data_changed()
         self.configSaved.emit(self._config)
@@ -3437,14 +3546,17 @@ class ControlPanelWindow(QWidget):
         config_manager: ConfigManager,
         parent=None,
         *,
+        theme_controller: ThemeController | None = None,
         notification_bridge: AppNotificationBridge | None = None,
         event_publisher: TodoEventPublisher | None = None,
     ) -> None:
         super().__init__(parent)
         self._positioned = False
         self._notification_bridge = notification_bridge or AppNotificationBridge()
+        self._theme_controller = theme_controller or ThemeController(config_manager.load().theme)
         self._bridge = _ControlPanelBridge(
             config_manager,
+            theme_controller=self._theme_controller,
             notification_bridge=self._notification_bridge,
             event_publisher=event_publisher,
         )
@@ -3478,6 +3590,7 @@ class ControlPanelWindow(QWidget):
         self._view = QQuickWidget(self)
         self._view.setClearColor(QColor(0, 0, 0, 0))
         self._view.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        self._theme_controller.apply_to_context(self._view.rootContext())
         self._view.rootContext().setContextProperty("controlPanelBridge", self._bridge)
         self._view.setSource(QUrl.fromLocalFile(str(qml_dir() / "ControlPanel.qml")))
         self._ensure_qml_loaded()
@@ -3583,4 +3696,3 @@ class ControlPanelWindow(QWidget):
         if self._layout is None:
             return
         self._layout.setContentsMargins(0, 0, 0, 0)
-

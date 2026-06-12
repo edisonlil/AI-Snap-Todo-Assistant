@@ -6,7 +6,13 @@ Rectangle {
     width: 443
     height: 632
     color: "transparent"
-    readonly property string uiFont: todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property string uiFont: themeTokens.uiFont || (todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI")
+    readonly property int fontTiny: themeTokens.fontTiny || 10
+    readonly property int fontCaption: themeTokens.fontCaption || 11
+    readonly property int fontBody: themeTokens.fontBody || 12
+    readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
+    readonly property int fontSection: themeTokens.fontSection || 15
     readonly property real preferredHeight: panel.preferredHeight
     onPreferredHeightChanged: stageSummaryWindowBridge.syncPanelSize()
 
@@ -34,23 +40,30 @@ Rectangle {
         readonly property real panelTopPadding: 16
         readonly property real panelBottomPadding: 24
         readonly property real sectionSpacing: 12
-        readonly property color panelBorder: "#E5E7EB"
-        readonly property color titleText: "#18202E"
-        readonly property color bodyText: "#4A5565"
-        readonly property color mutedText: "#7A8795"
-        readonly property color subtleFill: "#F5F5F5"
-        readonly property color contentFill: "#FFFFFF"
-        readonly property color contentBorder: "#E5E7EB"
-        readonly property color primaryFill: "#2A313F"
-        readonly property color primaryInk: "#FFFFFF"
-        readonly property color secondaryBorder: "#E5E7EB"
-        readonly property color secondaryInk: "#4A5565"
-        readonly property color chipBorder: "#E5E7EB"
-        readonly property color chipText: "#5B6574"
+        readonly property color panelFill: root.themeTokens.panelBg || "#FFFFFF"
+        readonly property color panelBorder: root.themeTokens.panelLine || "#E5E7EB"
+        readonly property color titleText: root.themeTokens.titleInk || "#18202E"
+        readonly property color bodyText: root.themeTokens.bodyInk || "#4A5565"
+        readonly property color mutedText: root.themeTokens.labelInk || "#7A8795"
+        readonly property color subtleFill: root.themeTokens.panelAltBg || "#F5F5F5"
+        readonly property color contentFill: root.themeTokens.inputBg || "#FFFFFF"
+        readonly property color contentBorder: root.themeTokens.fieldLine || "#E5E7EB"
+        readonly property color primaryFill: root.themeTokens.accent || "#2A313F"
+        readonly property color primaryTint: root.themeTokens.accentTint || "#ECEFF3"
+        readonly property color primarySoft: root.themeTokens.accentSoft || "#F1F3F6"
+        readonly property color primaryInk: root.themeTokens.accentInk || "#FFFFFF"
+        readonly property color secondaryBorder: root.themeTokens.panelLine || "#E5E7EB"
+        readonly property color secondaryInk: root.themeTokens.bodyInk || "#4A5565"
+        readonly property color chipBorder: root.themeTokens.fieldLine || "#E5E7EB"
+        readonly property color chipText: root.themeTokens.bodyInk || "#5B6574"
+        readonly property color hoverFill: root.themeTokens.hoverBg || "#F3F5F8"
+        readonly property color warningFill: root.themeTokens.warningBg || "#FFF6F0"
+        readonly property color warningBorder: root.themeTokens.accentTint || "#F0D7C3"
+        readonly property color warningInk: root.themeTokens.warningInk || "#8E4F1F"
         readonly property real rewriteBoxMinHeight: 96
         readonly property real chipHeight: 28
         readonly property real chipRadius: 14
-        readonly property real chipFontSize: 11
+        readonly property real chipFontSize: root.fontCaption
         readonly property real chipHorizontalPadding: 16
         readonly property real contentBoxMinHeight: 96
         readonly property real contentBoxDefaultHeight: 236
@@ -151,8 +164,8 @@ Rectangle {
         onDragMoved: stageSummaryWindowBridge.updatePanelDrag()
         onDragFinished: stageSummaryWindowBridge.finishPanelDrag()
 
-        color: "#FFFFFF"
-        radius: 18
+        color: panel.panelFill
+        radius: root.themeTokens.radiusLg || 18
         border.width: 1
         border.color: panel.panelBorder
         clip: true
@@ -199,7 +212,7 @@ Rectangle {
                         text: "阶段总结"
                         color: panel.titleText
                         font.family: root.uiFont
-                        font.pixelSize: 17
+                        font.pixelSize: root.fontSection + 2
                         font.weight: 600
                     }
 
@@ -209,7 +222,7 @@ Rectangle {
                         text: "保留 Markdown 结构展示，支持直接编辑内容，也可以按下面要求重写整理。"
                         color: panel.mutedText
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: root.fontBody
                         font.weight: 400
                     }
                 }
@@ -218,17 +231,17 @@ Rectangle {
                     id: closeButton
                     width: 20
                     height: 20
-                    radius: 6
+                    radius: root.themeTokens.radiusSm || 6
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    color: closeMouse.containsMouse ? "#F3F5F8" : "transparent"
+                    color: closeMouse.containsMouse ? panel.hoverFill : "transparent"
 
                     Text {
                         anchors.centerIn: parent
                         text: "×"
-                        color: closeMouse.containsMouse ? "#667085" : panel.mutedText
+                        color: closeMouse.containsMouse ? panel.secondaryInk : panel.mutedText
                         font.family: root.uiFont
-                        font.pixelSize: 15
+                        font.pixelSize: root.fontSection
                         font.weight: 400
                     }
 
@@ -245,8 +258,8 @@ Rectangle {
             Rectangle {
                 width: parent.width
                 height: panel.helperHeight
-                radius: 12
-                color: panel.editMode ? "#ECEFF3" : "#F5F5F5"
+                radius: root.themeTokens.radiusMd || 12
+                color: panel.editMode ? panel.primaryTint : panel.subtleFill
                 border.width: 1
                 border.color: panel.editMode ? panel.primaryFill : panel.secondaryBorder
 
@@ -271,7 +284,7 @@ Rectangle {
                         text: panel.editMode ? "编辑中：当前改动会作为复制和重写整理的基础文本" : "阅读态：直接按 Markdown 结构浏览，保留标题和列表层级"
                         color: panel.editMode ? panel.primaryFill : panel.bodyText
                         font.family: root.uiFont
-                        font.pixelSize: 11
+                        font.pixelSize: root.fontCaption
                         font.weight: 500
                     }
                 }
@@ -282,7 +295,7 @@ Rectangle {
                 width: parent.width
                 height: panel.contentBoxHeight
                 color: panel.contentFill
-                radius: 16
+                radius: root.themeTokens.radiusLg || 16
                 border.width: 1
                 border.color: panel.editMode ? panel.primaryFill : panel.contentBorder
 
@@ -311,7 +324,7 @@ Rectangle {
                         width: chipTextItem.implicitWidth + panel.chipHorizontalPadding
                         height: panel.chipHeight
                         radius: panel.chipRadius
-                        color: "#FFFFFF"
+                        color: panel.contentFill
                         border.width: 1
                         border.color: panel.chipBorder
                         opacity: panel.summaryActionEnabled ? 1 : 0.58
@@ -345,7 +358,7 @@ Rectangle {
                 Rectangle {
                     width: refreshContent.implicitWidth + 24
                     height: 34
-                    radius: 10
+                    radius: root.themeTokens.radiusMd || 10
                     color: panel.primaryFill
                     border.width: 0
                     opacity: panel.busy ? 0.92 : 1
@@ -366,7 +379,7 @@ Rectangle {
                             text: panel.primaryButtonText
                             color: panel.primaryInk
                             font.family: root.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: root.fontBody
                             font.weight: 600
                         }
                     }
@@ -382,8 +395,8 @@ Rectangle {
                 Rectangle {
                     width: editText.implicitWidth + 24
                     height: 34
-                    radius: 10
-                    color: panel.editMode ? "#ECEFF3" : "transparent"
+                    radius: root.themeTokens.radiusMd || 10
+                    color: panel.editMode ? panel.primaryTint : "transparent"
                     border.width: 1
                     border.color: panel.editMode ? panel.primaryFill : panel.secondaryBorder
                     opacity: (!panel.busy && (panel.summaryText.trim().length > 0 || panel.editMode)) ? 1 : 0.58
@@ -394,7 +407,7 @@ Rectangle {
                         text: panel.editMode ? "完成编辑" : "编辑内容"
                         color: panel.editMode ? panel.primaryFill : panel.secondaryInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: root.fontBody
                         font.weight: 500
                     }
 
@@ -409,7 +422,7 @@ Rectangle {
                 Rectangle {
                     width: copyText.implicitWidth + 24
                     height: 34
-                    radius: 10
+                    radius: root.themeTokens.radiusMd || 10
                     color: "transparent"
                     border.width: 1
                     border.color: panel.secondaryBorder
@@ -421,7 +434,7 @@ Rectangle {
                         text: "复制内容"
                         color: panel.secondaryInk
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: root.fontBody
                         font.weight: 500
                     }
 
@@ -441,7 +454,7 @@ Rectangle {
                 text: panel.noticeText
                 color: panel.mutedText
                 font.family: root.uiFont
-                font.pixelSize: 12
+                font.pixelSize: root.fontBody
                 font.weight: 400
             }
 
@@ -449,7 +462,7 @@ Rectangle {
                 id: rewriteBox
                 width: parent.width
                 height: panel.rewriteBoxHeight
-                radius: 12
+                radius: root.themeTokens.radiusMd || 12
                 color: panel.subtleFill
                 border.width: 0
 
@@ -464,7 +477,7 @@ Rectangle {
                     textFormat: TextEdit.PlainText
                     color: panel.bodyText
                     font.family: root.uiFont
-                    font.pixelSize: 13
+                    font.pixelSize: root.fontBodyLg
                     font.weight: 400
                     rightPadding: 8
                     bottomPadding: 8
@@ -495,7 +508,7 @@ Rectangle {
                     text: "补充你的调整要求，例如：更适合发客户、保留技术细节、把待确认项再压缩一点。"
                     color: panel.mutedText
                     font.family: root.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: root.fontBody
                     font.weight: 400
                 }
             }
@@ -523,7 +536,7 @@ Rectangle {
                         text: "正在整理当前阶段进展..."
                         color: panel.mutedText
                         font.family: root.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: root.fontBody
                         font.weight: 400
                     }
                 }
@@ -587,7 +600,7 @@ Rectangle {
                         textFormat: TextEdit.PlainText
                         color: panel.bodyText
                         font.family: root.uiFont
-                        font.pixelSize: 13
+                        font.pixelSize: root.fontBodyLg
                         font.weight: 400
                         placeholderText: "整理结果会显示在这里，也支持直接编辑。"
                         padding: 4
@@ -637,7 +650,7 @@ Rectangle {
                             text: panel.hasSummary ? panel.summaryText : ""
                             color: panel.hasSummary ? panel.bodyText : panel.mutedText
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.fontBodyLg
                             font.weight: 400
                             leftPadding: 2
                             rightPadding: 2
@@ -653,7 +666,7 @@ Rectangle {
                             text: "暂无可查看的阶段总结"
                             color: panel.mutedText
                             font.family: root.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: root.fontBody
                             font.weight: 400
                         }
 
@@ -663,10 +676,10 @@ Rectangle {
                             y: panel.hasSummary ? summaryMarkdown.contentHeight + 10 : 0
                             width: parent.width
                             height: errorTextItem.implicitHeight + 20
-                            radius: 12
-                            color: "#FFF6F0"
+                            radius: root.themeTokens.radiusMd || 12
+                            color: panel.warningFill
                             border.width: 1
-                            border.color: "#F0D7C3"
+                            border.color: panel.warningBorder
                             visible: panel.errorText.length > 0
 
                             Text {
@@ -675,9 +688,9 @@ Rectangle {
                                 anchors.margins: 10
                                 wrapMode: Text.Wrap
                                 text: panel.errorText
-                                color: "#8E4F1F"
+                                color: panel.warningInk
                                 font.family: root.uiFont
-                                font.pixelSize: 12
+                                font.pixelSize: root.fontBody
                                 font.weight: 400
                             }
                         }
@@ -701,7 +714,7 @@ Rectangle {
                 width: 12
                 height: 12
                 radius: 4
-                color: panel.chipBorder
+                color: panel.primarySoft
                 opacity: 0.95
             }
 

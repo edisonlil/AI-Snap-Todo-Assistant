@@ -8,25 +8,36 @@ Rectangle {
     height: 760
     color: "transparent"
 
-    readonly property color shellBg: "#FFFFFF"
-    readonly property color panelBg: "#FFFFFF"
-    readonly property color panelAltBg: "#F8F9FA"
-    readonly property color panelLine: "#E5E7EB"
-    readonly property color titleInk: "#2A313F"
-    readonly property color bodyInk: "#4A5565"
-    readonly property color labelInk: "#7C8795"
-    readonly property color mutedInk: "#A9B1BD"
-    readonly property color accent: "#2A313F"
-    readonly property color accentSoft: "#F1F3F6"
-    readonly property color navIdle: "#F8F9FA"
-    readonly property color inputBg: "#FFFFFF"
-    readonly property color hoverBg: "#F3F4F6"
-    readonly property color pressedBg: "#E5E7EB"
-    readonly property color errorBg: "#FDECEC"
-    readonly property color errorInk: "#B42318"
-    readonly property color successBg: "#E7F5ED"
-    readonly property color successInk: "#17663A"
-    readonly property string uiFont: controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : (controlPanelBridge ? controlPanelBridge.themeTokens : ({}))
+    readonly property color shellBg: themeTokens.shellBg || "#FFFFFF"
+    readonly property color panelBg: themeTokens.panelBg || "#FFFFFF"
+    readonly property color panelAltBg: themeTokens.panelAltBg || "#F8F9FA"
+    readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
+    readonly property color titleInk: themeTokens.titleInk || "#2A313F"
+    readonly property color bodyInk: themeTokens.bodyInk || "#4A5565"
+    readonly property color labelInk: themeTokens.labelInk || "#7C8795"
+    readonly property color mutedInk: themeTokens.mutedInk || "#A9B1BD"
+    readonly property color accent: themeTokens.accent || "#2A313F"
+    readonly property color accentSoft: themeTokens.accentSoft || "#F1F3F6"
+    readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
+    readonly property color navIdle: themeTokens.navIdle || "#F8F9FA"
+    readonly property color inputBg: themeTokens.inputBg || "#FFFFFF"
+    readonly property color hoverBg: themeTokens.hoverBg || "#F3F4F6"
+    readonly property color pressedBg: themeTokens.pressedBg || "#E5E7EB"
+    readonly property color errorBg: themeTokens.errorBg || "#FDECEC"
+    readonly property color errorInk: themeTokens.errorInk || "#B42318"
+    readonly property color successBg: themeTokens.successBg || "#E7F5ED"
+    readonly property color successInk: themeTokens.successInk || "#17663A"
+    readonly property int radiusSm: themeTokens.radiusSm || 8
+    readonly property int radiusMd: themeTokens.radiusMd || 12
+    readonly property int radiusLg: themeTokens.radiusLg || 16
+    readonly property int radiusCard: themeTokens.radiusCard || 24
+    readonly property int fontCaption: themeTokens.fontCaption || 11
+    readonly property int fontBody: themeTokens.fontBody || 12
+    readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
+    readonly property int fontSection: themeTokens.fontSection || 15
+    readonly property int fontTitle: themeTokens.fontTitle || 18
+    readonly property string uiFont: themeTokens.uiFont || (controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI")
     readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
     readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
     readonly property var projectLevelOptions: [
@@ -54,6 +65,15 @@ Rectangle {
             }
         }
         return value || ""
+    }
+
+    function itemIndexById(items, value) {
+        for (var index = 0; index < items.length; index += 1) {
+            if (items[index].id === value) {
+                return index
+            }
+        }
+        return items.length > 0 ? 0 : -1
     }
 
     function ensureSelectedProvider() {
@@ -840,37 +860,6 @@ Rectangle {
         }
     }
 
-    component ModelPageTab: Rectangle {
-        id: tabRoot
-        property string label: ""
-        property bool active: false
-        signal clicked
-
-        radius: 10
-        color: active ? "#2A313F" : "#FFFFFF"
-        border.width: 1
-        border.color: active ? "#2A313F" : "#E5E7EB"
-        implicitWidth: tabText.implicitWidth + 32
-        implicitHeight: 34
-
-        Text {
-            id: tabText
-            anchors.centerIn: parent
-            text: tabRoot.label
-            color: active ? "#FFFFFF" : root.titleInk
-            font.family: root.uiFont
-            font.pixelSize: 13
-            font.weight: 600
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: tabRoot.clicked()
-        }
-    }
-
     component SectionCard: Rectangle {
         radius: 24
         color: root.panelAltBg
@@ -1150,16 +1139,56 @@ Rectangle {
                                             Layout.fillWidth: true
                                         }
 
-                                        Row {
-                                            spacing: 12
+                                        Rectangle {
+                                            id: providerSegmentedControl
+                                            Layout.preferredWidth: Math.min(600, Math.max(360, segmentCount * 145))
+                                            Layout.preferredHeight: 44
+                                            radius: root.radiusLg
+                                            color: root.hoverBg
+                                            clip: true
+
+                                            readonly property var providerItems: controlPanelBridge ? (controlPanelBridge.providers || []) : []
+                                            readonly property int selectedIndex: root.itemIndexById(providerItems, root.selectedProviderId)
+                                            readonly property int segmentCount: Math.max(1, providerItems.length)
+
+                                            Rectangle {
+                                                x: Math.max(0, parent.selectedIndex) * parent.width / parent.segmentCount + 3
+                                                y: 3
+                                                width: parent.width / parent.segmentCount - 6
+                                                height: parent.height - 6
+                                                radius: root.radiusMd
+                                                color: root.panelBg
+                                                border.width: 1
+                                                border.color: root.accentTint
+                                            }
 
                                             Repeater {
-                                                model: controlPanelBridge.providers
+                                                model: providerSegmentedControl.providerItems
 
-                                                delegate: ModelPageTab {
-                                                    label: modelData.name
-                                                    active: root.selectedProviderId === modelData.id
-                                                    onClicked: root.selectedProviderId = modelData.id
+                                                delegate: Item {
+                                                    x: index * parent.width / parent.segmentCount
+                                                    width: parent.width / parent.segmentCount
+                                                    height: parent.height
+                                                    readonly property bool selected: root.selectedProviderId === modelData.id
+
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        width: parent.width - 18
+                                                        text: modelData.name
+                                                        color: selected ? root.titleInk : root.labelInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: root.fontBodyLg
+                                                        font.weight: 700
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: root.selectedProviderId = modelData.id
+                                                    }
                                                 }
                                             }
                                         }
@@ -1169,9 +1198,9 @@ Rectangle {
                                         Layout.fillWidth: true
                                         implicitHeight: providerForm.implicitHeight + 40
                                         radius: 14
-                                        color: "#FFFFFF"
+                                        color: root.panelAltBg
                                         border.width: 1
-                                        border.color: "#EAECF0"
+                                        border.color: root.panelLine
 
                                         ColumnLayout {
                                             id: providerForm
@@ -1246,9 +1275,9 @@ Rectangle {
                                         Layout.fillWidth: true
                                         implicitHeight: taskBindingColumn.implicitHeight + 40
                                         radius: 14
-                                        color: "#FFFFFF"
+                                        color: root.panelAltBg
                                         border.width: 1
-                                        border.color: "#EAECF0"
+                                        border.color: root.panelLine
 
                                         ColumnLayout {
                                             id: taskBindingColumn
@@ -1263,7 +1292,7 @@ Rectangle {
                                                     Layout.fillWidth: true
                                                     implicitHeight: bindingMeta.visible ? bindingMeta.implicitHeight + 50 : 52
                                                     radius: 8
-                                                    color: bindingMouse.containsMouse ? "#F9FAFB" : "transparent"
+                                                    color: bindingMouse.containsMouse ? root.hoverBg : "transparent"
 
                                                     ColumnLayout {
                                                         anchors.fill: parent
@@ -1322,6 +1351,291 @@ Rectangle {
                                                         anchors.fill: parent
                                                         hoverEnabled: true
                                                         acceptedButtons: Qt.NoButton
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: root.currentSection === "theme"
+                                    Layout.fillWidth: true
+                                    implicitHeight: themeSettingsContent.implicitHeight + 32
+                                    color: root.panelBg
+                                    border.width: 1
+                                    border.color: root.panelLine
+
+                                    ColumnLayout {
+                                        id: themeSettingsContent
+                                        anchors.fill: parent
+                                        anchors.margins: 22
+                                        spacing: 0
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.bottomMargin: 18
+                                            spacing: 12
+
+                                            Text {
+                                                text: "主题设置"
+                                                color: root.titleInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: root.fontSection
+                                                font.weight: 800
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            PlainButton {
+                                                label: "恢复默认"
+                                                fillColor: root.panelBg
+                                                inkColor: root.bodyInk
+                                                strokeWidth: 1
+                                                onClicked: controlPanelBridge.resetThemeDefaults()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            implicitHeight: 64
+                                            color: "transparent"
+
+                                            Text {
+                                                anchors.left: parent.left
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "主题配色"
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: root.fontBodyLg
+                                                font.weight: 700
+                                            }
+
+                                            Rectangle {
+                                                anchors.right: parent.right
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: 430
+                                                height: 44
+                                                radius: root.radiusLg
+                                                color: root.hoverBg
+                                                clip: true
+
+                                                readonly property int selectedIndex: root.optionIndex(controlPanelBridge.themePresetOptions, controlPanelBridge.themeConfig.preset_id)
+                                                readonly property int segmentCount: Math.max(1, controlPanelBridge.themePresetOptions.length)
+
+                                                Rectangle {
+                                                    x: Math.max(0, parent.selectedIndex) * parent.width / parent.segmentCount + 3
+                                                    y: 3
+                                                    width: parent.width / parent.segmentCount - 6
+                                                    height: parent.height - 6
+                                                    radius: root.radiusMd
+                                                    color: root.panelBg
+                                                    border.width: 1
+                                                    border.color: root.accentTint
+                                                }
+
+                                                Repeater {
+                                                    model: controlPanelBridge.themePresetOptions
+
+                                                    delegate: Item {
+                                                        x: index * parent.width / parent.segmentCount
+                                                        width: parent.width / parent.segmentCount
+                                                        height: parent.height
+                                                        readonly property bool selected: controlPanelBridge.themeConfig.preset_id === modelData.id
+
+                                                        Row {
+                                                            anchors.centerIn: parent
+                                                            spacing: 8
+
+                                                            Rectangle {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                width: 14
+                                                                height: 14
+                                                                radius: 7
+                                                                color: modelData.accentColor
+                                                                border.width: 1
+                                                                border.color: selected ? root.accentTint : root.panelLine
+                                                            }
+
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                text: modelData.label
+                                                                color: selected ? root.titleInk : root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: root.fontBodyLg
+                                                                font.weight: 700
+                                                            }
+                                                        }
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: controlPanelBridge.selectThemePreset(modelData.id)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
+                                    visible: root.currentSection === "theme"
+                                    Layout.fillWidth: true
+                                    implicitHeight: themeParametersContent.implicitHeight + 32
+                                    color: root.panelBg
+                                    border.width: 1
+                                    border.color: root.panelLine
+
+                                    ColumnLayout {
+                                        id: themeParametersContent
+                                        anchors.fill: parent
+                                        anchors.margins: 22
+                                        spacing: 0
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.bottomMargin: 10
+                                            text: "样式参数"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: root.fontSection
+                                            font.weight: 800
+                                        }
+
+                                        GridLayout {
+                                            Layout.fillWidth: true
+                                            columns: 2
+                                            rowSpacing: 14
+                                            columnSpacing: 22
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "强调色"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                SettingsInput {
+                                                    Layout.fillWidth: true
+                                                    text: controlPanelBridge.themeConfig.accent_color
+                                                    placeholderText: "#2A313F"
+                                                    onTextEdited: controlPanelBridge.updateThemeField("accent_color", text)
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "字体"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                SettingsCombo {
+                                                    Layout.fillWidth: true
+                                                    model: controlPanelBridge.themeFontOptions
+                                                    currentIndex: root.optionIndex(controlPanelBridge.themeFontOptions, controlPanelBridge.themeConfig.font_family)
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateThemeField("font_family", model[currentIndex].value)
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "组件风格"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                SettingsCombo {
+                                                    Layout.fillWidth: true
+                                                    model: controlPanelBridge.themeComponentStyleOptions
+                                                    currentIndex: root.optionIndex(controlPanelBridge.themeComponentStyleOptions, controlPanelBridge.themeConfig.component_style)
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateThemeField("component_style", model[currentIndex].value)
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "界面密度"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                SettingsCombo {
+                                                    Layout.fillWidth: true
+                                                    model: controlPanelBridge.themeDensityOptions
+                                                    currentIndex: root.optionIndex(controlPanelBridge.themeDensityOptions, controlPanelBridge.themeConfig.density)
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateThemeField("density", model[currentIndex].value)
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "圆角比例"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                SettingsCombo {
+                                                    Layout.fillWidth: true
+                                                    model: [
+                                                        { value: "0.75", text: "紧凑 75%" },
+                                                        { value: "1.0", text: "标准 100%" },
+                                                        { value: "1.2", text: "柔和 120%" },
+                                                        { value: "1.4", text: "圆润 140%" }
+                                                    ]
+                                                    currentIndex: {
+                                                        var value = Number(controlPanelBridge.themeConfig.radius_scale)
+                                                        if (value <= 0.8) return 0
+                                                        if (value >= 1.35) return 3
+                                                        if (value >= 1.1) return 2
+                                                        return 1
+                                                    }
+                                                    onActivated: if (currentIndex >= 0) controlPanelBridge.updateThemeNumberField("radius_scale", Number(model[currentIndex].value))
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Text {
+                                                    text: "基础字号"
+                                                    color: root.labelInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: 700
+                                                }
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 8
+                                                    SettingsInput {
+                                                        id: themeFontSizeInput
+                                                        Layout.fillWidth: true
+                                                        text: String(controlPanelBridge.themeConfig.font_size_px || 12)
+                                                        inputMethodHints: Qt.ImhDigitsOnly
+                                                        onEditingFinished: controlPanelBridge.updateThemeNumberField("font_size_px", Number(text))
+                                                    }
+                                                    Text {
+                                                        text: "px"
+                                                        color: root.bodyInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: root.fontBodyLg
+                                                        font.weight: 700
                                                     }
                                                 }
                                             }

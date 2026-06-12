@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .runtime import RUNTIME_CAPABILITIES
+from .theme_controller import ThemeController
 from .analysis.intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .focus_hint_dialog import FocusHintDialog
 
@@ -35,8 +36,9 @@ class FloatingToolbar(QWidget):
         ("字", "text", "文字标注"),
     )
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, theme_controller: ThemeController | None = None):
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._loading = False
         self._loading_frame = 0
         self._toolbar_mode = "single"
@@ -51,6 +53,7 @@ class FloatingToolbar(QWidget):
 
         self._setup_ui()
         self._apply_style()
+        self._theme_controller.themeChanged.connect(self._apply_style)
         self.set_single_capture_mode()
 
     def _setup_ui(self) -> None:
@@ -168,45 +171,46 @@ class FloatingToolbar(QWidget):
         return separator
 
     def _apply_style(self) -> None:
+        theme = self._theme_controller.tokens
         self.setStyleSheet(
             """
             QWidget {
                 background: transparent;
-                color: #111827;
-                font-family: %s;
+                color: %(titleInk)s;
+                font-family: %(widgetFontCss)s;
             }
             QFrame#toolbarSurface {
-                background-color: rgba(255, 255, 255, 244);
-                border: 1px solid rgba(17, 24, 39, 0.08);
-                border-radius: 10px;
+                background-color: %(toolbarBg)s;
+                border: 1px solid %(panelLine)s;
+                border-radius: %(radiusMd)spx;
             }
             QFrame#toolbarSeparator {
-                background-color: rgba(17, 24, 39, 0.08);
+                background-color: %(panelLine)s;
                 border: none;
             }
             QLabel#statusLabel {
-                color: #1677ff;
-                background-color: rgba(22, 119, 255, 0.08);
-                border: 1px solid rgba(22, 119, 255, 0.18);
-                border-radius: 7px;
+                color: %(accent)s;
+                background-color: %(accentSoft)s;
+                border: 1px solid %(accentTint)s;
+                border-radius: %(radiusSm)spx;
                 padding: 2px 7px;
-                font-size: 10px;
+                font-size: %(fontTiny)spx;
                 font-weight: 700;
             }
             QComboBox#scenarioCombo {
-                background-color: rgba(255, 255, 255, 0.98);
-                color: #111827;
-                border: 1px solid #e5e7eb;
-                border-radius: 7px;
+                background-color: %(inputBg)s;
+                color: %(titleInk)s;
+                border: 1px solid %(panelLine)s;
+                border-radius: %(radiusSm)spx;
                 padding: 4px 22px 4px 8px;
-                font-size: 11px;
+                font-size: %(fontCaption)spx;
                 min-height: 18px;
             }
             QComboBox#scenarioCombo:hover {
-                border: 1px solid #d0d5dd;
+                border: 1px solid %(fieldLine)s;
             }
             QComboBox#scenarioCombo:focus {
-                border: 1px solid #1677ff;
+                border: 1px solid %(accent)s;
             }
             QComboBox#scenarioCombo::drop-down {
                 subcontrol-origin: padding;
@@ -215,47 +219,47 @@ class FloatingToolbar(QWidget):
                 border: none;
             }
             QComboBox QAbstractItemView {
-                background-color: rgba(255, 255, 255, 248);
-                color: #111827;
-                border: 1px solid #e5e7eb;
-                border-radius: 10px;
+                background-color: %(toolbarPanelBg)s;
+                color: %(titleInk)s;
+                border: 1px solid %(panelLine)s;
+                border-radius: %(radiusMd)spx;
                 outline: none;
                 padding: 4px;
-                selection-background-color: rgba(22, 119, 255, 0.24);
+                selection-background-color: %(accentTint)s;
             }
             QPushButton {
-                border-radius: 7px;
+                border-radius: %(radiusSm)spx;
                 padding: 5px 10px;
-                font-size: 11px;
+                font-size: %(fontCaption)spx;
                 font-weight: 600;
                 min-height: 18px;
             }
             QPushButton#primaryButton {
-                color: #ffffff;
-                background-color: #2A313F;
-                border: 1px solid #2A313F;
+                color: %(accentInk)s;
+                background-color: %(accent)s;
+                border: 1px solid %(accent)s;
                 min-width: 56px;
             }
             QPushButton#primaryButton:hover {
-                background-color: #394152;
-                border: 1px solid #394152;
+                background-color: %(accentHover)s;
+                border: 1px solid %(accentHover)s;
             }
             QPushButton#primaryButton:pressed {
-                background-color: #1F2531;
-                border: 1px solid #1F2531;
+                background-color: %(accentPressed)s;
+                border: 1px solid %(accentPressed)s;
             }
             QPushButton#secondaryButton {
-                color: #374151;
-                background-color: #f3f4f6;
-                border: 1px solid #e5e7eb;
+                color: %(bodyInk)s;
+                background-color: %(hoverBg)s;
+                border: 1px solid %(panelLine)s;
                 min-width: 52px;
             }
             QPushButton#secondaryButton:hover {
-                background-color: #eceff3;
-                border: 1px solid #d0d5dd;
+                background-color: %(pressedBg)s;
+                border: 1px solid %(fieldLine)s;
             }
             QPushButton#secondaryButton:pressed {
-                background-color: #e5e7eb;
+                background-color: %(pressedBg)s;
             }
             QPushButton#modeButton {
                 min-width: 28px;
@@ -263,34 +267,34 @@ class FloatingToolbar(QWidget):
                 min-height: 28px;
                 max-height: 28px;
                 padding: 0;
-                color: #4b5563;
+                color: %(bodyInk)s;
                 background-color: transparent;
                 border: 1px solid transparent;
             }
             QPushButton#modeButton:hover {
-                background-color: rgba(17, 24, 39, 0.04);
-                border: 1px solid #e5e7eb;
+                background-color: %(hoverBg)s;
+                border: 1px solid %(panelLine)s;
             }
             QPushButton#modeButton:checked {
-                color: #1677ff;
-                background-color: rgba(22, 119, 255, 0.1);
-                border: 1px solid rgba(22, 119, 255, 0.28);
+                color: %(accent)s;
+                background-color: %(accentSoft)s;
+                border: 1px solid %(accentTint)s;
             }
             QPushButton#ghostButton {
-                color: #374151;
+                color: %(bodyInk)s;
                 background-color: transparent;
                 border: 1px solid transparent;
                 min-width: 42px;
             }
             QPushButton#ghostButton:hover {
-                background-color: rgba(17, 24, 39, 0.04);
-                border: 1px solid #e5e7eb;
+                background-color: %(hoverBg)s;
+                border: 1px solid %(panelLine)s;
             }
             QPushButton#ghostButton:pressed {
-                background-color: rgba(17, 24, 39, 0.08);
+                background-color: %(pressedBg)s;
             }
             QPushButton#iconGhostButton {
-                color: #475467;
+                color: %(bodyInk)s;
                 background-color: transparent;
                 border: 1px solid transparent;
                 min-width: 28px;
@@ -298,25 +302,28 @@ class FloatingToolbar(QWidget):
                 min-height: 28px;
                 max-height: 28px;
                 padding: 0;
-                font-size: 13px;
+                font-size: %(fontBodyLg)spx;
                 font-weight: 600;
             }
             QPushButton#iconGhostButton:hover {
-                color: #111827;
-                background-color: rgba(17, 24, 39, 0.04);
-                border: 1px solid #e5e7eb;
+                color: %(titleInk)s;
+                background-color: %(hoverBg)s;
+                border: 1px solid %(panelLine)s;
             }
             QPushButton#iconGhostButton:pressed {
-                background-color: rgba(17, 24, 39, 0.08);
-                border: 1px solid #d0d5dd;
+                background-color: %(pressedBg)s;
+                border: 1px solid %(fieldLine)s;
             }
             QPushButton:disabled {
-                color: rgba(107, 114, 128, 0.5);
-                background-color: rgba(243, 244, 246, 0.9);
-                border: 1px solid rgba(229, 231, 235, 0.9);
+                color: %(subtleInkAlpha)s;
+                background-color: %(panelAltBg)s;
+                border: 1px solid %(panelLine)s;
             }
             """
-            % RUNTIME_CAPABILITIES.widget_font_css
+            % {
+                **theme,
+                "widgetFontCss": str(theme.get("widgetFontCss") or RUNTIME_CAPABILITIES.widget_font_css),
+            }
         )
 
     def set_single_capture_mode(self) -> None:
@@ -503,7 +510,11 @@ class FloatingToolbar(QWidget):
         return not any(focus_widget.inherits(class_name) for class_name in blocked_classes)
 
     def _edit_focus_hint(self) -> None:
-        dialog = FocusHintDialog(self._focus_hint, parent=self.window())
+        dialog = FocusHintDialog(
+            self._focus_hint,
+            parent=self.window(),
+            theme_controller=self._theme_controller,
+        )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         self._focus_hint = dialog.hint_text

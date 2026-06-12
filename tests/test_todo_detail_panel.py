@@ -380,6 +380,14 @@ def test_todo_detail_product_line_field_uses_inline_combo_box() -> None:
     assert "id: productLineFlow" not in qml_text
 
 
+def test_todo_detail_summary_panel_uses_theme_field_background() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert 'text: "当前描述"' in qml_text
+    assert "color: root.fieldBg" in qml_text
+
+
 def test_todo_detail_product_line_options_come_from_matched_project() -> None:
     bridge = _build_bridge(Path("unused"))
     bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台, 协作套件, 文档中台"))

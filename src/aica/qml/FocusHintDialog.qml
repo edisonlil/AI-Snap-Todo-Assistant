@@ -6,12 +6,16 @@ Rectangle {
     height: 248
     color: "transparent"
 
-    readonly property color bodyInk: "#4A5565"
-    readonly property color mutedInk: "#A9B1BD"
-    readonly property color fieldBg: "#F5F5F5"
-    readonly property color fieldLine: "#E5E7EB"
-    readonly property color accent: "#2A313F"
-    readonly property string uiFont: focusHintBridge ? focusHintBridge.uiFont : "Microsoft YaHei UI"
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property color bodyInk: themeTokens.bodyInk || "#4A5565"
+    readonly property color mutedInk: themeTokens.mutedInk || "#A9B1BD"
+    readonly property color fieldBg: themeTokens.fieldBg || "#F5F5F5"
+    readonly property color fieldLine: themeTokens.fieldLine || "#E5E7EB"
+    readonly property color accent: themeTokens.accent || "#2A313F"
+    readonly property string uiFont: themeTokens.uiFont || (focusHintBridge ? focusHintBridge.uiFont : "Microsoft YaHei UI")
+    readonly property int radiusLg: themeTokens.radiusLg || 20
+    readonly property int fontBody: themeTokens.fontBody || 12
+    readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
     readonly property int outerPadding: 10
     readonly property int labelWeight: 500
     readonly property int bodyWeight: 400
@@ -50,7 +54,7 @@ Rectangle {
             text: "关闭"
             color: root.bodyInk
             font.family: root.uiFont
-            font.pixelSize: 12
+            font.pixelSize: root.fontBody
             font.weight: root.labelWeight
 
             MouseArea {
@@ -70,7 +74,7 @@ Rectangle {
             anchors.rightMargin: root.outerPadding
             anchors.topMargin: 10
             anchors.bottomMargin: 10
-            radius: 20
+            radius: root.radiusLg
             color: root.fieldBg
             border.width: 1
             border.color: hintEdit.activeFocus ? root.accent : root.fieldLine
@@ -94,7 +98,7 @@ Rectangle {
                     textFormat: TextEdit.PlainText
                     color: root.bodyInk
                     font.family: root.uiFont
-                    font.pixelSize: 13
+                    font.pixelSize: root.fontBodyLg
                     font.weight: root.bodyWeight
                     activeFocusOnPress: true
                     onTextChanged: root.pushValue(text)
@@ -133,7 +137,7 @@ Rectangle {
                     text: "补一句你这次最想让 AI 提取的重点。留空也可以，系统会按当前场景默认策略分析。按回车可直接确认。"
                     color: root.mutedInk
                     font.family: root.uiFont
-                    font.pixelSize: 13
+                    font.pixelSize: root.fontBodyLg
                     font.weight: root.bodyWeight
                 }
             }

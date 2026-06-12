@@ -7,6 +7,7 @@ from typing import Callable
 from aica.analysis.metrics import AnalysisRunStats
 from aica.feedback import FeedbackData
 from aica.models import TicketSnapshot
+from aica.theme_controller import ThemeController
 
 
 @dataclass(frozen=True)
@@ -25,11 +26,13 @@ class ResultFlowCoordinator:
         get_model: Callable[[], str],
         save_result_to_todo: Callable[[TicketSnapshot], tuple[str, str]],
         clear_capture_state: Callable[[], None],
+        theme_controller: ThemeController | None = None,
     ):
         self._get_scenario = get_scenario
         self._get_model = get_model
         self._save_result_to_todo = save_result_to_todo
         self._clear_capture_state = clear_capture_state
+        self._theme_controller = theme_controller or ThemeController()
 
     @staticmethod
     def build_saved_todo_message(saved: SavedTodoResult) -> str:
@@ -103,6 +106,7 @@ class ResultFlowCoordinator:
                 model,
                 save_callback=on_save_feedback,
                 parent=None,
+                theme_controller=self._theme_controller,
             )
             feedback_panel.exec()
 
@@ -114,6 +118,7 @@ class ResultFlowCoordinator:
             feedback_callback=on_feedback,
             save_callback=on_save_result,
             parent=None,
+            theme_controller=self._theme_controller,
         )
         result_dialog.exec()
         self._clear_capture_state()

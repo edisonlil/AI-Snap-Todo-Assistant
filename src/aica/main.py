@@ -54,6 +54,7 @@ from aica.todo.events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo.panel import TodoPanel
 from aica.todo.store import TodoConclusion, TodoStore
 from aica.todo.work_order_sync import WorkOrderSyncEventHandler
+from aica.theme_controller import ThemeController
 from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
@@ -234,12 +235,17 @@ def main() -> None:
 
     config_mgr = ConfigManager()
     initial_config = config_mgr.load()
+    theme_controller = ThemeController(initial_config.theme)
+    app.setFont(QFont(str(theme_controller.tokens.get("uiFont") or RUNTIME_CAPABILITIES.ui_font)))
+    theme_controller.themeChanged.connect(
+        lambda: app.setFont(QFont(str(theme_controller.tokens.get("uiFont") or RUNTIME_CAPABILITIES.ui_font)))
+    )
     hotkey_mgr = _build_hotkey_manager(config_mgr, initial_config)
     _append_startup_log(startup_log_file, f"startup: capture hotkey configured={hotkey_mgr.hotkey}")
     notification_bridge = AppNotificationBridge()
-    notification_window = AppNotificationWindow(notification_bridge)
+    notification_window = AppNotificationWindow(notification_bridge, theme_controller=theme_controller)
     control_panel = None
-    toolbar = FloatingToolbar()
+    toolbar = FloatingToolbar(theme_controller=theme_controller)
     todo_store = TodoStore()
     log_analysis_store = LogAnalysisTaskStore()
     binding_store = TodoBindingStore()
@@ -260,11 +266,12 @@ def main() -> None:
     todo_controller = TodoController(todo_store, event_publisher=todo_event_bus)
     control_panel = ControlPanelWindow(
         config_mgr,
+        theme_controller=theme_controller,
         notification_bridge=notification_bridge,
         event_publisher=todo_event_bus,
     )
-    todo_panel = TodoPanel()
-    todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge)
+    todo_panel = TodoPanel(theme_controller=theme_controller)
+    todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge, theme_controller=theme_controller)
     todo_detail_panel.set_pinned(todo_panel.pinned)
     toolbar.set_scenario_selector_visible(True)
 
@@ -419,7 +426,7 @@ def main() -> None:
         _append_startup_log(startup_log_file, f"capture: show overlays requested screens={len(screens)}")
         capture_ui.rebuild_overlays(
             screens,
-            overlay_factory=OverlayWindow,
+            overlay_factory=lambda screen: OverlayWindow(screen, theme_controller=theme_controller),
             on_selection_complete=_on_selection_complete,
             on_selection_changed=_on_selection_changed,
             on_cancel=_on_cancel,
@@ -563,6 +570,7 @@ def main() -> None:
         get_model=lambda: "Chattodo 服务端 / 截图分析",
         save_result_to_todo=_save_analysis_to_todo,
         clear_capture_state=_clear_capture_state,
+        theme_controller=theme_controller,
     )
 
     def _on_hotkey() -> None:

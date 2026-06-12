@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QCursor, QPainter, QPen, QPixmap, QPolygon, QScr
 from PyQt6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from .runtime import RUNTIME_CAPABILITIES
+from .theme_controller import ThemeController
 
 
 def normalize_rect(p1: QPoint, p2: QPoint) -> QRect:
@@ -119,8 +120,9 @@ class OverlayWindow(QWidget):
         "bottom_right": Qt.CursorShape.SizeBDiagCursor,
     }
 
-    def __init__(self, screen: QScreen, parent=None):
+    def __init__(self, screen: QScreen, parent=None, *, theme_controller: ThemeController | None = None):
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._screen_key = self._make_screen_key(screen)
         self.setWindowFlags(RUNTIME_CAPABILITIES.overlay_window_flags(Qt.WindowType))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -149,25 +151,33 @@ class OverlayWindow(QWidget):
         self._text_editor.setPlaceholderText(self._TEXT_PLACEHOLDER)
         self._text_editor.setFrame(False)
         self._text_editor.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-        self._text_editor.setStyleSheet(
-            """
-            QLineEdit {
-                color: #111827;
-                background-color: rgba(255, 255, 255, 242);
-                border: 1px solid rgba(22, 119, 255, 0.72);
-                border-radius: 8px;
-                padding: 5px 8px;
-                selection-background-color: rgba(22, 119, 255, 0.18);
-                font-size: 12px;
-                font-family: %s;
-            }
-            """
-            % RUNTIME_CAPABILITIES.widget_font_css
-        )
+        self._theme_controller.themeChanged.connect(self._apply_text_editor_style)
+        self._apply_text_editor_style()
         self._text_editor.commit_requested.connect(self._commit_pending_text_annotation)
         self._text_editor.cancel_requested.connect(self._cancel_pending_text_annotation)
         self._text_editor.editingFinished.connect(self._on_text_editor_editing_finished)
         self._text_editor.textChanged.connect(self._resize_text_editor)
+
+    def _apply_text_editor_style(self) -> None:
+        theme = self._theme_controller.tokens
+        self._text_editor.setStyleSheet(
+            """
+            QLineEdit {
+                color: %(titleInk)s;
+                background-color: %(overlayTextBg)s;
+                border: 1px solid %(accent)s;
+                border-radius: %(radiusSm)spx;
+                padding: 5px 8px;
+                selection-background-color: %(overlaySelectionBg)s;
+                font-size: %(fontBody)spx;
+                font-family: %(widgetFontCss)s;
+            }
+            """
+            % {
+                **theme,
+                "widgetFontCss": str(theme.get("widgetFontCss") or RUNTIME_CAPABILITIES.widget_font_css),
+            }
+        )
 
     @staticmethod
     def _make_screen_key(screen: QScreen) -> str:

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout
 
 from aica.feedback import FeedbackCollector, FeedbackData
 from aica.runtime import RUNTIME_CAPABILITIES
+from aica.theme_controller import ThemeController
 
 
 class _FeedbackPanelBridge(QObject):
@@ -82,8 +83,10 @@ class FeedbackPanel(QDialog):
         model: str,
         save_callback: Optional[Callable] = None,
         parent=None,
+        theme_controller: ThemeController | None = None,
     ):
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._result_str = result_str
         self._feedback_data = feedback_data
         self._scenario = scenario
@@ -116,6 +119,7 @@ class FeedbackPanel(QDialog):
         root_layout.setSpacing(0)
 
         self._view = QQuickWidget(self)
+        self._theme_controller.apply_to_context(self._view.rootContext())
         self._view.rootContext().setContextProperty("feedbackPanelBridge", self._bridge)
         self._view.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self._view.setSource(

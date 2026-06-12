@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 
 from ..paths import asset_file, qml_dir
 from ..runtime import RUNTIME_CAPABILITIES
+from ..theme_controller import ThemeController
 from .store import TodoItem
 
 
@@ -208,9 +209,10 @@ class TodoPanel(QQuickView):
     pinned_changed = pyqtSignal(bool)
     geometry_changed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, theme_controller: ThemeController | None = None):
         super().__init__(parent)
         self._bridge = _TodoPanelBridge()
+        self._theme_controller = theme_controller or ThemeController()
         self._panel_chrome_height = 58
         self._row_height = 32
         self._row_gap = 2
@@ -227,6 +229,7 @@ class TodoPanel(QQuickView):
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
         self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self._theme_controller.apply_to_context(self.rootContext())
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
         self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TodoPanel.qml")))
         self.screenChanged.connect(self._handle_screen_changed)

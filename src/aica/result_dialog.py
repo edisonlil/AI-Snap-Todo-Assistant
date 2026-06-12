@@ -173,6 +173,7 @@ from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
 from aica.project_management import split_project_product_lines
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
+from aica.theme_controller import ThemeController
 from aica.ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
@@ -451,8 +452,10 @@ class ResultDialog(QDialog):
         product_line_options_provider=None,
         default_product_line_provider=None,
         parent=None,
+        theme_controller: ThemeController | None = None,
     ):
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._original_result = result
         self._scenario = scenario
         self._model = model
@@ -508,6 +511,7 @@ class ResultDialog(QDialog):
         self._view = QQuickWidget(self)
         self._view.setClearColor(QColor(0, 0, 0, 0))
         self._view.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        self._theme_controller.apply_to_context(self._view.rootContext())
         self._view.rootContext().setContextProperty("resultDialogBridge", self._bridge)
         self._view.setSource(
             QUrl.fromLocalFile(

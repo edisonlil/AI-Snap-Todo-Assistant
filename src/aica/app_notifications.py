@@ -69,6 +69,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
 from aica.runtime import RUNTIME_CAPABILITIES
+from aica.theme_controller import ThemeController
 
 
 _DEFAULT_DURATIONS = {
@@ -190,9 +191,16 @@ if _QT_RUNTIME_AVAILABLE:
     class AppNotificationWindow(QQuickView):
         """Global desktop notification window anchored to the bottom-right corner."""
 
-        def __init__(self, bridge: AppNotificationBridge, parent=None) -> None:
+        def __init__(
+            self,
+            bridge: AppNotificationBridge,
+            parent=None,
+            *,
+            theme_controller: ThemeController | None = None,
+        ) -> None:
             super().__init__(parent)
             self._bridge = bridge
+            self._theme_controller = theme_controller or ThemeController()
             self._screen_margin = 20
             self._window_padding = 14
 
@@ -207,8 +215,12 @@ if _QT_RUNTIME_AVAILABLE:
             self.setFlags(flags)
             self.setColor(QColor(0, 0, 0, 0))
             self.setResizeMode(QQuickView.ResizeMode.SizeViewToRootObject)
+            self._theme_controller.apply_to_context(self.rootContext())
             self.rootContext().setContextProperty("notificationBridge", bridge)
-            self.rootContext().setContextProperty("notificationUiFont", RUNTIME_CAPABILITIES.ui_font)
+            self.rootContext().setContextProperty(
+                "notificationUiFont",
+                str(self._theme_controller.tokens.get("uiFont") or RUNTIME_CAPABILITIES.ui_font),
+            )
             self.setSource(
                 QUrl.fromLocalFile(
                     str(Path(__file__).with_name("qml").joinpath("AppNotificationWindow.qml"))

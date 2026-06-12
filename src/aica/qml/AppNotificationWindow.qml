@@ -6,6 +6,7 @@ Item {
     height: 420
     implicitWidth: width
     implicitHeight: height
+    readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
 
     AppNotificationCenter {
         id: notificationCenter
@@ -15,5 +16,6 @@ Item {
         anchors.bottomMargin: 12
         bridge: notificationBridge
         uiFont: notificationUiFont
+        theme: root.themeTokens
     }
 }

@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .runtime import RUNTIME_CAPABILITIES
+from .theme_controller import ThemeController
 
 
 @dataclass
@@ -196,12 +197,20 @@ class AnnotationCanvas(QWidget):
 
 
 class AnnotationDialog(QDialog):
-    def __init__(self, pixmap: QPixmap, parent=None):
+    def __init__(
+        self,
+        pixmap: QPixmap,
+        parent=None,
+        *,
+        theme_controller: ThemeController | None = None,
+    ):
         super().__init__(parent)
+        self._theme_controller = theme_controller or ThemeController()
         self._canvas = AnnotationCanvas(pixmap, self)
         self._annotated_pixmap: QPixmap | None = None
         self._setup_ui()
         self._setup_shortcuts()
+        self._theme_controller.themeChanged.connect(self._apply_style)
         self.setWindowTitle("标注截图")
         self.resize(
             min(max(self._canvas.width() + 56, 420), 1280),
@@ -270,52 +279,59 @@ class AnnotationDialog(QDialog):
 
         layout.addWidget(footer)
 
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        theme = self._theme_controller.tokens
         self.setStyleSheet(
             """
             QDialog {
-                background-color: #f6f7f9;
-                color: #111827;
-                font-family: %s;
+                background-color: %(panelAltBg)s;
+                color: %(titleInk)s;
+                font-family: %(widgetFontCss)s;
             }
             QFrame#annotToolbar, QFrame#annotFooter {
-                background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
+                background-color: %(panelBg)s;
+                border: 1px solid %(panelLine)s;
+                border-radius: %(radiusMd)spx;
             }
             QLabel#hintLabel {
-                color: #4b5563;
-                font-size: 11px;
+                color: %(bodyInk)s;
+                font-size: %(fontCaption)spx;
             }
             QPushButton {
-                border-radius: 9px;
+                border-radius: %(radiusSm)spx;
                 padding: 6px 10px;
-                font-size: 11px;
+                font-size: %(fontCaption)spx;
                 font-weight: 600;
                 min-height: 16px;
-                color: #111827;
-                background-color: #ffffff;
-                border: 1px solid #d1d5db;
+                color: %(titleInk)s;
+                background-color: %(panelBg)s;
+                border: 1px solid %(fieldLine)s;
             }
             QPushButton:hover {
-                background-color: #f9fafb;
-                border: 1px solid #9ca3af;
+                background-color: %(hoverBg)s;
+                border: 1px solid %(panelLine)s;
             }
             QPushButton#primaryButton {
-                color: #ffffff;
-                background-color: #111827;
-                border: 1px solid #111827;
+                color: %(accentInk)s;
+                background-color: %(accent)s;
+                border: 1px solid %(accent)s;
             }
             QPushButton#primaryButton:hover {
-                background-color: #1f2937;
-                border: 1px solid #1f2937;
+                background-color: %(accentHover)s;
+                border: 1px solid %(accentHover)s;
             }
             QScrollArea {
-                background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
+                background-color: %(panelBg)s;
+                border: 1px solid %(panelLine)s;
+                border-radius: %(radiusMd)spx;
             }
             """
-            % RUNTIME_CAPABILITIES.widget_font_css
+            % {
+                **theme,
+                "widgetFontCss": str(theme.get("widgetFontCss") or RUNTIME_CAPABILITIES.widget_font_css),
+            }
         )
 
     def _setup_shortcuts(self) -> None:
