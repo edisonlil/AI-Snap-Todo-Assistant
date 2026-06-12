@@ -95,6 +95,29 @@ def test_theme_tokens_include_base_presets_and_scaled_values() -> None:
     assert tokens["radiusCard"] == 30
     assert tokens["fontBody"] == 13
     assert tokens["spacingMd"] > 12
+    assert tokens["formFieldHeight"] > 44
+    assert tokens["formFieldRadius"] == 20
+    assert tokens["formFieldFontSize"] == tokens["fontBody"]
+    assert tokens["formFieldBorder"] == tokens["componentLine"]
+    assert tokens["formFieldFocusBorder"] == tokens["accent"]
+    assert tokens["formPopupItemHeight"] > 38
+
+
+def test_theme_tokens_include_form_defaults() -> None:
+    tokens = build_theme_tokens(ThemeConfig()).to_dict()
+
+    assert tokens["formFieldHeight"] == 44
+    assert tokens["formFieldCompactHeight"] == 32
+    assert tokens["formFieldRadius"] == 16
+    assert tokens["formFieldPaddingH"] == 14
+    assert tokens["formFieldPaddingV"] == 11
+    assert tokens["formFieldFontSize"] == 12
+    assert tokens["formFieldBg"] == tokens["inputBg"]
+    assert tokens["formFieldBorder"] == tokens["componentLine"]
+    assert tokens["formFieldFocusBorder"] == tokens["accent"]
+    assert tokens["formPopupRadius"] == 12
+    assert tokens["formPopupItemHeight"] == 38
+    assert tokens["formChipHeight"] == 28
 
 
 def test_theme_presets_drive_accent_and_auxiliary_colors() -> None:
@@ -182,3 +205,16 @@ def test_control_panel_theme_color_uses_segmented_slider_without_unimplemented_m
     assert "implicitHeight: providerForm.implicitHeight + 40" in source
     assert "implicitHeight: taskBindingColumn.implicitHeight + 40" in source
     assert "color: root.panelAltBg" in source
+
+
+def test_control_panel_navigation_selection_uses_compact_rect_style() -> None:
+    source = (Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "ControlPanel.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "readonly property bool selected: root.currentSection === modelData.id" in source
+    assert "Layout.preferredHeight: 40" in source
+    assert "radius: 6" in source
+    assert 'color: selected || navItemMouse.containsMouse ? root.accentSoft : "transparent"' in source
+    assert "color: selected || navItemMouse.containsMouse ? root.accent : root.titleInk" in source
+    assert "font.pixelSize: 13" in source

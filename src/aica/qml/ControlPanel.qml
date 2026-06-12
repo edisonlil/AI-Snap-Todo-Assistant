@@ -37,6 +37,28 @@ Rectangle {
     readonly property int fontBodyLg: themeTokens.fontBodyLg || 13
     readonly property int fontSection: themeTokens.fontSection || 15
     readonly property int fontTitle: themeTokens.fontTitle || 18
+    readonly property int formFieldHeight: themeTokens.formFieldHeight || 44
+    readonly property int formFieldCompactHeight: themeTokens.formFieldCompactHeight || 32
+    readonly property int formFieldRadius: themeTokens.formFieldRadius || 16
+    readonly property int formFieldCompactRadius: themeTokens.formFieldCompactRadius || 8
+    readonly property int formFieldPaddingH: themeTokens.formFieldPaddingH || 14
+    readonly property int formFieldPaddingV: themeTokens.formFieldPaddingV || 11
+    readonly property int formFieldCompactPaddingH: themeTokens.formFieldCompactPaddingH || 10
+    readonly property int formFieldFontSize: themeTokens.formFieldFontSize || fontBody
+    readonly property int formFieldCompactFontSize: themeTokens.formFieldCompactFontSize || fontBodyLg
+    readonly property color formFieldBg: themeTokens.formFieldBg || inputBg
+    readonly property color formFieldBorder: themeTokens.formFieldBorder || panelLine
+    readonly property color formFieldFocusBorder: themeTokens.formFieldFocusBorder || accent
+    readonly property color formFieldPlaceholderInk: themeTokens.formFieldPlaceholderInk || labelInk
+    readonly property int formPopupRadius: themeTokens.formPopupRadius || 12
+    readonly property int formPopupItemRadius: themeTokens.formPopupItemRadius || 8
+    readonly property int formPopupItemHeight: themeTokens.formPopupItemHeight || 38
+    readonly property color formPopupBg: themeTokens.formPopupBg || "#FFFFFF"
+    readonly property color formPopupHoverBg: themeTokens.formPopupHoverBg || hoverBg
+    readonly property int formInlineEditHeight: themeTokens.formInlineEditHeight || formFieldCompactHeight
+    readonly property int formChipHeight: themeTokens.formChipHeight || 28
+    readonly property int formChipRadius: themeTokens.formChipRadius || 14
+    readonly property int formCheckSpacing: themeTokens.formCheckSpacing || 8
     readonly property string uiFont: themeTokens.uiFont || (controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI")
     readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
     readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
@@ -398,83 +420,16 @@ Rectangle {
         }
     }
 
-    component SettingsInput: TextField {
-        id: input
-        color: root.titleInk
-        font.family: root.uiFont
-        font.pixelSize: 12
-        selectByMouse: true
-        leftPadding: 14
-        rightPadding: 14
-        topPadding: 11
-        bottomPadding: 11
-        background: Rectangle {
-            radius: 16
-            color: root.inputBg
-            border.width: 1
-            border.color: input.activeFocus ? root.accent : root.panelLine
-        }
+    component SettingsInput: ControlPanelSettingsInput {
+        theme: root
     }
 
-    component SettingsCombo: ComboBox {
-        id: combo
-        textRole: "text"
-        font.family: root.uiFont
-        font.pixelSize: 12
-        leftPadding: 14
-        rightPadding: 34
-        topPadding: 11
-        bottomPadding: 11
-
-        contentItem: Text {
-            text: combo.displayText
-            color: root.titleInk
-            font.family: root.uiFont
-            font.pixelSize: 12
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-
-        indicator: Canvas {
-            x: combo.width - width - 14
-            y: combo.topPadding + (combo.availableHeight - height) / 2
-            width: 10
-            height: 6
-            contextType: "2d"
-            onPaint: {
-                context.reset()
-                context.moveTo(0, 0)
-                context.lineTo(width, 0)
-                context.lineTo(width / 2, height)
-                context.closePath()
-                context.fillStyle = root.labelInk
-                context.fill()
-            }
-        }
-
-        background: Rectangle {
-            radius: 16
-            color: root.inputBg
-            border.width: 1
-            border.color: combo.activeFocus ? root.accent : root.panelLine
-        }
+    component SettingsCombo: ControlPanelSettingsCombo {
+        theme: root
     }
 
-    component MultiLineInput: TextArea {
-        id: area
-        color: root.titleInk
-        font.family: root.uiFont
-        font.pixelSize: 12
-        selectByMouse: true
-        wrapMode: TextEdit.Wrap
-        padding: 14
-        implicitHeight: 96
-        background: Rectangle {
-            radius: 16
-            color: root.inputBg
-            border.width: 1
-            border.color: area.activeFocus ? root.accent : root.panelLine
-        }
+    component MultiLineInput: ControlPanelSettingsArea {
+        theme: root
     }
 
     component SearchableModelCombo: Item {
@@ -587,10 +542,10 @@ Rectangle {
 
         Rectangle {
             anchors.fill: parent
-            radius: 8
-            color: "#FFFFFF"
+            radius: root.formFieldCompactRadius
+            color: root.formFieldBg
             border.width: 1
-            border.color: input.activeFocus || popup.visible ? root.accent : root.panelLine
+            border.color: input.activeFocus || popup.visible ? root.formFieldFocusBorder : root.formFieldBorder
         }
 
         TextField {
@@ -598,9 +553,9 @@ Rectangle {
             anchors.fill: parent
             color: root.titleInk
             font.family: root.uiFont
-            font.pixelSize: 13
+            font.pixelSize: root.formFieldCompactFontSize
             selectByMouse: true
-            leftPadding: 10
+            leftPadding: root.formFieldCompactPaddingH
             rightPadding: 32
             topPadding: 0
             bottomPadding: 0
@@ -657,10 +612,10 @@ Rectangle {
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
             background: Rectangle {
-                radius: 10
-                color: "#FFFFFF"
+                radius: root.formPopupRadius
+                color: root.formPopupBg
                 border.width: 1
-                border.color: "#E5E7EB"
+                border.color: root.formFieldBorder
             }
 
             contentItem: Column {
@@ -671,16 +626,16 @@ Rectangle {
                     width: parent.width
                     height: addLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.accentSoft : "#FFFFFF"
+                    color: addMouseArea.pressed ? root.pressedBg : addMouseArea.containsMouse ? root.accentSoft : root.formPopupBg
 
                     Text {
                         id: addLabel
                         anchors.fill: parent
-                        anchors.margins: 10
+                        anchors.margins: root.formFieldCompactPaddingH
                         text: "添加并使用: " + (input.text || "").trim()
                         color: root.accent
                         font.family: root.uiFont
-                        font.pixelSize: 13
+                        font.pixelSize: root.formFieldCompactFontSize
                         font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
@@ -699,16 +654,16 @@ Rectangle {
                     width: parent.width
                     height: textOnlyLabel.implicitHeight + 16
                     visible: (input.text || "").trim().length > 0 && !comboRoot.hasExactMatch()
-                    color: textOnlyMouseArea.pressed ? "#F3F4F6" : textOnlyMouseArea.containsMouse ? "#F9FAFB" : "#FFFFFF"
+                    color: textOnlyMouseArea.pressed ? root.pressedBg : textOnlyMouseArea.containsMouse ? root.formPopupHoverBg : root.formPopupBg
 
                     Text {
                         id: textOnlyLabel
                         anchors.fill: parent
-                        anchors.margins: 10
+                        anchors.margins: root.formFieldCompactPaddingH
                         text: "添加为仅文本模型"
                         color: root.bodyInk
                         font.family: root.uiFont
-                        font.pixelSize: 13
+                        font.pixelSize: root.formFieldCompactFontSize
                         font.weight: 600
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
@@ -733,16 +688,16 @@ Rectangle {
                     delegate: Rectangle {
                         width: optionList.width
                         height: optionText.implicitHeight + 16
-                        color: optionMouseArea.pressed ? "#ECEFF3" : optionMouseArea.containsMouse ? "#F3F4F6" : "transparent"
+                        color: optionMouseArea.pressed ? root.pressedBg : optionMouseArea.containsMouse ? root.formPopupHoverBg : "transparent"
 
                         Text {
                             id: optionText
                             anchors.fill: parent
-                            anchors.margins: 10
+                            anchors.margins: root.formFieldCompactPaddingH
                             text: modelData.text
                             color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 13
+                            font.pixelSize: root.formFieldCompactFontSize
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -760,104 +715,27 @@ Rectangle {
         }
     }
 
-    component ModelFieldInput: TextField {
-        id: input
-        color: root.titleInk
-        font.family: root.uiFont
-        font.pixelSize: 13
-        selectByMouse: true
-        leftPadding: 10
-        rightPadding: 10
+    component ModelFieldInput: ControlPanelSettingsInput {
+        theme: root
+        implicitHeight: 32
+        fieldRadius: root.formFieldCompactRadius
+        fieldFontSize: root.formFieldCompactFontSize
+        leftPadding: root.formFieldCompactPaddingH
+        rightPadding: root.formFieldCompactPaddingH
         topPadding: 0
         bottomPadding: 0
-        implicitHeight: 32
-        background: Rectangle {
-            radius: 8
-            color: "#FFFFFF"
-            border.width: 1
-            border.color: input.activeFocus ? root.accent : root.panelLine
-        }
     }
 
-    component ModelFieldCombo: ComboBox {
-        id: combo
-        textRole: "text"
-        font.family: root.uiFont
-        font.pixelSize: 13
+    component ModelFieldCombo: ControlPanelSettingsCombo {
+        theme: root
         implicitHeight: 32
-        leftPadding: 10
+        fieldRadius: root.formFieldCompactRadius
+        fieldFontSize: root.formFieldCompactFontSize
+        leftPadding: root.formFieldCompactPaddingH
         rightPadding: 30
         topPadding: 0
         bottomPadding: 0
-
-        contentItem: Text {
-            text: combo.displayText
-            color: root.titleInk
-            font.family: root.uiFont
-            font.pixelSize: 13
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-
-        indicator: Canvas {
-            x: combo.width - width - 12
-            y: (combo.height - height) / 2
-            width: 10
-            height: 6
-            contextType: "2d"
-            onPaint: {
-                context.reset()
-                context.moveTo(0, 0)
-                context.lineTo(width, 0)
-                context.lineTo(width / 2, height)
-                context.closePath()
-                context.fillStyle = "#6B7280"
-                context.fill()
-            }
-        }
-
-        background: Rectangle {
-            radius: 8
-            color: "#FFFFFF"
-            border.width: 1
-            border.color: combo.activeFocus ? root.accent : root.panelLine
-        }
-
-        popup: Popup {
-            y: combo.height + 4
-            width: combo.width
-            padding: 0
-            implicitHeight: Math.min(contentItem.implicitHeight, 220)
-            background: Rectangle {
-                radius: 10
-                color: "#FFFFFF"
-                border.width: 1
-                border.color: "#E5E7EB"
-            }
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: combo.popup.visible ? combo.delegateModel : null
-                currentIndex: combo.highlightedIndex
-            }
-        }
-
-        delegate: ItemDelegate {
-            width: combo.width
-            height: 36
-            padding: 10
-            background: Rectangle {
-                color: highlighted ? "#F3F4F6" : "#FFFFFF"
-            }
-            contentItem: Text {
-                text: modelData.text
-                color: root.titleInk
-                font.family: root.uiFont
-                font.pixelSize: 13
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
-        }
+        popupMaxHeight: 220
     }
 
     component SectionCard: Rectangle {
@@ -1008,24 +886,29 @@ Rectangle {
                                 Repeater {
                                     model: modelData.items
 
-                                    delegate: SectionCard {
+                                    delegate: Rectangle {
+                                        readonly property bool selected: root.currentSection === modelData.id
+
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 54
-                                        color: root.currentSection === modelData.id ? root.accentSoft : root.panelAltBg
+                                        Layout.preferredHeight: 40
+                                        radius: 6
+                                        color: selected || navItemMouse.containsMouse ? root.accentSoft : "transparent"
 
                                         Text {
                                             anchors.left: parent.left
-                                            anchors.leftMargin: 18
+                                            anchors.leftMargin: 14
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: modelData.title
-                                            color: root.currentSection === modelData.id ? root.accent : root.titleInk
+                                            color: selected || navItemMouse.containsMouse ? root.accent : root.titleInk
                                             font.family: root.uiFont
-                                            font.pixelSize: root.currentSection === modelData.id ? 14 : 13
-                                            font.weight: root.currentSection === modelData.id ? 700 : 400
+                                            font.pixelSize: 13
+                                            font.weight: selected ? 600 : 400
                                         }
 
                                         MouseArea {
+                                            id: navItemMouse
                                             anchors.fill: parent
+                                            hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: if (controlPanelBridge) controlPanelBridge.setCurrentSection(modelData.id)
                                         }
@@ -1857,10 +1740,10 @@ Rectangle {
                                             Layout.fillWidth: true
                                             spacing: 10
 
-                                            CheckBox {
+                                            ControlPanelSettingsCheckBox {
+                                                theme: root
                                                 checked: controlPanelBridge.analysisRuleForm.debugEnabled
                                                 text: "开启每次分析的 Prompt 快照记录"
-                                                font.family: root.uiFont
                                                 onToggled: controlPanelBridge.updateAnalysisDebugEnabled(checked)
                                             }
 
@@ -2309,11 +2192,11 @@ Rectangle {
                                                 onTextEdited: controlPanelBridge.listProjects(text, includeExpiredCheck.checked)
                                             }
 
-                                            CheckBox {
+                                            ControlPanelSettingsCheckBox {
+                                                theme: root
                                                 id: includeExpiredCheck
                                                 checked: controlPanelBridge.includeExpiredProjects
                                                 text: "包含过保项目"
-                                                font.family: root.uiFont
                                                 onToggled: controlPanelBridge.listProjects(projectSearchInput.text, checked)
                                             }
                                         }
@@ -2590,42 +2473,12 @@ Rectangle {
                                                         Layout.fillWidth: true
                                                         spacing: 10
 
-                                                        Rectangle {
+                                                        ControlPanelDateField {
                                                             Layout.fillWidth: true
-                                                            implicitHeight: 44
-                                                            radius: 16
-                                                            color: root.inputBg
-                                                            border.width: 1
-                                                            border.color: root.panelLine
-
-                                                            Text {
-                                                                anchors.verticalCenter: parent.verticalCenter
-                                                                anchors.left: parent.left
-                                                                anchors.leftMargin: 14
-                                                                anchors.right: parent.right
-                                                                anchors.rightMargin: 38
-                                                                text: root.displayProjectDate(root.projectDraft.followUpStartedAt) || "跟进开始日期"
-                                                                color: root.displayProjectDate(root.projectDraft.followUpStartedAt).length > 0 ? root.titleInk : root.labelInk
-                                                                font.family: root.uiFont
-                                                                font.pixelSize: 12
-                                                                elide: Text.ElideRight
-                                                            }
-
-                                                            Text {
-                                                                anchors.verticalCenter: parent.verticalCenter
-                                                                anchors.right: parent.right
-                                                                anchors.rightMargin: 14
-                                                                text: "▾"
-                                                                color: root.labelInk
-                                                                font.family: root.uiFont
-                                                                font.pixelSize: 12
-                                                            }
-
-                                                            MouseArea {
-                                                                anchors.fill: parent
-                                                                cursorShape: Qt.PointingHandCursor
-                                                                onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", root.projectDraft.followUpStartedAt)
-                                                            }
+                                                            theme: root
+                                                            text: root.displayProjectDate(root.projectDraft.followUpStartedAt)
+                                                            placeholderText: "跟进开始日期"
+                                                            onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", root.projectDraft.followUpStartedAt)
                                                         }
                                                     }
 
@@ -2633,42 +2486,12 @@ Rectangle {
                                                         Layout.fillWidth: true
                                                         spacing: 10
 
-                                                        Rectangle {
+                                                        ControlPanelDateField {
                                                             Layout.fillWidth: true
-                                                            implicitHeight: 44
-                                                            radius: 16
-                                                            color: root.inputBg
-                                                            border.width: 1
-                                                            border.color: root.panelLine
-
-                                                            Text {
-                                                                anchors.verticalCenter: parent.verticalCenter
-                                                                anchors.left: parent.left
-                                                                anchors.leftMargin: 14
-                                                                anchors.right: parent.right
-                                                                anchors.rightMargin: 38
-                                                                text: root.displayProjectDate(root.projectDraft.supportEndedAt) || "过保日期"
-                                                                color: root.displayProjectDate(root.projectDraft.supportEndedAt).length > 0 ? root.titleInk : root.labelInk
-                                                                font.family: root.uiFont
-                                                                font.pixelSize: 12
-                                                                elide: Text.ElideRight
-                                                            }
-
-                                                            Text {
-                                                                anchors.verticalCenter: parent.verticalCenter
-                                                                anchors.right: parent.right
-                                                                anchors.rightMargin: 14
-                                                                text: "▾"
-                                                                color: root.labelInk
-                                                                font.family: root.uiFont
-                                                                font.pixelSize: 12
-                                                            }
-
-                                                            MouseArea {
-                                                                anchors.fill: parent
-                                                                cursorShape: Qt.PointingHandCursor
-                                                                onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", root.projectDraft.supportEndedAt)
-                                                            }
+                                                            theme: root
+                                                            text: root.displayProjectDate(root.projectDraft.supportEndedAt)
+                                                            placeholderText: "过保日期"
+                                                            onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", root.projectDraft.supportEndedAt)
                                                         }
                                                     }
 
@@ -2687,41 +2510,10 @@ Rectangle {
                                                         Repeater {
                                                             model: root.projectDraft.aliases
 
-                                                            delegate: Rectangle {
-                                                                radius: 14
-                                                                width: aliasChipText.implicitWidth + 28
-                                                                height: 28
-                                                                color: "#F0F6FF"
-                                                                border.width: 1
-                                                                border.color: "#D7E6FF"
-
-                                                                Text {
-                                                                    id: aliasChipText
-                                                                    anchors.verticalCenter: parent.verticalCenter
-                                                                    anchors.left: parent.left
-                                                                    anchors.leftMargin: 10
-                                                                    text: modelData
-                                                                    color: root.titleInk
-                                                                    font.family: root.uiFont
-                                                                    font.pixelSize: 11
-                                                                    font.weight: 600
-                                                                }
-
-                                                                Text {
-                                                                    anchors.verticalCenter: parent.verticalCenter
-                                                                    anchors.right: parent.right
-                                                                    anchors.rightMargin: 10
-                                                                    text: "×"
-                                                                    color: root.labelInk
-                                                                    font.family: root.uiFont
-                                                                    font.pixelSize: 12
-
-                                                                    MouseArea {
-                                                                        anchors.fill: parent
-                                                                        cursorShape: Qt.PointingHandCursor
-                                                                        onClicked: root.removeProjectAlias(modelData)
-                                                                    }
-                                                                }
+                                                            delegate: ControlPanelChip {
+                                                                theme: root
+                                                                label: modelData
+                                                                onRemoveClicked: root.removeProjectAlias(modelData)
                                                             }
                                                         }
                                                     }

@@ -19,6 +19,8 @@ Rectangle {
     property string actionIconSource: ""
     property string actionText: ""
     property color actionInkColor: theme.accent
+    readonly property color formFieldBorder: theme.formFieldBorder || theme.panelLine
+    readonly property color formFieldFocusBorder: theme.formFieldFocusBorder || theme.accent
     signal clicked
     signal actionTriggered
     signal accepted(string value)
@@ -90,7 +92,7 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             height: 1
-                            color: inlineEditor.activeFocus ? fieldRoot.theme.accent : fieldRoot.theme.panelLine
+                            color: inlineEditor.activeFocus ? fieldRoot.formFieldFocusBorder : fieldRoot.formFieldBorder
                             opacity: inlineEditor.activeFocus ? 1 : 0.9
                         }
                     }
@@ -303,7 +305,7 @@ Rectangle {
                 visible: !fieldRoot.editing
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: theme.panelLine
+                color: fieldRoot.formFieldBorder
                 opacity: 0.85
             }
         }

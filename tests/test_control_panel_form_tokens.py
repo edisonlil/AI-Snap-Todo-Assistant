@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+QML_DIR = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml"
+
+
+def _qml(file_name: str) -> str:
+    return (QML_DIR / file_name).read_text(encoding="utf-8")
+
+
+def test_control_panel_form_components_consume_form_tokens() -> None:
+    component_files = [
+        "ControlPanelSettingsInput.qml",
+        "ControlPanelSettingsCombo.qml",
+        "ControlPanelSettingsArea.qml",
+        "ControlPanelSettingsSpinBox.qml",
+        "ControlPanelSettingsCheckBox.qml",
+        "ControlPanelDateField.qml",
+        "ControlPanelSegmentButton.qml",
+        "ControlPanelChip.qml",
+    ]
+
+    for file_name in component_files:
+        source = _qml(file_name)
+        assert "form" in source, file_name
+
+    assert "theme.formFieldHeight || 44" in _qml("ControlPanelSettingsInput.qml")
+    assert "theme.formPopupItemHeight || 38" in _qml("ControlPanelSettingsCombo.qml")
+    assert "theme.formFieldRadius || 16" in _qml("ControlPanelDateField.qml")
+    assert "theme.formChipHeight || 28" in _qml("ControlPanelChip.qml")
+
+
+def test_control_panel_sections_use_shared_form_components() -> None:
+    projects = _qml("ProjectsSection.qml")
+    environments = _qml("EnvironmentsSection.qml")
+    environment_manager = _qml("EnvironmentManagerSection.qml")
+    control_panel = _qml("ControlPanel.qml")
+
+    assert "ControlPanelDateField {" in projects
+    assert "ControlPanelChip {" in projects
+    assert "ControlPanelSettingsCheckBox {" in projects
+    assert "ControlPanelSegmentButton {" in environments
+    assert "ControlPanelSettingsArea {" in environment_manager
+    assert "ControlPanelSettingsSpinBox {" in environment_manager
+    assert "component SettingsInput: ControlPanelSettingsInput" in control_panel
+    assert "component SettingsCombo: ControlPanelSettingsCombo" in control_panel
+    assert "component MultiLineInput: ControlPanelSettingsArea" in control_panel
+    assert "component ModelFieldInput: ControlPanelSettingsInput" in control_panel
+    assert "component ModelFieldCombo: ControlPanelSettingsCombo" in control_panel

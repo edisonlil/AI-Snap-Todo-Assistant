@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 
-TextField {
-    id: input
+TextArea {
+    id: area
     required property var theme
     property int fieldRadius: theme.formFieldRadius || 16
     property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
@@ -14,16 +14,14 @@ TextField {
     font.family: theme.uiFont
     font.pixelSize: fieldFontSize
     selectByMouse: true
-    implicitHeight: theme.formFieldHeight || 44
-    leftPadding: theme.formFieldPaddingH || 14
-    rightPadding: theme.formFieldPaddingH || 14
-    topPadding: theme.formFieldPaddingV || 11
-    bottomPadding: theme.formFieldPaddingV || 11
+    wrapMode: TextEdit.Wrap
+    padding: theme.formFieldPaddingH || 14
+    implicitHeight: 96
 
     background: Rectangle {
-        radius: input.fieldRadius
-        color: input.fieldBg
+        radius: area.fieldRadius
+        color: area.fieldBg
         border.width: 1
-        border.color: input.activeFocus ? input.fieldFocusBorder : input.fieldBorder
+        border.color: area.activeFocus ? area.fieldFocusBorder : area.fieldBorder
     }
 }

@@ -5,8 +5,13 @@ ComboBox {
     id: combo
     required property var theme
     property int popupMaxHeight: 280
-    property int popupItemMinHeight: 38
+    property int popupItemMinHeight: theme.formPopupItemHeight || 38
     property int popupTextMaximumLineCount: 1
+    property int fieldRadius: theme.formFieldRadius || 16
+    property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
+    property color fieldBg: theme.formFieldBg || theme.inputBg || "#FFFFFF"
+    property color fieldBorder: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
+    property color fieldFocusBorder: theme.formFieldFocusBorder || theme.accent || "#2A313F"
 
     function optionLabel(option) {
         if (option === null || option === undefined) {
@@ -20,17 +25,18 @@ ComboBox {
 
     textRole: "text"
     font.family: theme.uiFont
-    font.pixelSize: 12
-    leftPadding: 14
-    rightPadding: 34
-    topPadding: 11
-    bottomPadding: 11
+    font.pixelSize: fieldFontSize
+    implicitHeight: theme.formFieldHeight || 44
+    leftPadding: theme.formFieldPaddingH || 14
+    rightPadding: Math.max(34, (theme.formFieldPaddingH || 14) + 20)
+    topPadding: theme.formFieldPaddingV || 11
+    bottomPadding: theme.formFieldPaddingV || 11
 
     contentItem: Text {
         text: combo.displayText
         color: theme.titleInk
         font.family: theme.uiFont
-        font.pixelSize: 12
+        font.pixelSize: combo.fieldFontSize
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
@@ -53,10 +59,10 @@ ComboBox {
     }
 
     background: Rectangle {
-        radius: 16
-        color: theme.inputBg
+        radius: combo.fieldRadius
+        color: combo.fieldBg
         border.width: 1
-        border.color: combo.activeFocus || combo.popup.visible ? theme.accent : theme.panelLine
+        border.color: combo.activeFocus || combo.popup.visible ? combo.fieldFocusBorder : combo.fieldBorder
     }
 
     popup: Popup {
@@ -76,10 +82,10 @@ ComboBox {
         }
 
         background: Rectangle {
-            radius: 12
-            color: "#FFFFFF"
+            radius: theme.formPopupRadius || 12
+            color: theme.formPopupBg || "#FFFFFF"
             border.width: 1
-            border.color: theme.panelLine
+            border.color: combo.fieldBorder
         }
 
         contentItem: ListView {
@@ -103,8 +109,8 @@ ComboBox {
         highlighted: combo.highlightedIndex === index
 
         background: Rectangle {
-            radius: 8
-            color: highlighted ? theme.accentSoft : hovered ? "#F6F8FB" : "transparent"
+            radius: theme.formPopupItemRadius || 8
+            color: highlighted ? theme.accentSoft : hovered ? (theme.formPopupHoverBg || theme.hoverBg || "#F6F8FB") : "transparent"
         }
 
         contentItem: Text {
@@ -114,7 +120,7 @@ ComboBox {
             text: combo.optionLabel(modelData)
             color: theme.titleInk
             font.family: theme.uiFont
-            font.pixelSize: 12
+            font.pixelSize: combo.fieldFontSize
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.Wrap
             maximumLineCount: combo.popupTextMaximumLineCount

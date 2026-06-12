@@ -16,6 +16,9 @@ Rectangle {
     }
 
     readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
+    readonly property var detailBridge: typeof todoDetailBridge !== "undefined" ? todoDetailBridge : null
+    readonly property var productLineOptions: detailBridge ? detailBridge.productLineOptions : []
+    readonly property string productLineValue: detailBridge ? detailBridge.productLine : ""
     readonly property color shellBg: themeTokens.shellBg || "#FFFFFF"
     readonly property color panelBg: themeTokens.panelBg || "#FFFFFF"
     readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
@@ -29,7 +32,7 @@ Rectangle {
     readonly property color timelineBg: themeTokens.timelineBg || "#F8F9FA"
     readonly property color accent: themeTokens.accent || "#2A313F"
     readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
-    readonly property string uiFont: themeTokens.uiFont || (todoDetailBridge ? todoDetailBridge.uiFont : "Microsoft YaHei UI")
+    readonly property string uiFont: themeTokens.uiFont || (detailBridge ? detailBridge.uiFont : "Microsoft YaHei UI")
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16
@@ -186,6 +189,9 @@ Rectangle {
     }
 
     function syncTimelineDraft() {
+        if (!root.detailBridge) {
+            return
+        }
         syncingTimelineDraft = true
         timelineEntryType = todoDetailBridge.timelineDraftEntryType
         timelineEntryTypeSelected = todoDetailBridge.timelineDraftEntryTypeSelected
@@ -203,6 +209,9 @@ Rectangle {
     }
 
     function selectProductLine(value) {
+        if (!root.detailBridge) {
+            return
+        }
         todoDetailBridge.selectProductLine(value)
     }
 
@@ -244,12 +253,15 @@ Rectangle {
     }
 
     function syncFields() {
+        if (!root.detailBridge) {
+            return
+        }
         syncingFields = true
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
         environmentEdit.text = todoDetailBridge.environment
         productLineFallbackEdit.text = todoDetailBridge.productLine
-        productLineEdit.currentIndex = optionIndex(todoDetailBridge.productLineOptions, todoDetailBridge.productLine)
+        productLineEdit.currentIndex = optionIndex(root.productLineOptions, root.productLineValue)
         ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
@@ -395,7 +407,7 @@ Rectangle {
     }
 
     Connections {
-        target: todoDetailBridge
+        target: root.detailBridge
         function onDataChanged() {
             root.syncFields()
         }
@@ -442,9 +454,9 @@ Rectangle {
 
     Timer {
         interval: 1000
-        running: todoDetailBridge.environmentAccessPopoverOpen
+        running: root.detailBridge ? todoDetailBridge.environmentAccessPopoverOpen : false
         repeat: true
-        onTriggered: todoDetailBridge.refreshEnvironmentOtpState()
+        onTriggered: if (root.detailBridge) todoDetailBridge.refreshEnvironmentOtpState()
     }
 
     Rectangle {
@@ -677,7 +689,7 @@ Rectangle {
                                     y: 35
                                     width: parent.width - root.fieldTextInset * 2
                                     height: 22
-                                    visible: todoDetailBridge.productLineOptions.length <= 1
+                                    visible: root.productLineOptions.length <= 1
                                     clip: true
                                     readOnly: true
                                     selectByMouse: true
@@ -693,13 +705,13 @@ Rectangle {
                                     y: 35
                                     width: parent.width - root.fieldTextInset * 2
                                     height: 22
-                                    visible: todoDetailBridge.productLineOptions.length > 1
-                                    model: todoDetailBridge.productLineOptions
-                                    currentIndex: root.optionIndex(todoDetailBridge.productLineOptions, todoDetailBridge.productLine)
-                                    enabled: todoDetailBridge.productLineOptions.length > 1
+                                    visible: root.productLineOptions.length > 1
+                                    model: root.productLineOptions
+                                    currentIndex: root.optionIndex(root.productLineOptions, root.productLineValue)
+                                    enabled: root.productLineOptions.length > 1
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    onActivated: if (currentIndex >= 0) root.selectProductLine(todoDetailBridge.productLineOptions[currentIndex])
+                                    onActivated: if (currentIndex >= 0) root.selectProductLine(root.productLineOptions[currentIndex])
 
                                     contentItem: Text {
                                         text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : productLineFallbackEdit.text
@@ -718,7 +730,7 @@ Rectangle {
                                         height: productLineEdit.height
                                         text: productLineEdit.popup.visible ? "⌃" : "⌄"
                                         color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
-                                        visible: todoDetailBridge.productLineOptions.length > 1
+                                        visible: root.productLineOptions.length > 1
                                         font.family: root.uiFont
                                         font.pixelSize: 14
                                         horizontalAlignment: Text.AlignRight

@@ -180,32 +180,15 @@ ColumnLayout {
                 Repeater {
                     model: root.scopeOptions
 
-                    delegate: Rectangle {
-                        radius: 16
-                        implicitWidth: scopeLabel.implicitWidth + 28
-                        implicitHeight: 42
-                        color: controlPanelBridge.environmentScopeFilter === modelData.value ? theme.accentSoft : theme.inputBg
-                        border.width: 1
-                        border.color: controlPanelBridge.environmentScopeFilter === modelData.value ? theme.accent : theme.panelLine
-
-                        Text {
-                            id: scopeLabel
-                            anchors.centerIn: parent
-                            text: modelData.text
-                            color: controlPanelBridge.environmentScopeFilter === modelData.value ? theme.accent : theme.titleInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 12
-                            font.weight: controlPanelBridge.environmentScopeFilter === modelData.value ? 700 : 500
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                root.environmentViewMode = "list"
-                                root.creatingEnvironment = false
-                                controlPanelBridge.setEnvironmentScopeFilter(modelData.value)
-                            }
+                    delegate: ControlPanelSegmentButton {
+                        required property var modelData
+                        theme: root.theme
+                        label: modelData.text
+                        selected: controlPanelBridge.environmentScopeFilter === modelData.value
+                        onClicked: {
+                            root.environmentViewMode = "list"
+                            root.creatingEnvironment = false
+                            controlPanelBridge.setEnvironmentScopeFilter(modelData.value)
                         }
                     }
                 }

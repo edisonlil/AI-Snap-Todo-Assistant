@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 
-TextField {
-    id: input
+SpinBox {
+    id: spin
     required property var theme
     property int fieldRadius: theme.formFieldRadius || 16
     property int fieldFontSize: theme.formFieldFontSize || theme.fontBody || 12
@@ -10,20 +10,14 @@ TextField {
     property color fieldBorder: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
     property color fieldFocusBorder: theme.formFieldFocusBorder || theme.accent || "#2A313F"
 
-    color: theme.titleInk
+    implicitHeight: theme.formFieldHeight || 44
     font.family: theme.uiFont
     font.pixelSize: fieldFontSize
-    selectByMouse: true
-    implicitHeight: theme.formFieldHeight || 44
-    leftPadding: theme.formFieldPaddingH || 14
-    rightPadding: theme.formFieldPaddingH || 14
-    topPadding: theme.formFieldPaddingV || 11
-    bottomPadding: theme.formFieldPaddingV || 11
 
     background: Rectangle {
-        radius: input.fieldRadius
-        color: input.fieldBg
+        radius: spin.fieldRadius
+        color: spin.fieldBg
         border.width: 1
-        border.color: input.activeFocus ? input.fieldFocusBorder : input.fieldBorder
+        border.color: spin.activeFocus ? spin.fieldFocusBorder : spin.fieldBorder
     }
 }

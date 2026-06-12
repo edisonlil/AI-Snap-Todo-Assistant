@@ -35,11 +35,11 @@ ColumnLayout {
                     onTextEdited: controlPanelBridge.listProjects(text, includeExpiredCheck.checked)
                 }
 
-                CheckBox {
+                ControlPanelSettingsCheckBox {
                     id: includeExpiredCheck
+                    theme: projectSection.theme
                     checked: controlPanelBridge.includeExpiredProjects
                     text: "包含过保项目"
-                    font.family: theme.uiFont
                     onToggled: controlPanelBridge.listProjects(projectSearchInput.text, checked)
                 }
             }
@@ -325,42 +325,12 @@ ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 10
 
-                            Rectangle {
+                            ControlPanelDateField {
                                 Layout.fillWidth: true
-                                implicitHeight: 44
-                                radius: 16
-                                color: theme.inputBg
-                                border.width: 1
-                                border.color: theme.panelLine
-
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 14
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 38
-                                    text: theme.displayProjectDate(theme.projectDraft.followUpStartedAt) || "跟进开始日期"
-                                    color: theme.displayProjectDate(theme.projectDraft.followUpStartedAt).length > 0 ? theme.titleInk : theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 12
-                                    elide: Text.ElideRight
-                                }
-
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 14
-                                    text: "▼"
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 12
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", theme.projectDraft.followUpStartedAt)
-                                }
+                                theme: projectSection.theme
+                                text: theme.displayProjectDate(theme.projectDraft.followUpStartedAt)
+                                placeholderText: "跟进开始日期"
+                                onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", theme.projectDraft.followUpStartedAt)
                             }
                         }
 
@@ -368,42 +338,12 @@ ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 10
 
-                            Rectangle {
+                            ControlPanelDateField {
                                 Layout.fillWidth: true
-                                implicitHeight: 44
-                                radius: 16
-                                color: theme.inputBg
-                                border.width: 1
-                                border.color: theme.panelLine
-
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 14
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 38
-                                    text: theme.displayProjectDate(theme.projectDraft.supportEndedAt) || "过保日期"
-                                    color: theme.displayProjectDate(theme.projectDraft.supportEndedAt).length > 0 ? theme.titleInk : theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 12
-                                    elide: Text.ElideRight
-                                }
-
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 14
-                                    text: "▼"
-                                    color: theme.labelInk
-                                    font.family: theme.uiFont
-                                    font.pixelSize: 12
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", theme.projectDraft.supportEndedAt)
-                                }
+                                theme: projectSection.theme
+                                text: theme.displayProjectDate(theme.projectDraft.supportEndedAt)
+                                placeholderText: "过保日期"
+                                onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", theme.projectDraft.supportEndedAt)
                             }
                         }
 
@@ -423,41 +363,10 @@ ColumnLayout {
                             Repeater {
                                 model: theme.projectDraft.aliases
 
-                                delegate: Rectangle {
-                                    radius: 14
-                                    width: aliasChipText.implicitWidth + 28
-                                    height: 28
-                                    color: theme.accentSoft
-                                    border.width: 1
-                                    border.color: theme.panelLine
-
-                                    Text {
-                                        id: aliasChipText
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        anchors.left: parent.left
-                                        anchors.leftMargin: 10
-                                        text: modelData
-                                        color: theme.titleInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: 600
-                                    }
-
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 10
-                                        text: "×"
-                                        color: theme.labelInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 12
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: theme.removeProjectAlias(modelData)
-                                        }
-                                    }
+                                delegate: ControlPanelChip {
+                                    theme: projectSection.theme
+                                    label: modelData
+                                    onRemoveClicked: theme.removeProjectAlias(modelData)
                                 }
                             }
                         }

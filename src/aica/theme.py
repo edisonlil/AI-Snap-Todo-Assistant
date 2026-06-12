@@ -157,6 +157,10 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
     accent_tint = _mix(base, accent, 0.16)
     component_line = "transparent" if theme.component_style == "flat" else line_color
     component_fill = panel_alt if theme.component_style == "soft" else base
+    form_field_height = _scale_int(44, density_scale)
+    form_field_compact_height = _scale_int(32, density_scale)
+    form_popup_item_height = _scale_int(38, density_scale)
+    form_chip_height = _scale_int(28, density_scale)
 
     tokens: dict[str, object] = {
         "presetId": theme.preset_id,
@@ -186,6 +190,28 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
         "pressedBg": pressed,
         "componentBg": component_fill,
         "componentLine": component_line,
+        "formFieldHeight": form_field_height,
+        "formFieldCompactHeight": form_field_compact_height,
+        "formFieldRadius": _scale_int(16, theme.radius_scale),
+        "formFieldCompactRadius": _scale_int(8, theme.radius_scale),
+        "formFieldPaddingH": _scale_int(14, density_scale),
+        "formFieldPaddingV": _scale_int(11, density_scale),
+        "formFieldCompactPaddingH": _scale_int(10, density_scale),
+        "formFieldFontSize": font_body,
+        "formFieldCompactFontSize": font_body + 1,
+        "formFieldBg": "#FFFFFF",
+        "formFieldBorder": component_line,
+        "formFieldFocusBorder": accent,
+        "formFieldPlaceholderInk": "#7C8795",
+        "formPopupRadius": _scale_int(12, theme.radius_scale),
+        "formPopupItemRadius": _scale_int(8, theme.radius_scale),
+        "formPopupItemHeight": form_popup_item_height,
+        "formPopupBg": "#FFFFFF",
+        "formPopupHoverBg": hover,
+        "formInlineEditHeight": form_field_compact_height,
+        "formChipHeight": form_chip_height,
+        "formChipRadius": _scale_int(14, theme.radius_scale),
+        "formCheckSpacing": _scale_int(8, density_scale),
         "errorBg": "#FDECEC",
         "errorInk": "#B42318",
         "warningBg": "#F4EEE4",

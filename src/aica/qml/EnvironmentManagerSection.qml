@@ -375,7 +375,8 @@ ColumnLayout {
                     font.pixelSize: 12
                 }
 
-                SpinBox {
+                ControlPanelSettingsSpinBox {
+                    theme: root.theme
                     Layout.preferredWidth: 120
                     from: 0
                     to: 999
@@ -389,32 +390,23 @@ ColumnLayout {
                 }
             }
 
-            TextArea {
+            ControlPanelSettingsArea {
+                theme: root.theme
                 Layout.fillWidth: true
                 Layout.preferredHeight: 72
                 text: environmentDraft.note || ""
                 placeholderText: "备注"
-                wrapMode: TextEdit.Wrap
-                font.family: theme.uiFont
-                font.pixelSize: 12
-                color: theme.titleInk
                 onTextChanged: {
                     var next = environmentDraft
                     next.note = text
                     environmentDraft = next
                 }
-                background: Rectangle {
-                    radius: 16
-                    color: theme.inputBg
-                    border.width: 1
-                    border.color: theme.panelLine
-                }
             }
 
-            CheckBox {
+            ControlPanelSettingsCheckBox {
+                theme: root.theme
                 checked: !!environmentDraft.isActive
                 text: "启用环境"
-                font.family: theme.uiFont
                 onToggled: {
                     var next = environmentDraft
                     next.isActive = checked
@@ -828,10 +820,10 @@ ColumnLayout {
                         wrapMode: Text.Wrap
                     }
 
-                    CheckBox {
+                    ControlPanelSettingsCheckBox {
+                        theme: root.theme
                         checked: !!accessDraft.requiresOtp
                         text: "启用 OTP"
-                        font.family: theme.uiFont
                         onToggled: {
                             var next = accessDraft
                             next.requiresOtp = checked
@@ -889,18 +881,17 @@ ColumnLayout {
                                 elide: Text.ElideRight
                             }
 
-                            TextArea {
+                            ControlPanelSettingsArea {
+                                theme: root.theme
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 56
                                 readOnly: true
                                 selectByMouse: true
                                 text: accessDraft.otpConfig || ""
                                 wrapMode: TextEdit.WrapAnywhere
-                                font.family: theme.uiFont
-                                font.pixelSize: 11
                                 color: theme.bodyInk
                                 background: Rectangle {
-                                    radius: 6
+                                    radius: theme.radiusSm || 6
                                     color: theme.panelAltBg
                                     border.width: 0
                                 }
@@ -921,7 +912,8 @@ ColumnLayout {
                     font.pixelSize: 12
                 }
 
-                SpinBox {
+                ControlPanelSettingsSpinBox {
+                    theme: root.theme
                     Layout.preferredWidth: 120
                     from: 0
                     to: 999
@@ -935,25 +927,16 @@ ColumnLayout {
                 }
             }
 
-            TextArea {
+            ControlPanelSettingsArea {
+                theme: root.theme
                 Layout.fillWidth: true
                 Layout.preferredHeight: 70
                 text: accessDraft.note || ""
                 placeholderText: "备注"
-                wrapMode: TextEdit.Wrap
-                font.family: theme.uiFont
-                font.pixelSize: 12
-                color: theme.titleInk
                 onTextChanged: {
                     var next = accessDraft
                     next.note = text
                     accessDraft = next
-                }
-                background: Rectangle {
-                    radius: 16
-                    color: theme.inputBg
-                    border.width: 1
-                    border.color: theme.panelLine
                 }
             }
 
@@ -961,10 +944,10 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 18
 
-                CheckBox {
+                ControlPanelSettingsCheckBox {
+                    theme: root.theme
                     checked: !!accessDraft.isActive
                     text: "启用访问项"
-                    font.family: theme.uiFont
                     onToggled: {
                         var next = accessDraft
                         next.isActive = checked

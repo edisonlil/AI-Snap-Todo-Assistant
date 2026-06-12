@@ -29,9 +29,14 @@ Rectangle {
     readonly property color accentTint: resolveThemeColor("accentTint", "#ECEFF3")
     readonly property color hoverBg: resolveThemeColor("hoverBg", "#F3F4F6")
     readonly property color fieldBg: resolveThemeColor("fieldBg", "#F5F5F5")
-    readonly property color fieldLine: resolveThemeColor("fieldLine", resolveThemeColor("panelLine", "#E5E7EB"))
-    readonly property color inputBg: resolveThemeColor("inputBg", "#FFFFFF")
+    readonly property color fieldLine: resolveThemeColor("formFieldBorder", resolveThemeColor("fieldLine", resolveThemeColor("panelLine", "#E5E7EB")))
+    readonly property color fieldFocusLine: resolveThemeColor("formFieldFocusBorder", resolveThemeColor("accent", "#2A313F"))
+    readonly property color inputBg: resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF"))
     readonly property string uiFont: theme && theme.uiFont ? theme.uiFont : "Microsoft YaHei UI"
+    readonly property int formInlineEditHeight: theme && theme.formInlineEditHeight ? theme.formInlineEditHeight : 32
+    readonly property int formPopupRadius: theme && theme.formPopupRadius ? theme.formPopupRadius : 8
+    readonly property int formPopupItemRadius: theme && theme.formPopupItemRadius ? theme.formPopupItemRadius : 6
+    readonly property int formPopupItemHeight: theme && theme.formPopupItemHeight ? theme.formPopupItemHeight : 30
 
     signal clicked
     signal accepted(string value)
@@ -186,7 +191,7 @@ Rectangle {
                 Control {
                     id: cascadeTrigger
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 32
+                    Layout.preferredHeight: rootField.formInlineEditHeight
                     leftPadding: 0
                     rightPadding: 0
                     topPadding: 0
@@ -234,7 +239,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         height: 1
-                        color: cascadePopup.opened ? rootField.accent : rootField.fieldLine
+                        color: cascadePopup.opened ? rootField.fieldFocusLine : rootField.fieldLine
                         opacity: 0.95
                     }
 
@@ -290,7 +295,7 @@ Rectangle {
                     id: cascadePopup
                     parent: rootField
                     x: 0
-                    y: 44
+                    y: rootField.formInlineEditHeight + 12
                     width: Math.max(320, Math.min(rootField.width - 12, 760))
                     modal: false
                     focus: true
@@ -298,7 +303,7 @@ Rectangle {
                     padding: 0
 
                     background: Rectangle {
-                        radius: 8
+                        radius: rootField.formPopupRadius
                         color: rootField.inputBg
                         border.width: 1
                         border.color: rootField.fieldLine
@@ -311,7 +316,7 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 180
                             implicitHeight: 220
-                            radius: 7
+                            radius: rootField.formPopupItemRadius
                             color: rootField.fieldBg
                             border.width: 1
                             border.color: rootField.fieldLine
@@ -326,8 +331,8 @@ Rectangle {
                                 delegate: Rectangle {
                                     required property var modelData
                                     width: ListView.view.width
-                                    height: 30
-                                    radius: 6
+                                    height: rootField.formPopupItemHeight
+                                    radius: rootField.formPopupItemRadius
                                     color: itemMouseArea.containsMouse
                                            ? rootField.hoverBg
                                            : (modelData.value === rootField.level1 ? rootField.accentTint : "transparent")
@@ -368,7 +373,7 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 180
                             implicitHeight: 220
-                            radius: 7
+                            radius: rootField.formPopupItemRadius
                             color: rootField.fieldBg
                             border.width: 1
                             border.color: rootField.fieldLine
@@ -383,8 +388,8 @@ Rectangle {
                                 delegate: Rectangle {
                                     required property var modelData
                                     width: ListView.view.width
-                                    height: 30
-                                    radius: 6
+                                    height: rootField.formPopupItemHeight
+                                    radius: rootField.formPopupItemRadius
                                     color: itemMouseArea.containsMouse
                                            ? rootField.hoverBg
                                            : (modelData.value === rootField.level2 ? rootField.accentTint : "transparent")
@@ -423,7 +428,7 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 180
                             implicitHeight: 220
-                            radius: 7
+                            radius: rootField.formPopupItemRadius
                             color: rootField.fieldBg
                             border.width: 1
                             border.color: rootField.fieldLine
@@ -438,8 +443,8 @@ Rectangle {
                                 delegate: Rectangle {
                                     required property var modelData
                                     width: ListView.view.width
-                                    height: 30
-                                    radius: 6
+                                    height: rootField.formPopupItemHeight
+                                    radius: rootField.formPopupItemRadius
                                     color: itemMouseArea.containsMouse
                                            ? rootField.hoverBg
                                            : (modelData.value === rootField.level3 ? rootField.accentTint : "transparent")

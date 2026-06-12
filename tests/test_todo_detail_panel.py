@@ -370,11 +370,13 @@ def test_todo_detail_product_line_field_uses_inline_combo_box() -> None:
     assert "id: productLineField" in qml_text
     assert "id: productLineEdit" in qml_text
     assert "id: productLineFallbackEdit" in qml_text
+    assert "readonly property var detailBridge" in qml_text
+    assert "readonly property var productLineOptions" in qml_text
     assert "productLineFallbackEdit.text = todoDetailBridge.productLine" in qml_text
     assert "readOnly: true" in qml_text
-    assert "visible: todoDetailBridge.productLineOptions.length <= 1" in qml_text
-    assert "visible: todoDetailBridge.productLineOptions.length > 1" in qml_text
-    assert "model: todoDetailBridge.productLineOptions" in qml_text
+    assert "visible: root.productLineOptions.length <= 1" in qml_text
+    assert "visible: root.productLineOptions.length > 1" in qml_text
+    assert "model: root.productLineOptions" in qml_text
     assert "onActivated: if (currentIndex >= 0) root.selectProductLine" in qml_text
     assert "background: Item {}" in qml_text
     assert "id: productLineFlow" not in qml_text
