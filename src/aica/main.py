@@ -315,7 +315,7 @@ def main() -> None:
             f"startup: tray icon updated path={current_path} exists={current_path.exists()}",
         )
 
-    def _show_control_panel(section_id: str = "models") -> None:
+    def _show_control_panel(section_id: str = "server") -> None:
         control_panel.show_panel(section_id)
 
     def _show_missing_settings_message() -> None:
@@ -359,7 +359,7 @@ def main() -> None:
     action_open_panel = QAction("打开控制面板", app)
     action_exit = QAction("退出", app)
     action_capture.triggered.connect(lambda: _request_capture("tray"))
-    action_open_panel.triggered.connect(lambda: _show_control_panel("models"))
+    action_open_panel.triggered.connect(lambda: _show_control_panel("server"))
     action_exit.triggered.connect(_quit_application)
     tray_menu.addAction(action_capture)
     tray_menu.addSeparator()
@@ -373,7 +373,7 @@ def main() -> None:
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
         ):
-            _show_control_panel("models")
+            _show_control_panel("server")
 
     tray_icon.activated.connect(_on_tray_activated)
     style_hints = app.styleHints()
@@ -1036,7 +1036,7 @@ def main() -> None:
             _append_startup_log(startup_log_file, "startup: tray icon shown")
         else:
             _append_startup_log(startup_log_file, "startup: system tray unavailable")
-            _show_control_panel("models")
+            _show_control_panel("server")
         hotkey_error = _start_hotkey_listener(hotkey_mgr, startup_log_file)
         if hotkey_error is not None:
             QMessageBox.warning(

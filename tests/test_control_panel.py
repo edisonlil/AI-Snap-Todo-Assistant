@@ -1189,6 +1189,45 @@ def test_legacy_environment_sections_map_to_unified_section(monkeypatch: pytest.
     assert bridge.environmentScopeFilter == "global"
 
 
+def test_model_and_rules_sections_are_hidden_from_navigation(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    section_ids = {item["id"] for item in bridge.sections}
+    grouped_section_ids = {
+        item["id"]
+        for group in bridge.sectionGroups
+        for item in group["items"]
+    }
+
+    assert "models" not in section_ids
+    assert "models" not in grouped_section_ids
+    assert "analysis_rules" not in section_ids
+    assert "analysis_rules" not in grouped_section_ids
+    assert bridge.currentSection == "server"
+
+    bridge.setCurrentSection("models")
+
+    assert bridge.currentSection == "server"
+    assert bridge.currentSectionMeta["title"] == "服务端集成"
+
+    bridge.setCurrentSection("analysis_rules")
+
+    assert bridge.currentSection == "server"
+    assert bridge.currentSectionMeta["title"] == "服务端集成"
+
+
+def test_hotkeys_menu_uses_settings_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    hotkey_item = next(item for item in bridge.sections if item["id"] == "hotkeys")
+
+    assert hotkey_item["title"] == "快捷键设置"
+    bridge.setCurrentSection("hotkeys")
+    assert bridge.currentSectionMeta["title"] == "快捷键设置"
+
+
 def test_logo_source_uses_runtime_asset_uri(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     asset_path = Path.cwd() / "assets" / "aica_icon.png"

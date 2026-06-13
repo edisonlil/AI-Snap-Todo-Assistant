@@ -440,6 +440,11 @@ _TASK_LABELS = {
 }
 _TASK_LABELS["context_summary"] = "上下文摘要"
 _TASK_LABELS["log_analysis"] = "日志分析"
+_DEFAULT_CONTROL_PANEL_SECTION = "server"
+_HIDDEN_SECTION_ALIASES = {
+    "models": _DEFAULT_CONTROL_PANEL_SECTION,
+    "analysis_rules": _DEFAULT_CONTROL_PANEL_SECTION,
+}
 _SECTION_GROUPS = [
     {
         "id": "business",
@@ -463,22 +468,6 @@ _SECTION_GROUPS = [
         ],
     },
     {
-        "id": "models_and_rules",
-        "title": "\u6a21\u578b\u4e0e\u89c4\u5219",
-        "items": [
-            {
-                "id": "models",
-                "title": "\u6a21\u578b\u4f9b\u5e94\u5546",
-                "description": "\u7ef4\u62a4\u4f9b\u5e94\u5546\u51ed\u8bc1\u3001\u8bf7\u6c42\u5730\u5740\u4e0e\u4efb\u52a1\u6a21\u578b\u7ed1\u5b9a\u3002",
-            },
-            {
-                "id": "analysis_rules",
-                "title": "\u89c4\u5219\u4e0e\u8c03\u8bd5",
-                "description": "\u914d\u7f6e\u573a\u666f\u5206\u6790\u89c4\u5219\uff0c\u5e76\u67e5\u770b Prompt \u8c03\u8bd5\u5feb\u7167\u3002",
-            },
-        ],
-    },
-    {
         "id": "runtime_and_integrations",
         "title": "\u8fd0\u884c\u4e0e\u96c6\u6210",
         "items": [
@@ -489,7 +478,7 @@ _SECTION_GROUPS = [
             },
             {
                 "id": "hotkeys",
-                "title": "\u5feb\u6377\u952e",
+                "title": "\u5feb\u6377\u952e\u8bbe\u7f6e",
                 "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
             },
             {
@@ -518,7 +507,7 @@ _SECTION_VIEW_META = {
         "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
     },
     "hotkeys": {
-        "title": "\u622a\u56fe\u70ed\u952e",
+        "title": "\u5feb\u6377\u952e\u8bbe\u7f6e",
         "description": "\u622a\u56fe\u70ed\u952e\u4fdd\u5b58\u540e\u4f1a\u7acb\u5373\u91cd\u7ed1\uff0c\u65e0\u9700\u91cd\u542f\u5e94\u7528\u3002",
         "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
     },
@@ -819,6 +808,13 @@ def _is_server_config_ready(config: object) -> bool:
     )
 
 
+def _normalize_section_id(section_id: str) -> str:
+    section = str(section_id or "").strip()
+    if not section:
+        return _DEFAULT_CONTROL_PANEL_SECTION
+    return _HIDDEN_SECTION_ALIASES.get(section, section)
+
+
 def _delete_finished_thread(worker: QThread) -> None:
     is_running = getattr(worker, "isRunning", None)
     wait = getattr(worker, "wait", None)
@@ -1064,7 +1060,7 @@ class _ControlPanelBridge(QObject):
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
-        self._current_section = "models"
+        self._current_section = _DEFAULT_CONTROL_PANEL_SECTION
         self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
         self._selected_prompt_debug_trace_id = ""
         self._capture_hotkey = self._config.hotkeys.capture
@@ -1132,7 +1128,7 @@ class _ControlPanelBridge(QObject):
 
     @pyqtProperty("QVariantMap", notify=currentSectionChanged)
     def currentSectionMeta(self):  # noqa: ANN201
-        return dict(_SECTION_VIEW_META.get(self._current_section, _SECTION_VIEW_META["models"]))
+        return dict(_SECTION_VIEW_META.get(self._current_section, _SECTION_VIEW_META[_DEFAULT_CONTROL_PANEL_SECTION]))
 
     @pyqtProperty(bool, notify=windowStateChanged)
     def windowMaximized(self) -> bool:
@@ -2008,7 +2004,7 @@ class _ControlPanelBridge(QObject):
 
     @pyqtSlot(str)
     def setCurrentSection(self, section_id: str) -> None:
-        section = str(section_id or "").strip()
+        section = _normalize_section_id(section_id)
         if section == "global_environments":
             self._environment_scope_filter = "global"
             section = "environments"
@@ -3616,7 +3612,7 @@ class ControlPanelWindow(QWidget):
         errors = "\n".join(error.toString() for error in self._view.errors())
         raise RuntimeError(f"Failed to load ControlPanel.qml:\n{errors}")
 
-    def show_panel(self, section_id: str = "models") -> None:
+    def show_panel(self, section_id: str = _DEFAULT_CONTROL_PANEL_SECTION) -> None:
         self._bridge.reloadConfig()
         self._bridge.setCurrentSection(section_id)
         if self.isMinimized():
