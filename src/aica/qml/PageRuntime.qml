@@ -8,12 +8,12 @@ ColumnLayout {
     property string title: ""
     property string description: ""
     property int pageGap: 12
-    property int sectionPadding: 12
-    property int sectionRadius: 14
+    property int sectionPadding: 16
+    property int sectionRadius: 12
     property int compactBreakpoint: 760
     property int listMinimumHeight: 520
     property bool listFramed: true
-    readonly property color surfaceColor: theme.panelBg
+    readonly property color surfaceColor: theme.panelAltBg
     readonly property color lineColor: theme.panelLine
     readonly property color titleColor: theme.titleInk
     readonly property color bodyColor: theme.bodyInk
@@ -58,8 +58,7 @@ ColumnLayout {
         implicitHeight: filterSlot.implicitHeight + root.sectionPadding * 2
         radius: root.sectionRadius
         color: root.surfaceColor
-        border.width: 1
-        border.color: root.lineColor
+        border.width: 0
 
         ColumnLayout {
             id: filterSlot
@@ -75,8 +74,7 @@ ColumnLayout {
         implicitHeight: actionSlot.implicitHeight + root.sectionPadding * 2
         radius: root.sectionRadius
         color: root.surfaceColor
-        border.width: 1
-        border.color: root.lineColor
+        border.width: 0
 
         ColumnLayout {
             id: actionSlot
@@ -94,8 +92,7 @@ ColumnLayout {
         implicitHeight: Math.max(root.listMinimumHeight, listBody.implicitHeight)
         radius: root.listFramed ? root.sectionRadius : 0
         color: root.listFramed ? root.surfaceColor : "transparent"
-        border.width: root.listFramed ? 1 : 0
-        border.color: root.lineColor
+        border.width: 0
         clip: true
 
         ColumnLayout {

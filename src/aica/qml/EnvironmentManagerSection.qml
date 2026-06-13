@@ -282,10 +282,9 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
-        radius: 18
-        color: theme.panelBg
-        border.width: 1
-        border.color: theme.panelLine
+        radius: 12
+        color: theme.panelAltBg
+        border.width: 0
         implicitHeight: environmentForm.implicitHeight + 24
 
         ColumnLayout {
@@ -412,10 +411,9 @@ ColumnLayout {
     Rectangle {
         visible: !root.creatingEnvironment && (root.selectedEnvironment.id || "").length > 0
         Layout.fillWidth: true
-        radius: 18
-        color: theme.panelBg
-        border.width: 1
-        border.color: theme.panelLine
+        radius: 12
+        color: theme.panelAltBg
+        border.width: 0
         implicitHeight: accessContent.implicitHeight + 24
 
         ColumnLayout {

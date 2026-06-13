@@ -298,17 +298,30 @@ ColumnLayout {
                         Repeater {
                             model: root.filteredGroups
 
-                            delegate: Rectangle {
+                            delegate: Item {
                                 implicitWidth: environmentListArea.gridCardWidth
                                 Layout.preferredWidth: environmentListArea.gridCardWidth
                                 Layout.minimumWidth: environmentListArea.gridCardWidth
                                 Layout.maximumWidth: environmentListArea.gridCardWidth
                                 Layout.minimumHeight: 134
                                 implicitHeight: Math.max(134, cardColumn.implicitHeight + 22)
-                                radius: 8
-                                color: cardMouse.containsMouse ? theme.hoverBg : theme.panelBg
-                                border.width: 1
-                                border.color: theme.panelLine
+
+                                Rectangle {
+                                    anchors.fill: cardSurface
+                                    anchors.topMargin: 3
+                                    anchors.leftMargin: 2
+                                    radius: cardSurface.radius
+                                    color: "#1F000000"
+                                    opacity: cardMouse.containsMouse ? 0.12 : 0.08
+                                }
+
+                                Rectangle {
+                                    id: cardSurface
+                                    anchors.fill: parent
+                                    radius: 12
+                                    color: cardMouse.containsMouse ? theme.hoverBg : theme.panelAltBg
+                                    border.width: 0
+                                }
 
                                 MouseArea {
                                     id: cardMouse
@@ -320,7 +333,7 @@ ColumnLayout {
 
                                 ColumnLayout {
                                     id: cardColumn
-                                    anchors.fill: parent
+                                    anchors.fill: cardSurface
                                     anchors.margins: 11
                                     spacing: 8
 

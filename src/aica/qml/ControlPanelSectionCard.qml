@@ -3,7 +3,7 @@ import QtQuick
 Rectangle {
     required property var theme
 
-    radius: 24
+    radius: 12
     color: theme.panelAltBg
     border.width: 0
 }

@@ -809,7 +809,7 @@ Rectangle {
     }
 
     component SectionCard: Rectangle {
-        radius: 24
+        radius: 12
         color: root.panelAltBg
         border.width: 0
     }
@@ -896,7 +896,7 @@ Rectangle {
                     Layout.preferredWidth: 220
                     Layout.fillHeight: true
                     color: root.panelAltBg
-                    radius: 26
+                    radius: 12
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1009,7 +1009,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     color: root.panelBg
-                    radius: 26
+                    radius: 12
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1314,9 +1314,6 @@ Rectangle {
                                     visible: root.currentSection === "theme"
                                     Layout.fillWidth: true
                                     implicitHeight: themeSettingsContent.implicitHeight + 32
-                                    color: root.panelBg
-                                    border.width: 1
-                                    border.color: root.panelLine
 
                                     ColumnLayout {
                                         id: themeSettingsContent
@@ -1435,9 +1432,6 @@ Rectangle {
                                     visible: root.currentSection === "theme"
                                     Layout.fillWidth: true
                                     implicitHeight: themeParametersContent.implicitHeight + 32
-                                    color: root.panelBg
-                                    border.width: 1
-                                    border.color: root.panelLine
 
                                     ColumnLayout {
                                         id: themeParametersContent
@@ -1593,9 +1587,6 @@ Rectangle {
                                     visible: root.currentSection === "theme"
                                     Layout.fillWidth: true
                                     implicitHeight: commonStyleContent.implicitHeight + 32
-                                    color: root.panelBg
-                                    border.width: 1
-                                    border.color: root.panelLine
 
                                     ColumnLayout {
                                         id: commonStyleContent
@@ -1652,9 +1643,6 @@ Rectangle {
                                     visible: root.currentSection === "theme"
                                     Layout.fillWidth: true
                                     implicitHeight: buttonStyleContent.implicitHeight + 32
-                                    color: root.panelBg
-                                    border.width: 1
-                                    border.color: root.panelLine
 
                                     ColumnLayout {
                                         id: buttonStyleContent

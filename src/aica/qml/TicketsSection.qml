@@ -935,7 +935,7 @@ ColumnLayout {
             Layout.fillWidth: true
             property bool compactLayout: width < 760
             implicitHeight: compactLayout ? paginationInfoRow.implicitHeight + paginationSummary.implicitHeight + 29 : Math.max(paginationInfoRow.implicitHeight, paginationSummary.implicitHeight) + 21
-            color: theme.panelBg
+            color: "transparent"
 
             Rectangle {
                 anchors.top: parent.top
@@ -1170,10 +1170,9 @@ ColumnLayout {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    radius: 22
-                    color: theme.panelBg
-                    border.width: 1
-                    border.color: theme.panelLine
+                    radius: 12
+                    color: theme.panelAltBg
+                    border.width: 0
                     implicitHeight: ticketDetailColumn.implicitHeight + 40
 
                     ColumnLayout {

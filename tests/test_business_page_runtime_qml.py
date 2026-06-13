@@ -26,6 +26,19 @@ def test_project_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None
     assert "onBackRequested: theme.showProjectList()" in qml_text
 
 
+def test_business_runtime_surfaces_use_compact_filled_cards() -> None:
+    page_runtime = _qml("PageRuntime.qml")
+    detail_runtime = _qml("DetailRuntime.qml")
+    section_card = _qml("ControlPanelSectionCard.qml")
+
+    assert "property int sectionRadius: 12" in page_runtime
+    assert "readonly property color surfaceColor: theme.panelAltBg" in page_runtime
+    assert "border.width: 0" in page_runtime
+    assert "radius: 12" in detail_runtime
+    assert "readonly property color surfaceColor: theme.panelAltBg" in detail_runtime
+    assert "radius: 12" in section_card
+
+
 def test_environment_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:
     qml_text = _qml("EnvironmentsSection.qml")
     environment_manager = _qml("EnvironmentManagerSection.qml")

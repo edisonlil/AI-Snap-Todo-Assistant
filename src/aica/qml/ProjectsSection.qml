@@ -100,10 +100,9 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 340
                     implicitHeight: 520
-                    radius: 18
-                    color: theme.panelBg
-                    border.width: 1
-                    border.color: theme.panelLine
+                    radius: 12
+                    color: "transparent"
+                    border.width: 0
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -129,9 +128,9 @@ ColumnLayout {
                                 property bool currentProject: theme.projectDraft.id === modelData.id
                                 width: ListView.view.width
                                 height: projectInfoColumn.implicitHeight + 20
-                                radius: 14
+                                radius: 12
                                 color: currentProject ? theme.accentSoft : theme.panelBg
-                                border.width: 1
+                                border.width: currentProject ? 1 : 0
                                 border.color: currentProject ? theme.accent : theme.panelLine
 
                                 Column {

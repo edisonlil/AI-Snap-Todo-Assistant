@@ -9,7 +9,7 @@ ColumnLayout {
     property string description: ""
     property bool showBackButton: true
     property int contentSpacing: 12
-    readonly property color surfaceColor: theme.panelBg
+    readonly property color surfaceColor: theme.panelAltBg
     readonly property color lineColor: theme.panelLine
     readonly property color titleColor: theme.titleInk
     readonly property color bodyColor: theme.bodyInk
@@ -29,10 +29,9 @@ ColumnLayout {
             || actionSlot.children.length > 0
         Layout.fillWidth: true
         implicitHeight: detailHeaderRow.implicitHeight + 24
-        radius: theme.radiusLg || 16
+        radius: 12
         color: root.surfaceColor
-        border.width: 1
-        border.color: root.lineColor
+        border.width: 0
 
         RowLayout {
             id: detailHeaderRow
