@@ -12,6 +12,7 @@ ColumnLayout {
     property int sectionRadius: 14
     property int compactBreakpoint: 760
     property int listMinimumHeight: 520
+    property bool listFramed: true
     readonly property color surfaceColor: theme.panelBg
     readonly property color lineColor: theme.panelLine
     readonly property color titleColor: theme.titleInk
@@ -91,9 +92,9 @@ ColumnLayout {
         Layout.fillHeight: true
         Layout.minimumHeight: root.listMinimumHeight
         implicitHeight: Math.max(root.listMinimumHeight, listBody.implicitHeight)
-        radius: root.sectionRadius
-        color: root.surfaceColor
-        border.width: 1
+        radius: root.listFramed ? root.sectionRadius : 0
+        color: root.listFramed ? root.surfaceColor : "transparent"
+        border.width: root.listFramed ? 1 : 0
         border.color: root.lineColor
         clip: true
 

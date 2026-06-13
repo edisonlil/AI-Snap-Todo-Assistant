@@ -21,6 +21,14 @@ def test_page_runtime_keeps_header_capability_disabled_by_default() -> None:
     assert "visible: root.showHeader && (root.title.length > 0 || root.description.length > 0)" in qml_text
 
 
+def test_page_runtime_keeps_list_frame_enabled_by_default() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "PageRuntime.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "property bool listFramed: true" in qml_text
+    assert "border.width: root.listFramed ? 1 : 0" in qml_text
+
+
 def test_page_runtime_uses_theme_tokens_without_new_palette() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "PageRuntime.qml"
     qml_text = qml_path.read_text(encoding="utf-8")

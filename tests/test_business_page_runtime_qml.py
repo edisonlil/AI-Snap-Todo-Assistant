@@ -29,8 +29,12 @@ def test_environment_list_uses_page_runtime_without_migrating_detail_manager() -
     assert "filterContent: ColumnLayout" in qml_text
     assert "actionContent: RowLayout" in qml_text
     assert "listContent: Item" in qml_text
+    assert "listFramed: false" in qml_text
     assert "Flickable {" in qml_text
-    assert "id: environmentListColumn" in qml_text
+    assert "GridLayout {" in qml_text
+    assert "id: environmentGrid" in qml_text
+    assert "readonly property int gridColumns: width >= 1076 ? 4 : (width >= 796 ? 3 : (width >= 532 ? 2 : 1))" in qml_text
+    assert "readonly property real gridCardWidth" in qml_text
     assert "visible: root.environmentViewMode === \"list\"" in qml_text
     assert "EnvironmentManagerSection {" in qml_text
     assert qml_text.index("PageRuntime {") < qml_text.index("EnvironmentManagerSection {")

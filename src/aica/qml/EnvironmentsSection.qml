@@ -158,6 +158,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         listMinimumHeight: 360
+        listFramed: false
 
         filterContent: ColumnLayout {
             Layout.fillWidth: true
@@ -257,20 +258,24 @@ ColumnLayout {
         }
 
         listContent: Item {
+            id: environmentListArea
             Layout.fillWidth: true
             Layout.fillHeight: true
+            readonly property int gridGap: 12
+            readonly property int gridColumns: width >= 1076 ? 4 : (width >= 796 ? 3 : (width >= 532 ? 2 : 1))
+            readonly property real gridCardWidth: Math.min(width, Math.max(260, Math.min(340, Math.floor((width - gridGap * (gridColumns - 1)) / gridColumns))))
 
             Flickable {
                 anchors.fill: parent
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 contentWidth: width
-                contentHeight: environmentListColumn.implicitHeight
+                contentHeight: environmentGridBody.implicitHeight
 
                 ColumnLayout {
-                    id: environmentListColumn
+                    id: environmentGridBody
                     width: parent.width
-                    spacing: 12
+                    spacing: 10
 
                     Text {
                         visible: root.filteredGroups.length === 0
@@ -282,99 +287,138 @@ ColumnLayout {
                         wrapMode: Text.Wrap
                     }
 
-                    Repeater {
-                        model: root.filteredGroups
+                    GridLayout {
+                        id: environmentGrid
+                        visible: root.filteredGroups.length > 0
+                        Layout.fillWidth: true
+                        columns: environmentListArea.gridColumns
+                        columnSpacing: environmentListArea.gridGap
+                        rowSpacing: environmentListArea.gridGap
 
-                        delegate: Rectangle {
-                            Layout.fillWidth: true
-                            radius: 18
-                            color: theme.panelAltBg
-                            border.width: 1
-                            border.color: theme.panelLine
-                            implicitHeight: cardColumn.implicitHeight + 24
+                        Repeater {
+                            model: root.filteredGroups
 
-                            ColumnLayout {
-                                id: cardColumn
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                spacing: 10
+                            delegate: Rectangle {
+                                implicitWidth: environmentListArea.gridCardWidth
+                                Layout.preferredWidth: environmentListArea.gridCardWidth
+                                Layout.minimumWidth: environmentListArea.gridCardWidth
+                                Layout.maximumWidth: environmentListArea.gridCardWidth
+                                Layout.minimumHeight: 134
+                                implicitHeight: Math.max(134, cardColumn.implicitHeight + 22)
+                                radius: 8
+                                color: cardMouse.containsMouse ? theme.hoverBg : theme.panelBg
+                                border.width: 1
+                                border.color: theme.panelLine
 
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 10
+                                MouseArea {
+                                    id: cardMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.openEnvironmentDetail(modelData.id)
+                                }
 
-                                    ColumnLayout {
+                                ColumnLayout {
+                                    id: cardColumn
+                                    anchors.fill: parent
+                                    anchors.margins: 11
+                                    spacing: 8
+
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        spacing: 4
+                                        spacing: 10
 
                                         Text {
+                                            Layout.fillWidth: true
                                             text: modelData.name || ""
                                             color: theme.titleInk
                                             font.family: theme.uiFont
                                             font.pixelSize: 14
                                             font.weight: 700
+                                            elide: Text.ElideRight
                                         }
 
+                                        Rectangle {
+                                            radius: 8
+                                            color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
+                                            border.width: 1
+                                            border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
+                                            implicitWidth: scopeText.implicitWidth + 16
+                                            implicitHeight: 24
+
+                                            Text {
+                                                id: scopeText
+                                                anchors.centerIn: parent
+                                                text: modelData.scopeLabel || ""
+                                                color: modelData.isGlobal ? "#26418F" : "#17663A"
+                                                font.family: theme.uiFont
+                                                font.pixelSize: 10
+                                                font.weight: 700
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: (modelData.note || "").length > 0 ? modelData.note : "暂无备注"
+                                        color: (modelData.note || "").length > 0 ? theme.bodyInk : theme.mutedInk
+                                        font.family: theme.uiFont
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 1
+                                        elide: Text.ElideRight
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
                                         Text {
-                                            visible: (modelData.type || "").length > 0 || (modelData.note || "").length > 0
                                             Layout.fillWidth: true
-                                            text: ((modelData.type || "").length > 0 ? ("类型：" + modelData.type) : "")
-                                                  + (((modelData.type || "").length > 0 && (modelData.note || "").length > 0) ? " · " : "")
-                                                  + ((modelData.note || "").length > 0 ? modelData.note : "")
-                                            color: theme.bodyInk
+                                            text: ((modelData.type || "").length > 0 ? modelData.type : "未设置类型")
+                                            color: theme.labelInk
                                             font.family: theme.uiFont
                                             font.pixelSize: 11
-                                            wrapMode: Text.Wrap
+                                            elide: Text.ElideRight
                                         }
-                                    }
 
-                                    Rectangle {
-                                        radius: 10
-                                        color: modelData.isGlobal ? "#EEF4FF" : "#EEF7EF"
-                                        border.width: 1
-                                        border.color: modelData.isGlobal ? "#C8D8FF" : "#C8E2CD"
-                                        implicitWidth: scopeText.implicitWidth + 16
-                                        implicitHeight: 24
+                                        Rectangle {
+                                            Layout.preferredWidth: 4
+                                            Layout.preferredHeight: 4
+                                            radius: 2
+                                            color: theme.mutedInk
+                                        }
 
                                         Text {
-                                            id: scopeText
-                                            anchors.centerIn: parent
-                                            text: modelData.scopeLabel || ""
-                                            color: modelData.isGlobal ? "#26418F" : "#17663A"
+                                            text: "访问项 " + Number(modelData.entryCount || 0) + " 个"
+                                            color: theme.labelInk
                                             font.family: theme.uiFont
-                                            font.pixelSize: 10
-                                            font.weight: 700
+                                            font.pixelSize: 11
                                         }
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 10
-
-                                    Text {
-                                        text: "访问项 " + Number(modelData.entryCount || 0) + " 个"
-                                        color: theme.labelInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 11
-                                    }
-
-                                    Text {
-                                        text: !!modelData.isActive ? "已启用" : "已停用"
-                                        color: !!modelData.isActive ? "#17663A" : theme.labelInk
-                                        font.family: theme.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: 600
                                     }
 
                                     Item {
                                         Layout.fillWidth: true
                                     }
 
-                                    ControlPanelPlainButton {
-                                        theme: root.theme
-                                        label: "查看详情"
-                                        onClicked: root.openEnvironmentDetail(modelData.id)
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: !!modelData.isActive ? "已启用" : "已停用"
+                                            color: !!modelData.isActive ? "#17663A" : theme.labelInk
+                                            font.family: theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: 600
+                                        }
+
+                                        ControlPanelPlainButton {
+                                            theme: root.theme
+                                            label: "查看详情"
+                                            onClicked: root.openEnvironmentDetail(modelData.id)
+                                        }
                                     }
                                 }
                             }
