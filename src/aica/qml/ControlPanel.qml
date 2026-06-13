@@ -1785,7 +1785,7 @@ Rectangle {
                                                 tokenPath: "component.Button.radius"
                                                 minimumValue: 4
                                                 maximumValue: 32
-                                                valueText: String(controlPanelBridge.themeConfig.button_radius || 6)
+                                                valueText: String(controlPanelBridge.themeConfig.button_radius || 8)
                                                 onValueEdited: function(value) {
                                                     controlPanelBridge.updateThemeNumberField("button_radius", value)
                                                 }
@@ -1802,7 +1802,7 @@ Rectangle {
                                                 tokenPath: "component.Button.height"
                                                 minimumValue: 28
                                                 maximumValue: 56
-                                                valueText: String(controlPanelBridge.themeConfig.button_height || 35)
+                                                valueText: String(controlPanelBridge.themeConfig.button_height || 36)
                                                 onValueEdited: function(value) {
                                                     controlPanelBridge.updateThemeNumberField("button_height", value)
                                                 }
@@ -2660,11 +2660,13 @@ Rectangle {
 
                                                 ColumnLayout {
                                                     id: projectFormColumn
+                                                    readonly property bool compactForm: width < 760
+
                                                     anchors.left: parent.left
                                                     anchors.right: parent.right
                                                     anchors.top: parent.top
                                                     anchors.margins: 12
-                                                    spacing: 8
+                                                    spacing: 10
 
                                                     RowLayout {
                                                         Layout.fillWidth: true
@@ -2697,12 +2699,17 @@ Rectangle {
                                                         wrapMode: Text.Wrap
                                                     }
 
-                                                    RowLayout {
+                                                    GridLayout {
                                                         Layout.fillWidth: true
-                                                        spacing: 10
+                                                        columns: projectFormColumn.compactForm ? 1 : 2
+                                                        columnSpacing: 10
+                                                        rowSpacing: 10
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
+                                                            Layout.columnSpan: projectFormColumn.compactForm ? 1 : 2
                                                             text: root.projectDraft.projectName
                                                             placeholderText: "项目名称"
                                                             onTextEdited: root.updateProjectDraft("projectName", text)
@@ -2710,18 +2717,17 @@ Rectangle {
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             text: root.projectDraft.taskOrderNo
                                                             placeholderText: "任务单号"
                                                             onTextEdited: root.updateProjectDraft("taskOrderNo", text)
                                                         }
-                                                    }
-
-                                                    RowLayout {
-                                                        Layout.fillWidth: true
-                                                        spacing: 10
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             text: root.projectDraft.customerName
                                                             placeholderText: "客户名称"
                                                             onTextEdited: root.updateProjectDraft("customerName", text)
@@ -2729,18 +2735,17 @@ Rectangle {
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             text: root.projectDraft.projectManager
                                                             placeholderText: "项目经理"
                                                             onTextEdited: root.updateProjectDraft("projectManager", text)
                                                         }
-                                                    }
-
-                                                    RowLayout {
-                                                        Layout.fillWidth: true
-                                                        spacing: 10
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             text: root.projectDraft.productLine
                                                             placeholderText: "产品线"
                                                             onTextEdited: root.updateProjectDraft("productLine", text)
@@ -2748,43 +2753,41 @@ Rectangle {
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             text: root.projectDraft.productVersion
                                                             placeholderText: "产品版本"
                                                             onTextEdited: root.updateProjectDraft("productVersion", text)
                                                         }
-                                                    }
-
-                                                    RowLayout {
-                                                        Layout.fillWidth: true
-                                                        spacing: 10
 
                                                         ControlPanelDateField {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             theme: root
                                                             text: root.displayProjectDate(root.projectDraft.followUpStartedAt)
                                                             placeholderText: "跟进开始日期"
                                                             onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", root.projectDraft.followUpStartedAt)
                                                         }
-                                                    }
-
-                                                    RowLayout {
-                                                        Layout.fillWidth: true
-                                                        spacing: 10
 
                                                         ControlPanelDateField {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
                                                             theme: root
                                                             text: root.displayProjectDate(root.projectDraft.supportEndedAt)
                                                             placeholderText: "过保日期"
                                                             onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", root.projectDraft.supportEndedAt)
                                                         }
-                                                    }
 
-                                                    SettingsCombo {
-                                                        Layout.fillWidth: true
-                                                        model: root.projectLevelOptions
-                                                        currentIndex: root.optionIndex(root.projectLevelOptions, root.normalizedProjectLevel(root.projectDraft.projectLevel))
-                                                        onActivated: if (currentIndex >= 0) root.updateProjectDraft("projectLevel", root.projectLevelOptions[currentIndex].value)
+                                                        SettingsCombo {
+                                                            Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            Layout.preferredWidth: 1
+                                                            model: root.projectLevelOptions
+                                                            currentIndex: root.optionIndex(root.projectLevelOptions, root.normalizedProjectLevel(root.projectDraft.projectLevel))
+                                                            onActivated: if (currentIndex >= 0) root.updateProjectDraft("projectLevel", root.projectLevelOptions[currentIndex].value)
+                                                        }
                                                     }
 
                                                     Flow {
@@ -2811,6 +2814,7 @@ Rectangle {
 
                                                         SettingsInput {
                                                             Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
                                                             text: root.projectAliasInput
                                                             placeholderText: "输入群名别名"
                                                             onTextEdited: root.projectAliasInput = text
@@ -2818,6 +2822,7 @@ Rectangle {
                                                         }
 
                                                         PlainButton {
+                                                            Layout.preferredWidth: 92
                                                             label: "添加别名"
                                                             onClicked: root.addProjectAlias()
                                                         }
@@ -2828,6 +2833,7 @@ Rectangle {
                                                         spacing: 10
 
                                                         PlainButton {
+                                                            Layout.preferredWidth: 76
                                                             label: "重置"
                                                             onClicked: root.startNewProjectDraft()
                                                         }
@@ -2838,11 +2844,13 @@ Rectangle {
 
                                                         PlainButton {
                                                             visible: root.projectDraft.id.length > 0
+                                                            Layout.preferredWidth: 86
                                                             label: "删除项目"
                                                             onClicked: root.deleteCurrentProject()
                                                         }
 
                                                         PlainButton {
+                                                            Layout.preferredWidth: 86
                                                             label: "保存项目"
                                                             primary: true
                                                             strokeWidth: 0

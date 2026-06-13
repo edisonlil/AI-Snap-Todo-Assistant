@@ -263,6 +263,8 @@ def test_control_panel_theme_color_uses_segmented_slider_without_unimplemented_m
     assert 'text: "主按钮按下"' not in source
     assert 'tokenPath: "component.Button.radius"' in source
     assert 'tokenPath: "component.Button.height"' in source
+    assert "controlPanelBridge.themeConfig.button_radius || 8" in source
+    assert "controlPanelBridge.themeConfig.button_height || 36" in source
     assert 'component PixelInput: ControlPanelPixelInput' in source
     assert 'controlPanelBridge.updateThemeNumberField("component_radius", value)' in source
     assert 'controlPanelBridge.updateThemeNumberField("component_height", value)' in source

@@ -695,6 +695,13 @@ def _is_remote_url(value: str) -> bool:
     )
 
 
+def _attachment_preview_file_url(path: str, kind: str) -> str:
+    normalized_path = str(path or "").strip()
+    if kind != "image" or not normalized_path or _is_remote_url(normalized_path):
+        return ""
+    return QUrl.fromLocalFile(normalized_path).toString()
+
+
 class _TodoDetailBridge(QObject):
     dataChanged = pyqtSignal()
     timelineChanged = pyqtSignal()
@@ -3228,7 +3235,7 @@ class _TodoDetailBridge(QObject):
     @staticmethod
     def _attachment_to_dict(attachment: TimelineAttachment) -> dict[str, object]:
         kind = _attachment_kind(attachment.path, attachment.name)
-        file_url = QUrl.fromLocalFile(attachment.path).toString() if kind == "image" and attachment.path else ""
+        file_url = _attachment_preview_file_url(attachment.path, kind)
         file_object_id = str(getattr(attachment, "file_object_id", "") or "").strip()
         return {
             "id": attachment.id,

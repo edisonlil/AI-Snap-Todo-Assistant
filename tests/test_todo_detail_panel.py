@@ -90,6 +90,22 @@ def test_attachment_payload_does_not_expose_docx_as_image_source() -> None:
     assert payload["downloadSource"] == "C:/Users/ediso/.aica/todo_attachments/todo/event/需求文档.docx"
 
 
+def test_remote_image_attachment_does_not_expose_relative_download_url_as_file_url() -> None:
+    payload = _TodoDetailBridge._attachment_to_dict(
+        TimelineAttachment(
+            id="attachment-1",
+            name="截图.png",
+            path="/api/files/978/download",
+            size_bytes=123,
+        )
+    )
+
+    assert payload["kind"] == "image"
+    assert payload["isImage"] is True
+    assert payload["fileUrl"] == ""
+    assert payload["downloadSource"] == "/api/files/978/download"
+
+
 def test_remote_attachment_downloads_lazily_and_caches_path(tmp_path: Path) -> None:
     client = _DownloadClient()
     bridge = _TodoDetailBridge(

@@ -26,6 +26,19 @@ def test_project_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None
     assert "onBackRequested: theme.showProjectList()" in qml_text
 
 
+def test_project_detail_form_uses_stable_grid_layout() -> None:
+    qml_text = _qml("ProjectsSection.qml")
+    detail_source = qml_text[qml_text.index("DetailRuntime {") :]
+
+    assert "readonly property bool compactForm: width < 760" in detail_source
+    assert "GridLayout {" in detail_source
+    assert "columns: projectFormColumn.compactForm ? 1 : 2" in detail_source
+    assert "Layout.columnSpan: projectFormColumn.compactForm ? 1 : 2" in detail_source
+    assert "Layout.preferredWidth: 1" in detail_source
+    assert "Layout.preferredWidth: 92" in detail_source
+    assert "Layout.preferredWidth: 86" in detail_source
+
+
 def test_business_runtime_surfaces_use_compact_filled_cards() -> None:
     page_runtime = _qml("PageRuntime.qml")
     detail_runtime = _qml("DetailRuntime.qml")
@@ -59,6 +72,25 @@ def test_environment_list_uses_page_runtime_and_detail_uses_detail_runtime() -> 
     assert "DetailRuntime {" in environment_manager
     assert "bodyContent: ColumnLayout" in environment_manager
     assert "onBackRequested: root.backRequested()" in environment_manager
+
+
+def test_access_editor_form_uses_aligned_grid_layout() -> None:
+    qml_text = _qml("EnvironmentManagerSection.qml")
+    access_source = qml_text[qml_text.index("id: accessForm") :]
+
+    assert "readonly property bool compactForm: width < 760" in access_source
+    assert "columns: accessForm.compactForm ? 1 : 2" in access_source
+    assert "Layout.columnSpan: accessForm.compactForm ? 1 : 2" in access_source
+    assert "Layout.preferredWidth: 1" in access_source
+    assert "id: nameTypeRow" in access_source
+    assert "Layout.preferredWidth: 220" in access_source
+    assert "id: credentialsRow" in access_source
+    assert "id: sortOrderInline" in access_source
+    assert "Layout.preferredWidth: 152" in access_source
+    assert "Layout.maximumWidth: 152" in access_source
+    assert "width: 112" in access_source
+    assert "Layout.preferredWidth: 86" in access_source
+    assert "Layout.preferredWidth: 116" in access_source
 
 
 def test_ticket_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:

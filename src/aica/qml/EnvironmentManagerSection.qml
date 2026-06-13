@@ -607,6 +607,8 @@ ColumnLayout {
 
                 ColumnLayout {
                     id: accessForm
+                    readonly property bool compactForm: width < 760
+
                     width: accessEditorScroll.availableWidth
                     spacing: 10
 
@@ -619,77 +621,137 @@ ColumnLayout {
                         font.weight: 700
                     }
 
-                    RowLayout {
+                    GridLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        columns: accessForm.compactForm ? 1 : 2
+                        columnSpacing: 10
+                        rowSpacing: 10
+
+                        RowLayout {
+                            id: nameTypeRow
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.columnSpan: accessForm.compactForm ? 1 : 2
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                id: accessNameInput
+                                theme: root.theme
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: accessDraft.name || ""
+                                placeholderText: "访问项名称"
+                                onTextEdited: {
+                                    var next = accessDraft
+                                    next.name = text
+                                    accessDraft = next
+                                }
+                            }
+
+                            ControlPanelSettingsCombo {
+                                theme: root.theme
+                                Layout.preferredWidth: 220
+                                Layout.minimumWidth: 180
+                                Layout.maximumWidth: 240
+                                model: root.accessTypeOptions
+                                currentIndex: Math.max(0, theme.optionIndex(root.accessTypeOptions, accessDraft.type || "web"))
+                                onActivated: {
+                                    var next = accessDraft
+                                    next.type = root.accessTypeOptions[currentIndex].value
+                                    accessDraft = next
+                                }
+                            }
+                        }
 
                         ControlPanelSettingsInput {
-                            id: accessNameInput
                             theme: root.theme
                             Layout.fillWidth: true
-                            text: accessDraft.name || ""
-                            placeholderText: "访问项名称"
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
+                            Layout.columnSpan: accessForm.compactForm ? 1 : 2
+                            text: accessDraft.urlOrHost || ""
+                            placeholderText: "URL / Host"
                             onTextEdited: {
                                 var next = accessDraft
-                                next.name = text
+                                next.urlOrHost = text
                                 accessDraft = next
                             }
                         }
 
-                        ControlPanelSettingsCombo {
-                            theme: root.theme
+                        RowLayout {
+                            id: credentialsRow
                             Layout.fillWidth: true
-                            model: root.accessTypeOptions
-                            currentIndex: Math.max(0, theme.optionIndex(root.accessTypeOptions, accessDraft.type || "web"))
-                            onActivated: {
-                                var next = accessDraft
-                                next.type = root.accessTypeOptions[currentIndex].value
-                                accessDraft = next
+                            Layout.minimumWidth: 0
+                            Layout.columnSpan: accessForm.compactForm ? 1 : 2
+                            spacing: 10
+
+                            ControlPanelSettingsInput {
+                                theme: root.theme
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
+                                text: accessDraft.username || ""
+                                placeholderText: "账号"
+                                onTextEdited: {
+                                    var next = accessDraft
+                                    next.username = text
+                                    accessDraft = next
+                                }
+                            }
+
+                            ControlPanelSettingsInput {
+                                theme: root.theme
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
+                                text: accessDraft.password || ""
+                                placeholderText: accessDraft.hasPassword ? "留空则保持已存密码" : "密码"
+                                echoMode: TextInput.Password
+                                onTextEdited: {
+                                    var next = accessDraft
+                                    next.password = text
+                                    accessDraft = next
+                                }
+                            }
+
+                            Item {
+                                id: sortOrderInline
+                                Layout.preferredWidth: 152
+                                Layout.minimumWidth: 132
+                                Layout.maximumWidth: 152
+                                Layout.preferredHeight: sortOrderSpin.implicitHeight
+                                implicitWidth: 152
+                                implicitHeight: sortOrderSpin.implicitHeight
+
+                                Text {
+                                    id: sortOrderLabel
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "排序"
+                                    color: theme.labelInk
+                                    font.family: theme.uiFont
+                                    font.pixelSize: 12
+                                }
+
+                                ControlPanelSettingsSpinBox {
+                                    id: sortOrderSpin
+                                    theme: root.theme
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 112
+                                    from: 0
+                                    to: 999
+                                    editable: true
+                                    value: Number(accessDraft.sortOrder || 0)
+                                    onValueModified: {
+                                        var next = accessDraft
+                                        next.sortOrder = value
+                                        accessDraft = next
+                                    }
+                                }
                             }
                         }
                     }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                ControlPanelSettingsInput {
-                    theme: root.theme
-                    Layout.fillWidth: true
-                    text: accessDraft.urlOrHost || ""
-                    placeholderText: "URL / Host"
-                    onTextEdited: {
-                        var next = accessDraft
-                        next.urlOrHost = text
-                        accessDraft = next
-                    }
-                }
-
-                ControlPanelSettingsInput {
-                    theme: root.theme
-                    Layout.fillWidth: true
-                    text: accessDraft.username || ""
-                    placeholderText: "账号"
-                    onTextEdited: {
-                        var next = accessDraft
-                        next.username = text
-                        accessDraft = next
-                    }
-                }
-            }
-
-            ControlPanelSettingsInput {
-                theme: root.theme
-                Layout.fillWidth: true
-                text: accessDraft.password || ""
-                placeholderText: accessDraft.hasPassword ? "留空则保持已存密码" : "密码"
-                echoMode: TextInput.Password
-                onTextEdited: {
-                    var next = accessDraft
-                    next.password = text
-                    accessDraft = next
-                }
-            }
 
             ColumnLayout {
                 Layout.fillWidth: true
@@ -862,32 +924,6 @@ ColumnLayout {
                 }
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                Text {
-                    text: "排序"
-                    color: theme.labelInk
-                    font.family: theme.uiFont
-                    font.pixelSize: 12
-                }
-
-                ControlPanelSettingsSpinBox {
-                    theme: root.theme
-                    Layout.preferredWidth: 120
-                    from: 0
-                    to: 999
-                    editable: true
-                    value: Number(accessDraft.sortOrder || 0)
-                    onValueModified: {
-                        var next = accessDraft
-                        next.sortOrder = value
-                        accessDraft = next
-                    }
-                }
-            }
-
             ControlPanelSettingsArea {
                 theme: root.theme
                 Layout.fillWidth: true
@@ -922,12 +958,14 @@ ColumnLayout {
 
                 ControlPanelPlainButton {
                     theme: root.theme
+                    Layout.preferredWidth: 86
                     label: "取消"
                     onClicked: root.closeAccessEditor()
                 }
 
                 ControlPanelPlainButton {
                     theme: root.theme
+                    Layout.preferredWidth: 116
                     label: "保存访问项"
                     primary: true
                     strokeWidth: 0

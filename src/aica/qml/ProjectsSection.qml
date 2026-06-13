@@ -215,16 +215,23 @@ ColumnLayout {
 
         bodyContent: ColumnLayout {
                         id: projectFormColumn
-                        Layout.fillWidth: true
-                        spacing: 8
+                        readonly property bool compactForm: width < 760
 
-                        RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        GridLayout {
                             Layout.fillWidth: true
-                            spacing: 10
+                            columns: projectFormColumn.compactForm ? 1 : 2
+                            columnSpacing: 10
+                            rowSpacing: 10
 
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
+                                Layout.columnSpan: projectFormColumn.compactForm ? 1 : 2
                                 text: theme.projectDraft.projectName
                                 placeholderText: "项目名称"
                                 onTextEdited: theme.updateProjectDraft("projectName", text)
@@ -233,19 +240,18 @@ ColumnLayout {
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: theme.projectDraft.taskOrderNo
                                 placeholderText: "任务单号"
                                 onTextEdited: theme.updateProjectDraft("taskOrderNo", text)
                             }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
 
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: theme.projectDraft.customerName
                                 placeholderText: "客户名称"
                                 onTextEdited: theme.updateProjectDraft("customerName", text)
@@ -254,19 +260,18 @@ ColumnLayout {
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: theme.projectDraft.projectManager
                                 placeholderText: "项目经理"
                                 onTextEdited: theme.updateProjectDraft("projectManager", text)
                             }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
 
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: theme.projectDraft.productLine
                                 placeholderText: "产品线"
                                 onTextEdited: theme.updateProjectDraft("productLine", text)
@@ -275,44 +280,42 @@ ColumnLayout {
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: theme.projectDraft.productVersion
                                 placeholderText: "产品版本"
                                 onTextEdited: theme.updateProjectDraft("productVersion", text)
                             }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
 
                             ControlPanelDateField {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 theme: projectSection.theme
                                 text: theme.displayProjectDate(theme.projectDraft.followUpStartedAt)
                                 placeholderText: "跟进开始日期"
                                 onClicked: controlPanelBridge.chooseProjectDate("followUpStartedAt", theme.projectDraft.followUpStartedAt)
                             }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
 
                             ControlPanelDateField {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 theme: projectSection.theme
                                 text: theme.displayProjectDate(theme.projectDraft.supportEndedAt)
                                 placeholderText: "过保日期"
                                 onClicked: controlPanelBridge.chooseProjectDate("supportEndedAt", theme.projectDraft.supportEndedAt)
                             }
-                        }
 
-                        ControlPanelSettingsCombo {
-                            theme: projectSection.theme
-                            Layout.fillWidth: true
-                            model: theme.projectLevelOptions
-                            currentIndex: theme.optionIndex(theme.projectLevelOptions, theme.normalizedProjectLevel(theme.projectDraft.projectLevel))
-                            onActivated: if (currentIndex >= 0) theme.updateProjectDraft("projectLevel", theme.projectLevelOptions[currentIndex].value)
+                            ControlPanelSettingsCombo {
+                                theme: projectSection.theme
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
+                                model: theme.projectLevelOptions
+                                currentIndex: theme.optionIndex(theme.projectLevelOptions, theme.normalizedProjectLevel(theme.projectDraft.projectLevel))
+                                onActivated: if (currentIndex >= 0) theme.updateProjectDraft("projectLevel", theme.projectLevelOptions[currentIndex].value)
+                            }
                         }
 
                         Flow {
@@ -340,6 +343,7 @@ ColumnLayout {
                             ControlPanelSettingsInput {
                                 theme: projectSection.theme
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 text: theme.projectAliasInput
                                 placeholderText: "输入群名别名"
                                 onTextEdited: theme.projectAliasInput = text
@@ -348,6 +352,7 @@ ColumnLayout {
 
                             ControlPanelPlainButton {
                                 theme: projectSection.theme
+                                Layout.preferredWidth: 92
                                 label: "添加别名"
                                 onClicked: theme.addProjectAlias()
                             }
@@ -359,6 +364,7 @@ ColumnLayout {
 
                             ControlPanelPlainButton {
                                 theme: projectSection.theme
+                                Layout.preferredWidth: 76
                                 label: "重置"
                                 onClicked: theme.startNewProjectDraft()
                             }
@@ -370,12 +376,14 @@ ColumnLayout {
                             ControlPanelPlainButton {
                                 visible: theme.projectDraft.id.length > 0
                                 theme: projectSection.theme
+                                Layout.preferredWidth: 86
                                 label: "删除项目"
                                 onClicked: theme.deleteCurrentProject()
                             }
 
                             ControlPanelPlainButton {
                                 theme: projectSection.theme
+                                Layout.preferredWidth: 86
                                 label: "保存项目"
                                 primary: true
                                 strokeWidth: 0
