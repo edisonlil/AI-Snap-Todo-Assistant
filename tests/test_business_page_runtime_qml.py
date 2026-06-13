@@ -117,3 +117,17 @@ def test_control_panel_settings_pages_keep_native_layouts() -> None:
     assert 'visible: root.currentSection === "models"' in qml_text
     assert 'visible: root.currentSection === "theme"' in qml_text
     assert 'visible: root.currentSection === "analysis_rules"' in qml_text
+
+
+def test_control_panel_uses_macos_self_drawn_traffic_lights() -> None:
+    qml_text = _qml("ControlPanel.qml")
+
+    assert "readonly property bool isMacos: controlPanelBridge ? controlPanelBridge.isMacos : false" in qml_text
+    assert "component MacosTrafficLightButton: Rectangle" in qml_text
+    assert 'fillColor: "#FF5F57"' in qml_text
+    assert 'fillColor: "#FFBD2E"' in qml_text
+    assert 'fillColor: "#28C840"' in qml_text
+    assert "visible: root.isMacos" in qml_text
+    assert "visible: !root.isMacos" in qml_text
+    assert "font.pixelSize: 23" in qml_text
+    assert "elide: Text.ElideRight" in qml_text

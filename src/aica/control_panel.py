@@ -1139,6 +1139,10 @@ class _ControlPanelBridge(QObject):
     def uiFont(self) -> str:
         return str(self._theme_controller.tokens.get("uiFont") or RUNTIME_CAPABILITIES.ui_font)
 
+    @pyqtProperty(bool, constant=True)
+    def isMacos(self) -> bool:
+        return RUNTIME_CAPABILITIES.is_macos
+
     @pyqtProperty("QVariantMap", notify=dataChanged)
     def themeConfig(self):  # noqa: ANN201
         return self._theme_draft.to_dict()

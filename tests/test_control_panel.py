@@ -343,6 +343,19 @@ def test_task_bindings_use_readable_chinese_labels(monkeypatch: pytest.MonkeyPat
     assert {item["performanceSummary"] for item in bindings.values()} == {"暂无耗时样本"}
 
 
+def test_control_panel_bridge_exposes_macos_platform_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    monkeypatch.setattr(
+        control_panel,
+        "RUNTIME_CAPABILITIES",
+        SimpleNamespace(is_macos=True, is_windows=False, ui_font="PingFang SC"),
+    )
+
+    bridge = _build_bridge(monkeypatch, todo)
+
+    assert bridge.isMacos is True
+
+
 def test_plan_export_model_options_include_text_only_models(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)

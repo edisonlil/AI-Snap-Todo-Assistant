@@ -77,6 +77,7 @@ Rectangle {
     readonly property int formChipRadius: themeTokens.formChipRadius || 14
     readonly property int formCheckSpacing: themeTokens.formCheckSpacing || 8
     readonly property string uiFont: themeTokens.uiFont || (controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI")
+    readonly property bool isMacos: controlPanelBridge ? controlPanelBridge.isMacos : false
     readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
     readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
     readonly property bool serverLoginRequired: controlPanelBridge ? controlPanelBridge.serverLoginRequired : false
@@ -438,6 +439,41 @@ Rectangle {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: windowButton.clicked()
+        }
+    }
+
+    component MacosTrafficLightButton: Rectangle {
+        id: trafficButton
+        property color fillColor: "#FF5F57"
+        property color borderColor: "#E0443E"
+        property string glyph: ""
+        property color glyphColor: "#6E100C"
+        signal clicked
+
+        implicitWidth: 14
+        implicitHeight: 14
+        radius: 7
+        color: fillColor
+        border.width: 1
+        border.color: borderColor
+
+        Text {
+            anchors.centerIn: parent
+            visible: trafficArea.containsMouse && trafficButton.glyph.length > 0
+            text: trafficButton.glyph
+            color: trafficButton.glyphColor
+            font.family: root.uiFont
+            font.pixelSize: 10
+            font.weight: 800
+            lineHeight: 0.85
+        }
+
+        MouseArea {
+            id: trafficArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: trafficButton.clicked()
         }
     }
 
@@ -828,6 +864,8 @@ Rectangle {
             spacing: 12
 
             Rectangle {
+                visible: !root.isMacos
+                enabled: visible
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 radius: 20
@@ -1019,14 +1057,49 @@ Rectangle {
                         anchors.margins: 18
                         spacing: 12
 
+                        Row {
+                            visible: root.isMacos
+                            Layout.preferredHeight: visible ? 14 : 0
+                            Layout.leftMargin: 0
+                            spacing: 12
+
+                            MacosTrafficLightButton {
+                                fillColor: "#FF5F57"
+                                borderColor: "#E0443E"
+                                glyph: "×"
+                                glyphColor: "#7A1511"
+                                onClicked: controlPanelBridge.closePanel()
+                            }
+
+                            MacosTrafficLightButton {
+                                fillColor: "#FFBD2E"
+                                borderColor: "#DEA123"
+                                glyph: "−"
+                                glyphColor: "#8A5A00"
+                                onClicked: controlPanelBridge.minimizePanel()
+                            }
+
+                            MacosTrafficLightButton {
+                                fillColor: "#28C840"
+                                borderColor: "#1FA332"
+                                glyph: "+"
+                                glyphColor: "#0B6B1C"
+                                onClicked: controlPanelBridge.toggleMaximizedPanel()
+                            }
+                        }
+
                         Text {
-                            visible: false
-                            Layout.preferredHeight: 0
+                            visible: root.isMacos
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
                             text: "Chattodo Hub"
                             color: root.titleInk
                             font.family: root.uiFont
-                            font.pixelSize: 20
-                            font.weight: 700
+                            font.pixelSize: 23
+                            font.weight: 750
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
                         }
 
                         Text {
