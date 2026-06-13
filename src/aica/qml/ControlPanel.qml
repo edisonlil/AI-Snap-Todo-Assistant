@@ -31,8 +31,8 @@ Rectangle {
     readonly property color buttonDisabledBg: themeTokens.buttonDisabledBg || panelAltBg
     readonly property color buttonDisabledInk: themeTokens.buttonDisabledInk || mutedInk
     readonly property color buttonBorder: themeTokens.buttonBorder || panelLine
-    readonly property int buttonRadius: themeTokens.buttonRadius || 6
-    readonly property int buttonHeight: themeTokens.buttonHeight || 35
+    readonly property int buttonRadius: themeTokens.buttonRadius || 8
+    readonly property int buttonHeight: themeTokens.buttonHeight || 36
     readonly property int buttonPaddingH: themeTokens.buttonPaddingH || 12
     readonly property int buttonFontSize: themeTokens.buttonFontSize || fontBody
     readonly property int componentRadius: themeTokens.componentRadius || 8

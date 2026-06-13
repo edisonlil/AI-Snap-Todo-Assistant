@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass
 from aica.runtime import RUNTIME_CAPABILITIES
 
 
+DEFAULT_PRESET_ID = "default"
+DEFAULT_BASE_COLOR = "#FFFFFF"
 DEFAULT_ACCENT_COLOR = "#2A313F"
 DEFAULT_COMPONENT_STYLE = "soft"
 DEFAULT_DENSITY = "comfortable"
@@ -46,14 +48,14 @@ _HEX_COLOR_PATTERN = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 
 @dataclass
 class ThemeConfig:
-    preset_id: str = "default"
-    base_color: str = "#FFFFFF"
+    preset_id: str = DEFAULT_PRESET_ID
+    base_color: str = DEFAULT_BASE_COLOR
     accent_color: str = DEFAULT_ACCENT_COLOR
     component_style: str = DEFAULT_COMPONENT_STYLE
     component_radius: int = 8
     component_height: int = 36
-    button_radius: int = 6
-    button_height: int = 35
+    button_radius: int = 8
+    button_height: int = 36
     radius_scale: float = 1.0
     font_scale: float = 1.0
     font_size_px: int = 12
@@ -65,9 +67,9 @@ class ThemeConfig:
         if not isinstance(data, dict):
             return cls()
 
-        preset_id = str(data.get("preset_id", "default")).strip() or "default"
+        preset_id = str(data.get("preset_id", DEFAULT_PRESET_ID)).strip() or DEFAULT_PRESET_ID
         if preset_id not in THEME_PRESETS:
-            preset_id = "default"
+            preset_id = DEFAULT_PRESET_ID
 
         preset_base = THEME_PRESETS[preset_id]["base_color"]
         raw_base_color = data.get("base_color", preset_base)
@@ -83,8 +85,8 @@ class ThemeConfig:
             component_style=component_style if component_style in COMPONENT_STYLES else DEFAULT_COMPONENT_STYLE,
             component_radius=_clamp_optional_int(data.get("component_radius"), 4, 32, 8),
             component_height=_clamp_optional_int(data.get("component_height"), 28, 56, 36),
-            button_radius=_clamp_optional_int(data.get("button_radius"), 4, 32, 6),
-            button_height=_clamp_optional_int(data.get("button_height"), 28, 56, 35),
+            button_radius=_clamp_optional_int(data.get("button_radius"), 4, 32, 8),
+            button_height=_clamp_optional_int(data.get("button_height"), 28, 56, 36),
             radius_scale=_clamp_float(data.get("radius_scale"), 0.75, 1.4, 1.0),
             font_scale=_clamp_float(data.get("font_scale"), 0.9, 1.15, 1.0),
             font_size_px=_clamp_int(data.get("font_size_px"), 11, 18, _font_size_default(data.get("font_scale"))),

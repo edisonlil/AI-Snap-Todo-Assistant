@@ -15,12 +15,12 @@ Rectangle {
     property color strokeColor: primary ? fillColor : (theme.buttonBorder || theme.panelLine || "#E5E7EB")
     signal clicked
 
-    radius: theme.buttonRadius || 6
+    radius: theme.buttonRadius || 8
     color: !enabled ? disabledFillColor : buttonMouse.pressed ? pressedColor : buttonMouse.containsMouse ? hoverColor : fillColor
     border.width: strokeWidth
     border.color: buttonRoot.strokeWidth > 0 ? buttonRoot.strokeColor : buttonRoot.color
     implicitWidth: buttonText.implicitWidth + (theme.buttonPaddingH || 14) * 2
-    implicitHeight: theme.buttonHeight || 35
+    implicitHeight: theme.buttonHeight || 36
 
     Text {
         id: buttonText

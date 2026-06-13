@@ -81,8 +81,8 @@ def test_control_panel_buttons_use_shared_button_tokens() -> None:
     button = _qml("ControlPanelPlainButton.qml")
     control_panel = _qml("ControlPanel.qml")
 
-    assert "theme.buttonRadius || 6" in button
-    assert "theme.buttonHeight || 35" in button
+    assert "theme.buttonRadius || 8" in button
+    assert "theme.buttonHeight || 36" in button
     assert "theme.buttonPrimaryBg" in button
     assert "theme.buttonPrimaryBgHover" in button
     assert "theme.buttonPrimaryBgPressed" in button

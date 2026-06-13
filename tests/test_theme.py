@@ -138,8 +138,8 @@ def test_theme_tokens_include_form_defaults() -> None:
     assert tokens["formPopupRadius"] == 12
     assert tokens["formPopupItemHeight"] == 36
     assert tokens["formChipHeight"] == 28
-    assert tokens["buttonRadius"] == 6
-    assert tokens["buttonHeight"] == 35
+    assert tokens["buttonRadius"] == 8
+    assert tokens["buttonHeight"] == 36
 
 
 def test_theme_tokens_fall_back_from_independent_to_common_component_values() -> None:
