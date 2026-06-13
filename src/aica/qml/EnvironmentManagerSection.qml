@@ -267,56 +267,18 @@ ColumnLayout {
     onCreatingEnvironmentChanged: loadEnvironmentDraft()
     Component.onCompleted: loadEnvironmentDraft()
 
-    Rectangle {
+    DetailRuntime {
         Layout.fillWidth: true
-        radius: 18
-        color: theme.panelBg
-        border.width: 1
-        border.color: theme.panelLine
-        implicitHeight: headerContent.implicitHeight + 24
+        theme: root.theme
+        title: root.creatingEnvironment ? "新建环境" : ((root.selectedEnvironment.name || "").length > 0 ? root.selectedEnvironment.name : "环境详情")
+        description: root.creatingEnvironment
+            ? "先保存环境基础信息，保存后再维护该环境的访问信息。"
+            : "详情页集中维护环境基础信息和该环境下的访问信息。"
+        onBackRequested: root.backRequested()
 
-        ColumnLayout {
-            id: headerContent
-            anchors.fill: parent
-            anchors.margins: 12
+        bodyContent: ColumnLayout {
+            Layout.fillWidth: true
             spacing: 12
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                ControlPanelPlainButton {
-                    theme: root.theme
-                    label: "返回列表"
-                    onClicked: root.backRequested()
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    Text {
-                        text: root.creatingEnvironment ? "新建环境" : ((root.selectedEnvironment.name || "").length > 0 ? root.selectedEnvironment.name : "环境详情")
-                        color: theme.titleInk
-                        font.family: theme.uiFont
-                        font.pixelSize: 15
-                        font.weight: 700
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.creatingEnvironment
-                            ? "先保存环境基础信息，保存后再维护该环境的访问信息。"
-                            : "详情页集中维护环境基础信息和该环境下的访问信息。"
-                        color: theme.labelInk
-                        font.family: theme.uiFont
-                        font.pixelSize: 11
-                        wrapMode: Text.Wrap
-                    }
-                }
-            }
-        }
-    }
 
     Rectangle {
         Layout.fillWidth: true
@@ -597,6 +559,8 @@ ColumnLayout {
                 }
             }
         }
+        }
+    }
     }
 
     Item {

@@ -10,20 +10,25 @@ def _qml(file_name: str) -> str:
     return (QML_DIR / file_name).read_text(encoding="utf-8")
 
 
-def test_project_list_uses_page_runtime_without_migrating_detail_form() -> None:
+def test_project_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:
     qml_text = _qml("ProjectsSection.qml")
 
     assert "PageRuntime {" in qml_text
+    assert "DetailRuntime {" in qml_text
     assert "filterContent: RowLayout" in qml_text
     assert "actionContent: RowLayout" in qml_text
     assert "listContent: RowLayout" in qml_text
+    assert "bodyContent: ColumnLayout" in qml_text
     assert "visible: theme.projectViewMode === \"list\"" in qml_text
     assert "visible: theme.projectViewMode === \"detail\"" in qml_text
     assert qml_text.index("PageRuntime {") < qml_text.index("visible: theme.projectViewMode === \"detail\"")
+    assert qml_text.index("PageRuntime {") < qml_text.index("DetailRuntime {")
+    assert "onBackRequested: theme.showProjectList()" in qml_text
 
 
-def test_environment_list_uses_page_runtime_without_migrating_detail_manager() -> None:
+def test_environment_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:
     qml_text = _qml("EnvironmentsSection.qml")
+    environment_manager = _qml("EnvironmentManagerSection.qml")
 
     assert "PageRuntime {" in qml_text
     assert "filterContent: ColumnLayout" in qml_text
@@ -38,6 +43,26 @@ def test_environment_list_uses_page_runtime_without_migrating_detail_manager() -
     assert "visible: root.environmentViewMode === \"list\"" in qml_text
     assert "EnvironmentManagerSection {" in qml_text
     assert qml_text.index("PageRuntime {") < qml_text.index("EnvironmentManagerSection {")
+    assert "DetailRuntime {" in environment_manager
+    assert "bodyContent: ColumnLayout" in environment_manager
+    assert "onBackRequested: root.backRequested()" in environment_manager
+
+
+def test_ticket_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:
+    qml_text = _qml("TicketsSection.qml")
+
+    assert "PageRuntime {" in qml_text
+    assert "DetailRuntime {" in qml_text
+    assert "filterContent: Flow" in qml_text
+    assert "actionContent: ColumnLayout" in qml_text
+    assert "listContent: ColumnLayout" in qml_text
+    assert "visible: controlPanelBridge.selectedTicket.id.length === 0" in qml_text
+    assert "visible: controlPanelBridge.selectedTicket.id.length > 0" in qml_text
+    assert qml_text.index("PageRuntime {") < qml_text.index("DetailRuntime {")
+    detail_source = qml_text[qml_text.index("DetailRuntime {") :]
+    assert "ticketSection.cancelDeleteSelectedTicket()" in detail_source
+    assert "ticketSection.cancelUnlinkSelectedTicketProject()" in detail_source
+    assert "controlPanelBridge.backToTicketList()" in detail_source
 
 
 def test_control_panel_settings_pages_keep_native_layouts() -> None:

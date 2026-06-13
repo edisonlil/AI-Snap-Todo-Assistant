@@ -1031,17 +1031,34 @@ ColumnLayout {
         }
     }
 
-    ControlPanelSectionCard {
+    DetailRuntime {
         visible: controlPanelBridge.selectedTicket.id.length > 0
         theme: ticketSection.theme
         Layout.fillWidth: true
-        implicitHeight: ticketDetailContent.implicitHeight + 32
-        color: theme.panelBg
+        onBackRequested: {
+            ticketSection.cancelDeleteSelectedTicket()
+            ticketSection.cancelUnlinkSelectedTicketProject()
+            controlPanelBridge.backToTicketList()
+        }
 
-        ColumnLayout {
+        actionContent: RowLayout {
+            ControlPanelPlainButton {
+                visible: controlPanelBridge.selectedTicket.status === "done"
+                theme: ticketSection.theme
+                label: "\u91cd\u65b0\u6253\u5f00"
+                onClicked: ticketSection.requestReopenSelectedTicket()
+            }
+
+            ControlPanelPlainButton {
+                theme: ticketSection.theme
+                label: "\u5220\u9664\u5de5\u5355"
+                onClicked: ticketSection.requestDeleteSelectedTicket()
+            }
+        }
+
+        bodyContent: ColumnLayout {
             id: ticketDetailContent
-            anchors.fill: parent
-            anchors.margins: 16
+            Layout.fillWidth: true
             spacing: 18
 
             ColumnLayout {
@@ -1090,38 +1107,6 @@ ColumnLayout {
                     // Ensure clean state on mount
                     ticketSection.currentTicketId = controlPanelBridge.selectedTicket.id || ""
                     ticketSection.resetAllFieldStates()
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
-
-                    ControlPanelPlainButton {
-                        theme: ticketSection.theme
-                        label: "返回列表"
-                        onClicked: {
-                            ticketSection.cancelDeleteSelectedTicket()
-                            ticketSection.cancelUnlinkSelectedTicketProject()
-                            controlPanelBridge.backToTicketList()
-                        }
-                    }
-
-                    Item {
-                        Layout.fillWidth: true
-                    }
-
-                    ControlPanelPlainButton {
-                        visible: controlPanelBridge.selectedTicket.status === "done"
-                        theme: ticketSection.theme
-                        label: "\u91cd\u65b0\u6253\u5f00"
-                        onClicked: ticketSection.requestReopenSelectedTicket()
-                    }
-
-                    ControlPanelPlainButton {
-                        theme: ticketSection.theme
-                        label: "\u5220\u9664\u5de5\u5355"
-                        onClicked: ticketSection.requestDeleteSelectedTicket()
-                    }
                 }
 
                 Rectangle {

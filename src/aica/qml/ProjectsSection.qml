@@ -206,50 +206,18 @@ ColumnLayout {
             }
         }
 
-    ControlPanelSectionCard {
+    DetailRuntime {
         visible: theme.projectViewMode === "detail"
         theme: projectSection.theme
         Layout.fillWidth: true
-        implicitHeight: projectFormColumn.implicitHeight + 32
-        color: theme.panelBg
+        title: theme.projectDraft.id.length > 0 ? "编辑项目" : "新建项目"
+        description: "保存时会校验群名别名冲突，并只补关联未完成且未解决关联状态的待办。"
+        onBackRequested: theme.showProjectList()
 
-                    ColumnLayout {
+        bodyContent: ColumnLayout {
                         id: projectFormColumn
-                        anchors.fill: parent
-                        anchors.margins: 16
+                        Layout.fillWidth: true
                         spacing: 8
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-
-                            ControlPanelPlainButton {
-                                theme: projectSection.theme
-                                label: "返回列表"
-                                onClicked: theme.showProjectList()
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        Text {
-                            text: theme.projectDraft.id.length > 0 ? "编辑项目" : "新建项目"
-                            color: theme.titleInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 14
-                            font.weight: 700
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: "保存时会校验群名别名冲突，并只补关联未完成且未解决关联状态的待办。"
-                            color: theme.labelInk
-                            font.family: theme.uiFont
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
-                        }
 
                         RowLayout {
                             Layout.fillWidth: true
