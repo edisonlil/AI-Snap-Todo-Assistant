@@ -30,6 +30,9 @@ Rectangle {
     readonly property int rowHeight: 30
     readonly property int rowSpacing: 2
     readonly property int listBottomInset: 2
+    readonly property real miniRadius: 35.9
+    readonly property bool dockedLeft: root.bridge.dockSide === "left"
+    readonly property bool miniHovering: root.bridge.miniHovering
     readonly property int listViewportHeight: Math.max(
         0,
         height - outerPadding * 2 - headerHeight - (root.bridge.minimized ? 0 : sectionGap) - listBottomInset
@@ -47,12 +50,17 @@ Rectangle {
         readonly property string expandLabel: ""
         readonly property string logoSource: ""
         readonly property string headerStatusText: todoCount + " 进行中"
+        readonly property string dockSide: "right"
+        readonly property bool miniHovering: false
 
         function startDrag() {}
         function moveDrag() {}
         function endDrag() {}
         function toggleExpanded() {}
         function toggleMinimized() {}
+        function restoreFromMini() {}
+        function enterPanel() {}
+        function leavePanel() {}
         function togglePinned() {}
         function clearSelection() {}
         function selectTodo(todoId) {}
@@ -62,17 +70,186 @@ Rectangle {
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: root.bridge.minimized ? height / 2 : root.radiusCard
-        color: root.panelBg
+        radius: root.bridge.minimized ? 0 : root.radiusCard
+        color: root.bridge.minimized ? "transparent" : root.panelBg
         opacity: 1
         border.width: 0
         border.color: "transparent"
         antialiasing: true
 
+        MouseArea {
+            anchors.fill: parent
+            z: 1000
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+            onEntered: root.bridge.enterPanel()
+            onExited: root.bridge.leavePanel()
+        }
+
+        Item {
+            id: miniSurface
+            visible: root.bridge.minimized
+            anchors.fill: parent
+
+            Rectangle {
+                anchors.fill: parent
+                radius: root.miniRadius
+                color: root.panelBg
+                antialiasing: true
+            }
+
+            Rectangle {
+                x: root.dockedLeft ? 0 : parent.width - root.miniRadius
+                y: 0
+                width: root.miniRadius
+                height: parent.height
+                radius: 0
+                color: root.panelBg
+                antialiasing: true
+                visible: !root.miniHovering
+            }
+
+            Row {
+                id: miniStatus
+                anchors.verticalCenter: parent.verticalCenter
+                readonly property bool mirrorForEdge: root.dockedLeft && !root.miniHovering
+                anchors.left: mirrorForEdge ? undefined : parent.left
+                anchors.leftMargin: 13
+                anchors.right: mirrorForEdge ? parent.right : undefined
+                anchors.rightMargin: 13
+                spacing: 8
+                layoutDirection: mirrorForEdge ? Qt.RightToLeft : Qt.LeftToRight
+
+                Image {
+                    width: 24
+                    height: 24
+                    source: root.bridge.logoSource
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.bridge.headerStatusText
+                    font.family: root.uiFont
+                    font.pixelSize: root.fontCaption
+                    color: root.labelInk
+                }
+            }
+
+            Row {
+                id: miniActions
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 20
+                spacing: 10
+                opacity: root.miniHovering ? 1 : 0
+                visible: opacity > 0.01
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                }
+
+                Rectangle {
+                    radius: 999
+                    color: root.panelBg
+                    border.width: 1
+                    border.color: root.panelLine
+                    width: 24
+                    height: 24
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "+"
+                        font.family: root.uiFont
+                        font.pixelSize: 14
+                        color: root.bodyInk
+                    }
+                }
+
+                Rectangle {
+                    radius: 999
+                    width: 24
+                    height: 24
+                    color: root.bridge.pinned ? "#ECEFF3" : "#FFFFFF"
+                    border.width: 1
+                    border.color: root.bridge.pinned ? "#2A313F" : "#E5E7EB"
+
+                    Item {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        rotation: root.bridge.pinned ? 0 : 32
+
+                        readonly property color pinColor: root.bridge.pinned ? "#2A313F" : "#6E6E6E"
+
+                        Rectangle {
+                            x: 1
+                            y: 1
+                            width: 10
+                            height: 3
+                            radius: 1.5
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 5
+                            y: 3
+                            width: 2
+                            height: 5
+                            radius: 1
+                            color: parent.pinColor
+                        }
+
+                        Rectangle {
+                            x: 4
+                            y: 7
+                            width: 4
+                            height: 2
+                            radius: 1
+                            color: parent.pinColor
+                            rotation: 45
+                            transformOrigin: Item.Left
+                        }
+                    }
+                }
+            }
+        }
+
+        MouseArea {
+            id: miniMouseArea
+            anchors.fill: parent
+            enabled: root.bridge.minimized
+            visible: root.bridge.minimized
+            property bool moved: false
+            property real pressX: 0
+            property real pressY: 0
+
+            onPressed: function(mouse) {
+                moved = false
+                pressX = mouse.x
+                pressY = mouse.y
+                root.bridge.startDrag()
+            }
+            onPositionChanged: function(mouse) {
+                moved = moved || Math.abs(mouse.x - pressX) > 4 || Math.abs(mouse.y - pressY) > 4
+                root.bridge.moveDrag()
+            }
+            onReleased: root.bridge.endDrag()
+            onClicked: function(mouse) {
+                mouse.accepted = true
+                if (!moved) {
+                    root.bridge.restoreFromMini()
+                }
+            }
+        }
+
         Column {
+            visible: !root.bridge.minimized
             anchors.fill: parent
             anchors.margins: root.outerPadding
-            spacing: root.bridge.minimized ? 0 : root.sectionGap
+            spacing: root.sectionGap
 
             Item {
                 width: parent.width
@@ -144,7 +321,7 @@ Rectangle {
 
                     Text {
                         anchors.centerIn: parent
-                        text: root.bridge.minimized ? "+" : "−"
+                        text: "−"
                         font.family: root.uiFont
                         font.pixelSize: 14
                         color: root.bodyInk
@@ -252,9 +429,8 @@ Rectangle {
             Item {
                 id: listViewport
                 width: parent.width
-                height: root.bridge.minimized ? 0 : root.listViewportHeight
+                height: root.listViewportHeight
                 clip: true
-                visible: !root.bridge.minimized
 
                 Flickable {
                     id: listFlick

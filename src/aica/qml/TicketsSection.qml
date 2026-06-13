@@ -45,10 +45,69 @@ ColumnLayout {
         { value: "\u64cd\u4f5c\u7c7b", text: "\u64cd\u4f5c\u7c7b" }
     ]
     property var pageSizeOptions: [
-        { value: 10, text: "10 \u6761/\u9875" },
-        { value: 20, text: "20 \u6761/\u9875" },
-        { value: 50, text: "50 \u6761/\u9875" }
+        { value: 10, text: "10 / \u9875" },
+        { value: 20, text: "20 / \u9875" },
+        { value: 50, text: "50 / \u9875" }
     ]
+
+    function addTicketPageItem(items, page) {
+        items.push({
+            type: "page",
+            label: String(page),
+            page: page,
+            enabled: true,
+            current: page === ticketCurrentPage
+        })
+    }
+
+    function addTicketPageGap(items) {
+        items.push({
+            type: "gap",
+            label: "...",
+            page: -1,
+            enabled: false,
+            current: false
+        })
+    }
+
+    function ticketPaginationItems() {
+        var items = []
+        var totalPages = ticketTotalPages
+        var currentPage = ticketCurrentPage
+        if (totalPages <= 8) {
+            for (var page = 1; page <= totalPages; page += 1) {
+                addTicketPageItem(items, page)
+            }
+            return items
+        }
+
+        if (currentPage <= 5) {
+            for (var firstPage = 1; firstPage <= 7; firstPage += 1) {
+                addTicketPageItem(items, firstPage)
+            }
+            addTicketPageGap(items)
+            addTicketPageItem(items, totalPages)
+            return items
+        }
+
+        if (currentPage >= totalPages - 4) {
+            addTicketPageItem(items, 1)
+            addTicketPageGap(items)
+            for (var lastPage = totalPages - 6; lastPage <= totalPages; lastPage += 1) {
+                addTicketPageItem(items, lastPage)
+            }
+            return items
+        }
+
+        addTicketPageItem(items, 1)
+        addTicketPageGap(items)
+        for (var nearbyPage = currentPage - 2; nearbyPage <= currentPage + 2; nearbyPage += 1) {
+            addTicketPageItem(items, nearbyPage)
+        }
+        addTicketPageGap(items)
+        addTicketPageItem(items, totalPages)
+        return items
+    }
 
     function currentStatusValue() {
         var index = ticketStatusCombo.currentIndex
@@ -933,8 +992,7 @@ ColumnLayout {
             id: paginationBar
             visible: ticketTotalCount > 0
             Layout.fillWidth: true
-            property bool compactLayout: width < 760
-            implicitHeight: compactLayout ? paginationInfoRow.implicitHeight + paginationSummary.implicitHeight + 29 : Math.max(paginationInfoRow.implicitHeight, paginationSummary.implicitHeight) + 21
+            implicitHeight: 50
             color: "transparent"
 
             Rectangle {
@@ -946,42 +1004,133 @@ ColumnLayout {
             }
 
             Row {
-                id: paginationInfoRow
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.leftMargin: 14
-                anchors.topMargin: 10
-                spacing: 16
-
-                Text {
-                    text: "\u5171 " + ticketSection.ticketTotalCount + " \u6761"
-                    color: theme.bodyInk
-                    font.family: theme.uiFont
-                    font.pixelSize: 12
-                }
-
-                Text {
-                    text: "\u7b2c " + ticketSection.ticketCurrentPage + " / " + ticketSection.ticketTotalPages + " \u9875"
-                    color: theme.bodyInk
-                    font.family: theme.uiFont
-                    font.pixelSize: 12
-                }
-            }
-
-            Flow {
                 id: paginationSummary
-                anchors.top: paginationBar.compactLayout ? paginationInfoRow.bottom : parent.top
-                anchors.left: paginationBar.compactLayout ? parent.left : undefined
-                anchors.right: paginationBar.compactLayout ? undefined : parent.right
-                anchors.topMargin: 10
-                anchors.leftMargin: paginationBar.compactLayout ? 14 : 0
-                anchors.rightMargin: paginationBar.compactLayout ? 0 : 14
-                spacing: 10
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                spacing: 6
+
+                Rectangle {
+                    id: previousPageButton
+                    width: 28
+                    height: 28
+                    radius: 6
+                    color: previousPageMouseArea.containsMouse && ticketSection.ticketCurrentPage > 1 ? (theme.hoverBg || "#F6F8FB") : theme.panelBg
+                    border.width: 1
+                    border.color: theme.panelLine
+                    opacity: ticketSection.ticketCurrentPage > 1 ? 1.0 : 0.55
+
+                    Canvas {
+                        anchors.centerIn: parent
+                        width: 8
+                        height: 12
+                        contextType: "2d"
+                        onPaint: {
+                            context.reset()
+                            context.lineWidth = 1.8
+                            context.strokeStyle = theme.bodyInk
+                            context.lineCap = "round"
+                            context.lineJoin = "round"
+                            context.beginPath()
+                            context.moveTo(width - 2, 2)
+                            context.lineTo(2, height / 2)
+                            context.lineTo(width - 2, height - 2)
+                            context.stroke()
+                        }
+                    }
+
+                    MouseArea {
+                        id: previousPageMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: ticketSection.ticketCurrentPage > 1
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: ticketSection.setTicketPage(ticketSection.ticketCurrentPage - 1)
+                    }
+                }
+
+                Repeater {
+                    model: ticketSection.ticketPaginationItems()
+
+                    delegate: Rectangle {
+                        property var pageItem: modelData
+                        width: pageItem.type === "gap" ? 30 : 28
+                        height: 28
+                        radius: 6
+                        color: pageMouseArea.containsMouse && pageItem.enabled && !pageItem.current ? (theme.hoverBg || "#F6F8FB") : "transparent"
+                        border.width: pageItem.current ? 1 : 0
+                        border.color: "#111827"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: parent.pageItem.label
+                            color: parent.pageItem.current ? theme.titleInk : theme.bodyInk
+                            font.family: theme.uiFont
+                            font.pixelSize: 13
+                            font.weight: parent.pageItem.current ? 600 : 500
+                        }
+
+                        MouseArea {
+                            id: pageMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: parent.pageItem.enabled && !parent.pageItem.current
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: ticketSection.setTicketPage(parent.pageItem.page)
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: nextPageButton
+                    width: 28
+                    height: 28
+                    radius: 6
+                    color: nextPageMouseArea.containsMouse && ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages ? (theme.hoverBg || "#F6F8FB") : theme.panelBg
+                    border.width: 1
+                    border.color: theme.panelLine
+                    opacity: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages ? 1.0 : 0.55
+
+                    Canvas {
+                        anchors.centerIn: parent
+                        width: 8
+                        height: 12
+                        contextType: "2d"
+                        onPaint: {
+                            context.reset()
+                            context.lineWidth = 1.8
+                            context.strokeStyle = theme.bodyInk
+                            context.lineCap = "round"
+                            context.lineJoin = "round"
+                            context.beginPath()
+                            context.moveTo(2, 2)
+                            context.lineTo(width - 2, height / 2)
+                            context.lineTo(2, height - 2)
+                            context.stroke()
+                        }
+                    }
+
+                    MouseArea {
+                        id: nextPageMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: ticketSection.setTicketPage(ticketSection.ticketCurrentPage + 1)
+                    }
+                }
 
                 ControlPanelSettingsCombo {
                     id: pageSizeCombo
                     theme: ticketSection.theme
-                    width: 108
+                    width: 86
+                    height: 28
+                    fieldRadius: 6
+                    fieldFontSize: 12
+                    leftPadding: 10
+                    rightPadding: 28
+                    topPadding: 6
+                    bottomPadding: 6
                     model: ticketSection.pageSizeOptions
                     currentIndex: ticketSection.theme.optionIndex(ticketSection.pageSizeOptions, ticketSection.ticketPageSize)
                     onActivated: {
@@ -993,39 +1142,26 @@ ColumnLayout {
                     }
                 }
 
-                Repeater {
-                    model: [
-                        { label: "\u4e0a\u4e00\u9875", enabled: ticketSection.ticketCurrentPage > 1, page: Math.max(1, ticketSection.ticketCurrentPage - 1), current: false },
-                        { label: String(ticketSection.ticketCurrentPage), enabled: true, page: ticketSection.ticketCurrentPage, current: true },
-                        { label: "\u4e0b\u4e00\u9875", enabled: ticketSection.ticketCurrentPage < ticketSection.ticketTotalPages, page: Math.min(ticketSection.ticketTotalPages, ticketSection.ticketCurrentPage + 1), current: false }
-                    ]
+                Text {
+                    height: 28
+                    text: "\u5171 " + ticketSection.ticketTotalCount + " \u6761"
+                    color: theme.bodyInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 13
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 14
+                    rightPadding: 4
+                }
 
-                    delegate: Rectangle {
-                        property var pageItem: modelData
-                        width: pageItem.current ? 44 : 60
-                        height: 36
-                        radius: 16
-                        color: pageItem.current ? theme.accent : theme.panelBg
-                        border.width: 1
-                        border.color: theme.accent
-                        opacity: pageItem.enabled ? 1.0 : 0.56
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: parent.pageItem.label
-                            color: parent.pageItem.current ? "#FFFFFF" : theme.accent
-                            font.family: theme.uiFont
-                            font.pixelSize: 12
-                            font.weight: parent.pageItem.current ? 600 : 500
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: parent.pageItem.enabled
-                            cursorShape: parent.pageItem.current ? Qt.ArrowCursor : Qt.PointingHandCursor
-                            onClicked: ticketSection.setTicketPage(parent.pageItem.page)
-                        }
-                    }
+                Text {
+                    height: 28
+                    text: "\u5171 " + ticketSection.ticketTotalPages + " \u9875"
+                    color: theme.bodyInk
+                    font.family: theme.uiFont
+                    font.pixelSize: 13
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 8
+                    rightPadding: 0
                 }
             }
         }

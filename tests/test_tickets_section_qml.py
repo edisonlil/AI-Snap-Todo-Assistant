@@ -45,3 +45,24 @@ def test_tickets_section_rows_open_detail_without_covering_actions() -> None:
     assert "id: copyMouseArea" not in qml_text
     assert "id: detailMouseArea" in qml_text
     assert qml_text.count("mouse.accepted = true") >= 2
+
+
+def test_tickets_section_uses_numbered_pagination() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "function ticketPaginationItems()" in qml_text
+    assert 'type: "gap"' in qml_text
+    assert "id: previousPageButton" in qml_text
+    assert "id: nextPageButton" in qml_text
+    assert "Row {\n                id: paginationSummary" in qml_text
+    assert "anchors.right: parent.right" in qml_text
+    assert "paginationBar.compactLayout" not in qml_text
+    assert "width: 28" in qml_text
+    assert "height: 28" in qml_text
+    assert "model: ticketSection.ticketPaginationItems()" in qml_text
+    assert '"10 / \\u9875"' in qml_text
+    assert '"\\u5171 " + ticketSection.ticketTotalCount + " \\u6761"' in qml_text
+    assert '"\\u5171 " + ticketSection.ticketTotalPages + " \\u9875"' in qml_text
+    assert '"\\u4e0a\\u4e00\\u9875"' not in qml_text
+    assert '"\\u4e0b\\u4e00\\u9875"' not in qml_text

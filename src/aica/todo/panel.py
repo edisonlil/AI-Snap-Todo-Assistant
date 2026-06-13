@@ -1,6 +1,8 @@
 ﻿"""QML-backed top-right floating panel for active todos."""
 from __future__ import annotations
 
+from time import monotonic
+
 from PyQt6.QtCore import QObject, QRect, QSize, Qt, QTimer, QUrl, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication
 from PyQt6.QtQuick import QQuickView
@@ -44,6 +46,8 @@ class _TodoPanelBridge(QObject):
     pinnedChanged = pyqtSignal()
     analysisLoadingChanged = pyqtSignal()
     headerStatusTextChanged = pyqtSignal()
+    dockSideChanged = pyqtSignal()
+    miniHoveringChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
@@ -52,6 +56,8 @@ class _TodoPanelBridge(QObject):
     dragStarted = pyqtSignal()
     dragMoved = pyqtSignal()
     dragEnded = pyqtSignal()
+    pointerEntered = pyqtSignal()
+    pointerExited = pyqtSignal()
 
     def __init__(self, visible_limit: int = 3):
         super().__init__()
@@ -59,9 +65,11 @@ class _TodoPanelBridge(QObject):
         self._selected_id: str | None = None
         self._expanded = False
         self._visible_limit = visible_limit
-        self._minimized = False
+        self._minimized = True
         self._pinned = True
         self._analysis_loading = False
+        self._dock_side = "right"
+        self._mini_hovering = False
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -116,6 +124,14 @@ class _TodoPanelBridge(QObject):
         status_text = "截图分析中..." if self._analysis_loading else "进行中"
         return f"{len(self._todos)} {status_text}"
 
+    @pyqtProperty(str, notify=dockSideChanged)
+    def dockSide(self) -> str:
+        return self._dock_side
+
+    @pyqtProperty(bool, notify=miniHoveringChanged)
+    def miniHovering(self) -> bool:
+        return self._mini_hovering
+
     @pyqtProperty(str, constant=True)
     def logoSource(self) -> str:
         return asset_file("aica_icon.png").as_uri()
@@ -144,6 +160,8 @@ class _TodoPanelBridge(QObject):
         self.minimizedChanged.emit()
         self.analysisLoadingChanged.emit()
         self.headerStatusTextChanged.emit()
+        self.dockSideChanged.emit()
+        self.miniHoveringChanged.emit()
 
     @pyqtSlot()
     def toggleExpanded(self) -> None:
@@ -153,11 +171,24 @@ class _TodoPanelBridge(QObject):
         self.todosChanged.emit()
         self.expandedChanged.emit()
 
-    @pyqtSlot()
-    def toggleMinimized(self) -> None:
-        self._minimized = not self._minimized
+    def set_minimized(self, minimized: bool) -> None:
+        minimized = bool(minimized)
+        if self._minimized == minimized:
+            return
+        self._minimized = minimized
+        if minimized:
+            self._expanded = False
         self.todosChanged.emit()
         self.minimizedChanged.emit()
+        self.expandedChanged.emit()
+
+    @pyqtSlot()
+    def toggleMinimized(self) -> None:
+        self.set_minimized(not self._minimized)
+
+    @pyqtSlot()
+    def restoreFromMini(self) -> None:
+        self.set_minimized(False)
 
     @pyqtSlot()
     def togglePinned(self) -> None:
@@ -175,6 +206,14 @@ class _TodoPanelBridge(QObject):
     @pyqtSlot()
     def endDrag(self) -> None:
         self.dragEnded.emit()
+
+    @pyqtSlot()
+    def enterPanel(self) -> None:
+        self.pointerEntered.emit()
+
+    @pyqtSlot()
+    def leavePanel(self) -> None:
+        self.pointerExited.emit()
 
     @pyqtSlot(str)
     def selectTodo(self, todo_id: str) -> None:
@@ -200,6 +239,20 @@ class _TodoPanelBridge(QObject):
         self.analysisLoadingChanged.emit()
         self.headerStatusTextChanged.emit()
 
+    def set_dock_side(self, side: str) -> None:
+        normalized = "left" if str(side or "").strip() == "left" else "right"
+        if self._dock_side == normalized:
+            return
+        self._dock_side = normalized
+        self.dockSideChanged.emit()
+
+    def set_mini_hovering(self, hovering: bool) -> None:
+        hovering = bool(hovering)
+        if self._mini_hovering == hovering:
+            return
+        self._mini_hovering = hovering
+        self.miniHoveringChanged.emit()
+
 
 class TodoPanel(QQuickView):
     todo_selected = pyqtSignal(str)
@@ -217,14 +270,28 @@ class TodoPanel(QQuickView):
         self._row_height = 32
         self._row_gap = 2
         self._max_expanded_rows = 6
-        self._minimized_height = 50
         self._panel_width = 286
+        self._minimized_width = 100
+        self._minimized_hover_width = self._panel_width
+        self._minimized_height = 50
         self._target_panel_size = QSize(self._panel_width, 194)
         self._last_screen_name = ""
         self._drag_offset = None
         self._custom_position = None
+        self._dock_side = "right"
         self._snap_margin = 18
+        self._mini_snap_margin = 0
         self._snap_threshold = 28
+        self._pointer_inside = False
+        self._auto_minimize_delay_ms = 4000
+        self._auto_minimize_timer = QTimer(self)
+        self._auto_minimize_timer.setSingleShot(True)
+        self._auto_minimize_timer.timeout.connect(self._auto_minimize)
+        self._drawer_animation_duration_ms = 260
+        self._drawer_animation_timer = QTimer(self)
+        self._drawer_animation_timer.setInterval(16)
+        self._drawer_animation_timer.timeout.connect(self._step_drawer_animation)
+        self._drawer_animation: dict[str, float] | None = None
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -240,10 +307,13 @@ class TodoPanel(QQuickView):
         self._bridge.selectionCleared.connect(self.selection_cleared)
         self._bridge.expandedChanged.connect(self._update_panel_size)
         self._bridge.minimizedChanged.connect(self._update_panel_size)
+        self._bridge.miniHoveringChanged.connect(self._update_panel_size)
         self._bridge.dragStarted.connect(self._start_drag)
         self._bridge.dragMoved.connect(self._move_drag)
         self._bridge.dragEnded.connect(self._end_drag)
         self._bridge.pinnedChanged.connect(self._handle_pinned_changed)
+        self._bridge.pointerEntered.connect(self._handle_pointer_entered)
+        self._bridge.pointerExited.connect(self._handle_pointer_exited)
 
         self._set_fixed_panel_size(self._panel_width, 194)
         self.hide()
@@ -257,13 +327,17 @@ class TodoPanel(QQuickView):
             self.show()
             if self._bridge.pinned:
                 self.raise_()
+            self._schedule_auto_minimize()
         else:
+            self._auto_minimize_timer.stop()
             self.hide()
 
     def _update_panel_size(self) -> None:
         if self._bridge.minimized:
+            width = self._minimized_hover_width if self._bridge.miniHovering else self._minimized_width
             height = self._minimized_height
         else:
+            width = self._panel_width
             visible_count = max(1, self._bridge.visibleCount)
             if self._bridge.expanded:
                 visible_count = min(visible_count, self._max_expanded_rows)
@@ -272,14 +346,32 @@ class TodoPanel(QQuickView):
                 + visible_count * self._row_height
                 + max(0, visible_count - 1) * self._row_gap
             )
-        self._set_fixed_panel_size(self._panel_width, height)
-        if self.isVisible() and self._drag_offset is None:
+        animated = self._set_fixed_panel_size(
+            width,
+            height,
+            animate=self._should_animate_drawer_size(width, height),
+        )
+        if self.isVisible() and self._drag_offset is None and not animated:
             self._reposition()
 
-    def _set_fixed_panel_size(self, width: int, height: int) -> None:
+    def _should_animate_drawer_size(self, width: int, height: int) -> bool:
+        if not self.isVisible() or self._drag_offset is not None or not self._bridge.minimized:
+            return False
+        target_panel_size = getattr(self, "_target_panel_size", None)
+        if target_panel_size is None:
+            return False
+        return target_panel_size.height() == height and target_panel_size.width() != width
+
+    def _set_fixed_panel_size(self, width: int, height: int, *, animate: bool = False) -> bool:
         size = QSize(max(1, int(width)), max(1, int(height)))
         self._target_panel_size = size
+        if animate:
+            self._start_drawer_animation(size)
+            return True
+        self._drawer_animation_timer.stop()
+        self._drawer_animation = None
         self._apply_fixed_panel_size(size)
+        return False
 
     def _apply_fixed_panel_size(self, size: QSize) -> None:
         self.setMinimumSize(size)
@@ -292,6 +384,55 @@ class TodoPanel(QQuickView):
 
     def _restore_fixed_panel_size(self) -> None:
         self._apply_fixed_panel_size(self._target_panel_size)
+
+    def _start_drawer_animation(self, target_size: QSize) -> None:
+        current_x = self.position().x()
+        current_y = self.position().y()
+        current_width = max(1, int(self.width()))
+        target_width = target_size.width()
+        if self._dock_side == "left":
+            target_x = current_x
+        else:
+            target_x = current_x + current_width - target_width
+        self._drawer_animation = {
+            "started_at": monotonic(),
+            "from_x": float(current_x),
+            "to_x": float(target_x),
+            "y": float(current_y),
+            "from_width": float(current_width),
+            "to_width": float(target_width),
+            "height": float(target_size.height()),
+        }
+        self._drawer_animation_timer.start()
+
+    @staticmethod
+    def _drawer_ease_out_cubic(progress: float) -> float:
+        progress = max(0.0, min(1.0, progress))
+        return 1.0 - pow(1.0 - progress, 3)
+
+    def _step_drawer_animation(self) -> None:
+        animation = self._drawer_animation
+        if animation is None:
+            self._drawer_animation_timer.stop()
+            return
+        elapsed_ms = (monotonic() - animation["started_at"]) * 1000.0
+        progress = elapsed_ms / max(1, self._drawer_animation_duration_ms)
+        eased = self._drawer_ease_out_cubic(progress)
+        width = int(round(animation["from_width"] + (animation["to_width"] - animation["from_width"]) * eased))
+        x = int(round(animation["from_x"] + (animation["to_x"] - animation["from_x"]) * eased))
+        height = int(round(animation["height"]))
+        current_size = QSize(max(1, width), max(1, height))
+        self._apply_fixed_panel_size(current_size)
+        self.setPosition(x, int(round(animation["y"])))
+
+        if progress >= 1.0:
+            self._drawer_animation_timer.stop()
+            self._drawer_animation = None
+            self._apply_fixed_panel_size(self._target_panel_size)
+            if self._drag_offset is None:
+                self._reposition()
+            return
+        self.geometry_changed.emit()
 
     @property
     def pinned(self) -> bool:
@@ -318,19 +459,62 @@ class TodoPanel(QQuickView):
             self.raise_()
         self.pinned_changed.emit(self._bridge.pinned)
 
+    def _current_snap_margin(self) -> int:
+        bridge = getattr(self, "_bridge", None)
+        minimized = bool(getattr(bridge, "minimized", False))
+        if minimized:
+            return getattr(self, "_mini_snap_margin", self._snap_margin)
+        return self._snap_margin
+
+    def _sync_bridge_dock_side(self) -> None:
+        bridge = getattr(self, "_bridge", None)
+        if bridge is not None and hasattr(bridge, "set_dock_side"):
+            bridge.set_dock_side(self._dock_side)
+
+    def _set_bridge_mini_hovering(self, hovering: bool) -> None:
+        bridge = getattr(self, "_bridge", None)
+        if bridge is not None and hasattr(bridge, "set_mini_hovering"):
+            bridge.set_mini_hovering(hovering)
+
+    def _schedule_auto_minimize(self) -> None:
+        if not self.isVisible() or self._pointer_inside or self._bridge.minimized or self._bridge.todoCount <= 0:
+            self._auto_minimize_timer.stop()
+            return
+        self._auto_minimize_timer.start(self._auto_minimize_delay_ms)
+
+    def _auto_minimize(self) -> None:
+        if self._pointer_inside or not self.isVisible() or self._bridge.todoCount <= 0:
+            return
+        self._bridge.set_minimized(True)
+
+    def _handle_pointer_entered(self) -> None:
+        self._pointer_inside = True
+        self._auto_minimize_timer.stop()
+        if self._bridge.minimized:
+            self._set_bridge_mini_hovering(True)
+
+    def _handle_pointer_exited(self) -> None:
+        self._pointer_inside = False
+        self._set_bridge_mini_hovering(False)
+        self._schedule_auto_minimize()
+
     def _reposition(self) -> None:
         screen = _screen_for_point(self.position())
         if screen is None:
             return
         available = screen.availableGeometry()
-        min_y = available.top() + self._snap_margin
-        max_y = available.bottom() - self.height() - self._snap_margin
+        margin = self._current_snap_margin()
+        min_y = available.top() + margin
+        max_y = available.bottom() - self.height() - margin
+        y_source = self._custom_position.y() if self._custom_position is not None else min_y
+        y = min(max(y_source, min_y), max_y)
         if self._custom_position is not None:
-            x = min(max(self._custom_position.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
-            y = min(max(self._custom_position.y(), min_y), max_y)
+            self._dock_side = "left" if self._custom_position.x() <= available.center().x() else "right"
+            self._sync_bridge_dock_side()
+        if self._dock_side == "left":
+            x = available.left() + margin
         else:
-            x = available.right() - self.width() - self._snap_margin
-            y = min_y
+            x = available.right() - self.width() - margin
         self.setPosition(x, y)
         self._custom_position = self.position()
         self.geometry_changed.emit()
@@ -339,6 +523,8 @@ class TodoPanel(QQuickView):
         return self.geometry()
 
     def _start_drag(self) -> None:
+        if self._bridge.minimized:
+            self._set_bridge_mini_hovering(True)
         cursor_pos = QCursor.pos()
         self._drag_offset = cursor_pos - self.position()
 
@@ -350,10 +536,11 @@ class TodoPanel(QQuickView):
         if available is None:
             return
         candidate = cursor_pos - self._drag_offset
-        x = min(max(candidate.x(), available.left() + self._snap_margin), available.right() - self.width() - self._snap_margin)
+        margin = self._current_snap_margin()
+        x = min(max(candidate.x(), available.left() + margin), available.right() - self.width() - margin)
         y = min(
-            max(candidate.y(), available.top() + self._snap_margin),
-            available.bottom() - self.height() - self._snap_margin,
+            max(candidate.y(), available.top() + margin),
+            available.bottom() - self.height() - margin,
         )
         self.setPosition(x, y)
         self._repair_size_if_screen_changed()
@@ -373,18 +560,26 @@ class TodoPanel(QQuickView):
         x = pos.x()
         y = pos.y()
 
-        left_snap = available.left() + self._snap_margin
-        right_snap = available.right() - self.width() - self._snap_margin
-        x = left_snap if abs(x - left_snap) <= abs(x - right_snap) else right_snap
+        margin = self._current_snap_margin()
+        left_snap = available.left() + margin
+        right_snap = available.right() - self.width() - margin
+        if abs(x - left_snap) <= abs(x - right_snap):
+            x = left_snap
+            self._dock_side = "left"
+        else:
+            x = right_snap
+            self._dock_side = "right"
+        self._sync_bridge_dock_side()
 
-        top_snap = available.top() + self._snap_margin
+        top_snap = available.top() + margin
         if abs(y - top_snap) <= self._snap_threshold:
             y = top_snap
-        if abs((available.bottom() - self.height() - self._snap_margin) - y) <= self._snap_threshold:
-            y = available.bottom() - self.height() - self._snap_margin
+        if abs((available.bottom() - self.height() - margin) - y) <= self._snap_threshold:
+            y = available.bottom() - self.height() - margin
 
         self.setPosition(x, y)
         self._custom_position = self.position()
+        self._set_bridge_mini_hovering(False)
         self.geometry_changed.emit()
 
     def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001

@@ -42,6 +42,21 @@ def _install_pyqt_fakes() -> None:
             pass
 
     class QTimer:
+        def __init__(self, *_args, **_kwargs):
+            self.timeout = types.SimpleNamespace(connect=lambda _callback: None)
+
+        def setSingleShot(self, _single_shot):
+            return None
+
+        def setInterval(self, _msec):
+            return None
+
+        def start(self, *_args):
+            return None
+
+        def stop(self):
+            return None
+
         @staticmethod
         def singleShot(_msec, callback):
             callback()
@@ -140,6 +155,15 @@ def test_repair_size_on_screen_change_does_not_recalculate_panel_size(monkeypatc
     assert resize_calls == []
 
 
+def test_hover_width_is_initialized_after_panel_width() -> None:
+    source = (Path(__file__).resolve().parents[1] / "src" / "aica" / "todo" / "panel.py").read_text(encoding="utf-8")
+
+    panel_width_index = source.index("self._panel_width = 286")
+    hover_width_index = source.index("self._minimized_hover_width = self._panel_width")
+
+    assert panel_width_index < hover_width_index
+
+
 def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> None:
     _install_pyqt_fakes()
     from aica.todo import panel as todo_panel
@@ -179,6 +203,7 @@ def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> No
     panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
     panel._drag_offset = object()  # noqa: SLF001
     panel._custom_position = FakePoint(500, 120)  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
     panel._snap_margin = 18  # noqa: SLF001
     panel._snap_threshold = 28  # noqa: SLF001
     panel.geometry_changed = FakeSignal()
@@ -198,3 +223,247 @@ def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> No
     panel._end_drag()  # noqa: SLF001
 
     assert positions[-1] == (695, 120)
+
+
+def test_minimized_panel_uses_compact_size_and_edge_position(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakePoint:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class FakeGeometry:
+        def left(self) -> int:
+            return 0
+
+        def right(self) -> int:
+            return 999
+
+        def top(self) -> int:
+            return 0
+
+        def bottom(self) -> int:
+            return 799
+
+        def center(self) -> FakePoint:
+            return FakePoint(500, 399)
+
+    class FakeScreen:
+        def availableGeometry(self) -> FakeGeometry:
+            return FakeGeometry()
+
+    class FakeBridge:
+        minimized = True
+        expanded = False
+        miniHovering = False
+
+        @property
+        def visibleCount(self) -> int:
+            return 0
+
+    class FakeSignal:
+        def emit(self) -> None:
+            return None
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._minimized_width = 100  # noqa: SLF001
+    panel._minimized_hover_width = 286  # noqa: SLF001
+    panel._minimized_height = 50  # noqa: SLF001
+    panel._panel_width = 286  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel._custom_position = FakePoint(695, 18)  # noqa: SLF001
+    panel._drag_offset = None  # noqa: SLF001
+    panel.geometry_changed = FakeSignal()
+    panel.isVisible = lambda: True
+    panel.position = lambda: FakePoint(695, 18)
+    panel.width = lambda: 100
+    panel.height = lambda: 50
+    sizes: list[tuple[int, int]] = []
+    positions: list[tuple[int, int]] = []
+    panel._set_fixed_panel_size = lambda width, height, **_kwargs: sizes.append((width, height))  # noqa: SLF001
+    panel.setPosition = lambda x, y: positions.append((int(x), int(y)))
+    monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: FakeScreen())
+
+    panel._update_panel_size()  # noqa: SLF001
+
+    assert sizes == [(100, 50)]
+    assert positions[-1] == (899, 18)
+
+
+def test_minimized_panel_uses_hover_strip_width(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakePoint:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class FakeGeometry:
+        def left(self) -> int:
+            return 0
+
+        def right(self) -> int:
+            return 999
+
+        def top(self) -> int:
+            return 0
+
+        def bottom(self) -> int:
+            return 799
+
+        def center(self) -> FakePoint:
+            return FakePoint(500, 399)
+
+    class FakeScreen:
+        def availableGeometry(self) -> FakeGeometry:
+            return FakeGeometry()
+
+    class FakeBridge:
+        minimized = True
+        expanded = False
+        miniHovering = True
+
+        @property
+        def visibleCount(self) -> int:
+            return 0
+
+    class FakeSignal:
+        def emit(self) -> None:
+            return None
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._minimized_width = 100  # noqa: SLF001
+    panel._minimized_hover_width = 286  # noqa: SLF001
+    panel._minimized_height = 50  # noqa: SLF001
+    panel._panel_width = 286  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel._custom_position = FakePoint(899, 18)  # noqa: SLF001
+    panel._drag_offset = None  # noqa: SLF001
+    panel.geometry_changed = FakeSignal()
+    panel.isVisible = lambda: True
+    panel.position = lambda: FakePoint(899, 18)
+    panel.width = lambda: 286
+    panel.height = lambda: 50
+    sizes: list[tuple[int, int]] = []
+    positions: list[tuple[int, int]] = []
+    panel._set_fixed_panel_size = lambda width, height, **_kwargs: sizes.append((width, height))  # noqa: SLF001
+    panel.setPosition = lambda x, y: positions.append((int(x), int(y)))
+    monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: FakeScreen())
+
+    panel._update_panel_size()  # noqa: SLF001
+
+    assert sizes == [(286, 50)]
+    assert positions[-1] == (713, 18)
+
+
+def test_drawer_animation_keeps_right_edge_fixed() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakePoint:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class FakeSize:
+        def width(self) -> int:
+            return 286
+
+        def height(self) -> int:
+            return 50
+
+    class FakeTimer:
+        def __init__(self) -> None:
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._dock_side = "right"  # noqa: SLF001
+    panel._drawer_animation_timer = FakeTimer()  # noqa: SLF001
+    panel.position = lambda: FakePoint(899, 18)
+    panel.width = lambda: 100
+
+    panel._start_drawer_animation(FakeSize())  # noqa: SLF001
+
+    animation = panel._drawer_animation  # noqa: SLF001
+    assert animation is not None
+    assert animation["from_x"] == 899
+    assert animation["to_x"] == 713
+    assert animation["from_width"] == 100
+    assert animation["to_width"] == 286
+    assert panel._drawer_animation_timer.started is True  # noqa: SLF001
+
+
+def test_drawer_animation_keeps_left_edge_fixed() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakePoint:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class FakeSize:
+        def width(self) -> int:
+            return 286
+
+        def height(self) -> int:
+            return 50
+
+    class FakeTimer:
+        def __init__(self) -> None:
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._dock_side = "left"  # noqa: SLF001
+    panel._drawer_animation_timer = FakeTimer()  # noqa: SLF001
+    panel.position = lambda: FakePoint(0, 18)
+    panel.width = lambda: 100
+
+    panel._start_drawer_animation(FakeSize())  # noqa: SLF001
+
+    animation = panel._drawer_animation  # noqa: SLF001
+    assert animation is not None
+    assert animation["from_x"] == 0
+    assert animation["to_x"] == 0
+    assert animation["from_width"] == 100
+    assert animation["to_width"] == 286
+    assert panel._drawer_animation_timer.started is True  # noqa: SLF001
