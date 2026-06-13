@@ -64,6 +64,10 @@ from aica.worker import (
 )
 
 
+_APP_NAME = "Chattodo"
+_WINDOWS_APP_USER_MODEL_ID = "edison.Chattodo"
+
+
 def _resolve_error_log_file() -> Path:
     candidates = [error_log_file()]
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
@@ -213,6 +217,40 @@ def _build_is_expired(now: datetime | None = None) -> bool:
     return get_build_expiration_status(now=now).expired
 
 
+def _set_windows_app_user_model_id(startup_log_file: Path) -> None:
+    if not RUNTIME_CAPABILITIES.is_windows:
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_WINDOWS_APP_USER_MODEL_ID)
+        _append_startup_log(
+            startup_log_file,
+            f"startup: windows app user model id set={_WINDOWS_APP_USER_MODEL_ID}",
+        )
+    except Exception as exc:
+        _append_startup_log(startup_log_file, f"startup: windows app user model id failed: {exc}")
+
+
+def _apply_application_icon(app: QApplication, startup_log_file: Path) -> QIcon:
+    app_icon_path = icon_file()
+    app_icon = QIcon(str(app_icon_path))
+    app.setApplicationName(_APP_NAME)
+    app.setWindowIcon(app_icon)
+    _append_startup_log(
+        startup_log_file,
+        f"startup: app icon path={app_icon_path} exists={app_icon_path.exists()}",
+    )
+    return app_icon
+
+
+def _show_windows_taskbar_entry(control_panel: ControlPanelWindow, startup_log_file: Path) -> None:
+    if not RUNTIME_CAPABILITIES.is_windows:
+        return
+    if control_panel.isVisible():
+        return
+    control_panel.showMinimized()
+    _append_startup_log(startup_log_file, "startup: windows taskbar entry shown")
+
+
 def main() -> None:
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
@@ -223,8 +261,10 @@ def main() -> None:
     _append_startup_log(startup_log_file, "startup: main entered")
 
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+    _set_windows_app_user_model_id(startup_log_file)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app_icon = _apply_application_icon(app, startup_log_file)
     app.setFont(QFont(RUNTIME_CAPABILITIES.ui_font))
     _append_startup_log(startup_log_file, "startup: QApplication ready")
 
@@ -270,6 +310,7 @@ def main() -> None:
         notification_bridge=notification_bridge,
         event_publisher=todo_event_bus,
     )
+    control_panel.setWindowIcon(app_icon)
     todo_panel = TodoPanel(theme_controller=theme_controller)
     todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge, theme_controller=theme_controller)
     todo_detail_panel.set_pinned(todo_panel.pinned)
@@ -1034,6 +1075,7 @@ def main() -> None:
         if QSystemTrayIcon.isSystemTrayAvailable():
             tray_icon.show()
             _append_startup_log(startup_log_file, "startup: tray icon shown")
+            _show_windows_taskbar_entry(control_panel, startup_log_file)
         else:
             _append_startup_log(startup_log_file, "startup: system tray unavailable")
             _show_control_panel("server")

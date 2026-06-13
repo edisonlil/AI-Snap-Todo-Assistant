@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aica.main import _build_hotkey_manager, _setup_exception_handler, _start_hotkey_listener  # noqa: E402
+from aica.main import (  # noqa: E402
+    _apply_application_icon,
+    _build_hotkey_manager,
+    _set_windows_app_user_model_id,
+    _setup_exception_handler,
+    _show_windows_taskbar_entry,
+    _start_hotkey_listener,
+)
 
 
 def test_build_hotkey_manager_falls_back_to_platform_default(monkeypatch) -> None:
@@ -46,6 +53,77 @@ def test_start_hotkey_listener_returns_exception_instead_of_raising(tmp_path: Pa
 
     assert isinstance(error, RuntimeError)
     assert "permission denied" in str(error)
+
+
+def test_set_windows_app_user_model_id_uses_shell_api(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class _Shell32:
+        @staticmethod
+        def SetCurrentProcessExplicitAppUserModelID(app_id: str) -> None:
+            calls.append(app_id)
+
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_windows=True))
+    monkeypatch.setattr("aica.main.ctypes", SimpleNamespace(windll=SimpleNamespace(shell32=_Shell32)))
+
+    log_file = tmp_path / "startup.log"
+    _set_windows_app_user_model_id(log_file)
+
+    assert calls == ["edison.Chattodo"]
+    assert "windows app user model id set=edison.Chattodo" in log_file.read_text(encoding="utf-8")
+
+
+def test_apply_application_icon_sets_chattodo_name_and_icon(monkeypatch, tmp_path: Path) -> None:
+    icon_path = tmp_path / "aica_icon.png"
+    icon_path.write_bytes(b"icon")
+    created_icons: list[str] = []
+
+    class _Icon:
+        def __init__(self, path: str) -> None:
+            created_icons.append(path)
+            self.path = path
+
+    class _Application:
+        def __init__(self) -> None:
+            self.name = ""
+            self.icon = None
+
+        def setApplicationName(self, name: str) -> None:
+            self.name = name
+
+        def setWindowIcon(self, icon) -> None:
+            self.icon = icon
+
+    monkeypatch.setattr("aica.main.icon_file", lambda: icon_path)
+    monkeypatch.setattr("aica.main.QIcon", _Icon)
+
+    app = _Application()
+    result = _apply_application_icon(app, tmp_path / "startup.log")
+
+    assert app.name == "Chattodo"
+    assert app.icon is result
+    assert created_icons == [str(icon_path)]
+
+
+def test_show_windows_taskbar_entry_minimizes_hidden_control_panel(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class _ControlPanel:
+        @staticmethod
+        def isVisible() -> bool:
+            return False
+
+        @staticmethod
+        def showMinimized() -> None:
+            calls.append("showMinimized")
+
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_windows=True))
+
+    log_file = tmp_path / "startup.log"
+    _show_windows_taskbar_entry(_ControlPanel(), log_file)
+
+    assert calls == ["showMinimized"]
+    assert "windows taskbar entry shown" in log_file.read_text(encoding="utf-8")
 
 
 def test_exception_handler_exits_when_error_dialog_fails(monkeypatch, tmp_path: Path) -> None:
