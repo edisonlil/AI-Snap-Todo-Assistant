@@ -79,6 +79,7 @@ Rectangle {
     readonly property string uiFont: themeTokens.uiFont || (controlPanelBridge ? controlPanelBridge.uiFont : "Microsoft YaHei UI")
     readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
     readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
+    readonly property bool serverLoginRequired: controlPanelBridge ? controlPanelBridge.serverLoginRequired : false
     readonly property var projectLevelOptions: [
         { value: "normal", text: "常规" },
         { value: "important", text: "重要" }
@@ -887,7 +888,122 @@ Rectangle {
                 }
             }
 
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.serverLoginRequired
+                enabled: visible
+
+                SectionCard {
+                    width: Math.min(parent.width - 80, 520)
+                    height: loginContent.implicitHeight + 48
+                    anchors.centerIn: parent
+                    color: root.panelBg
+                    border.width: 1
+                    border.color: root.panelLine
+
+                    ColumnLayout {
+                        id: loginContent
+                        anchors.fill: parent
+                        anchors.margins: 24
+                        spacing: 14
+
+                        Image {
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            Layout.alignment: Qt.AlignHCenter
+                            source: controlPanelBridge.logoSource
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                            mipmap: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "登录 Chattodo"
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 22
+                            font.weight: 800
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "填写服务端地址和 API Key 后进入控制面板。"
+                            color: root.bodyInk
+                            font.family: root.uiFont
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Text {
+                            Layout.topMargin: 8
+                            text: "服务端地址"
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 13
+                            font.weight: 700
+                        }
+
+                        SettingsInput {
+                            Layout.fillWidth: true
+                            text: controlPanelBridge.serverConfig.baseUrl
+                            placeholderText: "https://chattodo.example.com"
+                            onTextEdited: controlPanelBridge.updateServerField("base_url", text)
+                        }
+
+                        Text {
+                            text: "API Key"
+                            color: root.titleInk
+                            font.family: root.uiFont
+                            font.pixelSize: 13
+                            font.weight: 700
+                        }
+
+                        SettingsInput {
+                            Layout.fillWidth: true
+                            echoMode: TextInput.Password
+                            text: controlPanelBridge.serverConfig.apiKey
+                            placeholderText: "输入服务端 API Key"
+                            onTextEdited: controlPanelBridge.updateServerField("api_key", text)
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            visible: controlPanelBridge.hasError || controlPanelBridge.hasStatus
+                            implicitHeight: loginMessage.implicitHeight + 20
+                            radius: root.radiusSm
+                            color: controlPanelBridge.hasError ? root.errorBg : root.successBg
+
+                            Text {
+                                id: loginMessage
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                text: controlPanelBridge.hasError ? controlPanelBridge.errorMessage : controlPanelBridge.statusMessage
+                                color: controlPanelBridge.hasError ? root.errorInk : root.successInk
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                            }
+                        }
+
+                        PlainButton {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            label: "登录并进入"
+                            primary: true
+                            strokeWidth: 0
+                            onClicked: controlPanelBridge.saveServerLogin()
+                        }
+                    }
+                }
+            }
+
             RowLayout {
+                visible: !root.serverLoginRequired
+                enabled: visible
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 14

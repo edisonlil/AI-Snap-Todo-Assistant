@@ -455,11 +455,14 @@ def test_server_config_updates_and_persists(monkeypatch: pytest.MonkeyPatch) -> 
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
 
+    assert bridge.serverLoginRequired is True
+
     bridge.updateServerField("enabled", "true")
     bridge.updateServerField("base_url", "https://server.example.com")
     bridge.updateServerField("api_key", "server-key")
     bridge.updateServerField("timeout_seconds", "45")
 
+    assert bridge.serverLoginRequired is True
     assert bridge.serverConfig == {
         "enabled": True,
         "baseUrl": "https://server.example.com",
@@ -476,6 +479,77 @@ def test_server_config_updates_and_persists(monkeypatch: pytest.MonkeyPatch) -> 
     assert saved.server.timeout_seconds == 45
     assert next(provider for provider in saved.providers if provider.id == "siliconflow").api_key == ""
     assert bridge.statusMessage
+
+
+def test_server_config_values_do_not_unlock_login_until_login_clicked(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+
+    assert bridge.serverLoginRequired is True
+
+    bridge.saveConfig()
+
+    assert bridge.serverLoginRequired is True
+
+
+def test_server_login_requires_base_url_and_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.saveServerLogin()
+    assert bridge.serverLoginRequired is True
+    assert bridge.errorMessage == "请填写服务端地址"
+
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.saveServerLogin()
+    assert bridge.serverLoginRequired is True
+    assert bridge.errorMessage == "请填写 API Key"
+
+
+def test_server_login_enables_and_persists_server_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+    bridge.saveServerLogin()
+
+    saved = bridge._config_manager.load()
+    assert saved.server.enabled is True
+    assert saved.server.base_url == "https://server.example.com"
+    assert saved.server.api_key == "server-key"
+    assert bridge.serverLoginRequired is False
+    assert bridge.statusMessage == "登录信息已保存"
+
+
+def test_server_login_not_required_when_saved_config_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+    bridge.saveServerLogin()
+
+    reloaded = control_panel._ControlPanelBridge(bridge._config_manager)
+
+    assert reloaded.serverLoginRequired is False
+
+
+def test_server_login_resets_invalid_hidden_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+    bridge.updateServerField("timeout_seconds", "0")
+    bridge.saveServerLogin()
+
+    saved = bridge._config_manager.load()
+    assert saved.server.timeout_seconds == 30
+    assert bridge.serverLoginRequired is False
 
 
 def test_server_config_rejects_invalid_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

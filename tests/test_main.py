@@ -11,7 +11,7 @@ from aica.main import (  # noqa: E402
     _build_hotkey_manager,
     _set_windows_app_user_model_id,
     _setup_exception_handler,
-    _show_windows_taskbar_entry,
+    _show_startup_control_panel,
     _start_hotkey_listener,
 )
 
@@ -105,25 +105,19 @@ def test_apply_application_icon_sets_chattodo_name_and_icon(monkeypatch, tmp_pat
     assert created_icons == [str(icon_path)]
 
 
-def test_show_windows_taskbar_entry_minimizes_hidden_control_panel(monkeypatch, tmp_path: Path) -> None:
+def test_show_startup_control_panel_opens_server_section(tmp_path: Path) -> None:
     calls: list[str] = []
 
     class _ControlPanel:
         @staticmethod
-        def isVisible() -> bool:
-            return False
-
-        @staticmethod
-        def showMinimized() -> None:
-            calls.append("showMinimized")
-
-    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_windows=True))
+        def show_panel(section_id: str) -> None:
+            calls.append(section_id)
 
     log_file = tmp_path / "startup.log"
-    _show_windows_taskbar_entry(_ControlPanel(), log_file)
+    _show_startup_control_panel(_ControlPanel(), log_file)
 
-    assert calls == ["showMinimized"]
-    assert "windows taskbar entry shown" in log_file.read_text(encoding="utf-8")
+    assert calls == ["server"]
+    assert "control panel shown" in log_file.read_text(encoding="utf-8")
 
 
 def test_exception_handler_exits_when_error_dialog_fails(monkeypatch, tmp_path: Path) -> None:

@@ -242,13 +242,9 @@ def _apply_application_icon(app: QApplication, startup_log_file: Path) -> QIcon:
     return app_icon
 
 
-def _show_windows_taskbar_entry(control_panel: ControlPanelWindow, startup_log_file: Path) -> None:
-    if not RUNTIME_CAPABILITIES.is_windows:
-        return
-    if control_panel.isVisible():
-        return
-    control_panel.showMinimized()
-    _append_startup_log(startup_log_file, "startup: windows taskbar entry shown")
+def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_file: Path) -> None:
+    control_panel.show_panel("server")
+    _append_startup_log(startup_log_file, "startup: control panel shown")
 
 
 def main() -> None:
@@ -1075,10 +1071,10 @@ def main() -> None:
         if QSystemTrayIcon.isSystemTrayAvailable():
             tray_icon.show()
             _append_startup_log(startup_log_file, "startup: tray icon shown")
-            _show_windows_taskbar_entry(control_panel, startup_log_file)
+            _show_startup_control_panel(control_panel, startup_log_file)
         else:
             _append_startup_log(startup_log_file, "startup: system tray unavailable")
-            _show_control_panel("server")
+            _show_startup_control_panel(control_panel, startup_log_file)
         hotkey_error = _start_hotkey_listener(hotkey_mgr, startup_log_file)
         if hotkey_error is not None:
             QMessageBox.warning(

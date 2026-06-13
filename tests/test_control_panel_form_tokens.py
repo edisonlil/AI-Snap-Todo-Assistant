@@ -90,6 +90,16 @@ def test_control_panel_buttons_use_shared_button_tokens() -> None:
     assert "component PlainButton: ControlPanelPlainButton" in control_panel
 
 
+def test_control_panel_shows_server_login_gate_when_required() -> None:
+    control_panel = _qml("ControlPanel.qml")
+
+    assert "readonly property bool serverLoginRequired" in control_panel
+    assert "visible: root.serverLoginRequired" in control_panel
+    assert "visible: !root.serverLoginRequired" in control_panel
+    assert 'text: "登录 Chattodo"' in control_panel
+    assert "controlPanelBridge.saveServerLogin()" in control_panel
+
+
 def test_control_panel_spin_box_is_custom_drawn() -> None:
     spin_box = _qml("ControlPanelSettingsSpinBox.qml")
 

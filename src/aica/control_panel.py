@@ -1061,6 +1061,7 @@ class _ControlPanelBridge(QObject):
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
         self._current_section = _DEFAULT_CONTROL_PANEL_SECTION
+        self._server_login_required = not _is_server_config_ready(self._config.server)
         self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
         self._selected_prompt_debug_trace_id = ""
         self._capture_hotkey = self._config.hotkeys.capture
@@ -1211,6 +1212,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty("QVariantMap", notify=dataChanged)
     def serverConfig(self):  # noqa: ANN201
         return _server_config_payload(self._config.server)
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def serverLoginRequired(self) -> bool:
+        return self._server_login_required
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def taskBindings(self):  # noqa: ANN201
@@ -2035,6 +2040,7 @@ class _ControlPanelBridge(QObject):
         self._integrations_path = integrations_file()
         self._integration_payload = load_integration_config(self._integrations_path)
         self._script_integrations = list_script_integrations(self._integration_payload)
+        self._server_login_required = not _is_server_config_ready(self._config.server)
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._data_dir = str(app_data_dir())
@@ -2152,6 +2158,28 @@ class _ControlPanelBridge(QObject):
             return
         self._clear_messages()
         self._emit_data_changed()
+
+    @pyqtSlot()
+    def saveServerLogin(self) -> None:
+        if not str(self._config.server.base_url or "").strip():
+            self._error_message = "请填写服务端地址"
+            self._emit_data_changed()
+            return
+        if not str(self._config.server.api_key or "").strip():
+            self._error_message = "请填写 API Key"
+            self._emit_data_changed()
+            return
+        self._config.server.enabled = True
+        try:
+            timeout_seconds = int(self._config.server.timeout_seconds)
+        except (TypeError, ValueError):
+            timeout_seconds = 30
+        self._config.server.timeout_seconds = timeout_seconds if timeout_seconds > 0 else 30
+        self.saveConfig()
+        if not self._error_message and _is_server_config_ready(self._config.server):
+            self._server_login_required = False
+            self._status_message = "登录信息已保存"
+            self._emit_data_changed()
 
     @pyqtSlot(str, str)
     def updateTaskBindingProvider(self, task_name: str, provider_id: str) -> None:
