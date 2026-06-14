@@ -4,11 +4,35 @@ Rectangle {
     id: root
     required property var theme
     required property var groupsModel
+    readonly property color panelBg: theme.panelBg || "#FFFFFF"
+    readonly property color panelAltBg: theme.panelAltBg || theme.fieldBg || "#F8F9FA"
+    readonly property color panelLine: theme.panelLine || "#E5E7EB"
+    readonly property color fieldLine: theme.fieldLine || theme.panelLine || "#E5E7EB"
+    readonly property color titleInk: theme.titleInk || "#18202E"
+    readonly property color bodyInk: theme.bodyInk || "#4A5565"
+    readonly property color labelInk: theme.labelInk || "#7C8795"
+    readonly property color mutedInk: theme.mutedInk || "#A9B1BD"
+    readonly property color accent: theme.accent || "#2A313F"
+    readonly property int fontTiny: theme.fontTiny || 10
+    readonly property int fontCaption: theme.fontCaption || 11
+    readonly property int fontBody: theme.fontBody || 12
+    readonly property int fontBodyLg: theme.fontBodyLg || 13
+    readonly property int fontSection: theme.fontSection || 14
+    readonly property string uiFont: theme.uiFont || "Microsoft YaHei UI"
+    readonly property int sectionWeight: theme.sectionWeight || 600
+    readonly property int labelWeight: theme.labelWeight || 500
+    readonly property int bodyWeight: theme.bodyWeight || 400
+    readonly property int cardRadius: 20
+    readonly property int groupRadius: 16
+    readonly property int entryRadius: 16
+    readonly property int badgeRadius: 11
+    readonly property int buttonRadius: 12
+    readonly property int otpRadius: 10
     width: 336
-    radius: 20
-    color: "#FFFFFF"
+    radius: root.cardRadius
+    color: root.panelBg
     border.width: 1
-    border.color: "#ECEFF3"
+    border.color: root.panelLine
 
     implicitHeight: contentColumn.implicitHeight + 24
 
@@ -48,20 +72,20 @@ Rectangle {
 
             Text {
                 text: "环境访问"
-                color: root.theme.titleInk
-                font.family: root.theme.uiFont
-                font.pixelSize: 14
-                font.weight: root.theme.sectionWeight
+                color: root.titleInk
+                font.family: root.uiFont
+                font.pixelSize: root.fontSection
+                font.weight: root.sectionWeight
             }
 
             Text {
                 width: parent.width
                 wrapMode: Text.Wrap
                 text: "点击开始登录后，会尝试打开入口并自动复制账号，再按需复制密码或验证码。"
-                color: root.theme.labelInk
-                font.family: root.theme.uiFont
-                font.pixelSize: 11
-                font.weight: root.theme.bodyWeight
+                color: root.labelInk
+                font.family: root.uiFont
+                font.pixelSize: root.fontCaption
+                font.weight: root.bodyWeight
                 lineHeight: 1.35
             }
         }
@@ -71,8 +95,8 @@ Rectangle {
 
             delegate: Rectangle {
                 width: parent.width
-                radius: 16
-                color: "#FFFFFF"
+                radius: root.groupRadius
+                color: root.panelBg
                 border.width: 0
                 border.color: "transparent"
                 height: groupColumn.implicitHeight + 16
@@ -88,7 +112,7 @@ Rectangle {
                     Rectangle {
                         width: parent.width
                         height: 42
-                        radius: 12
+                        radius: root.groupRadius
                         color: "transparent"
 
                         Row {
@@ -107,20 +131,20 @@ Rectangle {
                                     width: parent.width
                                     text: modelData.name || ""
                                     elide: Text.ElideRight
-                                    color: root.theme.titleInk
-                                    font.family: root.theme.uiFont
-                                    font.pixelSize: 12
-                                    font.weight: root.theme.sectionWeight
+                                    color: root.titleInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: root.fontBody
+                                    font.weight: root.sectionWeight
                                 }
 
                                 Text {
                                     width: parent.width
                                     text: modelData.summary || ""
                                     elide: Text.ElideRight
-                                    color: root.theme.labelInk
-                                    font.family: root.theme.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: root.theme.bodyWeight
+                                    color: root.labelInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: root.fontTiny
+                                    font.weight: root.bodyWeight
                                 }
                             }
 
@@ -128,9 +152,9 @@ Rectangle {
                                 id: groupArrow
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.expanded ? "▾" : "▸"
-                                color: root.theme.labelInk
-                                font.family: root.theme.uiFont
-                                font.pixelSize: 12
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: root.fontBody
                             }
                         }
 
@@ -151,10 +175,10 @@ Rectangle {
 
                             delegate: Rectangle {
                                 width: parent.width
-                                radius: 16
-                                color: "#FAFAF9"
+                                radius: root.entryRadius
+                                color: root.panelAltBg
                                 border.width: 1
-                                border.color: modelData.loginActivated ? "#D9E2EC" : "#EDF1F5"
+                                border.color: modelData.loginActivated ? root.accent : root.fieldLine
                                 height: entryColumn.implicitHeight + 16
 
                                 Column {
@@ -172,31 +196,31 @@ Rectangle {
                                         Text {
                                             width: parent.width - (entryBadge.visible ? entryBadge.width + parent.spacing : 0)
                                             text: modelData.name || ""
-                                            color: root.theme.titleInk
-                                            font.family: root.theme.uiFont
-                                            font.pixelSize: 12
-                                            font.weight: root.theme.sectionWeight
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: root.fontBody
+                                            font.weight: root.sectionWeight
                                             elide: Text.ElideRight
                                         }
 
                                         Rectangle {
                                             id: entryBadge
                                             visible: modelData.requiresOtp
-                                            radius: 11
+                                            radius: root.badgeRadius
                                             height: 24
                                             width: badgeText.implicitWidth + 16
-                                            color: "#FFFFFF"
+                                            color: root.panelBg
                                             border.width: 1
-                                            border.color: "#E2E8F0"
+                                            border.color: root.fieldLine
 
                                             Text {
                                                 id: badgeText
                                                 anchors.centerIn: parent
                                                 text: "需要 OTP"
-                                                color: "#7B8797"
-                                                font.family: root.theme.uiFont
-                                                font.pixelSize: 10
-                                                font.weight: root.theme.labelWeight
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: root.fontTiny
+                                                font.weight: root.labelWeight
                                             }
                                         }
                                     }
@@ -205,10 +229,10 @@ Rectangle {
                                         visible: (modelData.urlOrHost || "").length > 0
                                         width: parent.width
                                         text: modelData.urlOrHost || ""
-                                        color: "#7C8798"
-                                        font.family: root.theme.uiFont
-                                        font.pixelSize: 10
-                                        font.weight: root.theme.bodyWeight
+                                        color: root.labelInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: root.fontTiny
+                                        font.weight: root.bodyWeight
                                         wrapMode: Text.WrapAnywhere
                                     }
 
@@ -216,10 +240,10 @@ Rectangle {
                                         visible: (modelData.note || "").length > 0 && !modelData.loginActivated
                                         width: parent.width
                                         text: modelData.note || ""
-                                        color: root.theme.bodyInk
-                                        font.family: root.theme.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.theme.bodyWeight
+                                        color: root.bodyInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: root.fontCaption
+                                        font.weight: root.bodyWeight
                                         wrapMode: Text.Wrap
                                         lineHeight: 1.35
                                     }
@@ -239,19 +263,19 @@ Rectangle {
 
                                             Rectangle {
                                                 id: loginButton
-                                                radius: 12
+                                                radius: root.buttonRadius
                                                 width: loginLabel.implicitWidth + 22
                                                 height: parent.height
-                                                color: "#111827"
+                                                color: root.accent
 
                                                 Text {
                                                     id: loginLabel
                                                     anchors.centerIn: parent
                                                     text: "开始登录"
-                                                    color: "#FFFFFF"
-                                                    font.family: root.theme.uiFont
-                                                    font.pixelSize: 11
-                                                    font.weight: root.theme.labelWeight
+                                                    color: root.panelBg
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: root.labelWeight
                                                 }
 
                                                 MouseArea {
@@ -267,10 +291,10 @@ Rectangle {
                                                 width: implicitWidth
                                                 height: parent.height
                                                 text: "复制链接"
-                                                color: "#111827"
-                                                font.family: root.theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: root.theme.labelWeight
+                                                color: root.titleInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: root.fontCaption
+                                                font.weight: root.labelWeight
                                                 verticalAlignment: Text.AlignVCenter
 
                                                 MouseArea {
@@ -292,10 +316,10 @@ Rectangle {
                                                 id: loginFlowCard
                                                 width: parent.width
                                                 implicitHeight: flowColumn.implicitHeight + 24
-                                                radius: 18
-                                                color: "#FCFCFB"
+                                                radius: root.entryRadius
+                                                color: root.panelBg
                                                 border.width: 1
-                                                border.color: "#E3EAF4"
+                                                border.color: root.fieldLine
 
                                             Canvas {
                                                 id: dashOutline
@@ -306,7 +330,7 @@ Rectangle {
                                                 onPaint: {
                                                     var ctx = getContext("2d")
                                                     ctx.clearRect(0, 0, width, height)
-                                                    ctx.strokeStyle = "#D7E2F0"
+                                                    ctx.strokeStyle = root.fieldLine
                                                     ctx.lineWidth = 1
                                                     ctx.setLineDash([3, 4])
                                                     var inset = 8
@@ -340,10 +364,10 @@ Rectangle {
                                                     Text {
                                                         width: parent.width
                                                         text: root.flowMessage(modelData)
-                                                        color: "#465466"
-                                                        font.family: root.theme.uiFont
-                                                        font.pixelSize: 12
-                                                        font.weight: root.theme.bodyWeight
+                                                        color: root.bodyInk
+                                                        font.family: root.uiFont
+                                                        font.pixelSize: root.fontBody
+                                                        font.weight: root.bodyWeight
                                                         wrapMode: Text.Wrap
                                                         lineHeight: 1.5
                                                     }
@@ -354,21 +378,21 @@ Rectangle {
 
                                                     Rectangle {
                                                         visible: (modelData.username || "").length > 0
-                                                        radius: 12
+                                                        radius: root.buttonRadius
                                                         width: 60
                                                         height: 29
-                                                        color: "#FFFFFF"
+                                                        color: root.panelBg
                                                         border.width: 1
-                                                        border.color: "#D4DBE6"
+                                                        border.color: root.fieldLine
 
                                                         Text {
                                                             id: usernameLabel
                                                             anchors.centerIn: parent
                                                             text: "复制账号"
-                                                            color: root.theme.bodyInk
-                                                            font.family: root.theme.uiFont
-                                                            font.pixelSize: 11
-                                                            font.weight: root.theme.labelWeight
+                                                            color: root.bodyInk
+                                                            font.family: root.uiFont
+                                                            font.pixelSize: root.fontCaption
+                                                            font.weight: root.labelWeight
                                                         }
 
                                                         MouseArea {
@@ -380,21 +404,21 @@ Rectangle {
 
                                                     Rectangle {
                                                         visible: modelData.canCopyPassword
-                                                        radius: 12
+                                                        radius: root.buttonRadius
                                                         width: 60
                                                         height: 29
-                                                        color: "#FFFFFF"
+                                                        color: root.panelBg
                                                         border.width: 1
-                                                        border.color: "#D4DBE6"
+                                                        border.color: root.fieldLine
 
                                                         Text {
                                                             id: passwordLabel
                                                             anchors.centerIn: parent
                                                             text: "复制密码"
-                                                            color: root.theme.bodyInk
-                                                            font.family: root.theme.uiFont
-                                                            font.pixelSize: 11
-                                                            font.weight: root.theme.labelWeight
+                                                            color: root.bodyInk
+                                                            font.family: root.uiFont
+                                                            font.pixelSize: root.fontCaption
+                                                            font.weight: root.labelWeight
                                                         }
 
                                                         MouseArea {
@@ -406,12 +430,12 @@ Rectangle {
 
                                                     Rectangle {
                                                         visible: modelData.canCopyOtp
-                                                        radius: 10
+                                                        radius: root.otpRadius
                                                         width: 92
                                                         height: 29
-                                                        color: "#FFFFFF"
+                                                        color: root.panelBg
                                                         border.width: 1
-                                                        border.color: "#D4DBE6"
+                                                        border.color: root.fieldLine
 
                                                         Row {
                                                             id: otpRow
@@ -422,10 +446,10 @@ Rectangle {
                                                                 width: 58
                                                                 height: parent.height
                                                                 text: root.otpDisplay(modelData.otpCode || "")
-                                                                color: "#111827"
-                                                                font.family: root.theme.uiFont
-                                                                font.pixelSize: 12
-                                                                font.weight: root.theme.sectionWeight
+                                                                color: root.titleInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: root.fontBody
+                                                                font.weight: root.sectionWeight
                                                                 horizontalAlignment: Text.AlignHCenter
                                                                 verticalAlignment: Text.AlignVCenter
                                                             }
@@ -433,17 +457,17 @@ Rectangle {
                                                             Rectangle {
                                                                 width: 1
                                                                 height: parent.height
-                                                                color: "#E5E7EB"
+                                                                color: root.fieldLine
                                                             }
 
                                                             Text {
                                                                 width: 33
                                                                 height: parent.height
                                                                 text: (modelData.otpRemainingSeconds || 0) + "s"
-                                                                color: "#64748B"
-                                                                font.family: root.theme.uiFont
-                                                                font.pixelSize: 10
-                                                                font.weight: root.theme.labelWeight
+                                                                color: root.labelInk
+                                                                font.family: root.uiFont
+                                                                font.pixelSize: root.fontTiny
+                                                                font.weight: root.labelWeight
                                                                 horizontalAlignment: Text.AlignHCenter
                                                                 verticalAlignment: Text.AlignVCenter
                                                             }
@@ -461,10 +485,10 @@ Rectangle {
                                                     visible: modelData.canCopyOtp
                                                     width: parent.width
                                                     text: "验证码直接显示，点击数字可复制；倒计时与验证码同区，不再挤在底部。"
-                                                    color: "#94A3B8"
-                                                    font.family: root.theme.uiFont
-                                                    font.pixelSize: 11
-                                                    font.weight: root.theme.bodyWeight
+                                                    color: root.mutedInk
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: root.fontCaption
+                                                    font.weight: root.bodyWeight
                                                     wrapMode: Text.Wrap
                                                     lineHeight: 1.45
                                                 }
@@ -484,10 +508,10 @@ Rectangle {
                             visible: (modelData.entries || []).length === 0
                             width: parent.width
                             height: emptyText.implicitHeight + 16
-                            radius: 12
-                            color: "#FFFFFF"
+                            radius: root.entryRadius
+                            color: root.panelBg
                             border.width: 1
-                            border.color: "#EEF2F6"
+                            border.color: root.fieldLine
 
                             Text {
                                 id: emptyText
@@ -497,10 +521,10 @@ Rectangle {
                                 anchors.leftMargin: 10
                                 anchors.rightMargin: 10
                                 text: modelData.note || "当前环境组暂无可直接访问入口"
-                                color: root.theme.labelInk
-                                font.family: root.theme.uiFont
-                                font.pixelSize: 11
-                                font.weight: root.theme.bodyWeight
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: root.fontCaption
+                                font.weight: root.bodyWeight
                                 wrapMode: Text.Wrap
                             }
                         }
@@ -513,18 +537,18 @@ Rectangle {
             visible: (root.groupsModel || []).length === 0
             width: parent.width
             height: 44
-            radius: 12
-            color: "#FAFBFD"
+            radius: root.groupRadius
+            color: root.panelAltBg
             border.width: 1
-            border.color: "#EEF2F6"
+            border.color: root.fieldLine
 
             Text {
                 anchors.centerIn: parent
                 text: "当前项目暂无可用环境配置"
-                color: root.theme.labelInk
-                font.family: root.theme.uiFont
-                font.pixelSize: 11
-                font.weight: root.theme.bodyWeight
+                color: root.labelInk
+                font.family: root.uiFont
+                font.pixelSize: root.fontCaption
+                font.weight: root.bodyWeight
             }
         }
     }

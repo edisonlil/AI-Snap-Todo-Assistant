@@ -1940,7 +1940,7 @@ Rectangle {
                             var point = envAccessTrigger.mapToItem(environmentPopoverLayer, 0, envAccessTrigger.height + 8)
                             return point.y
                         }
-                        theme: root
+                        theme: root.themeTokens
                         groupsModel: todoDetailBridge.environmentAccessGroups
                         z: 1
                     }
