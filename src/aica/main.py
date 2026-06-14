@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import uuid
 
 from PyQt6.QtCore import QEvent, QObject, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
+from PyQt6.QtGui import QAction, QCursor, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
@@ -90,6 +90,28 @@ class _ApplicationActivationFilter(QObject):
         return False
 
 
+def _cursor_is_over_application_window(app: QApplication) -> bool:
+    """Return True when the current pointer target is one of this app's windows."""
+    try:
+        cursor_pos = QCursor.pos()
+    except Exception:
+        return False
+
+    top_level_windows = getattr(app, "topLevelWindows", None)
+    if not callable(top_level_windows):
+        return False
+
+    for window in top_level_windows():
+        try:
+            if not window.isVisible():
+                continue
+            if window.geometry().contains(cursor_pos):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 class _AppCommandDispatcher(QObject):
     command_received = pyqtSignal(str)
 
@@ -97,9 +119,15 @@ class _AppCommandDispatcher(QObject):
         self.command_received.emit(command)
 
 
-def _handle_application_state_changed(state, show_control_panel) -> None:
+def _show_control_panel_for_external_activation(app: QApplication, show_control_panel) -> None:
+    if _cursor_is_over_application_window(app):
+        return
+    show_control_panel("server")
+
+
+def _handle_application_state_changed(state, app: QApplication, show_control_panel) -> None:
     if state == Qt.ApplicationState.ApplicationActive:
-        show_control_panel("server")
+        _show_control_panel_for_external_activation(app, show_control_panel)
 
 
 def _resolve_error_log_file() -> Path:
@@ -313,10 +341,16 @@ def _install_macos_dock_handlers(
     else:
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
 
-    activation_filter = _ApplicationActivationFilter(lambda: show_control_panel("server"), app)
+    activation_filter = _ApplicationActivationFilter(
+        lambda: QTimer.singleShot(0, lambda: _show_control_panel_for_external_activation(app, show_control_panel)),
+        app,
+    )
     app.installEventFilter(activation_filter)
     app.applicationStateChanged.connect(
-        lambda state: _handle_application_state_changed(state, show_control_panel)
+        lambda state: QTimer.singleShot(
+            0,
+            lambda state=state: _handle_application_state_changed(state, app, show_control_panel),
+        )
     )
     _append_startup_log(startup_log_file, "startup: macos dock activation handler installed")
     return SimpleNamespace(

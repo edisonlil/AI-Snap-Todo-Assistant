@@ -11,6 +11,7 @@ from aica.main import (  # noqa: E402
     _apply_application_icon,
     _build_hotkey_manager,
     _handle_application_state_changed,
+    _show_control_panel_for_external_activation,
     _install_windows_taskbar_handlers,
     _install_macos_dock_handlers,
     _set_windows_app_user_model_id,
@@ -191,6 +192,7 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_macos=True))
     monkeypatch.setattr("aica.main.QAction", _Action)
     monkeypatch.setattr("aica.main.QMenu", _Menu)
+    monkeypatch.setattr("aica.main.QTimer", SimpleNamespace(singleShot=lambda _ms, callback: callback()))
     monkeypatch.setattr("aica.main._ApplicationActivationFilter", _ActivationFilter)
 
     shown_sections: list[str] = []
@@ -264,14 +266,27 @@ def test_application_state_changed_opens_control_panel_when_active(monkeypatch) 
         ApplicationState = _ApplicationState
 
     monkeypatch.setattr("aica.main.Qt", _Qt)
+    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
 
     _handle_application_state_changed(
         _ApplicationState.ApplicationActive,
+        object(),
         lambda section: shown_sections.append(section),
     )
-    _handle_application_state_changed(object(), lambda section: shown_sections.append(section))
+    _handle_application_state_changed(object(), object(), lambda section: shown_sections.append(section))
 
     assert shown_sections == ["server"]
+
+
+def test_application_activation_ignores_clicks_on_app_windows(monkeypatch) -> None:
+    shown_sections: list[str] = []
+    app = object()
+
+    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda checked_app: checked_app is app)
+
+    _show_control_panel_for_external_activation(app, lambda section: shown_sections.append(section))
+
+    assert shown_sections == []
 
 
 def test_exception_handler_exits_when_error_dialog_fails(monkeypatch, tmp_path: Path) -> None:
