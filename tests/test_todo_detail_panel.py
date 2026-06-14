@@ -1563,6 +1563,108 @@ def test_manual_save_upserts_conclusion_timeline_item() -> None:
     assert saved[0][1]["timeline"][0].kind == "conclusion"
 
 
+def test_complete_todo_requires_conclusion() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    completed: list[str] = []
+    bridge.completeRequested.connect(completed.append)
+
+    bridge.completeTodo()
+
+    assert completed == []
+    assert "请先填写问题结论" in _notification_messages(bridge)
+
+
+def test_complete_todo_allows_filled_conclusion() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    completed: list[str] = []
+    bridge.completeRequested.connect(completed.append)
+
+    bridge.updateField("conclusion_content", "已有问题结论")
+    bridge.completeTodo()
+
+    assert completed == ["todo-1"]
+
+
+def test_delete_conclusion_card_disables_completion() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+
+    bridge.addTimelineEntry("已有问题结论", "conclusion")
+    conclusion_id = str(bridge.timeline[0]["id"])
+    saved.clear()
+
+    bridge.deleteTimelineEntry(conclusion_id)
+
+    assert bridge.canCompleteTodo is False
+    assert bridge.conclusionContent == ""
+    assert all(item["kind"] != "conclusion" for item in bridge.timeline)
+    assert saved[0][1]["conclusion"].content == ""
+    assert all(event.kind != "conclusion" for event in saved[0][1]["timeline"])
+
+
+def test_reopened_todo_restores_hidden_conclusion_card() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.conclusion = TodoConclusion(content="旧问题结论", updated_at="2026-06-14T11:12:00")
+    todo.timeline = [
+        TimelineEvent(
+            id="follow-up-1",
+            timestamp="2026-06-01T11:00:00",
+            kind="manual",
+            scenario="工单跟进",
+            content="普通跟进",
+        )
+    ]
+
+    bridge.set_todo(todo)
+
+    assert bridge.canCompleteTodo is True
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "旧问题结论"
+
+
+def test_deleting_follow_up_keeps_reopened_conclusion_visible() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.conclusion = TodoConclusion(content="旧问题结论", updated_at="2026-06-14T11:12:00")
+    todo.timeline = [
+        TimelineEvent(
+            id="follow-up-1",
+            timestamp="2026-06-01T11:00:00",
+            kind="manual",
+            scenario="工单跟进",
+            content="普通跟进",
+        )
+    ]
+    bridge.set_todo(todo)
+
+    bridge.deleteTimelineCard("follow-up-1")
+
+    assert bridge.canCompleteTodo is True
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "旧问题结论"
+
+
+def test_todo_detail_complete_button_is_gated_by_conclusion() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+    complete_button = qml_text.split("id: completeButton", 1)[1].split("Row {", 1)[0]
+
+    assert "enabled: todoDetailBridge.canCompleteTodo" in complete_button
+    assert "cursorShape: completeButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor" in complete_button
+    assert "id: completeDisabledTip" in complete_button
+    assert 'text: "请先填写问题结论"' in complete_button
+    assert "ToolTip." not in complete_button
+
+
 def test_manual_save_preserves_legacy_conclusion_timeline_item() -> None:
     bridge = _build_bridge(Path("unused"))
     todo = _build_todo()

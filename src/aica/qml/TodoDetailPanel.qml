@@ -1188,23 +1188,53 @@ Rectangle {
                                         id: completeButton
                                         width: root.actionButtonWidth
                                         height: 30
+                                        enabled: todoDetailBridge.canCompleteTodo
                                         radius: 15
-                                        color: root.accentTint
+                                        color: enabled ? (completeButtonMouse.pressed ? "#151C28" : root.accent) : "#E1E4E8"
                                         border.width: 0
                                         border.color: "transparent"
 
                                         Text {
                                             anchors.centerIn: parent
                                             text: "完成"
-                                            color: root.accent
+                                            color: completeButton.enabled ? "#FFFFFF" : root.labelInk
                                             font.family: root.uiFont
                                             font.pixelSize: 12
                                             font.weight: root.labelWeight
                                         }
 
                                         MouseArea {
+                                            id: completeButtonMouse
                                             anchors.fill: parent
+                                            enabled: true
+                                            hoverEnabled: true
+                                            cursorShape: completeButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                             onClicked: todoDetailBridge.completeTodo()
+                                        }
+
+                                        Rectangle {
+                                            id: completeDisabledTip
+                                            visible: completeButtonMouse.containsMouse && !completeButton.enabled
+                                            width: completeDisabledTipText.implicitWidth + 22
+                                            height: 34
+                                            radius: 8
+                                            color: "#2A313F"
+                                            border.width: 1
+                                            border.color: "#3A4352"
+                                            anchors.right: parent.right
+                                            anchors.bottom: parent.top
+                                            anchors.bottomMargin: 8
+                                            z: 20
+
+                                            Text {
+                                                id: completeDisabledTipText
+                                                anchors.centerIn: parent
+                                                text: "请先填写问题结论"
+                                                color: "#FFFFFF"
+                                                font.family: root.uiFont
+                                                font.pixelSize: 12
+                                                font.weight: root.labelWeight
+                                            }
                                         }
                                     }
                                 }

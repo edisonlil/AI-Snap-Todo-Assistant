@@ -958,6 +958,38 @@ class _TodoDetailBridge(QObject):
     def conclusionContent(self) -> str:
         return self._conclusion_content
 
+    @pyqtProperty(bool, notify=dataChanged)
+    def canCompleteTodo(self) -> bool:
+        return bool(self._valid_conclusion_text())
+
+    def _valid_conclusion_text(self) -> str:
+        content = self._conclusion_content.strip()
+        if self._is_cleared_conclusion_content(content):
+            return ""
+        return content
+
+    def _has_valid_conclusion_item(self) -> bool:
+        for item in self._timeline:
+            if str(item.get("kind") or "").strip() != "conclusion":
+                continue
+            content = str(item.get("content", "") or "").strip()
+            if content and not self._is_cleared_conclusion_content(content):
+                return True
+        return False
+
+    def _clear_conclusion(self, *, mark_dirty: bool = True) -> None:
+        self._conclusion_content = ""
+        self._conclusion_attachments = []
+        self._conclusion_updated_at = datetime.now().isoformat()
+        self._conclusion_dirty = bool(mark_dirty)
+
+    def _ensure_visible_conclusion_state(self) -> None:
+        has_valid_conclusion = bool(self._valid_conclusion_text() or self._conclusion_attachments)
+        if not has_valid_conclusion or self._has_valid_conclusion_item():
+            return
+        self._conclusion_dirty = True
+        self._sync_local_conclusion_timeline_item()
+
     @pyqtProperty(str, notify=dataChanged)
     def conclusionUpdatedAtLabel(self) -> str:
         return _format_ts(self._conclusion_updated_at) if self._conclusion_updated_at else ""
@@ -1499,6 +1531,7 @@ class _TodoDetailBridge(QObject):
         if not self._conclusion_content.strip() and not self._conclusion_attachments:
             self._hydrate_conclusion_from_timeline(timeline_items)
         self._timeline = timeline_items
+        self._ensure_visible_conclusion_state()
         self._refresh_display_timeline()
         self._apply_timeline_draft_state(self._timeline_draft_cache.get(todo.id))
         if not self._current_summary and self._timeline:
@@ -1861,9 +1894,12 @@ class _TodoDetailBridge(QObject):
         elif name == "current_summary":
             self._current_summary = text
         elif name == "conclusion_content":
-            self._conclusion_content = text
-            self._conclusion_updated_at = datetime.now().isoformat()
-            self._conclusion_dirty = True
+            if text:
+                self._conclusion_content = text
+                self._conclusion_updated_at = datetime.now().isoformat()
+                self._conclusion_dirty = True
+            else:
+                self._clear_conclusion()
         else:
             return
         self.dataChanged.emit()
@@ -1893,9 +1929,12 @@ class _TodoDetailBridge(QObject):
             text = sanitize_text(value)
             item["content"] = text
             if str(item.get("kind") or "").strip() == "conclusion":
-                self._conclusion_content = text
-                self._conclusion_updated_at = datetime.now().isoformat()
-                self._conclusion_dirty = True
+                if text:
+                    self._conclusion_content = text
+                    self._conclusion_updated_at = datetime.now().isoformat()
+                    self._conclusion_dirty = True
+                else:
+                    self._clear_conclusion()
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
@@ -2207,10 +2246,19 @@ class _TodoDetailBridge(QObject):
         remaining = [item for item in self._timeline if str(item.get("id") or "") not in related_ids]
         if len(remaining) == len(self._timeline):
             return
+        removed_conclusion = False
         for item in removed:
             self._delete_attachments_for_item(item)
+            if str(item.get("kind") or "").strip() == "conclusion":
+                removed_conclusion = True
+                self._clear_conclusion(mark_dirty=False)
         self._timeline = remaining
+        if not removed_conclusion and self._conclusion_dirty:
+            self._sync_local_conclusion_timeline_item()
+        elif not removed_conclusion:
+            self._ensure_visible_conclusion_state()
         self._refresh_display_timeline()
+        self.dataChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
 
@@ -2236,10 +2284,19 @@ class _TodoDetailBridge(QObject):
         remaining = [item for item in self._timeline if item["id"] != event_id]
         if len(remaining) == len(self._timeline):
             return
+        removed_conclusion = False
         for item in removed:
             self._delete_attachments_for_item(item)
+            if str(item.get("kind") or "").strip() == "conclusion":
+                removed_conclusion = True
+                self._clear_conclusion(mark_dirty=False)
         self._timeline = remaining
+        if not removed_conclusion and self._conclusion_dirty:
+            self._sync_local_conclusion_timeline_item()
+        elif not removed_conclusion:
+            self._ensure_visible_conclusion_state()
         self._refresh_display_timeline()
+        self.dataChanged.emit()
         self.timelineChanged.emit()
         self._emit_save_request()
 
@@ -2291,6 +2348,8 @@ class _TodoDetailBridge(QObject):
         self._conclusion_attachments = remaining
         self._conclusion_updated_at = datetime.now().isoformat()
         self._conclusion_dirty = True
+        if not self._conclusion_content.strip():
+            self._conclusion_attachments = []
         if removed_path:
             self._remove_attachment_file(removed_path)
         self._sync_local_conclusion_timeline_item()
@@ -3521,6 +3580,9 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot()
     def completeTodo(self) -> None:
         if self._todo_id is None:
+            return
+        if not self.canCompleteTodo:
+            self._notify("warning", "请先填写问题结论")
             return
         self.completeRequested.emit(self._todo_id)
 

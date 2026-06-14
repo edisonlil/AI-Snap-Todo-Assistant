@@ -10,12 +10,20 @@ from pathlib import Path
 from types import SimpleNamespace
 import uuid
 
-from PyQt6.QtCore import QRect, QTimer, Qt
+from PyQt6.QtCore import QEvent, QObject, QRect, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
 from aica.analysis.metrics import AnalysisMetricsStore
+from aica.app_commands import (
+    AppCommandServer,
+    COMMAND_CAPTURE,
+    COMMAND_OPEN_PANEL,
+    COMMAND_QUIT,
+    parse_startup_command,
+    send_app_command,
+)
 from aica.app_notifications import AppNotificationBridge, AppNotificationWindow
 from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.build_expiration import build_expiration_message, should_enforce_build_expiration, get_build_expiration_status
@@ -62,10 +70,36 @@ from aica.worker import (
     MultiCaptureAIWorker,
     StageSummaryWorker,
 )
+from aica.windows_taskbar import install_windows_taskbar_tasks
 
 
 _APP_NAME = "Chattodo"
 _WINDOWS_APP_USER_MODEL_ID = "edison.Chattodo"
+
+
+class _ApplicationActivationFilter(QObject):
+    """Open the control panel when the macOS Dock icon activates the app."""
+
+    def __init__(self, activated_callback, parent=None):
+        super().__init__(parent)
+        self._activated_callback = activated_callback
+
+    def eventFilter(self, _watched, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.ApplicationActivate:
+            self._activated_callback()
+        return False
+
+
+class _AppCommandDispatcher(QObject):
+    command_received = pyqtSignal(str)
+
+    def dispatch(self, command: str) -> None:
+        self.command_received.emit(command)
+
+
+def _handle_application_state_changed(state, show_control_panel) -> None:
+    if state == Qt.ApplicationState.ApplicationActive:
+        show_control_panel("server")
 
 
 def _resolve_error_log_file() -> Path:
@@ -230,6 +264,16 @@ def _set_windows_app_user_model_id(startup_log_file: Path) -> None:
         _append_startup_log(startup_log_file, f"startup: windows app user model id failed: {exc}")
 
 
+def _install_windows_taskbar_handlers(startup_log_file: Path) -> None:
+    if not RUNTIME_CAPABILITIES.is_windows:
+        return
+    installed = install_windows_taskbar_tasks()
+    _append_startup_log(
+        startup_log_file,
+        f"startup: windows taskbar tasks installed={installed}",
+    )
+
+
 def _apply_application_icon(app: QApplication, startup_log_file: Path) -> QIcon:
     app_icon_path = icon_file()
     app_icon = QIcon(str(app_icon_path))
@@ -247,9 +291,47 @@ def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_f
     _append_startup_log(startup_log_file, "startup: control panel shown")
 
 
+def _install_macos_dock_handlers(
+    app: QApplication,
+    *,
+    show_control_panel,
+    request_capture,
+    startup_log_file: Path,
+):
+    if not RUNTIME_CAPABILITIES.is_macos:
+        return None
+
+    dock_menu = QMenu()
+    action_capture = QAction("开始截图", app)
+    action_capture.triggered.connect(lambda: request_capture("dock"))
+    dock_menu.addAction(action_capture)
+
+    set_as_dock_menu = getattr(dock_menu, "setAsDockMenu", None)
+    if callable(set_as_dock_menu):
+        set_as_dock_menu()
+        _append_startup_log(startup_log_file, "startup: macos dock menu installed")
+    else:
+        _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
+
+    activation_filter = _ApplicationActivationFilter(lambda: show_control_panel("server"), app)
+    app.installEventFilter(activation_filter)
+    app.applicationStateChanged.connect(
+        lambda state: _handle_application_state_changed(state, show_control_panel)
+    )
+    _append_startup_log(startup_log_file, "startup: macos dock activation handler installed")
+    return SimpleNamespace(
+        dock_menu=dock_menu,
+        activation_filter=activation_filter,
+        actions=(action_capture,),
+    )
+
+
 def main() -> None:
+    startup_command = parse_startup_command(sys.argv)
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
+        if startup_command is not None and send_app_command(startup_command):
+            return
         show_already_running_message()
         return
 
@@ -258,6 +340,7 @@ def main() -> None:
 
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     _set_windows_app_user_model_id(startup_log_file)
+    _install_windows_taskbar_handlers(startup_log_file)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app_icon = _apply_application_icon(app, startup_log_file)
@@ -280,6 +363,13 @@ def main() -> None:
     _append_startup_log(startup_log_file, f"startup: capture hotkey configured={hotkey_mgr.hotkey}")
     notification_bridge = AppNotificationBridge()
     notification_window = AppNotificationWindow(notification_bridge, theme_controller=theme_controller)
+    command_dispatcher = _AppCommandDispatcher()
+    command_server = AppCommandServer(command_dispatcher.dispatch)
+    try:
+        command_server.start()
+        _append_startup_log(startup_log_file, "startup: command server started")
+    except Exception as exc:
+        _append_startup_log(startup_log_file, f"startup: command server failed: {exc}")
     control_panel = None
     toolbar = FloatingToolbar(theme_controller=theme_controller)
     todo_store = TodoStore()
@@ -391,6 +481,15 @@ def main() -> None:
         control_panel.hide()
         app.quit()
 
+    def _handle_app_command(command: str) -> None:
+        _append_startup_log(startup_log_file, f"command: received={command}")
+        if command == COMMAND_OPEN_PANEL:
+            _show_control_panel("server")
+        elif command == COMMAND_CAPTURE:
+            _request_capture("taskbar")
+        elif command == COMMAND_QUIT:
+            _quit_application()
+
     tray_menu = QMenu()
     action_capture = QAction("开始截图", app)
     action_open_panel = QAction("打开控制面板", app)
@@ -404,6 +503,12 @@ def main() -> None:
     tray_menu.addSeparator()
     tray_menu.addAction(action_exit)
     tray_icon.setContextMenu(tray_menu)
+    macos_dock_handlers = _install_macos_dock_handlers(
+        app,
+        show_control_panel=_show_control_panel,
+        request_capture=_request_capture,
+        startup_log_file=startup_log_file,
+    )
 
     def _on_tray_activated(reason) -> None:
         if reason in (
@@ -1065,6 +1170,9 @@ def main() -> None:
     todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
     todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
     todo_detail_panel.assist_analysis_requested.connect(_on_assist_analysis_requested)
+    command_dispatcher.command_received.connect(_handle_app_command)
+    if startup_command is not None:
+        QTimer.singleShot(0, lambda command=startup_command: _handle_app_command(command))
 
     try:
         _refresh_todo_panel()
@@ -1092,6 +1200,7 @@ def main() -> None:
         tray_icon.hide()
         notification_window.hide()
         control_panel.hide()
+        command_server.stop()
         hotkey_mgr.stop()
         instance_guard.release()
 

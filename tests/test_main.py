@@ -7,8 +7,12 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.main import (  # noqa: E402
+    _ApplicationActivationFilter,
     _apply_application_icon,
     _build_hotkey_manager,
+    _handle_application_state_changed,
+    _install_windows_taskbar_handlers,
+    _install_macos_dock_handlers,
     _set_windows_app_user_model_id,
     _setup_exception_handler,
     _show_startup_control_panel,
@@ -73,6 +77,25 @@ def test_set_windows_app_user_model_id_uses_shell_api(monkeypatch, tmp_path: Pat
     assert "windows app user model id set=edison.Chattodo" in log_file.read_text(encoding="utf-8")
 
 
+def test_install_windows_taskbar_handlers_logs_install_result(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_windows=True))
+    monkeypatch.setattr("aica.main.install_windows_taskbar_tasks", lambda: True)
+
+    log_file = tmp_path / "startup.log"
+    _install_windows_taskbar_handlers(log_file)
+
+    assert "windows taskbar tasks installed=True" in log_file.read_text(encoding="utf-8")
+
+
+def test_install_windows_taskbar_handlers_skips_non_windows(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_windows=False))
+
+    log_file = tmp_path / "startup.log"
+    _install_windows_taskbar_handlers(log_file)
+
+    assert not log_file.exists()
+
+
 def test_apply_application_icon_sets_chattodo_name_and_icon(monkeypatch, tmp_path: Path) -> None:
     icon_path = tmp_path / "aica_icon.png"
     icon_path.write_bytes(b"icon")
@@ -118,6 +141,137 @@ def test_show_startup_control_panel_opens_server_section(tmp_path: Path) -> None
 
     assert calls == ["server"]
     assert "control panel shown" in log_file.read_text(encoding="utf-8")
+
+
+def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path: Path) -> None:
+    events: list[object] = []
+
+    class _Signal:
+        def __init__(self) -> None:
+            self._callbacks = []
+
+        def connect(self, callback) -> None:
+            self._callbacks.append(callback)
+
+        def emit(self, *args) -> None:
+            for callback in self._callbacks:
+                callback(*args)
+
+    class _Action:
+        def __init__(self, text: str, _app) -> None:
+            self.text = text
+            self.triggered = _Signal()
+
+    class _Menu:
+        def __init__(self) -> None:
+            self.items = []
+            self.dock_menu_set = False
+
+        def addAction(self, action) -> None:
+            self.items.append(action)
+
+        def addSeparator(self) -> None:
+            self.items.append(None)
+
+        def setAsDockMenu(self) -> None:
+            self.dock_menu_set = True
+
+    class _App:
+        def __init__(self) -> None:
+            self.applicationStateChanged = _Signal()
+
+        def installEventFilter(self, event_filter) -> None:
+            events.append(event_filter)
+
+    class _ActivationFilter:
+        def __init__(self, callback, parent=None) -> None:
+            self.callback = callback
+            self.parent = parent
+
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_macos=True))
+    monkeypatch.setattr("aica.main.QAction", _Action)
+    monkeypatch.setattr("aica.main.QMenu", _Menu)
+    monkeypatch.setattr("aica.main._ApplicationActivationFilter", _ActivationFilter)
+
+    shown_sections: list[str] = []
+    capture_sources: list[str] = []
+    quit_calls: list[str] = []
+
+    app = _App()
+    handlers = _install_macos_dock_handlers(
+        app,
+        show_control_panel=lambda section: shown_sections.append(section),
+        request_capture=lambda source: capture_sources.append(source),
+        startup_log_file=tmp_path / "startup.log",
+    )
+
+    assert handlers.dock_menu.dock_menu_set is True
+    assert [getattr(item, "text", None) for item in handlers.dock_menu.items] == ["开始截图"]
+
+    handlers.dock_menu.items[0].triggered.emit()
+    handlers.activation_filter.callback()
+    app.applicationStateChanged.emit("inactive")
+
+    assert capture_sources == ["dock"]
+    assert quit_calls == []
+    assert shown_sections == ["server"]
+    assert events == [handlers.activation_filter]
+    assert "macos dock menu installed" in (tmp_path / "startup.log").read_text(encoding="utf-8")
+
+
+def test_macos_dock_handlers_are_skipped_on_non_macos(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_macos=False))
+
+    handlers = _install_macos_dock_handlers(
+        object(),
+        show_control_panel=lambda *_args: None,
+        request_capture=lambda *_args: None,
+        startup_log_file=tmp_path / "startup.log",
+    )
+
+    assert handlers is None
+
+
+def test_application_activation_filter_opens_control_panel(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _EventType:
+        ApplicationActivate = object()
+
+    class _QEvent:
+        Type = _EventType
+
+    class _Event:
+        @staticmethod
+        def type():
+            return _EventType.ApplicationActivate
+
+    monkeypatch.setattr("aica.main.QEvent", _QEvent)
+
+    activation_filter = _ApplicationActivationFilter(lambda: calls.append("activated"))
+    activation_filter.eventFilter(None, _Event())
+
+    assert calls == ["activated"]
+
+
+def test_application_state_changed_opens_control_panel_when_active(monkeypatch) -> None:
+    shown_sections: list[str] = []
+
+    class _ApplicationState:
+        ApplicationActive = object()
+
+    class _Qt:
+        ApplicationState = _ApplicationState
+
+    monkeypatch.setattr("aica.main.Qt", _Qt)
+
+    _handle_application_state_changed(
+        _ApplicationState.ApplicationActive,
+        lambda section: shown_sections.append(section),
+    )
+    _handle_application_state_changed(object(), lambda section: shown_sections.append(section))
+
+    assert shown_sections == ["server"]
 
 
 def test_exception_handler_exits_when_error_dialog_fails(monkeypatch, tmp_path: Path) -> None:
