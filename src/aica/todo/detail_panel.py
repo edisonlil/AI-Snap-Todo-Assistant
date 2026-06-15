@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 from urllib.parse import urlsplit
@@ -12,6 +14,16 @@ import uuid
 
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 _MIN_ASSIST_CASE_MATCH_SCORE = 50
+
+try:  # pragma: no cover - optional renderer availability differs by install target
+    from markdown_it import MarkdownIt
+except Exception:  # pragma: no cover
+    MarkdownIt = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional WebEngine availability differs by install target
+    from PyQt6.QtWebEngineQuick import QtWebEngineQuick
+except Exception:  # pragma: no cover
+    QtWebEngineQuick = None  # type: ignore[assignment]
 
 try:
     if _SKIP_QT_IMPORT:
@@ -72,6 +84,13 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
         class WindowType:
             FramelessWindowHint = 0
             WindowStaysOnTopHint = 0
+            WindowTitleHint = 0
+            WindowSystemMenuHint = 0
+            WindowMinMaxButtonsHint = 0
+            WindowMinimizeButtonHint = 0
+            WindowMaximizeButtonHint = 0
+            WindowCloseButtonHint = 0
+            NoDropShadowWindowHint = 0
             Tool = 0
             Window = 0
 
@@ -84,6 +103,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
     class QEvent:  # type: ignore[no-redef]
         class Type:
             WindowDeactivate = 0
+            Close = 1
 
     class QTimer:  # type: ignore[no-redef]
         @staticmethod
@@ -200,8 +220,12 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             self._visible = False
             self._x = 0
             self._y = 0
+            self._window_state = 0
 
         def setFlags(self, *_args, **_kwargs):
+            return None
+
+        def setTitle(self, *_args, **_kwargs):
             return None
 
         def setColor(self, *_args, **_kwargs):
@@ -242,9 +266,20 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def hide(self):
             self._visible = False
+            self._window_state = 0
             return None
 
         def show(self):
+            self._visible = True
+            return None
+
+        def showMaximized(self):
+            self._visible = True
+            self._window_state = 1
+            return None
+
+        def showNormal(self):
+            self._window_state = 0
             self._visible = True
             return None
 
@@ -265,6 +300,9 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
         def isVisible(self):
             return self._visible
+
+        def windowState(self):
+            return self._window_state
 
         def x(self):
             return self._x
@@ -487,6 +525,234 @@ def _clone_attachment_payloads(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
     return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _timeline_payload_summary(payload: dict[str, object]) -> str:
+    return sanitize_text(payload.get("summary")).strip()
+
+
+def _timeline_payload_raw_content(payload: dict[str, object], fallback: str) -> str:
+    return sanitize_text(payload.get("raw_content")).strip() or sanitize_text(fallback).strip()
+
+
+def _timeline_payload_detail(payload: dict[str, object], fallback: str) -> str:
+    return (
+        sanitize_text(payload.get("polished_detail")).strip()
+        or _timeline_payload_raw_content(payload, fallback)
+    )
+
+
+def _timeline_display_content(content: str, payload: dict[str, object]) -> str:
+    return _timeline_payload_summary(payload) or sanitize_text(content).strip()
+
+
+_MARKDOWN_RENDERER = (
+    MarkdownIt("commonmark", {"breaks": True, "html": False}).enable(["table", "strikethrough"])
+    if MarkdownIt is not None
+    else None
+)
+_TIMELINE_DETAIL_MARKDOWN_CSS = """
+<style>
+:root {
+  color-scheme: light;
+}
+html, body {
+  background: #FFFFFF;
+  color: #26364B;
+  margin: 0;
+  padding: 0;
+}
+body {
+  box-sizing: border-box;
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+  padding: 24px 0;
+}
+.markdown {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 100%;
+  padding: 0 2px;
+}
+p { margin: 0 0 14px; }
+ol, ul { margin: 0 0 16px; padding-left: 1.5em; }
+li { margin: 4px 0; padding-left: 2px; }
+strong { font-weight: 700; }
+a {
+  color: #2563EB;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+code {
+  background: #F3F5F8;
+  border-radius: 4px;
+  color: #1E2D42;
+  font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+  padding: 1px 4px;
+}
+pre {
+  background: #F6F8FA;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  margin: 0 0 16px;
+  overflow: auto;
+  padding: 12px 14px;
+}
+pre code {
+  background: transparent;
+  display: block;
+  padding: 0;
+  white-space: pre;
+}
+blockquote {
+  border-left: 3px solid #D8DEE8;
+  color: #536173;
+  margin: 0 0 16px;
+  padding-left: 12px;
+}
+h1, h2, h3, h4 {
+  color: #1F2D3D;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0 0 12px;
+}
+h1 { font-size: 1.7em; }
+h2 { font-size: 1.42em; }
+h3 { font-size: 1.2em; }
+table {
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  max-width: 100%;
+  width: auto;
+}
+th, td {
+  border: 1px solid #E1E7EF;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+th {
+  background: #F6F8FA;
+  font-weight: 700;
+}
+hr {
+  border: 0;
+  border-top: 1px solid #E1E7EF;
+  margin: 16px 0;
+}
+</style>
+""".strip()
+
+
+def _render_timeline_markdown_html(text: str) -> str:
+    normalized = sanitize_text(text).strip()
+    if not normalized:
+        return ""
+    if _MARKDOWN_RENDERER is None:
+        body = _render_timeline_markdown_html_fallback(normalized)
+    else:
+        body = _MARKDOWN_RENDERER.render(normalized)
+    return (
+        "<!doctype html>"
+        "<html>"
+        "<head>"
+        '<meta charset="utf-8" />'
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+        f"{_TIMELINE_DETAIL_MARKDOWN_CSS}"
+        "</head>"
+        f"<body><div class=\"markdown\">{body}</div></body>"
+        "</html>"
+    )
+
+
+def _initialize_webengine_quick() -> None:
+    if QtWebEngineQuick is None:
+        return
+    initializer = getattr(QtWebEngineQuick, "initialize", None)
+    if callable(initializer):
+        initializer()
+
+
+def _render_inline_markdown_fallback(text: str) -> str:
+    rendered = escape(text)
+    rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", rendered)
+    rendered = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", rendered)
+    return rendered
+
+
+def _render_timeline_markdown_html_fallback(text: str) -> str:
+    lines = text.splitlines()
+    blocks: list[str] = []
+    paragraph: list[str] = []
+    list_items: list[str] = []
+    list_type = ""
+    code_lines: list[str] = []
+    in_code = False
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            blocks.append(f"<p>{'<br/>'.join(_render_inline_markdown_fallback(line) for line in paragraph)}</p>")
+            paragraph.clear()
+
+    def flush_list() -> None:
+        nonlocal list_type
+        if list_items:
+            tag = "ol" if list_type == "ol" else "ul"
+            blocks.append(f"<{tag}>{''.join(list_items)}</{tag}>")
+            list_items.clear()
+            list_type = ""
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_code:
+                blocks.append(f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>")
+                code_lines.clear()
+                in_code = False
+            else:
+                flush_paragraph()
+                flush_list()
+                in_code = True
+            continue
+        if in_code:
+            code_lines.append(raw_line)
+            continue
+        if not stripped:
+            flush_paragraph()
+            flush_list()
+            continue
+        heading = re.match(r"^(#{1,4})\s+(.+)$", stripped)
+        if heading:
+            flush_paragraph()
+            flush_list()
+            level = len(heading.group(1))
+            blocks.append(f"<h{level}>{_render_inline_markdown_fallback(heading.group(2))}</h{level}>")
+            continue
+        ordered = re.match(r"^\d+\.\s+(.+)$", stripped)
+        unordered = re.match(r"^[-*+]\s+(.+)$", stripped)
+        if ordered or unordered:
+            flush_paragraph()
+            next_type = "ol" if ordered else "ul"
+            if list_type and list_type != next_type:
+                flush_list()
+            list_type = next_type
+            item = ordered.group(1) if ordered else unordered.group(1)
+            list_items.append(f"<li>{_render_inline_markdown_fallback(item)}</li>")
+            continue
+        flush_list()
+        paragraph.append(line)
+
+    if in_code:
+        blocks.append(f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>")
+    flush_paragraph()
+    flush_list()
+    return "".join(blocks)
 
 
 def _attachment_file_object_id(value: object) -> str:
@@ -725,6 +991,8 @@ class _TodoDetailBridge(QObject):
     deleteRequested = pyqtSignal(str)
     stageSummaryRequested = pyqtSignal(str, object)
     stageSummaryRewriteRequested = pyqtSignal(str, object)
+    timelinePolishRequested = pyqtSignal(str, object)
+    timelineSummaryRequested = pyqtSignal(str, object)
     assistAnalysisRequested = pyqtSignal(str, object)
 
     def __init__(
@@ -804,6 +1072,15 @@ class _TodoDetailBridge(QObject):
         self._stage_summary_notice = ""
         self._stage_summary_requested_once = False
         self._stage_summary_pending_request_id = ""
+        self._timeline_detail_event_id = ""
+        self._timeline_detail_visible = False
+        self._timeline_detail_text = ""
+        self._timeline_detail_summary = ""
+        self._timeline_detail_polished_text = ""
+        self._timeline_detail_busy = False
+        self._timeline_detail_error = ""
+        self._timeline_detail_pending_request_id = ""
+        self._timeline_summary_pending_request_ids: dict[str, str] = {}
         self._assist_troubleshooting_visible = False
         self._assist_analysis_busy = False
         self._assist_analysis_error = ""
@@ -1065,6 +1342,42 @@ class _TodoDetailBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def stageSummaryNotice(self) -> str:
         return self._stage_summary_notice
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def timelineDetailVisible(self) -> bool:
+        return self._timeline_detail_visible
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def timelineDetailBusy(self) -> bool:
+        return self._timeline_detail_busy
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailEventId(self) -> str:
+        return self._timeline_detail_event_id
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailText(self) -> str:
+        return self._timeline_detail_text
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailHtml(self) -> str:
+        return _render_timeline_markdown_html(self._timeline_detail_text)
+
+    @pyqtSlot(str, result=str)
+    def renderTimelineDetailMarkdown(self, value: str) -> str:
+        return _render_timeline_markdown_html(value)
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailSummary(self) -> str:
+        return self._timeline_detail_summary
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailPolishedText(self) -> str:
+        return self._timeline_detail_polished_text
+
+    @pyqtProperty(str, notify=dataChanged)
+    def timelineDetailError(self) -> str:
+        return self._timeline_detail_error
 
     @pyqtProperty(bool, notify=assistTroubleshootingChanged)
     def assistTroubleshootingVisible(self) -> bool:
@@ -1558,6 +1871,11 @@ class _TodoDetailBridge(QObject):
         event_type = _timeline_event_type(event)
         normalized_scenario = _normalize_timeline_scenario(event.kind, event.scenario)
         payload = _clone_dict(getattr(event, "payload", {}))
+        raw_content = _timeline_payload_raw_content(payload, event.content)
+        display_content = _timeline_display_content(event.content, payload)
+        detail_content = _timeline_payload_detail(payload, event.content)
+        detail_summary = _timeline_payload_summary(payload)
+        note_mode = str(payload.get("note_mode") or "").strip()
         status = _normalize_card_status(
             str(status_payload.get("uiStatus", "") or getattr(event, "status", "") or status_payload.get("taskStatus", ""))
         )
@@ -1582,7 +1900,11 @@ class _TodoDetailBridge(QObject):
             "timeLabel": _format_ts(created_at or event.timestamp),
             "scenario": normalized_scenario,
             "cardLabel": _timeline_card_label(event_type, normalized_scenario),
-            "content": event.content.strip(),
+            "content": display_content,
+            "rawContent": raw_content,
+            "detailContent": detail_content,
+            "summary": detail_summary,
+            "noteMode": note_mode,
             "kind": event.kind,
             "type": event_type,
             "payload": payload,
@@ -1927,7 +2249,18 @@ class _TodoDetailBridge(QObject):
         item = self._find_timeline_item(event_id)
         if item is not None:
             text = sanitize_text(value)
-            item["content"] = text
+            item["rawContent"] = text
+            payload = _clone_dict(item.get("payload", {}))
+            previous_summary = sanitize_text(payload.get("summary")).strip()
+            payload.setdefault("note_mode", "short")
+            payload["raw_content"] = text
+            payload["polished_detail"] = text
+            if not previous_summary:
+                payload["summary"] = text
+            item["summary"] = sanitize_text(payload.get("summary")).strip()
+            item["detailContent"] = sanitize_text(payload.get("polished_detail")).strip() or text
+            item["content"] = item["summary"] or text
+            item["payload"] = payload
             if str(item.get("kind") or "").strip() == "conclusion":
                 if text:
                     self._conclusion_content = text
@@ -1942,6 +2275,206 @@ class _TodoDetailBridge(QObject):
         self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
+        self.requestTimelineSummary(event_id)
+
+    @pyqtSlot(str)
+    def openTimelineDetail(self, event_id: str) -> None:
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        payload = _clone_dict(item.get("payload", {}))
+        self._timeline_detail_event_id = str(item.get("id") or "")
+        self._timeline_detail_visible = True
+        self._timeline_detail_busy = False
+        self._timeline_detail_error = ""
+        self._timeline_detail_pending_request_id = ""
+        self._timeline_detail_text = _timeline_payload_detail(payload, str(item.get("rawContent") or item.get("content") or ""))
+        self._timeline_detail_summary = _timeline_payload_summary(payload) or str(item.get("content") or "")
+        self._timeline_detail_polished_text = self._timeline_detail_text
+        self.dataChanged.emit()
+
+    @pyqtSlot()
+    def closeTimelineDetail(self) -> None:
+        if not self._timeline_detail_visible:
+            return
+        self._timeline_detail_visible = False
+        self._timeline_detail_busy = False
+        self._timeline_detail_error = ""
+        self._timeline_detail_pending_request_id = ""
+        self.dataChanged.emit()
+
+    @pyqtSlot(str)
+    def updateTimelineDetailText(self, value: str) -> None:
+        self._timeline_detail_text = sanitize_text(value)
+        self._timeline_detail_polished_text = self._timeline_detail_text
+
+    @pyqtSlot()
+    def saveTimelineDetail(self) -> None:
+        event_id = str(self._timeline_detail_event_id or "").strip()
+        if not event_id:
+            return
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        raw_content = sanitize_text(self._timeline_detail_text).strip()
+        summary = sanitize_text(self._timeline_detail_summary).strip() or raw_content
+        polished_detail = sanitize_text(self._timeline_detail_polished_text).strip() or raw_content
+        payload = _clone_dict(item.get("payload", {}))
+        payload["note_mode"] = "detail"
+        payload["raw_content"] = raw_content
+        payload["summary"] = summary
+        payload["polished_detail"] = polished_detail
+        item["payload"] = payload
+        item["rawContent"] = raw_content
+        item["summary"] = summary
+        item["detailContent"] = polished_detail
+        item["content"] = summary or raw_content
+        self._refresh_display_timeline()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+        self.requestTimelineSummary(event_id)
+
+    @pyqtSlot(str)
+    def requestTimelinePolish(self, event_id: str) -> None:
+        if self._todo_id is None:
+            return
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        payload = _clone_dict(item.get("payload", {}))
+        current_editor_text = sanitize_text(self._timeline_detail_text).strip()
+        request_id = str(uuid.uuid4())
+        self._timeline_detail_busy = True
+        self._timeline_detail_error = ""
+        self._timeline_detail_pending_request_id = request_id
+        self.dataChanged.emit()
+        self.timelinePolishRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "eventId": event_id,
+                "content": current_editor_text or _timeline_payload_raw_content(payload, str(item.get("rawContent") or item.get("content") or "")),
+            },
+        )
+
+    @pyqtSlot(str)
+    def requestTimelineSummary(self, event_id: str) -> None:
+        if self._todo_id is None:
+            return
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        payload = _clone_dict(item.get("payload", {}))
+        raw_content = _timeline_payload_raw_content(
+            payload,
+            str(item.get("rawContent") or item.get("detailContent") or item.get("content") or ""),
+        )
+        if not raw_content:
+            return
+        request_id = str(uuid.uuid4())
+        self._timeline_summary_pending_request_ids[event_id] = request_id
+        self.timelineSummaryRequested.emit(
+            self._todo_id,
+            {
+                "requestId": request_id,
+                "eventId": event_id,
+                "content": raw_content,
+            },
+        )
+
+    def apply_timeline_polish_result(self, todo_id: str, request_id: str, event_id: str, summary: str, detail: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._timeline_detail_pending_request_id:
+            return False
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return False
+        normalized_summary = sanitize_text(summary).strip()
+        normalized_detail = sanitize_text(detail).strip()
+        if not normalized_summary and not normalized_detail:
+            self._timeline_detail_busy = False
+            self._timeline_detail_pending_request_id = ""
+            self._timeline_detail_error = "服务端未返回可用结果"
+            self.dataChanged.emit()
+            return False
+        payload = _clone_dict(item.get("payload", {}))
+        raw_content = sanitize_text(self._timeline_detail_text).strip() or _timeline_payload_raw_content(payload, str(item.get("rawContent") or item.get("content") or ""))
+        payload["note_mode"] = "detail"
+        payload["raw_content"] = normalized_detail or raw_content
+        payload["summary"] = normalized_summary or raw_content
+        payload["polished_detail"] = normalized_detail or raw_content
+        item["payload"] = payload
+        item["rawContent"] = payload["raw_content"]
+        item["summary"] = payload["summary"]
+        item["detailContent"] = payload["polished_detail"]
+        item["content"] = payload["summary"] or raw_content
+        self._timeline_detail_busy = False
+        self._timeline_detail_pending_request_id = ""
+        self._timeline_detail_error = ""
+        if self._timeline_detail_event_id == event_id:
+            self._timeline_detail_summary = payload["summary"]
+            self._timeline_detail_text = payload["polished_detail"]
+            self._timeline_detail_polished_text = payload["polished_detail"]
+        self._refresh_display_timeline()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+        return True
+
+    def apply_timeline_summary_result(self, todo_id: str, request_id: str, event_id: str, summary: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._timeline_summary_pending_request_ids.get(event_id, ""):
+            return False
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            self._timeline_summary_pending_request_ids.pop(event_id, None)
+            return False
+        normalized_summary = sanitize_text(summary).strip()
+        self._timeline_summary_pending_request_ids.pop(event_id, None)
+        if not normalized_summary:
+            return False
+        payload = _clone_dict(item.get("payload", {}))
+        raw_content = _timeline_payload_raw_content(
+            payload,
+            str(item.get("rawContent") or item.get("detailContent") or item.get("content") or ""),
+        )
+        payload["summary"] = normalized_summary
+        if not str(payload.get("raw_content") or "").strip():
+            payload["raw_content"] = raw_content
+        if not str(payload.get("polished_detail") or "").strip():
+            payload["polished_detail"] = raw_content
+        item["payload"] = payload
+        item["summary"] = normalized_summary
+        item["content"] = normalized_summary
+        item["rawContent"] = raw_content
+        item["detailContent"] = _timeline_payload_detail(payload, raw_content)
+        if self._timeline_detail_event_id == event_id:
+            self._timeline_detail_summary = normalized_summary
+        self._refresh_display_timeline()
+        self.timelineChanged.emit()
+        self._emit_save_request()
+        self.dataChanged.emit()
+        return True
+
+    def apply_timeline_summary_error(self, todo_id: str, request_id: str, event_id: str, message: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._timeline_summary_pending_request_ids.get(event_id, ""):
+            return False
+        self._timeline_summary_pending_request_ids.pop(event_id, None)
+        return bool(sanitize_text(message).strip() or True)
+
+    def apply_timeline_polish_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:
+            return False
+        if str(request_id or "").strip() != self._timeline_detail_pending_request_id:
+            return False
+        self._timeline_detail_busy = False
+        self._timeline_detail_pending_request_id = ""
+        self._timeline_detail_error = sanitize_text(message).strip() or "服务端时间线润色失败"
+        self.dataChanged.emit()
+        return True
 
     @pyqtSlot(str)
     def requestAttachmentSelection(self, event_id: str) -> None:
@@ -2191,9 +2724,18 @@ class _TodoDetailBridge(QObject):
                 "scenario": _MANUAL_SCENARIO,
                 "cardLabel": _MANUAL_SCENARIO,
                 "content": content,
+                "rawContent": content,
+                "detailContent": content,
+                "summary": content,
+                "noteMode": "short",
                 "kind": "manual",
                 "type": _TIMELINE_EVENT_TYPE_DEFAULT,
-                "payload": {},
+                "payload": {
+                    "note_mode": "short",
+                    "raw_content": content,
+                    "summary": content,
+                    "polished_detail": content,
+                },
                 "status": "",
                 "statusLabel": "",
                 "attachments": attachments,
@@ -2214,7 +2756,12 @@ class _TodoDetailBridge(QObject):
                     kind="manual",
                     scenario=_MANUAL_SCENARIO,
                     event_type=_TIMELINE_EVENT_TYPE_DEFAULT,
-                    payload={},
+                    payload={
+                        "note_mode": "short",
+                        "raw_content": content,
+                        "summary": content,
+                        "polished_detail": content,
+                    },
                     status="",
                     content=content,
                     attachments=[
@@ -3002,6 +3549,18 @@ class _TodoDetailBridge(QObject):
 
     def reset_stage_summary_session(self) -> None:
         self._reset_stage_summary_state()
+        self.dataChanged.emit()
+
+    def reset_timeline_detail_session(self) -> None:
+        self._timeline_detail_event_id = ""
+        self._timeline_detail_visible = False
+        self._timeline_detail_text = ""
+        self._timeline_detail_summary = ""
+        self._timeline_detail_polished_text = ""
+        self._timeline_detail_busy = False
+        self._timeline_detail_error = ""
+        self._timeline_detail_pending_request_id = ""
+        self._timeline_summary_pending_request_ids = {}
         self.dataChanged.emit()
 
     def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
@@ -3860,10 +4419,14 @@ class _StageSummaryWindow(QQuickView):
 
     def event(self, event):  # noqa: ANN001, ANN201
         event_type = getattr(event, "type", None)
-        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
-            owner_panel = self._owner_panel
-            if owner_panel is not None:
-                QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
+        if callable(event_type):
+            current_type = event_type()
+            if current_type == QEvent.Type.Close:
+                self._bridge.closeTimelineDetail()
+            elif current_type == QEvent.Type.WindowDeactivate:
+                owner_panel = self._owner_panel
+                if owner_panel is not None:
+                    QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
         return super().event(event)
 
 
@@ -4141,6 +4704,304 @@ class _AssistTroubleshootingWindow(QQuickView):
         return super().event(event)
 
 
+class _TimelineDetailWindow(QQuickView):
+    _MIN_PANEL_WIDTH = 720
+    _MIN_PANEL_HEIGHT = 420
+    pinnedChanged = pyqtSignal()
+
+    def __init__(
+        self,
+        bridge: _TodoDetailBridge,
+        *,
+        panel_width: int,
+        panel_height: int,
+        screen_margin: int,
+        theme_controller: ThemeController | None = None,
+    ) -> None:
+        super().__init__()
+        self._owner_panel: TodoDetailPanel | None = None
+        self._bridge = bridge
+        self._theme_controller = theme_controller or ThemeController()
+        self._panel_width = panel_width
+        self._panel_height = panel_height
+        self._screen_margin = screen_margin
+        self._drag_active = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+        self._anchor_window: QQuickView | None = None
+        self._anchor_width = 0
+        self._anchor_gap = 0
+        self._top_offset = 0
+        self._pinned = False
+        self._manual_size_override = False
+        self._manual_position_override = False
+        self._target_panel_width = panel_width
+        self._target_panel_height = panel_height
+
+        _initialize_webengine_quick()
+        self._apply_window_flags()
+        self.setColor(QColor(0, 0, 0, 0))
+        self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        self.setMinimumSize(QSize(self._MIN_PANEL_WIDTH, self._MIN_PANEL_HEIGHT))
+        self._theme_controller.apply_to_context(self.rootContext())
+        self.rootContext().setContextProperty("todoDetailBridge", self._bridge)
+        self.rootContext().setContextProperty("timelineDetailWindowBridge", self)
+        self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TimelineDetailWindow.qml")))
+        self._ensure_qml_loaded()
+        _connect_screen_changed(self, self._handle_screen_changed)
+        self._set_tracked_panel_size(self._panel_width, self._panel_height)
+        self.hide()
+
+    def set_owner_panel(self, owner_panel: "TodoDetailPanel") -> None:
+        self._owner_panel = owner_panel
+
+    def set_pinned(self, pinned: bool) -> None:
+        pinned = bool(pinned)
+        if self._pinned == pinned:
+            return
+        self._pinned = pinned
+        self._apply_window_flags()
+        self.pinnedChanged.emit()
+
+    @pyqtProperty(bool, notify=pinnedChanged)
+    def pinned(self) -> bool:
+        return self._pinned
+
+    @pyqtSlot()
+    def togglePinned(self) -> None:
+        owner_panel = self._owner_panel
+        if owner_panel is not None:
+            owner_panel.set_pinned(not owner_panel._pinned)
+            return
+        self.set_pinned(not self._pinned)
+
+    def _apply_window_flags(self) -> None:
+        was_visible = self.isVisible()
+        flags = (
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        if self._pinned:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setFlags(flags)
+        self.setTitle("详细记录.md")
+        if was_visible:
+            self.show()
+
+    def _ensure_qml_loaded(self) -> None:
+        if self.status() != QQuickView.Status.Error:
+            return
+        errors = "\n".join(error.toString() for error in self.errors())
+        raise RuntimeError(f"Failed to load TimelineDetailWindow.qml:\n{errors}")
+
+    def show_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=True)
+
+    def update_near(
+        self,
+        anchor_window: QQuickView,
+        *,
+        anchor_width: int,
+        anchor_gap: int,
+        top_offset: int,
+    ) -> None:
+        self._anchor_window = anchor_window
+        self._anchor_width = anchor_width
+        self._anchor_gap = anchor_gap
+        self._top_offset = top_offset
+        self._sync_geometry(activate=False)
+
+    def refresh_from_bridge(self) -> None:
+        root_object_method = getattr(self, "rootObject", None)
+        if not callable(root_object_method):
+            return
+        root_object = root_object_method()
+        if root_object is None:
+            return
+        sync_editor = getattr(root_object, "syncEditorText", None)
+        if callable(sync_editor):
+            sync_editor()
+        refresh_preview = getattr(root_object, "refreshPreviewHtml", None)
+        if callable(refresh_preview):
+            refresh_preview()
+
+    @pyqtSlot(str)
+    def startPanelResize(self, edge_name: str) -> None:
+        edge_map = {
+            "left": Qt.Edge.LeftEdge,
+            "right": Qt.Edge.RightEdge,
+            "top": Qt.Edge.TopEdge,
+            "bottom": Qt.Edge.BottomEdge,
+            "top_left": Qt.Edge.TopEdge | Qt.Edge.LeftEdge,
+            "top_right": Qt.Edge.TopEdge | Qt.Edge.RightEdge,
+            "bottom_left": Qt.Edge.BottomEdge | Qt.Edge.LeftEdge,
+            "bottom_right": Qt.Edge.BottomEdge | Qt.Edge.RightEdge,
+        }
+        edge = edge_map.get(str(edge_name or "").strip().lower())
+        if edge is None:
+            return
+        try:
+            started = self.startSystemResize(edge)
+        except AttributeError:
+            self.requestActivate()
+            return
+        if started is False:
+            self.requestActivate()
+            return
+        self._manual_size_override = True
+
+    @pyqtSlot(float, float)
+    def beginPanelDrag(self, offset_x: float, offset_y: float) -> None:
+        self._drag_active = True
+        self._drag_offset_x = max(0, int(offset_x))
+        self._drag_offset_y = max(0, int(offset_y))
+        self._manual_position_override = True
+
+    @pyqtSlot()
+    def updatePanelDrag(self) -> None:
+        if not self._drag_active:
+            return
+        cursor_pos = QCursor.pos()
+        x = cursor_pos.x() - self._drag_offset_x
+        y = cursor_pos.y() - self._drag_offset_y
+        self._move_within_screen(x, y, _virtual_available_geometry())
+
+    @pyqtSlot()
+    def finishPanelDrag(self) -> None:
+        self._drag_active = False
+
+    @pyqtSlot()
+    def showMinimized(self) -> None:
+        super().showMinimized()
+
+    @pyqtSlot()
+    def toggleMaximized(self) -> None:
+        if self._is_window_maximized():
+            self.showNormal()
+            self._restore_tracked_panel_size()
+            return
+        self.showMaximized()
+
+    def _manual_panel_size(self, available) -> tuple[int, int]:
+        max_width = max(self._MIN_PANEL_WIDTH, int(available.width()) - self._screen_margin * 2)
+        max_height = max(self._MIN_PANEL_HEIGHT, int(available.height()) - self._screen_margin * 2)
+        return (
+            max(self._MIN_PANEL_WIDTH, min(int(self.width()), max_width)),
+            max(self._MIN_PANEL_HEIGHT, min(int(self.height()), max_height)),
+        )
+
+    def _sync_geometry(self, *, activate: bool) -> None:
+        if self._is_window_maximized():
+            if activate and not self.isVisible():
+                self.showMaximized()
+                self.raise_()
+                self.requestActivate()
+            return
+        anchor_window = self._anchor_window
+        if anchor_window is None:
+            return
+        screen = _screen_for_point(anchor_window.frameGeometry().center())
+        if screen is None:
+            return
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        set_transient_parent = getattr(self, "setTransientParent", None)
+        if callable(set_transient_parent):
+            set_transient_parent(anchor_window)
+        x = _resolve_neighbor_panel_x(
+            anchor_window.x(),
+            self._anchor_width,
+            panel_width=self._panel_width,
+            available_left=available.left(),
+            available_right=available.right(),
+            margin=self._screen_margin,
+            gap=self._anchor_gap,
+        )
+        y = anchor_window.y() + self._top_offset
+        if self._manual_size_override:
+            width, height = self._manual_panel_size(available)
+        else:
+            width = self._panel_width
+            height = min(self._panel_height, max(self._MIN_PANEL_HEIGHT, int(available.height()) - self._screen_margin * 2))
+        self._set_tracked_panel_size(width, height)
+        if self._manual_position_override and self.isVisible():
+            current_screen = _screen_for_point(QPoint(self.x(), self.y()))
+            self._move_within_screen(self.x(), self.y(), current_screen or screen)
+        else:
+            self._move_within_screen(x, y, screen)
+        if activate and not self.isVisible():
+            self.show()
+        if activate:
+            self.raise_()
+            self.requestActivate()
+
+    def hide(self) -> None:
+        self._manual_size_override = False
+        self._manual_position_override = False
+        super().hide()
+
+    def _set_tracked_panel_size(self, width: int, height: int) -> None:
+        self._target_panel_width = max(1, int(width))
+        self._target_panel_height = max(1, int(height))
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _restore_tracked_panel_size(self) -> None:
+        if self._is_window_maximized():
+            return
+        self.resize(self._target_panel_width, self._target_panel_height)
+
+    def _is_window_maximized(self) -> bool:
+        window_state = getattr(self, "windowState", None)
+        if not callable(window_state):
+            return False
+        try:
+            state = window_state()
+        except Exception:
+            return False
+        return bool(state & Qt.WindowState.WindowMaximized)
+
+    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
+        QTimer.singleShot(0, self._restore_tracked_panel_size)
+
+    def _move_within_screen(self, x: int, y: int, screen) -> None:
+        available = _resolve_available_geometry(screen)
+        if available is None:
+            return
+        target_x, target_y = _clamp_panel_position(
+            int(x),
+            int(y),
+            panel_width=self.width(),
+            panel_height=self.height(),
+            available_left=available.left(),
+            available_top=available.top(),
+            available_right=available.right(),
+            available_bottom=available.bottom(),
+            margin=self._screen_margin,
+        )
+        self.setPosition(target_x, target_y)
+
+    def event(self, event):  # noqa: ANN001, ANN201
+        event_type = getattr(event, "type", None)
+        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
+            owner_panel = self._owner_panel
+            if owner_panel is not None:
+                QTimer.singleShot(0, owner_panel._close_if_unpinned_after_deactivate)
+        return super().event(event)
+
+
 class TodoDetailPanel(QQuickView):
     save_requested = pyqtSignal(str, object)
     log_analysis_requested = pyqtSignal(str, object)
@@ -4150,6 +5011,8 @@ class TodoDetailPanel(QQuickView):
     delete_requested = pyqtSignal(str)
     stage_summary_requested = pyqtSignal(str, object)
     stage_summary_rewrite_requested = pyqtSignal(str, object)
+    timeline_polish_requested = pyqtSignal(str, object)
+    timeline_summary_requested = pyqtSignal(str, object)
     assist_analysis_requested = pyqtSignal(str, object)
 
     def __init__(
@@ -4172,6 +5035,10 @@ class TodoDetailPanel(QQuickView):
         self._stage_summary_window_gap = 18
         self._stage_summary_top_offset = 84
         self._stage_summary_window_height = 632
+        self._timeline_detail_window_width = 860
+        self._timeline_detail_window_gap = 18
+        self._timeline_detail_top_offset = 84
+        self._timeline_detail_window_height = 632
         self._assist_troubleshooting_window_width = 443
         self._assist_troubleshooting_window_gap = 18
         self._assist_troubleshooting_top_offset = 84
@@ -4183,6 +5050,7 @@ class TodoDetailPanel(QQuickView):
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._stage_summary_window_visible = False
+        self._timeline_detail_window_visible = False
         self._assist_troubleshooting_window_visible = False
         self._pinned = False
         self._auto_collapse_hold_count = 0
@@ -4209,6 +5077,15 @@ class TodoDetailPanel(QQuickView):
         )
         self._stage_summary_window.set_owner_panel(self)
         self._stage_summary_window.set_pinned(self._pinned)
+        self._timeline_detail_window = _TimelineDetailWindow(
+            self._bridge,
+            panel_width=self._timeline_detail_window_width,
+            panel_height=self._timeline_detail_window_height,
+            screen_margin=self._screen_margin,
+            theme_controller=self._theme_controller,
+        )
+        self._timeline_detail_window.set_owner_panel(self)
+        self._timeline_detail_window.set_pinned(self._pinned)
         self._assist_troubleshooting_window = _AssistTroubleshootingWindow(
             self._bridge,
             panel_width=self._assist_troubleshooting_window_width,
@@ -4231,11 +5108,14 @@ class TodoDetailPanel(QQuickView):
         self._bridge.deleteRequested.connect(self.delete_requested)
         self._bridge.stageSummaryRequested.connect(self.stage_summary_requested)
         self._bridge.stageSummaryRewriteRequested.connect(self.stage_summary_rewrite_requested)
+        self._bridge.timelinePolishRequested.connect(self.timeline_polish_requested)
+        self._bridge.timelineSummaryRequested.connect(self.timeline_summary_requested)
         self._bridge.assistAnalysisRequested.connect(self.assist_analysis_requested)
         self._bridge.panelDragStarted.connect(self._begin_panel_drag)
         self._bridge.panelDragMoved.connect(self._update_panel_drag)
         self._bridge.panelDragFinished.connect(self._finish_panel_drag)
         self._bridge.dataChanged.connect(self._sync_stage_summary_window)
+        self._bridge.dataChanged.connect(self._sync_timeline_detail_window)
         self._bridge.assistTroubleshootingChanged.connect(self._sync_assist_troubleshooting_window)
         _connect_screen_changed(self, self._handle_screen_changed)
 
@@ -4269,8 +5149,10 @@ class TodoDetailPanel(QQuickView):
         self._pinned = pinned
         self._apply_window_flags()
         self._stage_summary_window.set_pinned(pinned)
+        self._timeline_detail_window.set_pinned(pinned)
         self._assist_troubleshooting_window.set_pinned(pinned)
         self._sync_stage_summary_window()
+        self._sync_timeline_detail_window()
         self._sync_assist_troubleshooting_window()
         if pinned and self.isVisible():
             self.raise_()
@@ -4337,6 +5219,31 @@ class TodoDetailPanel(QQuickView):
             return
         self._bridge.attach_clipboard_image_to_draft_timeline(image)
 
+    def _sync_timeline_detail_window(self) -> None:
+        should_show = bool(self._bridge.timelineDetailVisible) and self.isVisible()
+        if should_show and not self._timeline_detail_window_visible:
+            self._timeline_detail_window.refresh_from_bridge()
+            self._timeline_detail_window.show_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._timeline_detail_window_gap,
+                top_offset=self._timeline_detail_top_offset,
+            )
+            self._timeline_detail_window_visible = True
+            return
+        if should_show and self._timeline_detail_window_visible:
+            self._timeline_detail_window.refresh_from_bridge()
+            self._timeline_detail_window.update_near(
+                self,
+                anchor_width=self._panel_width,
+                anchor_gap=self._timeline_detail_window_gap,
+                top_offset=self._timeline_detail_top_offset,
+            )
+            return
+        if not should_show and self._timeline_detail_window_visible:
+            self._timeline_detail_window.hide()
+            self._timeline_detail_window_visible = False
+
     def show_todo(
         self,
         todo: TodoItem,
@@ -4348,6 +5255,8 @@ class TodoDetailPanel(QQuickView):
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
+        self._timeline_detail_window.hide()
+        self._timeline_detail_window_visible = False
         self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
         self._set_tracked_panel_size(self._panel_width, self._panel_height)
@@ -4362,7 +5271,9 @@ class TodoDetailPanel(QQuickView):
         self.show()
         self.raise_()
         self.requestActivate()
+        self._timeline_detail_window.refresh_from_bridge()
         self._sync_stage_summary_window()
+        self._sync_timeline_detail_window()
         self._sync_assist_troubleshooting_window()
 
     def refresh_project_product_lines(self, project_id: str) -> bool:
@@ -4498,13 +5409,17 @@ class TodoDetailPanel(QQuickView):
         if (
             not self.isVisible()
             and not self._stage_summary_window_visible
+            and not self._timeline_detail_window_visible
             and not self._assist_troubleshooting_window_visible
         ):
             return
         self._bridge.reset_stage_summary_session()
+        self._bridge.reset_timeline_detail_session()
         self._bridge.reset_assist_troubleshooting_session()
         self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
+        self._timeline_detail_window.hide()
+        self._timeline_detail_window_visible = False
         self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
         self.hide()
@@ -4515,6 +5430,11 @@ class TodoDetailPanel(QQuickView):
         if stage_summary_window is not None:
             stage_summary_window.hide()
         self._stage_summary_window_visible = False
+
+        timeline_detail_window = getattr(self, "_timeline_detail_window", None)
+        if timeline_detail_window is not None:
+            timeline_detail_window.hide()
+        self._timeline_detail_window_visible = False
 
         assist_troubleshooting_window = getattr(self, "_assist_troubleshooting_window", None)
         if assist_troubleshooting_window is not None:
@@ -4534,6 +5454,18 @@ class TodoDetailPanel(QQuickView):
 
     def apply_stage_summary_error(self, todo_id: str, request_id: str, message: str) -> bool:
         return self._bridge.apply_stage_summary_error(todo_id, request_id, message)
+
+    def apply_timeline_polish_result(self, todo_id: str, request_id: str, event_id: str, summary: str, detail: str) -> bool:
+        return self._bridge.apply_timeline_polish_result(todo_id, request_id, event_id, summary, detail)
+
+    def apply_timeline_polish_error(self, todo_id: str, request_id: str, message: str) -> bool:
+        return self._bridge.apply_timeline_polish_error(todo_id, request_id, message)
+
+    def apply_timeline_summary_result(self, todo_id: str, request_id: str, event_id: str, summary: str) -> bool:
+        return self._bridge.apply_timeline_summary_result(todo_id, request_id, event_id, summary)
+
+    def apply_timeline_summary_error(self, todo_id: str, request_id: str, event_id: str, message: str) -> bool:
+        return self._bridge.apply_timeline_summary_error(todo_id, request_id, event_id, message)
 
     def apply_assist_analysis_result(self, todo_id: str, request_id: str, payload: object) -> bool:
         return self._bridge.apply_assist_analysis_result(todo_id, request_id, payload)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -620,6 +621,52 @@ def test_generate_stage_summary_accepts_nested_runtime_answer() -> None:
     )
 
     assert answer == "### 嵌套结果\n- 服务端已返回"
+
+
+def test_polish_timeline_content_sends_single_turn_request_and_returns_summary_detail() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": json.dumps(
+                    {
+                        "summary": "整理后的摘要",
+                        "detail": "整理后的详情",
+                    },
+                    ensure_ascii=False,
+                ),
+                "trace_id": "trace_polish",
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    result = client.polish_timeline_content(content="零碎内容")
+
+    assert result == {"summary": "整理后的摘要", "detail": "整理后的详情"}
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/single-turn-mqck3wdm/run"
+    assert session.calls[0]["json"] == {"variables": {"content": "零碎内容"}}
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_polish_timeline_content_rejects_empty_result() -> None:
+    session = _FakeSession(_FakeResponse(200, {"answer": json.dumps({}, ensure_ascii=False)}))
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ChattodoServerError, match="摘要或详情"):
+        client.polish_timeline_content(content="零碎内容")
 
 
 def test_client_rejects_missing_config() -> None:

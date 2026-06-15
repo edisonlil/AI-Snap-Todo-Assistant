@@ -378,6 +378,38 @@ class ChattodoServerClient:
             raise ChattodoServerError("服务端阶段总结未返回有效结果。")
         return raw_answer
 
+    def polish_timeline_content(self, *, content: str) -> dict[str, str]:
+        normalized_content = sanitize_text(content).strip()
+        if not normalized_content:
+            raise ChattodoServerError("时间线内容不能为空。")
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/single-turn-mqck3wdm/run",
+            json={
+                "variables": {
+                    "content": normalized_content,
+                },
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端时间线润色未返回有效结果。")
+        try:
+            parsed = json.loads(raw_answer)
+        except ValueError as exc:
+            raise ChattodoServerError("服务端时间线润色结果不是有效 JSON。") from exc
+        if not isinstance(parsed, dict):
+            raise ChattodoServerError("服务端时间线润色结果格式错误。")
+        summary = sanitize_text(parsed.get("summary")).strip()
+        detail = sanitize_text(parsed.get("detail")).strip()
+        if not summary and not detail:
+            raise ChattodoServerError("服务端时间线润色未返回摘要或详情。")
+        return {
+            "summary": summary,
+            "detail": detail,
+        }
+
     @staticmethod
     def _runtime_answer(payload: dict[str, Any]) -> object:
         answer = payload.get("answer")

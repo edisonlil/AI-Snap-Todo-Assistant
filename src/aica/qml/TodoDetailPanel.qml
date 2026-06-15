@@ -33,6 +33,7 @@ Rectangle {
     readonly property color accent: themeTokens.accent || "#2A313F"
     readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
     readonly property string uiFont: themeTokens.uiFont || (detailBridge ? detailBridge.uiFont : "Microsoft YaHei UI")
+    readonly property bool timelineDetailVisible: detailBridge ? detailBridge.timelineDetailVisible : false
     readonly property int outerPadding: 24
     readonly property int contentTopPadding: 16
     readonly property int sectionGap: 16

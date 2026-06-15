@@ -69,6 +69,7 @@ from aica.worker import (
     AssistAnalysisWorker,
     MultiCaptureAIWorker,
     StageSummaryWorker,
+    TimelinePolishWorker,
 )
 from aica.windows_taskbar import install_windows_taskbar_tasks
 
@@ -440,6 +441,7 @@ def main() -> None:
     analysis_metrics_store = AnalysisMetricsStore()
     log_analysis_workers: list[LogAnalysisWorker] = []
     stage_summary_workers: list[StageSummaryWorker] = []
+    timeline_polish_workers: list[TimelinePolishWorker] = []
     assist_analysis_workers: list[AssistAnalysisWorker] = []
     ticket_enrichment_workers: list[TicketEnrichmentWorker] = []
     pending_ticket_enrichment_jobs: dict[str, tuple[str, object]] = {}
@@ -939,6 +941,10 @@ def main() -> None:
         if worker in stage_summary_workers:
             stage_summary_workers.remove(worker)
 
+    def _cleanup_timeline_polish_worker(worker: TimelinePolishWorker) -> None:
+        if worker in timeline_polish_workers:
+            timeline_polish_workers.remove(worker)
+
     def _cleanup_assist_analysis_worker(worker: AssistAnalysisWorker) -> None:
         if worker in assist_analysis_workers:
             assist_analysis_workers.remove(worker)
@@ -1024,6 +1030,18 @@ def main() -> None:
 
     def _on_stage_summary_error(todo_id: str, request_id: str, message: str) -> None:
         todo_detail_panel.apply_stage_summary_error(todo_id, request_id, message)
+
+    def _on_timeline_polish_finished(todo_id: str, request_id: str, event_id: str, summary: str, detail: str) -> None:
+        todo_detail_panel.apply_timeline_polish_result(todo_id, request_id, event_id, summary, detail)
+
+    def _on_timeline_polish_error(todo_id: str, request_id: str, message: str) -> None:
+        todo_detail_panel.apply_timeline_polish_error(todo_id, request_id, message)
+
+    def _on_timeline_summary_finished(todo_id: str, request_id: str, event_id: str, summary: str, _detail: str) -> None:
+        todo_detail_panel.apply_timeline_summary_result(todo_id, request_id, event_id, summary)
+
+    def _on_timeline_summary_error(todo_id: str, request_id: str, event_id: str, message: str) -> None:
+        todo_detail_panel.apply_timeline_summary_error(todo_id, request_id, event_id, message)
 
     def _on_assist_analysis_finished(todo_id: str, request_id: str, payload: object) -> None:
         todo_detail_panel.apply_assist_analysis_result(todo_id, request_id, payload)
@@ -1156,6 +1174,50 @@ def main() -> None:
             return
         _start_stage_summary_worker(todo_id, request_id, "rewrite", payload)
 
+    def _on_timeline_polish_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        event_id = str(payload.get("eventId", "")).strip()
+        content = str(payload.get("content", "") or "").strip()
+        if not request_id or not event_id or not content:
+            return
+        worker = TimelinePolishWorker(
+            server_config=config_mgr.load().server,
+            todo_id=todo_id,
+            request_id=request_id,
+            event_id=event_id,
+            content=content,
+        )
+        timeline_polish_workers.append(worker)
+        worker.finished.connect(_on_timeline_polish_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _event_id, _summary, _detail, current=worker: _cleanup_timeline_polish_worker(current))
+        worker.error.connect(_on_timeline_polish_error)
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_timeline_polish_worker(current))
+        worker.start()
+
+    def _on_timeline_summary_requested(todo_id: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        request_id = str(payload.get("requestId", "")).strip()
+        event_id = str(payload.get("eventId", "")).strip()
+        content = str(payload.get("content", "") or "").strip()
+        if not request_id or not event_id or not content:
+            return
+        worker = TimelinePolishWorker(
+            server_config=config_mgr.load().server,
+            todo_id=todo_id,
+            request_id=request_id,
+            event_id=event_id,
+            content=content,
+        )
+        timeline_polish_workers.append(worker)
+        worker.finished.connect(_on_timeline_summary_finished)
+        worker.finished.connect(lambda _todo_id, _request_id, _event_id, _summary, _detail, current=worker: _cleanup_timeline_polish_worker(current))
+        worker.error.connect(lambda current_todo_id, current_request_id, message, current_event_id=event_id: _on_timeline_summary_error(current_todo_id, current_request_id, current_event_id, message))
+        worker.error.connect(lambda _todo_id, _request_id, _message, current=worker: _cleanup_timeline_polish_worker(current))
+        worker.start()
+
     def _on_control_panel_saved(saved_config) -> None:
         try:
             hotkey_mgr.update_hotkey(saved_config.hotkeys.capture)
@@ -1203,6 +1265,8 @@ def main() -> None:
     todo_detail_panel.manual_sync_requested.connect(_on_todo_detail_manual_sync)
     todo_detail_panel.stage_summary_requested.connect(_on_stage_summary_requested)
     todo_detail_panel.stage_summary_rewrite_requested.connect(_on_stage_summary_rewrite_requested)
+    todo_detail_panel.timeline_polish_requested.connect(_on_timeline_polish_requested)
+    todo_detail_panel.timeline_summary_requested.connect(_on_timeline_summary_requested)
     todo_detail_panel.assist_analysis_requested.connect(_on_assist_analysis_requested)
     command_dispatcher.command_received.connect(_handle_app_command)
     if startup_command is not None:

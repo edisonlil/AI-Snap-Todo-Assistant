@@ -1057,49 +1057,71 @@ Rectangle {
                         anchors.margins: 18
                         spacing: 12
 
-                        Row {
+                        Item {
                             visible: root.isMacos
-                            Layout.preferredHeight: visible ? 14 : 0
-                            Layout.leftMargin: 0
-                            spacing: 12
-
-                            MacosTrafficLightButton {
-                                fillColor: "#FF5F57"
-                                borderColor: "#E0443E"
-                                glyph: "×"
-                                glyphColor: "#7A1511"
-                                onClicked: controlPanelBridge.closePanel()
-                            }
-
-                            MacosTrafficLightButton {
-                                fillColor: "#FFBD2E"
-                                borderColor: "#DEA123"
-                                glyph: "−"
-                                glyphColor: "#8A5A00"
-                                onClicked: controlPanelBridge.minimizePanel()
-                            }
-
-                            MacosTrafficLightButton {
-                                fillColor: "#28C840"
-                                borderColor: "#1FA332"
-                                glyph: "+"
-                                glyphColor: "#0B6B1C"
-                                onClicked: controlPanelBridge.toggleMaximizedPanel()
-                            }
-                        }
-
-                        Text {
-                            visible: root.isMacos
-                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            enabled: visible
                             Layout.fillWidth: true
-                            Layout.topMargin: 4
-                            text: "Chattodo Hub"
-                            color: root.titleInk
-                            font.family: root.uiFont
-                            font.pixelSize: 23
-                            font.weight: 750
-                            elide: Text.ElideRight
-                            maximumLineCount: 1
+                            Layout.preferredHeight: macosTitleBar.implicitHeight
+                            Layout.leftMargin: -4
+                            Layout.rightMargin: -4
+                            Layout.topMargin: -2
+                            Layout.bottomMargin: 2
+
+                            MouseArea {
+                                id: macosTitleBarDragArea
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                hoverEnabled: true
+                                cursorShape: Qt.SizeAllCursor
+                                onPressed: controlPanelBridge.startWindowDrag()
+                                onDoubleClicked: controlPanelBridge.toggleMaximizedPanel()
+                            }
+
+                            Column {
+                                id: macosTitleBar
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                spacing: 8
+
+                                Row {
+                                    spacing: 12
+
+                                    MacosTrafficLightButton {
+                                        fillColor: "#FF5F57"
+                                        borderColor: "#E0443E"
+                                        glyph: "×"
+                                        glyphColor: "#7A1511"
+                                        onClicked: controlPanelBridge.closePanel()
+                                    }
+
+                                    MacosTrafficLightButton {
+                                        fillColor: "#FFBD2E"
+                                        borderColor: "#DEA123"
+                                        glyph: "−"
+                                        glyphColor: "#8A5A00"
+                                        onClicked: controlPanelBridge.minimizePanel()
+                                    }
+
+                                    MacosTrafficLightButton {
+                                        fillColor: "#28C840"
+                                        borderColor: "#1FA332"
+                                        glyph: "+"
+                                        glyphColor: "#0B6B1C"
+                                        onClicked: controlPanelBridge.toggleMaximizedPanel()
+                                    }
+                                }
+
+                                Text {
+                                    text: "Chattodo Hub"
+                                    color: root.titleInk
+                                    font.family: root.uiFont
+                                    font.pixelSize: 23
+                                    font.weight: 750
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                            }
                         }
 
                         Text {
@@ -1199,6 +1221,22 @@ Rectangle {
                     Layout.fillHeight: true
                     color: root.panelBg
                     radius: 12
+
+                    MouseArea {
+                        id: rightContentDragArea
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton
+                        propagateComposedEvents: true
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeAllCursor
+                        onPressed: function(mouse) {
+                            if (typeof mouse.source === "undefined" || mouse.source !== undefined) {
+                                controlPanelBridge.startWindowDrag()
+                                mouse.accepted = true
+                            }
+                        }
+                        onDoubleClicked: controlPanelBridge.toggleMaximizedPanel()
+                    }
 
                     ColumnLayout {
                         anchors.fill: parent

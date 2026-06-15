@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 
 Rectangle {
     id: timelineCard
@@ -18,9 +19,14 @@ Rectangle {
     property string originalContent: eventData && eventData.content ? eventData.content : ""
     property string registeredEditorEventId: ""
     readonly property bool editing: rootContext ? rootContext.activeTimelineEditingEventId === eventId : false
+    readonly property bool detailLocked: rootContext ? rootContext.timelineDetailVisible : false
+    readonly property bool bodyEditingLocked: detailLocked
     property bool dropActive: dropZone.containsDrag
     property bool attachmentTarget: rootContext && rootContext.activeAttachmentEventId === eventId
     property bool attachmentsExpanded: false
+    readonly property int previewMaxHeight: 118
+    readonly property int editorMaxHeight: 160
+    readonly property string previewText: eventData ? (eventData.summary || eventData.content || "") : ""
 
     function syncEditorRegistration() {
         var nextEventId = rootContext && eventId.length > 0 ? eventId : ""
@@ -53,6 +59,11 @@ Rectangle {
 
     onRootContextChanged: syncEditorRegistration()
     onEventIdChanged: syncEditorRegistration()
+    onDetailLockedChanged: {
+        if (bodyEditingLocked && editing) {
+            exitEditing()
+        }
+    }
     Component.onDestruction: {
         if (registeredEditorEventId.length > 0 && rootContext) {
             rootContext.unregisterTimelineEditorCard(registeredEditorEventId, timelineCard)
@@ -146,17 +157,7 @@ Rectangle {
                 spacing: 12
 
                 Text {
-                    text: editing ? "编辑中" : "点击编辑"
-                    color: editing
-                           ? (rootContext ? rootContext.accent : "#2A313F")
-                           : (rootContext ? rootContext.mutedInk : "#B3BBC8")
-                    font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
-                    font.pixelSize: 11
-                    font.weight: rootContext ? rootContext.labelWeight : 500
-                }
-
-                Text {
-                    visible: editing
+                    visible: editing && !bodyEditingLocked
                     text: "保存"
                     color: rootContext ? rootContext.accent : "#2A313F"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
@@ -175,7 +176,7 @@ Rectangle {
                 }
 
                 Text {
-                    visible: editing
+                    visible: editing && !bodyEditingLocked
                     text: "取消"
                     color: rootContext ? rootContext.mutedInk : "#B3BBC8"
                     font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
@@ -186,6 +187,24 @@ Rectangle {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: timelineCard.cancelEditingForSwitch()
+                    }
+                }
+
+                Text {
+                    text: "详情"
+                    color: rootContext ? rootContext.accent : "#2A313F"
+                    font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                    font.pixelSize: 11
+                    font.weight: rootContext ? rootContext.labelWeight : 500
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (todoDetailBridge) {
+                                todoDetailBridge.openTimelineDetail(timelineCard.eventId)
+                            }
+                        }
                     }
                 }
 
@@ -236,63 +255,122 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
+                        enabled: !bodyEditingLocked
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: todoDetailBridge.deleteTimelineCard(timelineCard.eventId)
                     }
                 }
             }
         }
 
-        Text {
-            id: timelinePreview
+        ScrollView {
+            id: timelinePreviewScroll
             visible: !editing
             width: parent.width
-            wrapMode: Text.Wrap
-            text: eventData ? eventData.content : ""
-            color: rootContext ? rootContext.bodyInk : "#4A5565"
+            height: Math.min(timelinePreview.contentHeight, timelineCard.previewMaxHeight)
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: timelinePreview.contentHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+
+                TextArea {
+                    id: timelinePreview
+                    readOnly: true
+                    width: timelinePreviewScroll.availableWidth
+                    wrapMode: TextEdit.Wrap
+                    textFormat: TextEdit.PlainText
+                color: rootContext ? rootContext.bodyInk : "#4A5565"
+                font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                font.pixelSize: 13
+                font.weight: rootContext ? rootContext.bodyWeight : 400
+                text: timelineCard.previewText
+                selectByMouse: false
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
+                background: null
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                acceptedButtons: Qt.LeftButton
+                onClicked: {
+                    if (timelineCard.bodyEditingLocked) {
+                        return
+                    }
+                    if (rootContext) {
+                        rootContext.markAttachmentTarget(timelineCard.eventId)
+                        rootContext.requestTimelineEdit(timelineCard.eventId)
+                    }
+                    timelineCard.originalContent = eventData ? (eventData.rawContent || eventData.content || "") : ""
+                }
+                onDoubleClicked: {
+                    if (todoDetailBridge) {
+                        todoDetailBridge.openTimelineDetail(timelineCard.eventId)
+                    }
+                }
+            }
+        }
+
+        Text {
+            visible: !editing && timelinePreview.contentHeight > timelineCard.previewMaxHeight
+            text: "内容较长，可滚动查看，双击或点详情查看完整记录"
+            color: rootContext ? rootContext.accent : "#2A313F"
             font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
-            font.pixelSize: 13
-            font.weight: rootContext ? rootContext.bodyWeight : 400
+            font.pixelSize: 11
+            font.weight: rootContext ? rootContext.labelWeight : 500
 
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    if (rootContext) {
-                        rootContext.markAttachmentTarget(timelineCard.eventId)
-                        rootContext.requestTimelineEdit(timelineCard.eventId)
+                    if (todoDetailBridge) {
+                        todoDetailBridge.openTimelineDetail(timelineCard.eventId)
                     }
-                    timelineCard.originalContent = eventData ? eventData.content : ""
                 }
             }
         }
 
-        TextEdit {
-            id: timelineEditor
+        ScrollView {
+            id: timelineEditorScroll
             visible: editing
             width: parent.width
-            height: Math.max(60, contentHeight + 4)
-            wrapMode: TextEdit.Wrap
-            selectByMouse: true
-            textFormat: TextEdit.PlainText
-            color: rootContext ? rootContext.bodyInk : "#4A5565"
-            font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
-            font.pixelSize: 13
-            font.weight: rootContext ? rootContext.bodyWeight : 400
-            text: eventData ? eventData.content : ""
+            height: Math.min(timelineCard.editorMaxHeight, Math.max(60, timelineEditor.contentHeight + 4))
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: timelineEditor.contentHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
 
-            onVisibleChanged: {
-                if (visible) {
-                    if (rootContext) {
-                        rootContext.markAttachmentTarget(timelineCard.eventId)
+            TextArea {
+                id: timelineEditor
+                width: timelineEditorScroll.availableWidth
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+                textFormat: TextEdit.PlainText
+                color: rootContext ? rootContext.bodyInk : "#4A5565"
+                font.family: rootContext ? rootContext.uiFont : "Microsoft YaHei UI"
+                font.pixelSize: 13
+                font.weight: rootContext ? rootContext.bodyWeight : 400
+                text: eventData ? (eventData.rawContent || eventData.content || "") : ""
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
+                background: null
+
+                onVisibleChanged: {
+                    if (visible) {
+                        if (rootContext) {
+                            rootContext.markAttachmentTarget(timelineCard.eventId)
+                        }
+                        timelineCard.originalContent = eventData ? (eventData.rawContent || eventData.content || "") : ""
+                        forceActiveFocus()
+                        cursorPosition = length
                     }
-                    timelineCard.originalContent = eventData ? eventData.content : ""
-                    forceActiveFocus()
-                    cursorPosition = length
                 }
-            }
 
-            onTextChanged: todoDetailBridge.updateTimelineContent(timelineCard.eventId, text)
+                onTextChanged: todoDetailBridge.updateTimelineContent(timelineCard.eventId, text)
+            }
         }
 
         Column {
@@ -589,7 +667,8 @@ Rectangle {
 
                                 MouseArea {
                                     anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !bodyEditingLocked
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                     onClicked: {
                                         if (rootContext) {
                                             rootContext.markAttachmentTarget(timelineCard.eventId)

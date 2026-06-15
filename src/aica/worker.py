@@ -1475,6 +1475,40 @@ class StageSummaryWorker(QThread):
             raise RuntimeError("模型重写失败") from exc
 
 
+class TimelinePolishWorker(QThread):
+    finished = pyqtSignal(str, str, str, str, str)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        server_config,
+        todo_id: str,
+        request_id: str,
+        event_id: str,
+        content: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._server_config = server_config
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._event_id = str(event_id or "").strip()
+        self._content = sanitize_text(content).strip()
+
+    def run(self) -> None:
+        try:
+            result = ChattodoServerClient.from_config(self._server_config).polish_timeline_content(
+                content=self._content
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+            return
+        summary = sanitize_text(result.get("summary", "")).strip()
+        detail = sanitize_text(result.get("detail", "")).strip()
+        self.finished.emit(self._todo_id, self._request_id, self._event_id, summary, detail)
+
+
 class AIWorker(_BaseVisionWorker):
     def __init__(self, image: QPixmap, llm_service: LLMService, model_label: str,
                  timeout: int = 30,

@@ -8,7 +8,12 @@ from PyInstaller.utils.hooks import collect_submodules
 
 project_root = Path(SPEC).resolve().parent
 target_arch = os.environ.get("AICA_TARGET_ARCH", "").strip() or None
-hiddenimports = collect_submodules("pynput") + collect_submodules("pyperclip")
+hiddenimports = (
+    collect_submodules("pynput")
+    + collect_submodules("pyperclip")
+    + collect_submodules("PyQt6.QtWebEngineCore")
+    + collect_submodules("PyQt6.QtWebEngineQuick")
+)
 icon_path = project_root / "assets" / "aica_icon.icns"
 datas = [
     (str(project_root / "src" / "aica" / "qml"), "aica/qml"),

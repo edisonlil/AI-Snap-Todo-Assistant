@@ -472,11 +472,6 @@ _SECTION_GROUPS = [
         "title": "\u8fd0\u884c\u4e0e\u96c6\u6210",
         "items": [
             {
-                "id": "theme",
-                "title": "\u4e3b\u9898\u6837\u5f0f",
-                "description": "\u8c03\u6574 Chattodo \u7684\u5e95\u8272\u9884\u8bbe\u3001\u5f3a\u8c03\u8272\u3001\u5706\u89d2\u3001\u5b57\u4f53\u548c\u754c\u9762\u5bc6\u5ea6\u3002",
-            },
-            {
                 "id": "hotkeys",
                 "title": "\u5feb\u6377\u952e\u8bbe\u7f6e",
                 "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
@@ -490,6 +485,11 @@ _SECTION_GROUPS = [
                 "id": "server",
                 "title": "\u670d\u52a1\u7aef\u96c6\u6210",
                 "description": "\u914d\u7f6e Chattodo \u670d\u52a1\u7aef\u5730\u5740\u548c API Key\uff0c\u4e3a\u540e\u7eed\u80fd\u529b\u63a5\u5165\u505a\u51c6\u5907\u3002",
+            },
+            {
+                "id": "theme",
+                "title": "\u4e3b\u9898\u6837\u5f0f",
+                "description": "\u8c03\u6574 Chattodo \u7684\u5e95\u8272\u9884\u8bbe\u3001\u5f3a\u8c03\u8272\u3001\u5706\u89d2\u3001\u5b57\u4f53\u548c\u754c\u9762\u5bc6\u5ea6\u3002",
             },
             {
                 "id": "integrations",

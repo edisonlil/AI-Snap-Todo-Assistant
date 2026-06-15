@@ -11,6 +11,8 @@ from aica.models import TicketSummaryFields
 from aica.todo.detail_panel import (
     TodoDetailPanel,
     _AssistTroubleshootingWindow,
+    _TimelineDetailWindow,
+    _render_timeline_markdown_html,
     _resolve_neighbor_panel_x,
     _StageSummaryWindow,
     _TodoDetailBridge,
@@ -1278,6 +1280,53 @@ def test_assist_troubleshooting_window_manual_resize_and_drag_persist_until_hidd
     assert window.y() == 204
 
 
+def test_timeline_detail_window_keeps_maximized_state_on_update(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    window = _TimelineDetailWindow(
+        bridge,
+        panel_width=860,
+        panel_height=632,
+        screen_margin=20,
+    )
+    available = _FakeAvailableGeometry(height=880)
+    anchor = _FakeAnchorWindow()
+    maximize_calls: list[str] = []
+    resize_calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        window,
+        "rootObject",
+        lambda: SimpleNamespace(property=lambda name: 510 if name == "preferredHeight" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._screen_for_point",
+        lambda _point: "screen-token",
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_available_geometry",
+        lambda _screen: available,
+    )
+    monkeypatch.setattr(
+        "aica.todo.detail_panel._resolve_neighbor_panel_x",
+        lambda *_args, **_kwargs: 700,
+    )
+    monkeypatch.setattr(window, "_move_within_screen", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(window, "showMaximized", lambda: maximize_calls.append("show"))
+    monkeypatch.setattr(window, "showNormal", lambda: maximize_calls.append("normal"))
+    monkeypatch.setattr(window, "raise_", lambda: None)
+    monkeypatch.setattr(window, "requestActivate", lambda: None)
+    monkeypatch.setattr(window, "resize", lambda w, h: resize_calls.append((w, h)))
+    monkeypatch.setattr(window, "_is_window_maximized", lambda: True)
+
+    window.show_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window.update_near(anchor, anchor_width=396, anchor_gap=18, top_offset=84)
+    window._handle_screen_changed(None)  # noqa: SLF001
+
+    assert maximize_calls == ["show"]
+    assert resize_calls == []
+
+
 def test_detail_panel_screen_change_restores_default_size(monkeypatch) -> None:
     panel = _build_panel(monkeypatch)
 
@@ -1705,3 +1754,204 @@ def test_add_conclusion_emits_conclusion_command() -> None:
     assert saved[0][1]["action"] == "save_conclusion"
     assert saved[0][1]["saveMode"] == "autosave"
     assert saved[0][1]["conclusion"].content == "最终结论"
+
+
+def test_timeline_detail_save_preserves_raw_summary_and_detail() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="原始短内容",
+        )
+    ]
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.updateTimelineDetailText("很长的原始记录\n\n- 包含很多细节")
+    bridge.saveTimelineDetail()
+
+    event = saved[-1][1]["timeline"][0]
+    assert event.content == "原始短内容"
+    assert event.payload["note_mode"] == "detail"
+    assert event.payload["raw_content"] == "很长的原始记录\n\n- 包含很多细节"
+    assert event.payload["summary"] == "原始短内容"
+    assert event.payload["polished_detail"] == "很长的原始记录\n\n- 包含很多细节"
+
+
+def test_timeline_detail_save_triggers_async_summary_request() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="旧摘要",
+        )
+    ]
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.timelineSummaryRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.updateTimelineDetailText("新的详细原文")
+    bridge.saveTimelineDetail()
+
+    assert len(requests) == 1
+    assert requests[0][0] == "todo-1"
+    assert requests[0][1]["eventId"] == "event-1"
+    assert requests[0][1]["content"] == "新的详细原文"
+
+
+def test_timeline_detail_edit_does_not_persist_without_explicit_save() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="旧摘要",
+            payload={
+                "note_mode": "detail",
+                "raw_content": "旧详情",
+                "summary": "旧摘要",
+                "polished_detail": "旧详情",
+            },
+        )
+    ]
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.updateTimelineDetailText("未保存的新内容")
+
+    assert saved == []
+    assert bridge.timelineDetailText == "未保存的新内容"
+    assert bridge.timelineDetailSummary == "旧摘要"
+    assert bridge.timeline[0]["content"] == "旧摘要"
+    assert bridge.timeline[0]["payload"]["raw_content"] == "旧详情"
+
+
+def test_timeline_summary_result_updates_readonly_card_content_only() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="旧摘要",
+            payload={
+                "note_mode": "detail",
+                "raw_content": "原始长文",
+                "summary": "旧摘要",
+                "polished_detail": "原始长文",
+            },
+        )
+    ]
+    saved: list[tuple[str, dict[str, object]]] = []
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.timelineSummaryRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.requestTimelineSummary("event-1")
+    request_id = str(requests[0][1]["requestId"])
+
+    assert bridge.apply_timeline_summary_result("todo-1", request_id, "event-1", "新摘要") is True
+
+    event = saved[-1][1]["timeline"][0]
+    assert event.content == "新摘要"
+    assert event.payload["summary"] == "新摘要"
+    assert event.payload["raw_content"] == "原始长文"
+    assert event.payload["polished_detail"] == "原始长文"
+
+
+def test_timeline_detail_html_updates_when_switching_events() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(id="event-1", kind="manual", content="原文一"),
+        TimelineEvent(id="event-2", kind="manual", content="原文二"),
+    ]
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    first_html = bridge.timelineDetailHtml
+    bridge.openTimelineDetail("event-2")
+    second_html = bridge.timelineDetailHtml
+
+    assert "原文一" in first_html
+    assert "原文二" in second_html
+    assert "原文一" not in second_html
+
+
+def test_timeline_polish_result_updates_target_event_only() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(id="event-1", kind="manual", content="原文一"),
+        TimelineEvent(id="event-2", kind="manual", content="原文二"),
+    ]
+    saved: list[tuple[str, dict[str, object]]] = []
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.timelinePolishRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.requestTimelinePolish("event-1")
+    request_id = str(requests[0][1]["requestId"])
+
+    assert bridge.apply_timeline_polish_result("todo-1", request_id, "event-1", "摘要一", "### 详情一") is True
+
+    events = saved[-1][1]["timeline"]
+    event_by_id = {event.id: event for event in events}
+    assert event_by_id["event-1"].content == "摘要一"
+    assert event_by_id["event-1"].payload["raw_content"] == "### 详情一"
+    assert event_by_id["event-1"].payload["summary"] == "摘要一"
+    assert event_by_id["event-1"].payload["polished_detail"] == "### 详情一"
+    assert event_by_id["event-2"].content == "原文二"
+    assert event_by_id["event-2"].payload == {}
+    assert bridge.timelineDetailSummary == "摘要一"
+    assert bridge.timelineDetailText == "### 详情一"
+
+
+def test_timeline_polish_error_does_not_overwrite_content() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.timeline = [TimelineEvent(id="event-1", kind="manual", content="原文")]
+    saved: list[tuple[str, dict[str, object]]] = []
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.timelinePolishRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.requestTimelinePolish("event-1")
+    request_id = str(requests[0][1]["requestId"])
+
+    assert bridge.apply_timeline_polish_error("todo-1", request_id, "服务端失败") is True
+    assert saved == []
+    assert bridge.timeline[0]["content"] == "原文"
+    assert bridge.timelineDetailError == "服务端失败"
+
+
+def test_timeline_detail_markdown_renderer_outputs_html() -> None:
+    html = _render_timeline_markdown_html("1. **URL 参数控制**\n\n```json\n{}\n```")
+
+    assert "<ol>" in html
+    assert "<strong>URL 参数控制</strong>" in html
+    assert "<pre><code" in html
+    assert "**URL 参数控制**" not in html
