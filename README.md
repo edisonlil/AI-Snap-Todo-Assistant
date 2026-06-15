@@ -208,6 +208,8 @@ python -m pip install -r requirements-build.txt
 
 - 首次运行或任务绑定缺少可用 `api_key` / 模型时，程序会弹窗引导配置
 - Windows 默认截图热键为 `Alt+A`；macOS 新建配置默认使用 `Command+Shift+A`
+- 图片翻译使用本地 RapidOCR 做文字检测与回绘，文本翻译通过已配置的 Chattodo 服务端完成
+- 图片翻译首版仅支持工具条显式选择的 `EN→ZH` 和 `ZH→EN`
 - 旧版 `config.json` 会在加载时自动迁移到新 schema
 - 运行时内部只使用新配置结构，不再依赖旧顶层字段
 

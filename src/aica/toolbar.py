@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QKeySequence, QShortcut
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -16,10 +16,12 @@ from .runtime import RUNTIME_CAPABILITIES
 from .theme_controller import ThemeController
 from .analysis.intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .focus_hint_dialog import FocusHintDialog
+from .paths import asset_file
 
 
 class FloatingToolbar(QWidget):
     summarize_clicked = pyqtSignal()
+    translate_clicked = pyqtSignal(str)
     continue_capture_clicked = pyqtSignal()
     copy_clicked = pyqtSignal()
     cancel_clicked = pyqtSignal()
@@ -81,6 +83,26 @@ class FloatingToolbar(QWidget):
         self._scenario_combo.currentTextChanged.connect(self._on_scenario_changed)
         self._scenario_combo.setToolTip("选择分析场景")
         surface_layout.addWidget(self._scenario_combo)
+
+        self._translate_direction_combo = QComboBox()
+        self._translate_direction_combo.setObjectName("scenarioCombo")
+        self._translate_direction_combo.setMinimumWidth(92)
+        self._translate_direction_combo.setMaximumWidth(112)
+        self._translate_direction_combo.addItem("EN→ZH", "en_to_zh")
+        self._translate_direction_combo.addItem("ZH→EN", "zh_to_en")
+        self._translate_direction_combo.setToolTip("选择图片翻译方向")
+        self._translate_direction_combo.hide()
+        surface_layout.addWidget(self._translate_direction_combo)
+
+        self._btn_translate = QPushButton("")
+        self._btn_translate.setObjectName("iconGhostButton")
+        self._btn_translate.setAccessibleName("原位替换")
+        self._btn_translate.setToolTip("将截图中的文字直接贴回原图")
+        self._btn_translate.setIcon(QIcon(str(asset_file("image-translate.svg"))))
+        self._btn_translate.setIconSize(QSize(16, 16))
+        self._btn_translate.clicked.connect(self._emit_translate_clicked)
+        self._btn_translate.hide()
+        surface_layout.addWidget(self._btn_translate)
 
         self._btn_focus = QPushButton("重点")
         self._btn_focus.setObjectName("ghostButton")
@@ -447,6 +469,8 @@ class FloatingToolbar(QWidget):
     def set_loading(self, loading: bool) -> None:
         self._loading = loading
         self._scenario_combo.setEnabled(not loading)
+        self._translate_direction_combo.setEnabled(not loading)
+        self._btn_translate.setEnabled(not loading)
         self._btn_continue.setEnabled(not loading)
         self._btn_copy.setEnabled(not loading)
         self._btn_cancel.setEnabled(not loading)
@@ -467,6 +491,13 @@ class FloatingToolbar(QWidget):
                 self._btn_summarize.setText("完成")
             else:
                 self._btn_summarize.setText("分析")
+
+    def set_translation_visible(self, visible: bool) -> None:
+        self._translate_direction_combo.setVisible(visible)
+        self._btn_translate.setVisible(visible)
+
+    def current_translation_direction(self) -> str:
+        return str(self._translate_direction_combo.currentData() or "en_to_zh")
 
     def _on_scenario_changed(self, scenario_name: str) -> None:
         if not self._updating_combo:
@@ -519,6 +550,9 @@ class FloatingToolbar(QWidget):
             return
         self._focus_hint = dialog.hint_text
         self._refresh_focus_button()
+
+    def _emit_translate_clicked(self) -> None:
+        self.translate_clicked.emit(self.current_translation_direction())
 
     def _refresh_focus_button(self) -> None:
         has_focus = bool(self._focus_hint)

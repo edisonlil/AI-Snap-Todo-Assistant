@@ -61,6 +61,7 @@ class CaptureUiFlow:
         self._toolbar.attach_to_overlay(None)
         self._toolbar.reset_analysis_inputs()
         self._toolbar.set_single_capture_mode()
+        self._toolbar.set_translation_visible(False)
         self._toolbar.hide()
         refresh_todo_panel()
 
@@ -69,6 +70,7 @@ class CaptureUiFlow:
         self._capture_session.active_overlay = None
         self._capture_session.current_selection = None
         self._toolbar.attach_to_overlay(None)
+        self._toolbar.set_translation_visible(False)
         self._toolbar.hide()
         refresh_todo_panel()
 
@@ -87,6 +89,7 @@ class CaptureUiFlow:
 
         if active_overlay is not None:
             active_overlay.set_edit_mode("move")
+        self._toolbar.set_translation_visible(active_overlay is not None)
         self._toolbar.show_at(self._capture_session.current_selection)
 
     def queue_current_capture(self) -> bool:
@@ -108,6 +111,7 @@ class CaptureUiFlow:
         self._toolbar.attach_to_overlay(selected_overlay)
         self._capture_session.set_active_capture(rect, cropped, selected_overlay)
         self._toolbar.set_edit_mode("move")
+        self._toolbar.set_translation_visible(True)
         if self._capture_session.queued_captures:
             self._toolbar.set_multi_capture_mode(self._capture_session.session_capture_count())
         else:

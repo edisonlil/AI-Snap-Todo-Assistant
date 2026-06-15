@@ -12,6 +12,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 _SKIP_QT_IMPORT = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
 
 try:
@@ -88,6 +91,13 @@ from .context_summary.models import ContextSummaryRequest, build_context_summary
 from .context_summary.service import ContextSummaryService, format_summary_for_analysis_context
 from .error_codes import ErrorCodeLookupService
 from .image_utils import EncodedImage, encode_image_for_api
+from .image_translation import (
+    ImageTranslationError,
+    InPlaceImageTranslator,
+    RapidOcrEngine,
+    ServerTranslateBackend,
+    TranslationDirection,
+)
 from .llm.service import LLMService, LLMServiceError, TaskExecutionError
 from .llm.types import ContentPart, Message, TaskRunResult
 from .models import TicketSummaryFields
@@ -1626,3 +1636,63 @@ class MultiCaptureAIWorker(_BaseVisionWorker):
             ),
             encoded_images,
         )
+
+
+class ImageTranslateWorker(QThread):
+    finished = pyqtSignal(object, object)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        image: QPixmap,
+        *,
+        direction: str,
+        server_config=None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._image = image
+        self._direction = direction
+        self._server_config = server_config
+
+    def run(self) -> None:
+        try:
+            translated_pixmap, result = self._translate()
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+            return
+        self.finished.emit(translated_pixmap, result)
+
+    def _translate(self) -> tuple[QPixmap, object]:
+        if self._image.isNull():
+            raise ImageTranslationError("当前没有可翻译的截图。")
+        if self._server_config is None:
+            raise ImageTranslationError("图片翻译缺少服务端配置。")
+        image = self._image.toImage().convertToFormat(self._image.toImage().Format.Format_RGBA8888)
+        width = image.width()
+        height = image.height()
+        buffer = image.bits()
+        if buffer is None:
+            raise ImageTranslationError("截图像素读取失败。")
+        bytes_per_line = image.bytesPerLine()
+        np_buffer = np.frombuffer(buffer.asarray(height * bytes_per_line), dtype=np.uint8).reshape((height, bytes_per_line // 4, 4))
+        rgba = np_buffer[:, :width, :]
+        bgr = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR)
+        translator = InPlaceImageTranslator(
+            ocr_engine=RapidOcrEngine(),
+            translator=ServerTranslateBackend(ChattodoServerClient.from_config(self._server_config)),
+        )
+        direction = TranslationDirection(str(self._direction or "en_to_zh"))
+        result = translator.translate(bgr, direction)
+        translated_bgr = result.image_bgr
+        translated_rgba = cv2.cvtColor(translated_bgr, cv2.COLOR_BGR2RGBA)
+        from PyQt6.QtGui import QImage
+
+        output = QImage(
+            translated_rgba.data,
+            translated_rgba.shape[1],
+            translated_rgba.shape[0],
+            translated_rgba.strides[0],
+            QImage.Format.Format_RGBA8888,
+        ).copy()
+        return QPixmap.fromImage(output), result

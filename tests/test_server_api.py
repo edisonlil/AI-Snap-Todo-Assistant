@@ -669,6 +669,88 @@ def test_polish_timeline_content_rejects_empty_result() -> None:
         client.polish_timeline_content(content="零碎内容")
 
 
+def test_translate_image_text_blocks_sends_single_turn_request_and_parses_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": json.dumps(
+                    {
+                        "translations": [
+                            "Server Connection",
+                            "Save the server address and API key first",
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                "trace_id": "trace_translate",
+                "usage": {"total_tokens": 384},
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    result = client.translate_image_text_blocks(
+        source_lang="zh",
+        target_lang="en",
+        texts=["服务端连接", "先保存服务端地址和 API Key"],
+    )
+
+    assert result == {
+        "translations": [
+            "Server Connection",
+            "Save the server address and API key first",
+        ],
+        "trace_id": "trace_translate",
+        "usage": {"total_tokens": 384},
+    }
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/single-turn-mqd7ce05/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "text": json.dumps(
+                {
+                    "source_lang": "zh",
+                    "target_lang": "en",
+                    "texts": ["服务端连接", "先保存服务端地址和 API Key"],
+                },
+                ensure_ascii=False,
+            )
+        }
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 12
+
+
+def test_translate_image_text_blocks_rejects_count_mismatch() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": json.dumps({"translations": ["only one"]}, ensure_ascii=False),
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ChattodoServerError, match="数量与请求文本数量不一致"):
+        client.translate_image_text_blocks(
+            source_lang="zh",
+            target_lang="en",
+            texts=["a", "b"],
+        )
+
+
 def test_client_rejects_missing_config() -> None:
     with pytest.raises(ChattodoServerError):
         ChattodoServerClient.from_config(ServerConfig())

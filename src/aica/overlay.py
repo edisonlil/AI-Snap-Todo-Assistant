@@ -130,6 +130,7 @@ class OverlayWindow(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._bg_pixmap: QPixmap | None = None
+        self._selection_override_pixmap: QPixmap | None = None
         self._start: QPoint | None = None
         self._end: QPoint | None = None
         self._selection_rect: QRect | None = None
@@ -311,7 +312,7 @@ class OverlayWindow(QWidget):
 
     def export_selection_pixmap(self) -> QPixmap:
         self._commit_pending_text_annotation()
-        cropped = self._crop_selection_pixmap()
+        cropped = self._selection_override_pixmap or self._crop_selection_pixmap()
         if cropped is None:
             return QPixmap()
 
@@ -344,6 +345,7 @@ class OverlayWindow(QWidget):
         self._arrows.clear()
         self._history.clear()
         self._cancel_pending_text_annotation()
+        self._selection_override_pixmap = None
 
     def _current_rect(self) -> QRect | None:
         if self._start is None or self._end is None:
@@ -375,6 +377,10 @@ class OverlayWindow(QWidget):
             cropped.setDevicePixelRatio(dpr)
             return cropped
         return self._bg_pixmap.copy(rect)
+
+    def set_selection_override_pixmap(self, pixmap: QPixmap | None) -> None:
+        self._selection_override_pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self.update()
 
     def _selection_local_point(self, point: QPoint) -> QPoint:
         if self._selection_rect is None:
@@ -412,6 +418,8 @@ class OverlayWindow(QWidget):
 
         rect = self._active_rect()
         if rect is not None:
+            if self._selection_override_pixmap is not None and not self._selection_override_pixmap.isNull():
+                painter.drawPixmap(rect, self._selection_override_pixmap)
             self._paint_mask(painter, rect)
             self._paint_selection_frame(painter, rect)
 
@@ -581,6 +589,7 @@ class OverlayWindow(QWidget):
                 delta = event.pos() - self._move_start
                 moved = translate_rect_within_bounds(self._move_origin_rect, delta, self.rect())
                 if moved != self._selection_rect:
+                    self._selection_override_pixmap = None
                     self._selection_rect = moved
                     global_rect = self.current_global_selection()
                     if global_rect is not None:
@@ -599,6 +608,7 @@ class OverlayWindow(QWidget):
                     self._MIN_SELECTION_PX,
                 )
                 if resized != self._selection_rect:
+                    self._selection_override_pixmap = None
                     self._selection_rect = resized
                     global_rect = self.current_global_selection()
                     if global_rect is not None:

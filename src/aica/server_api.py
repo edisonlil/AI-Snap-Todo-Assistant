@@ -410,6 +410,55 @@ class ChattodoServerClient:
             "detail": detail,
         }
 
+    def translate_image_text_blocks(self, *, source_lang: str, target_lang: str, texts: list[str]) -> dict[str, Any]:
+        normalized_source = sanitize_text(source_lang).strip().lower()
+        normalized_target = sanitize_text(target_lang).strip().lower()
+        normalized_texts = [sanitize_text(item).strip() for item in list(texts or [])]
+        normalized_texts = [item for item in normalized_texts if item]
+        if normalized_source not in {"zh", "en"}:
+            raise ChattodoServerError("图片翻译源语言仅支持 zh 或 en。")
+        if normalized_target not in {"zh", "en"}:
+            raise ChattodoServerError("图片翻译目标语言仅支持 zh 或 en。")
+        if not normalized_texts:
+            raise ChattodoServerError("图片翻译文本不能为空。")
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/single-turn-mqd7ce05/run",
+            json={
+                "variables": {
+                    "text": json.dumps(
+                        {
+                            "source_lang": normalized_source,
+                            "target_lang": normalized_target,
+                            "texts": normalized_texts,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端图片翻译未返回有效结果。")
+        try:
+            parsed = json.loads(raw_answer)
+        except ValueError as exc:
+            raise ChattodoServerError("服务端图片翻译结果不是有效 JSON。") from exc
+        if not isinstance(parsed, dict):
+            raise ChattodoServerError("服务端图片翻译结果格式错误。")
+        translations = parsed.get("translations")
+        if not isinstance(translations, list):
+            raise ChattodoServerError("服务端图片翻译结果缺少 translations。")
+        normalized_translations = [sanitize_text(item).strip() for item in translations]
+        if len(normalized_translations) != len(normalized_texts):
+            raise ChattodoServerError("服务端图片翻译结果数量与请求文本数量不一致。")
+        return {
+            "translations": normalized_translations,
+            "trace_id": sanitize_text(payload.get("trace_id")).strip(),
+            "usage": dict(payload.get("usage")) if isinstance(payload.get("usage"), dict) else {},
+        }
+
     @staticmethod
     def _runtime_answer(payload: dict[str, Any]) -> object:
         answer = payload.get("answer")

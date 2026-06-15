@@ -11,8 +11,7 @@ Rectangle {
     width: chipText.implicitWidth + (removable ? 28 : 20)
     height: theme.formChipHeight || 28
     color: theme.accentSoft
-    border.width: 1
-    border.color: theme.formFieldBorder || theme.panelLine || "#E5E7EB"
+    border.width: 0
 
     Text {
         id: chipText

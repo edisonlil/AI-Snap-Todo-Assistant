@@ -7,3 +7,5 @@ requests>=2.31.0
 pyperclip>=1.8.2
 openpyxl>=3.1.0
 markdown-it-py>=3.0.0
+numpy>=1.26.0
+rapidocr>=0.0.9

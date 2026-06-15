@@ -13,6 +13,7 @@ hiddenimports = (
     + collect_submodules("pyperclip")
     + collect_submodules("PyQt6.QtWebEngineCore")
     + collect_submodules("PyQt6.QtWebEngineQuick")
+    + collect_submodules("rapidocr")
 )
 icon_path = project_root / "assets" / "aica_icon.icns"
 datas = [

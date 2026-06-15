@@ -380,3 +380,4 @@ def test_exception_handler_requests_qapplication_exit(monkeypatch, tmp_path: Pat
     sys.excepthook(ValueError, ValueError("bad value"), None)
 
     assert exit_codes == [1]
+

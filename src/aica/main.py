@@ -67,6 +67,7 @@ from aica.toolbar import FloatingToolbar
 from aica.worker import (
     AIWorker,
     AssistAnalysisWorker,
+    ImageTranslateWorker,
     MultiCaptureAIWorker,
     StageSummaryWorker,
     TimelinePolishWorker,
@@ -840,6 +841,55 @@ def main() -> None:
         QApplication.clipboard().setPixmap(capture_session.current_capture)
         _clear_capture_state()
 
+    image_translate_workers: list[ImageTranslateWorker] = []
+
+    def _cleanup_image_translate_worker(worker: ImageTranslateWorker) -> None:
+        if worker in image_translate_workers:
+            image_translate_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_translate_finished(translated_pixmap, result) -> None:
+        toolbar.set_loading(False)
+        capture_session.current_capture = translated_pixmap
+        if capture_session.active_overlay is not None:
+            capture_session.active_overlay.set_selection_override_pixmap(translated_pixmap)
+        warnings = list(getattr(result, "warnings", []) or [])
+        if warnings:
+            notification_bridge.notify("warning", warnings[0], 3600, "image_translation")
+        _restore_toolbar_for_current_capture()
+
+    def _on_translate_error(message: str) -> None:
+        toolbar.set_loading(False)
+        QMessageBox.warning(None, "图片翻译失败", str(message or "").strip() or "图片翻译失败")
+        _restore_toolbar_for_current_capture()
+
+    def _on_translate_capture(direction: str) -> None:
+        if not _sync_capture_from_active_overlay() or capture_session.current_capture is None:
+            QMessageBox.warning(None, "错误", "当前没有可翻译的截图")
+            return
+        config = config_mgr.load()
+        server_config = config.server
+        server_ready = (
+            bool(getattr(server_config, "enabled", False))
+            and str(getattr(server_config, "base_url", "") or "").strip()
+            and str(getattr(server_config, "api_key", "") or "").strip()
+        )
+        if not server_ready:
+            QMessageBox.warning(None, "图片翻译失败", "请先在控制面板完成服务端地址、API Key 并启用服务端集成。")
+            return
+        toolbar.set_loading(True)
+        worker = ImageTranslateWorker(
+            capture_session.current_capture,
+            direction=direction,
+            server_config=server_config,
+        )
+        image_translate_workers.append(worker)
+        worker.finished.connect(_on_translate_finished)
+        worker.finished.connect(lambda _pixmap, _result, current=worker: _cleanup_image_translate_worker(current))
+        worker.error.connect(_on_translate_error)
+        worker.error.connect(lambda _message, current=worker: _cleanup_image_translate_worker(current))
+        worker.start()
+
     def _on_edit_mode_changed(mode: str) -> None:
         if capture_session.active_overlay is not None:
             capture_session.active_overlay.set_edit_mode(mode)
@@ -1246,6 +1296,7 @@ def main() -> None:
     control_panel.project_saved.connect(_on_project_saved)
     hotkey_mgr.hotkey_triggered.connect(_on_hotkey)
     toolbar.summarize_clicked.connect(_on_summarize)
+    toolbar.translate_clicked.connect(_on_translate_capture)
     toolbar.continue_capture_clicked.connect(_on_continue_capture)
     toolbar.copy_clicked.connect(_on_copy_capture)
     toolbar.cancel_clicked.connect(_on_cancel)
