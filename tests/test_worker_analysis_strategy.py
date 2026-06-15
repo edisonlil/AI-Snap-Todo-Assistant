@@ -20,7 +20,6 @@ def _bundle() -> AnalysisPromptBundle:
         user_prompt="user",
         scene_type="chat_feedback",
         scene_label="聊天反馈",
-        focus_hint="",
         context_text="",
         image_count=1,
         applied_rule_snapshot={},

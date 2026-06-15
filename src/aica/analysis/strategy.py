@@ -57,7 +57,6 @@ class AnalysisPromptBundle:
     user_prompt: str
     scene_type: str
     scene_label: str
-    focus_hint: str
     context_text: str
     image_count: int
     applied_rule_snapshot: dict[str, object]
@@ -74,15 +73,6 @@ def _build_sequence_section(intent: AnalysisIntent, image_count: int) -> str:
         "这是一组连续截图，请按顺序综合理解；相邻截图有重复时要去重，但不要丢失后续截图新增信息。"
         if intent.capture_group_mode == CAPTURE_MODE_SEQUENCE or image_count > 1
         else "这是一张单图，请直接围绕当前截图提取结构化结果。"
-    )
-
-
-def _build_focus_section(intent: AnalysisIntent) -> str:
-    focus_hint = intent.focus_hint.strip()
-    return (
-        f"用户补充重点：{focus_hint}。请优先满足这个提取重点。"
-        if focus_hint
-        else "用户没有额外补充重点。"
     )
 
 
@@ -117,7 +107,6 @@ def build_analysis_prompt_bundle(
         f"{_COMMON_RULES}\n",
         f"{_SCENE_RULES.get(intent.scene_type, _SCENE_RULES[SCENE_CHAT_FEEDBACK])}\n",
         f"{_build_sequence_section(intent, image_count)}\n",
-        _build_focus_section(intent),
         "\n",
         _build_user_rule_section(applied_rule),
     ]
@@ -126,7 +115,6 @@ def build_analysis_prompt_bundle(
         user_prompt="".join(section for section in user_sections if section),
         scene_type=intent.scene_type,
         scene_label=intent.scene_label,
-        focus_hint=intent.focus_hint.strip(),
         context_text=context_text.strip(),
         image_count=max(1, int(image_count)),
         applied_rule_snapshot={"items": applied_rule.to_lines()},

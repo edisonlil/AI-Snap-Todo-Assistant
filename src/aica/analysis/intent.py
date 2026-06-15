@@ -22,7 +22,6 @@ SCENE_LABELS = {scene_type: label for label, scene_type in SCENE_OPTIONS}
 @dataclass(frozen=True)
 class AnalysisIntent:
     scene_type: str
-    focus_hint: str = ""
     capture_group_mode: str = CAPTURE_MODE_SINGLE
 
     @property
@@ -30,12 +29,11 @@ class AnalysisIntent:
         return SCENE_LABELS.get(self.scene_type, "工单跟进")
 
 
-def build_analysis_intent(scene_type: str, *, focus_hint: str = "", capture_count: int = 1) -> AnalysisIntent:
+def build_analysis_intent(scene_type: str, *, capture_count: int = 1) -> AnalysisIntent:
     capture_group_mode = CAPTURE_MODE_SEQUENCE if capture_count > 1 else CAPTURE_MODE_SINGLE
     normalized_scene = scene_type if scene_type in SCENE_LABELS else SCENE_CHAT_FEEDBACK
     return AnalysisIntent(
         scene_type=normalized_scene,
-        focus_hint=str(focus_hint or "").strip(),
         capture_group_mode=capture_group_mode,
     )
 

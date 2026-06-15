@@ -625,7 +625,6 @@ class _BaseVisionWorker(QThread):
             "scene_type": bundle.scene_type,
             "scene_label": bundle.scene_label,
             "prompt_version": bundle.prompt_version,
-            "focus_hint": bundle.focus_hint,
             "context_text": bundle.context_text,
             "image_count": bundle.image_count,
             "system_prompt": bundle.system_prompt,

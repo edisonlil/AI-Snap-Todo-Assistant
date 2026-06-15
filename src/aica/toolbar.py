@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
 from .runtime import RUNTIME_CAPABILITIES
 from .theme_controller import ThemeController
 from .analysis.intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
-from .focus_hint_dialog import FocusHintDialog
 from .paths import asset_file
 
 
@@ -50,7 +49,6 @@ class FloatingToolbar(QWidget):
         self._updating_combo = False
         self._updating_edit_mode = False
         self._edit_buttons: dict[str, QPushButton] = {}
-        self._focus_hint = ""
         self._copy_shortcuts: list[QShortcut] = []
 
         self._setup_ui()
@@ -84,16 +82,6 @@ class FloatingToolbar(QWidget):
         self._scenario_combo.setToolTip("选择分析场景")
         surface_layout.addWidget(self._scenario_combo)
 
-        self._translate_direction_combo = QComboBox()
-        self._translate_direction_combo.setObjectName("scenarioCombo")
-        self._translate_direction_combo.setMinimumWidth(92)
-        self._translate_direction_combo.setMaximumWidth(112)
-        self._translate_direction_combo.addItem("EN→ZH", "en_to_zh")
-        self._translate_direction_combo.addItem("ZH→EN", "zh_to_en")
-        self._translate_direction_combo.setToolTip("选择图片翻译方向")
-        self._translate_direction_combo.hide()
-        surface_layout.addWidget(self._translate_direction_combo)
-
         self._btn_translate = QPushButton("")
         self._btn_translate.setObjectName("iconGhostButton")
         self._btn_translate.setAccessibleName("原位替换")
@@ -102,13 +90,6 @@ class FloatingToolbar(QWidget):
         self._btn_translate.setIconSize(QSize(16, 16))
         self._btn_translate.clicked.connect(self._emit_translate_clicked)
         self._btn_translate.hide()
-        surface_layout.addWidget(self._btn_translate)
-
-        self._btn_focus = QPushButton("重点")
-        self._btn_focus.setObjectName("ghostButton")
-        self._btn_focus.setToolTip("补充本次提取重点")
-        self._btn_focus.clicked.connect(self._edit_focus_hint)
-        surface_layout.addWidget(self._btn_focus)
 
         self._btn_summarize = QPushButton("分析")
         self._btn_summarize.setObjectName("primaryButton")
@@ -131,6 +112,22 @@ class FloatingToolbar(QWidget):
             button.setObjectName("modeButton")
             button.setCheckable(True)
             button.setToolTip(tooltip)
+            if mode == "move":
+                button.setText("")
+                button.setIcon(QIcon(str(asset_file("move.svg"))))
+                button.setIconSize(QSize(16, 16))
+            elif mode == "rect":
+                button.setText("")
+                button.setIcon(QIcon(str(asset_file("rect.svg"))))
+                button.setIconSize(QSize(16, 16))
+            elif mode == "arrow":
+                button.setText("")
+                button.setIcon(QIcon(str(asset_file("arrow.svg"))))
+                button.setIconSize(QSize(16, 16))
+            elif mode == "text":
+                button.setText("")
+                button.setIcon(QIcon(str(asset_file("text.svg"))))
+                button.setIconSize(QSize(16, 16))
             button.clicked.connect(
                 lambda checked, current_mode=mode: self._on_edit_mode_clicked(current_mode, checked)
             )
@@ -140,17 +137,23 @@ class FloatingToolbar(QWidget):
 
         surface_layout.addWidget(self._create_separator())
 
-        self._btn_copy = QPushButton("⧉")
+        self._btn_copy = QPushButton("")
         self._btn_copy.setObjectName("iconGhostButton")
         self._btn_copy.setAccessibleName("复制")
         self._btn_copy.setToolTip("复制当前截图到剪贴板")
+        self._btn_copy.setIcon(QIcon(str(asset_file("copy.svg"))))
+        self._btn_copy.setIconSize(QSize(16, 16))
         self._btn_copy.clicked.connect(self.copy_clicked)
         surface_layout.addWidget(self._btn_copy)
 
-        self._btn_undo = QPushButton("↶")
+        surface_layout.addWidget(self._btn_translate)
+
+        self._btn_undo = QPushButton("")
         self._btn_undo.setObjectName("iconGhostButton")
         self._btn_undo.setAccessibleName("撤销")
         self._btn_undo.setToolTip("撤销上一步标注")
+        self._btn_undo.setIcon(QIcon(str(asset_file("return.svg"))))
+        self._btn_undo.setIconSize(QSize(16, 16))
         self._btn_undo.clicked.connect(self.undo_clicked)
         surface_layout.addWidget(self._btn_undo)
 
@@ -437,13 +440,8 @@ class FloatingToolbar(QWidget):
     def get_current_scene_type(self) -> str:
         return scene_type_from_label(self.get_current_scenario())
 
-    def get_focus_hint(self) -> str:
-        return self._focus_hint
-
     def reset_analysis_inputs(self) -> None:
-        self._focus_hint = ""
         self.set_current_scenario(next(iter(dict(SCENE_OPTIONS).keys()), ""))
-        self._refresh_focus_button()
 
     def build_analysis_intent(self, capture_count: int):
         scene_type = self.get_current_scene_type()
@@ -451,7 +449,6 @@ class FloatingToolbar(QWidget):
             return None
         return build_analysis_intent(
             scene_type,
-            focus_hint=self._focus_hint,
             capture_count=capture_count,
         )
 
@@ -469,7 +466,6 @@ class FloatingToolbar(QWidget):
     def set_loading(self, loading: bool) -> None:
         self._loading = loading
         self._scenario_combo.setEnabled(not loading)
-        self._translate_direction_combo.setEnabled(not loading)
         self._btn_translate.setEnabled(not loading)
         self._btn_continue.setEnabled(not loading)
         self._btn_copy.setEnabled(not loading)
@@ -493,11 +489,10 @@ class FloatingToolbar(QWidget):
                 self._btn_summarize.setText("分析")
 
     def set_translation_visible(self, visible: bool) -> None:
-        self._translate_direction_combo.setVisible(visible)
         self._btn_translate.setVisible(visible)
 
     def current_translation_direction(self) -> str:
-        return str(self._translate_direction_combo.currentData() or "en_to_zh")
+        return "en_to_zh"
 
     def _on_scenario_changed(self, scenario_name: str) -> None:
         if not self._updating_combo:
@@ -540,21 +535,5 @@ class FloatingToolbar(QWidget):
         )
         return not any(focus_widget.inherits(class_name) for class_name in blocked_classes)
 
-    def _edit_focus_hint(self) -> None:
-        dialog = FocusHintDialog(
-            self._focus_hint,
-            parent=self.window(),
-            theme_controller=self._theme_controller,
-        )
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        self._focus_hint = dialog.hint_text
-        self._refresh_focus_button()
-
     def _emit_translate_clicked(self) -> None:
         self.translate_clicked.emit(self.current_translation_direction())
-
-    def _refresh_focus_button(self) -> None:
-        has_focus = bool(self._focus_hint)
-        self._btn_focus.setText("重点*" if has_focus else "重点")
-        self._btn_focus.setToolTip(self._focus_hint or "补充本次提取重点")

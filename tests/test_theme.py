@@ -229,7 +229,6 @@ def test_key_qml_windows_consume_theme_tokens() -> None:
         "StageSummaryWindow.qml",
         "ResultDialog.qml",
         "FeedbackPanel.qml",
-        "FocusHintDialog.qml",
         "AppNotificationWindow.qml",
         "AppNotificationCenter.qml",
     ]
