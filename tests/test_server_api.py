@@ -75,6 +75,51 @@ def test_fetch_my_latest_projects_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 45
 
 
+def test_fetch_identity_me_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "code": "OK",
+                "message": "success",
+                "data": {
+                    "id": 1,
+                    "username": "admin",
+                    "full_name": "平台管理员",
+                    "email": "admin@example.com",
+                    "phone": "",
+                    "is_active": True,
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    identity = client.fetch_identity_me()
+
+    assert identity == {
+        "id": 1,
+        "username": "admin",
+        "full_name": "平台管理员",
+        "email": "admin@example.com",
+        "phone": "",
+        "is_active": True,
+    }
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/identity/me"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Accept": "application/json"}
+    assert session.calls[0]["timeout"] == 45
+
+
 def test_bind_chat_groups_by_task_order_no_sends_expected_request() -> None:
     session = _FakeSession(_FakeResponse(200, {"success": True, "data": {}}))
     client = ChattodoServerClient(

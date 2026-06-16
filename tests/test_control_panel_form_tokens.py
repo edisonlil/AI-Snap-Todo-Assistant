@@ -100,6 +100,21 @@ def test_control_panel_shows_server_login_gate_when_required() -> None:
     assert "controlPanelBridge.saveServerLogin()" in control_panel
 
 
+def test_control_panel_sidebar_renders_server_identity_card() -> None:
+    control_panel = _qml("ControlPanel.qml")
+
+    assert "readonly property var serverIdentity" in control_panel
+    assert "readonly property bool serverIdentityLoading" in control_panel
+    assert "function sidebarGreetingName()" in control_panel
+    assert "id: sidebarGreeting" in control_panel
+    assert 'text: "你好，" + root.sidebarGreetingName()' in control_panel
+    assert "color: root.titleInk" in control_panel
+    assert "font.pixelSize: 13" in control_panel
+    assert "anchors.bottom: parent.bottom" in control_panel
+    assert "anchors.bottomMargin: 18" in control_panel
+    assert "anchors.bottom: sidebarGreeting.top" in control_panel
+
+
 def test_control_panel_spin_box_is_custom_drawn() -> None:
     spin_box = _qml("ControlPanelSettingsSpinBox.qml")
 

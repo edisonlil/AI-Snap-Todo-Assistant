@@ -32,6 +32,8 @@ Rectangle {
     readonly property color timelineBg: themeTokens.timelineBg || "#F8F9FA"
     readonly property color accent: themeTokens.accent || "#2A313F"
     readonly property color accentTint: themeTokens.accentTint || "#ECEFF3"
+    readonly property color buttonPrimaryBg: themeTokens.buttonPrimaryBg || accent
+    readonly property color buttonPrimaryBgPressed: themeTokens.buttonPrimaryBgPressed || themeTokens.accentPressed || "#151C28"
     readonly property string uiFont: themeTokens.uiFont || (detailBridge ? detailBridge.uiFont : "Microsoft YaHei UI")
     readonly property bool timelineDetailVisible: detailBridge ? detailBridge.timelineDetailVisible : false
     readonly property int outerPadding: 24
@@ -1191,7 +1193,7 @@ Rectangle {
                                         height: 30
                                         enabled: todoDetailBridge.canCompleteTodo
                                         radius: 15
-                                        color: enabled ? (completeButtonMouse.pressed ? "#151C28" : root.accent) : "#E1E4E8"
+                                        color: enabled ? (completeButtonMouse.pressed ? root.buttonPrimaryBgPressed : root.buttonPrimaryBg) : "#E1E4E8"
                                         border.width: 0
                                         border.color: "transparent"
 

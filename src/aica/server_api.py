@@ -82,6 +82,17 @@ class ChattodoServerClient:
             raise ChattodoServerError("服务端返回格式错误：缺少 data.items。")
         return [dict(item) for item in items if isinstance(item, dict)]
 
+    def fetch_identity_me(self) -> dict[str, Any]:
+        payload = self._request_json(
+            "GET",
+            "/api/open/v1/identity/me",
+            headers={"Accept": "application/json"},
+        )
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChattodoServerError("服务端返回格式错误：缺少 data。")
+        return dict(data)
+
     def bind_chat_groups_by_task_order_no(self, *, task_order_no: str, group_names: list[str]) -> None:
         normalized_task_order = sanitize_text(task_order_no)
         normalized_group_names = [sanitize_text(item) for item in group_names if sanitize_text(item)]
@@ -574,6 +585,7 @@ class ChattodoServerClient:
         *,
         params: dict[str, object] | None = None,
         json: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
         require_success_envelope: bool = True,
     ) -> dict[str, Any]:
         if not self._base_url:
@@ -583,15 +595,23 @@ class ChattodoServerClient:
 
         url = f"{self._base_url}{path}"
         try:
-            headers = {"X-API-Key": self._api_key}
+            request_headers = {"X-API-Key": self._api_key}
             if json is not None:
-                headers["Content-Type"] = "application/json"
+                request_headers["Content-Type"] = "application/json"
+            if headers:
+                request_headers.update(
+                    {
+                        str(key).strip(): str(value)
+                        for key, value in headers.items()
+                        if str(key).strip() and value is not None
+                    }
+                )
             response = self._session.request(
                 method,
                 url,
                 params=params,
                 json=json,
-                headers=headers,
+                headers=request_headers,
                 timeout=self._timeout_seconds,
             )
         except requests.Timeout as exc:

@@ -1707,7 +1707,16 @@ def test_todo_detail_complete_button_is_gated_by_conclusion() -> None:
     qml_text = qml_path.read_text(encoding="utf-8")
     complete_button = qml_text.split("id: completeButton", 1)[1].split("Row {", 1)[0]
 
+    assert "readonly property color buttonPrimaryBg: themeTokens.buttonPrimaryBg || accent" in qml_text
+    assert (
+        'readonly property color buttonPrimaryBgPressed: themeTokens.buttonPrimaryBgPressed || themeTokens.accentPressed || "#151C28"'
+        in qml_text
+    )
     assert "enabled: todoDetailBridge.canCompleteTodo" in complete_button
+    assert (
+        "color: enabled ? (completeButtonMouse.pressed ? root.buttonPrimaryBgPressed : root.buttonPrimaryBg) : \"#E1E4E8\""
+        in complete_button
+    )
     assert "cursorShape: completeButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor" in complete_button
     assert "id: completeDisabledTip" in complete_button
     assert 'text: "请先填写问题结论"' in complete_button

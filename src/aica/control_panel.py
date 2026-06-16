@@ -581,6 +581,27 @@ def _server_config_payload(config: object) -> dict[str, object]:
     }
 
 
+def _server_identity_payload(data: object) -> dict[str, str | bool]:
+    payload = dict(data) if isinstance(data, dict) else {}
+    full_name = str(payload.get("full_name", "") or "").strip()
+    username = str(payload.get("username", "") or "").strip()
+    email = str(payload.get("email", "") or "").strip()
+    phone = str(payload.get("phone", "") or "").strip()
+    is_active = bool(payload.get("is_active", False))
+    subtitle = username or email or phone
+    detail = email if email and email != subtitle else phone
+    return {
+        "id": str(payload.get("id", "") or "").strip(),
+        "fullName": full_name or username or "未登录用户",
+        "username": username,
+        "email": email,
+        "phone": phone,
+        "subtitle": subtitle,
+        "detail": detail,
+        "isActive": is_active,
+    }
+
+
 def _option_payload(value: str, text: str) -> dict[str, str]:
     return {
         "value": value,
@@ -1024,6 +1045,26 @@ class FeaturePointRefreshWorker(QThread):
         self.finished.emit(self._todo_id, self._request_id, next_feature_point)
 
 
+class ServerIdentityWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, config_manager: ConfigManager, parent=None) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            identity = client.fetch_identity_me()
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(identity)
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -1097,6 +1138,9 @@ class _ControlPanelBridge(QObject):
         self._missing_ach_refresh_cache: dict[str, float] = {}
         self._feature_point_refresh_workers: list[FeaturePointRefreshWorker] = []
         self._pending_feature_point_refreshes: dict[str, str] = {}
+        self._server_identity = self._empty_server_identity_payload()
+        self._server_identity_loading = False
+        self._server_identity_worker: ServerIdentityWorker | None = None
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
         self._tickets = self._load_ticket_payloads()
@@ -1110,6 +1154,8 @@ class _ControlPanelBridge(QObject):
         records = self._prompt_debug_store.list_records(limit=1)
         if records:
             self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+        if _is_server_config_ready(self._config.server):
+            self.refreshServerIdentity()
 
     @property
     def notificationBridge(self) -> AppNotificationBridge:
@@ -1220,6 +1266,14 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def serverLoginRequired(self) -> bool:
         return self._server_login_required
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def serverIdentity(self):  # noqa: ANN201
+        return dict(self._server_identity)
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def serverIdentityLoading(self) -> bool:
+        return self._server_identity_loading
 
     @pyqtProperty("QVariantList", notify=dataChanged)
     def taskBindings(self):  # noqa: ANN201
@@ -1564,6 +1618,19 @@ class _ControlPanelBridge(QObject):
         self._last_notified_error_message = ""
         self._last_notified_status_message = ""
 
+    @staticmethod
+    def _empty_server_identity_payload() -> dict[str, str | bool]:
+        return {
+            "id": "",
+            "fullName": "",
+            "username": "",
+            "email": "",
+            "phone": "",
+            "subtitle": "",
+            "detail": "",
+            "isActive": False,
+        }
+
     def _emit_data_changed(self) -> None:
         if self._error_message and self._error_message != self._last_notified_error_message:
             self._notification_bridge.notify("error", self._error_message, source="control_panel")
@@ -1572,6 +1639,21 @@ class _ControlPanelBridge(QObject):
             self._notification_bridge.notify("success", self._status_message, source="control_panel")
             self._last_notified_status_message = self._status_message
         self.dataChanged.emit()
+
+    def _handle_server_identity_finished(self, payload: object) -> None:
+        self._server_identity = _server_identity_payload(payload)
+        self._emit_data_changed()
+
+    def _handle_server_identity_error(self, _message: str) -> None:
+        self._server_identity = self._empty_server_identity_payload()
+        self._emit_data_changed()
+
+    def _cleanup_server_identity_worker(self, worker: ServerIdentityWorker) -> None:
+        self._server_identity_loading = False
+        if self._server_identity_worker is worker:
+            self._server_identity_worker = None
+        _delete_finished_thread(worker)
+        self._emit_data_changed()
 
     def _load_project_payloads(self) -> list[dict[str, object]]:
         return [
@@ -2073,8 +2155,12 @@ class _ControlPanelBridge(QObject):
             records = self._prompt_debug_store.list_records(limit=1)
             if records:
                 self._selected_prompt_debug_trace_id = str(records[0].get("traceId", "")).strip()
+        self._server_identity = self._empty_server_identity_payload()
+        self._server_identity_loading = False
         self._clear_messages()
         self._emit_data_changed()
+        if _is_server_config_ready(self._config.server):
+            self.refreshServerIdentity()
 
     @pyqtSlot(str, str)
     def updateThemeField(self, field_name: str, value: str) -> None:
@@ -2183,7 +2269,27 @@ class _ControlPanelBridge(QObject):
         if not self._error_message and _is_server_config_ready(self._config.server):
             self._server_login_required = False
             self._status_message = "登录信息已保存"
+            self.refreshServerIdentity()
             self._emit_data_changed()
+
+    @pyqtSlot()
+    def refreshServerIdentity(self) -> None:
+        if self._server_identity_loading:
+            return
+        if not _is_server_config_ready(self._config.server):
+            self._server_identity = self._empty_server_identity_payload()
+            self._server_identity_loading = False
+            self._emit_data_changed()
+            return
+        worker = ServerIdentityWorker(config_manager=self._config_manager)
+        self._server_identity_loading = True
+        self._server_identity_worker = worker
+        worker.finished.connect(self._handle_server_identity_finished)
+        worker.error.connect(self._handle_server_identity_error)
+        worker.finished.connect(lambda _payload, current=worker: self._cleanup_server_identity_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_server_identity_worker(current))
+        self._emit_data_changed()
+        worker.start()
 
     @pyqtSlot(str, str)
     def updateTaskBindingProvider(self, task_name: str, provider_id: str) -> None:
@@ -2540,6 +2646,12 @@ class _ControlPanelBridge(QObject):
         self._status_message = "配置已保存"
         self._emit_data_changed()
         self.configSaved.emit(self._config)
+        if _is_server_config_ready(self._config.server):
+            self.refreshServerIdentity()
+        else:
+            self._server_identity = self._empty_server_identity_payload()
+            self._server_identity_loading = False
+            self._emit_data_changed()
 
     @pyqtSlot()
     def saveIntegrations(self) -> None:

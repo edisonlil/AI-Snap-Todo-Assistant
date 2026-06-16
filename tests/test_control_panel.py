@@ -565,6 +565,51 @@ def test_server_login_resets_invalid_hidden_timeout(monkeypatch: pytest.MonkeyPa
     assert bridge.serverLoginRequired is False
 
 
+def test_server_identity_refresh_updates_bridge_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.updateServerField("base_url", "https://server.example.com")
+    bridge.updateServerField("api_key", "server-key")
+    bridge.updateServerField("enabled", "true")
+
+    class _FakeServerIdentityWorker:
+        def __init__(self, *, config_manager, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.deleted = False
+
+        def start(self) -> None:
+            self.finished.emit(
+                {
+                    "id": 1,
+                    "username": "admin",
+                    "full_name": "平台管理员",
+                    "email": "admin@example.com",
+                    "phone": "",
+                    "is_active": True,
+                }
+            )
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "ServerIdentityWorker", _FakeServerIdentityWorker)
+
+    bridge.refreshServerIdentity()
+
+    assert bridge.serverIdentityLoading is False
+    assert bridge.serverIdentity == {
+        "id": "1",
+        "fullName": "平台管理员",
+        "username": "admin",
+        "email": "admin@example.com",
+        "phone": "",
+        "subtitle": "admin",
+        "detail": "admin@example.com",
+        "isActive": True,
+    }
+
+
 def test_server_config_rejects_invalid_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)

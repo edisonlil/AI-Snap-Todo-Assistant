@@ -81,6 +81,8 @@ Rectangle {
     readonly property string currentSection: controlPanelBridge ? controlPanelBridge.currentSection : ""
     readonly property var currentSectionMeta: controlPanelBridge ? (controlPanelBridge.currentSectionMeta || ({})) : ({})
     readonly property bool serverLoginRequired: controlPanelBridge ? controlPanelBridge.serverLoginRequired : false
+    readonly property var serverIdentity: controlPanelBridge ? (controlPanelBridge.serverIdentity || ({})) : ({})
+    readonly property bool serverIdentityLoading: controlPanelBridge ? controlPanelBridge.serverIdentityLoading : false
     readonly property var projectLevelOptions: [
         { value: "normal", text: "常规" },
         { value: "important", text: "重要" }
@@ -285,6 +287,18 @@ Rectangle {
             text = text.split(" ")[0]
         }
         return text.replace(/-/g, "/")
+    }
+
+    function sidebarGreetingName() {
+        var fullName = (serverIdentity.fullName || "").toString().trim()
+        if (fullName.length > 0) {
+            return fullName
+        }
+        var username = (serverIdentity.username || "").toString().trim()
+        if (username.length > 0) {
+            return username
+        }
+        return ""
     }
 
     function addProjectAlias() {
@@ -1053,8 +1067,14 @@ Rectangle {
                     radius: 12
 
                     ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 18
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: sidebarGreeting.top
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
+                        anchors.topMargin: 18
+                        anchors.bottomMargin: 12
                         spacing: 12
 
                         Item {
@@ -1198,21 +1218,28 @@ Rectangle {
                             }
                         }
 
-                        SectionCard {
+                        Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            color: root.navIdle
-
-                            Text {
-                                anchors.fill: parent
-                                anchors.margins: 16
-                                text: "提示: 如果功能提示配置缺失，请从托盘图标进入这里完成设置。"
-                                color: root.bodyInk
-                                font.family: root.uiFont
-                                font.pixelSize: 11
-                                wrapMode: Text.Wrap
-                            }
                         }
+                    }
+
+                    Text {
+                        id: sidebarGreeting
+                        visible: !serverIdentityLoading && root.sidebarGreetingName().length > 0
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
+                        anchors.bottomMargin: 18
+                        text: "你好，" + root.sidebarGreetingName()
+                        color: root.titleInk
+                        font.family: root.uiFont
+                        font.pixelSize: 13
+                        font.weight: 600
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
                     }
                 }
 
@@ -2538,7 +2565,7 @@ Rectangle {
                                                 id: serverNotice
                                                 anchors.fill: parent
                                                 anchors.margins: 12
-                                                text: "当前页面只负责保存连接配置，不会立即请求服务端；后续接入功能点推荐、数据同步等能力时会复用这里的设置。"
+                                                text: "保存后会尝试读取当前账号信息，后续功能点推荐、数据同步等能力也会复用这里的设置。"
                                                 color: root.bodyInk
                                                 font.family: root.uiFont
                                                 font.pixelSize: 12
