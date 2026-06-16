@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 
 project_root = Path(SPEC).resolve().parent
@@ -11,7 +11,9 @@ hiddenimports = (
     + collect_submodules("PyQt6.QtWebEngineCore")
     + collect_submodules("PyQt6.QtWebEngineQuick")
     + collect_submodules("rapidocr")
+    + collect_submodules("onnxruntime")
 )
+binaries = collect_dynamic_libs("onnxruntime")
 icon_path = project_root / "assets" / "aica_icon.ico"
 version_file = project_root / "aica_version_info.txt"
 datas = [
@@ -25,7 +27,7 @@ datas = [
 a = Analysis(
     ["run_aica.py"],
     pathex=[str(project_root / "src")],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

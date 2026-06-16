@@ -9,3 +9,4 @@ openpyxl>=3.1.0
 markdown-it-py>=3.0.0
 numpy>=1.26.0
 rapidocr>=0.0.9
+onnxruntime>=1.18.0

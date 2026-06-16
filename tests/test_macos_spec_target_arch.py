@@ -19,6 +19,13 @@ def test_macos_spec_collects_rapidocr_data_files() -> None:
     assert 'collect_data_files("rapidocr")' in spec_text
 
 
+def test_macos_spec_collects_onnxruntime_runtime() -> None:
+    spec_text = (ROOT / "aica_macos.spec").read_text(encoding="utf-8")
+
+    assert 'collect_submodules("onnxruntime")' in spec_text
+    assert 'collect_dynamic_libs("onnxruntime")' in spec_text
+
+
 def test_macos_build_script_uses_env_not_cli_target_arch() -> None:
     script_text = (ROOT / "scripts" / "build_macos_app.sh").read_text(encoding="utf-8")
 
