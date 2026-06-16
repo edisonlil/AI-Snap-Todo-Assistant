@@ -26,13 +26,19 @@ def test_todo_panel_mini_status_matches_collapsed_toolbar_segment() -> None:
     mini_status = qml_text.split("id: miniStatus", 1)[1].split("id: miniActions", 1)[0]
 
     assert 'source: root.bridge.logoSource' in mini_status
-    assert 'text: root.bridge.headerStatusText' in mini_status
-    assert mini_status.index('source: root.bridge.logoSource') < mini_status.index('text: root.bridge.headerStatusText')
+    assert 'text: root.bridge.miniStatusText' in mini_status
+    assert mini_status.index('source: root.bridge.logoSource') < mini_status.index('text: root.bridge.miniStatusText')
     assert "readonly property bool mirrorForEdge: root.dockedLeft && !root.miniHovering" in mini_status
+    assert "anchors.left: parent.left" in mini_status
     assert "layoutDirection: mirrorForEdge ? Qt.RightToLeft : Qt.LeftToRight" in mini_status
-    assert "anchors.left: mirrorForEdge ? undefined : parent.left" in mini_status
-    assert "anchors.right: mirrorForEdge ? parent.right : undefined" in mini_status
+    assert "width: Math.max(" in mini_status
     assert "anchors.leftMargin: 13" in mini_status
+    assert "sourceSize.width: 24" in mini_status
+    assert "sourceSize.height: 24" in mini_status
+    assert "width: Math.max(0, miniStatus.width - 24 - miniStatus.spacing)" in mini_status
+    assert "elide: Text.ElideRight" in mini_status
+    assert "wrapMode: Text.NoWrap" in mini_status
+    assert "maximumLineCount: 1" in mini_status
 
 
 def test_todo_panel_mini_actions_fade_in_for_hover_strip() -> None:
@@ -57,3 +63,14 @@ def test_todo_panel_mini_badge_keeps_outer_radius_and_flat_screen_edge() -> None
     assert "width: root.miniRadius" in mini_surface
     assert "radius: 0" in mini_surface
     assert "visible: !root.miniHovering" in mini_surface
+
+
+def test_todo_panel_delegate_selection_uses_bridge_selected_todo_id() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+    assert "readonly property bool selected: root.bridge.selectedTodoId === modelData.id" in qml_text
+    assert "modelData.selected" not in qml_text
+    assert 'color: selected ? root.accentSoft : "transparent"' in qml_text
+    assert "border.color: selected ? root.accent : root.panelLine" in qml_text
+    assert "color: root.accent" in qml_text
+    assert "color: selected ? root.accent : root.titleInk" in qml_text

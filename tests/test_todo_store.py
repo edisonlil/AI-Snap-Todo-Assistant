@@ -175,6 +175,40 @@ def test_project_repair_preserves_selected_product_line_option() -> None:
     assert linked.summary_fields.product_line == "文档中台"
 
 
+def test_create_todo_from_problem_conclusion_saves_into_conclusion() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-problem-conclusion-create")))
+
+    todo = repository.create_todo_from_analysis(_build_snapshot("问题结论待办"), "问题结论")
+
+    assert todo.conclusion.content == "问题结论待办 timeline"
+    assert todo.conclusion.updated_at
+    assert len(todo.timeline) == 1
+    assert todo.timeline[0].kind == "conclusion"
+    assert todo.timeline[0].scenario == "结论更新"
+    assert todo.timeline[0].content == "问题结论待办 timeline"
+
+
+def test_append_problem_conclusion_updates_conclusion_instead_of_follow_up() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-problem-conclusion-append")))
+    todo = repository.create_todo_from_analysis(_build_snapshot("原始待办"), "工单跟进")
+    original_timeline_count = len(todo.timeline)
+
+    updated = repository.append_analysis_to_todo(
+        todo.id,
+        _build_snapshot("新的问题结论"),
+        "问题结论",
+    )
+
+    assert updated is not None
+    assert updated.conclusion.content == "新的问题结论 timeline"
+    assert updated.conclusion.updated_at
+    assert len(updated.timeline) == original_timeline_count + 1
+    assert updated.timeline[-1].kind == "conclusion"
+    assert updated.timeline[-1].scenario == "结论更新"
+    assert updated.timeline[-1].content == "新的问题结论 timeline"
+    assert updated.timeline[0].scenario == "工单跟进"
+
+
 def test_schema_migration_adds_completed_at_column() -> None:
     db_path = _make_db_path("legacy-todo")
     with sqlite3.connect(db_path) as connection:

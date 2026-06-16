@@ -74,7 +74,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
 from .analysis.rules import AnalysisRulesManager, PromptDebugStore
-from .analysis.intent import AnalysisIntent, build_analysis_intent
+from .analysis.intent import AnalysisIntent, SCENE_PROBLEM_CONCLUSION, build_analysis_intent
 from .analysis.metrics import AnalysisRunStats
 from .analysis.strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
 from .todo.assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
@@ -490,6 +490,13 @@ class _BaseVisionWorker(QThread):
             return image_urls[0]
         return image_urls
 
+    def _server_summary_type(self) -> str:
+        intent = getattr(self, "_analysis_intent", None)
+        scene_type = str(getattr(intent, "scene_type", "") or "").strip()
+        if scene_type == SCENE_PROBLEM_CONCLUSION or str(getattr(self, "_scenario", "")).strip() == "问题结论":
+            return "problem_conclusion"
+        return "follow_up"
+
     @staticmethod
     def _analysis_messages(bundle: AnalysisPromptBundle, encoded_images: list[EncodedImage]) -> list[Message]:
         content_parts = [ContentPart(type="text", text=bundle.user_prompt)]
@@ -511,6 +518,7 @@ class _BaseVisionWorker(QThread):
         payload = ChattodoServerClient.from_config(self._server_config).analyze_screenshot(
             image_data_url=self._image_payload_for_server(encoded_images),
             summary=self._context_text,
+            summary_type=self._server_summary_type(),
         )
         llm_latency_ms = round((time.perf_counter() - run_started_at) * 1000)
         self._analysis_stats = self._build_server_analysis_stats(

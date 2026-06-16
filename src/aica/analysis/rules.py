@@ -11,6 +11,7 @@ from typing import Any
 from aica.analysis.intent import (
     SCENE_CHAT_FEEDBACK,
     SCENE_LABELS,
+    SCENE_PROBLEM_CONCLUSION,
     SCENE_STEP_SEQUENCE,
 )
 from aica.paths import analysis_rules_file as default_analysis_rules_file
@@ -19,6 +20,7 @@ from aica.paths import prompt_debug_dir as default_prompt_debug_dir
 
 _SCENE_TYPES = (
     SCENE_CHAT_FEEDBACK,
+    SCENE_PROBLEM_CONCLUSION,
     SCENE_STEP_SEQUENCE,
 )
 

@@ -48,6 +48,7 @@ class _TodoPanelBridge(QObject):
     headerStatusTextChanged = pyqtSignal()
     dockSideChanged = pyqtSignal()
     miniHoveringChanged = pyqtSignal()
+    miniStatusTextChanged = pyqtSignal()
 
     todoSelected = pyqtSignal(str)
     todoCompleted = pyqtSignal(str)
@@ -63,6 +64,7 @@ class _TodoPanelBridge(QObject):
         super().__init__()
         self._todos: list[dict[str, str | bool]] = []
         self._selected_id: str | None = None
+        self._selected_title: str = ""
         self._expanded = False
         self._visible_limit = visible_limit
         self._minimized = True
@@ -70,6 +72,12 @@ class _TodoPanelBridge(QObject):
         self._analysis_loading = False
         self._dock_side = "right"
         self._mini_hovering = False
+
+    @staticmethod
+    def _emit(signal: object) -> None:
+        emit = getattr(signal, "emit", None)
+        if callable(emit):
+            emit()
 
     @pyqtProperty("QVariantList", notify=todosChanged)
     def todos(self):  # noqa: ANN201
@@ -124,6 +132,10 @@ class _TodoPanelBridge(QObject):
         status_text = "截图分析中..." if self._analysis_loading else "进行中"
         return f"{len(self._todos)} {status_text}"
 
+    @pyqtProperty(str, notify=miniStatusTextChanged)
+    def miniStatusText(self) -> str:
+        return self._selected_title or self.headerStatusText
+
     @pyqtProperty(str, notify=dockSideChanged)
     def dockSide(self) -> str:
         return self._dock_side
@@ -137,31 +149,42 @@ class _TodoPanelBridge(QObject):
         return asset_file("aica_icon.png").as_uri()
 
     def set_state(self, todos: list[TodoItem], selected_id: str | None) -> None:
-        self._todos = [
+        next_todos = [
             {
                 "id": todo.id,
                 "title": todo.title,
-                "selected": todo.id == selected_id,
             }
             for todo in todos
         ]
-        self._selected_id = selected_id
-        if len(self._todos) <= self._visible_limit:
-            self._expanded = False
-        self._emit_all()
+        todos_changed = next_todos != self._todos
+        previous_selected_id = self._selected_id
+        previous_selected_title = self._selected_title
 
-    def _emit_all(self) -> None:
-        self.todosChanged.emit()
-        self.selectedTodoIdChanged.emit()
-        self.todoCountChanged.emit()
-        self.hasSelectedChanged.emit()
-        self.expandedChanged.emit()
-        self.canExpandChanged.emit()
-        self.minimizedChanged.emit()
-        self.analysisLoadingChanged.emit()
-        self.headerStatusTextChanged.emit()
-        self.dockSideChanged.emit()
-        self.miniHoveringChanged.emit()
+        if todos_changed:
+            self._todos = next_todos
+            if len(self._todos) <= self._visible_limit:
+                self._expanded = False
+
+        self._selected_id = selected_id
+        self._selected_title = next(
+            (
+                str(item["title"])
+                for item in self._todos
+                if str(item.get("id", "")) == str(selected_id or "") and str(item.get("title", "")).strip()
+            ),
+            "",
+        )
+        if todos_changed:
+            self._emit(self.todosChanged)
+            self._emit(self.todoCountChanged)
+            self._emit(self.expandedChanged)
+            self._emit(self.canExpandChanged)
+            self._emit(self.headerStatusTextChanged)
+        if previous_selected_id != self._selected_id:
+            self._emit(self.selectedTodoIdChanged)
+            self._emit(self.hasSelectedChanged)
+        if previous_selected_title != self._selected_title or previous_selected_id != self._selected_id or todos_changed:
+            self._emit(self.miniStatusTextChanged)
 
     @pyqtSlot()
     def toggleExpanded(self) -> None:
@@ -238,6 +261,8 @@ class _TodoPanelBridge(QObject):
         self._analysis_loading = loading
         self.analysisLoadingChanged.emit()
         self.headerStatusTextChanged.emit()
+        if not self._selected_title:
+            self.miniStatusTextChanged.emit()
 
     def set_dock_side(self, side: str) -> None:
         normalized = "left" if str(side or "").strip() == "left" else "right"
@@ -319,13 +344,32 @@ class TodoPanel(QQuickView):
         self.hide()
 
     def set_todos(self, todos: list[TodoItem], selected_id: str | None) -> None:
+        was_visible = self.isVisible()
+        previous_width = self.width()
+        previous_height = self.height()
+        previous_target_size = self.__dict__.get("_target_panel_size")
+        previous_target_width = previous_target_size.width() if previous_target_size is not None else previous_width
+        previous_target_height = previous_target_size.height() if previous_target_size is not None else previous_height
         self._bridge.set_state(todos, selected_id)
         self._update_panel_size()
+        current_target_size = self.__dict__.get("_target_panel_size")
+        current_target_width = current_target_size.width() if current_target_size is not None else self.width()
+        current_target_height = current_target_size.height() if current_target_size is not None else self.height()
+        size_changed = (
+            self.width() != previous_width
+            or self.height() != previous_height
+            or current_target_width != previous_target_width
+            or current_target_height != previous_target_height
+        )
 
         if todos:
-            self._reposition()
-            self.show()
-            if self._bridge.pinned:
+            if not was_visible:
+                self._reposition()
+            elif self._drag_offset is None and size_changed:
+                self._keep_current_position()
+            if not was_visible:
+                self.show()
+            if self._bridge.pinned and not was_visible:
                 self.raise_()
             self._schedule_auto_minimize()
         else:
@@ -346,18 +390,30 @@ class TodoPanel(QQuickView):
                 + visible_count * self._row_height
                 + max(0, visible_count - 1) * self._row_gap
             )
+        target_size = QSize(max(1, int(width)), max(1, int(height)))
+        current_target = self.__dict__.get("_target_panel_size")
+        if (
+            current_target is not None
+            and current_target.width() == target_size.width()
+            and current_target.height() == target_size.height()
+            and self.width() == target_size.width()
+            and self.height() == target_size.height()
+            and self.__dict__.get("_drawer_animation") is None
+        ):
+            return
         animated = self._set_fixed_panel_size(
-            width,
-            height,
+            target_size.width(),
+            target_size.height(),
             animate=self._should_animate_drawer_size(width, height),
         )
         if self.isVisible() and self._drag_offset is None and not animated:
             self._reposition()
 
     def _should_animate_drawer_size(self, width: int, height: int) -> bool:
-        if not self.isVisible() or self._drag_offset is not None or not self._bridge.minimized:
+        bridge = self.__dict__.get("_bridge")
+        if not self.isVisible() or self._drag_offset is not None or not bool(getattr(bridge, "minimized", False)):
             return False
-        target_panel_size = getattr(self, "_target_panel_size", None)
+        target_panel_size = self.__dict__.get("_target_panel_size")
         if target_panel_size is None:
             return False
         return target_panel_size.height() == height and target_panel_size.width() != width
@@ -460,19 +516,19 @@ class TodoPanel(QQuickView):
         self.pinned_changed.emit(self._bridge.pinned)
 
     def _current_snap_margin(self) -> int:
-        bridge = getattr(self, "_bridge", None)
+        bridge = self.__dict__.get("_bridge")
         minimized = bool(getattr(bridge, "minimized", False))
         if minimized:
             return getattr(self, "_mini_snap_margin", self._snap_margin)
         return self._snap_margin
 
     def _sync_bridge_dock_side(self) -> None:
-        bridge = getattr(self, "_bridge", None)
+        bridge = self.__dict__.get("_bridge")
         if bridge is not None and hasattr(bridge, "set_dock_side"):
             bridge.set_dock_side(self._dock_side)
 
     def _set_bridge_mini_hovering(self, hovering: bool) -> None:
-        bridge = getattr(self, "_bridge", None)
+        bridge = self.__dict__.get("_bridge")
         if bridge is not None and hasattr(bridge, "set_mini_hovering"):
             bridge.set_mini_hovering(hovering)
 
@@ -515,6 +571,23 @@ class TodoPanel(QQuickView):
             x = available.left() + margin
         else:
             x = available.right() - self.width() - margin
+        self.setPosition(x, y)
+        self._custom_position = self.position()
+        self.geometry_changed.emit()
+
+    def _keep_current_position(self) -> None:
+        screen = _screen_for_point(self.position())
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        margin = self._current_snap_margin()
+        min_x = available.left() + margin
+        max_x = available.right() - self.width() - margin
+        min_y = available.top() + margin
+        max_y = available.bottom() - self.height() - margin
+        current = self.position()
+        x = min(max(current.x(), min_x), max_x)
+        y = min(max(current.y(), min_y), max_y)
         self.setPosition(x, y)
         self._custom_position = self.position()
         self.geometry_changed.emit()

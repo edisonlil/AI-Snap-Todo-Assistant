@@ -7,6 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.analysis.flow import _resolve_analysis_image_limit
+from aica.analysis.intent import build_analysis_intent
 from aica.analysis.strategy import AnalysisPromptBundle
 from aica.config import ServerConfig
 from aica.image_utils import EncodedImage
@@ -96,7 +97,7 @@ def test_ai_worker_prefers_server_analysis(monkeypatch) -> None:  # noqa: ANN001
 
     assert "服务端结果" in raw_text
     assert encoded_images == [_encoded(1)]
-    assert server_calls == [{"image_data_url": _encoded(1).data_url, "summary": "context"}]
+    assert server_calls == [{"image_data_url": _encoded(1).data_url, "summary": "context", "summary_type": "follow_up"}]
     assert local_calls == []
     assert worker._analysis_stats.provider_id == "chattodo_server"
     assert worker._model == "Chattodo 服务端 / 截图分析"
@@ -162,8 +163,42 @@ def test_multi_capture_worker_sends_image_list_to_server(monkeypatch) -> None:  
         {
             "image_data_url": [_encoded(1).data_url, _encoded(2).data_url],
             "summary": "context",
+            "summary_type": "follow_up",
         }
     ]
+
+
+def test_ai_worker_marks_problem_conclusion_summary_type_for_server(monkeypatch) -> None:  # noqa: ANN001
+    server_calls: list[object] = []
+
+    class _Client:
+        def analyze_screenshot(self, **kwargs):  # noqa: ANN001
+            server_calls.append(kwargs)
+            return {"answer": '{"title":"服务端结果","current_summary":"ok","timeline_entry":"ok"}'}
+
+    monkeypatch.setattr("aica.worker.ChattodoServerClient.from_config", lambda _config: _Client())
+    worker = AIWorker(
+        QPixmap(),
+        object(),
+        "initial",
+        server_config=_server_config(),
+        scenario="问题结论",
+        analysis_intent=build_analysis_intent("problem_conclusion"),
+    )
+    local_calls = _patch_worker_common(monkeypatch, worker)
+
+    raw_text, encoded_images = worker._call_api()
+
+    assert "服务端结果" in raw_text
+    assert encoded_images == [_encoded(1)]
+    assert server_calls == [
+        {
+            "image_data_url": _encoded(1).data_url,
+            "summary": "context",
+            "summary_type": "problem_conclusion",
+        }
+    ]
+    assert local_calls == []
 
 
 def test_analysis_image_limit_respects_local_fallback_provider() -> None:

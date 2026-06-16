@@ -314,7 +314,13 @@ class ChattodoServerClient:
             "root_cause_category": category,
         }
 
-    def analyze_screenshot(self, *, image_data_url: str | list[str], summary: str = "") -> dict[str, Any]:
+    def analyze_screenshot(
+        self,
+        *,
+        image_data_url: str | list[str],
+        summary: str = "",
+        summary_type: str = "",
+    ) -> dict[str, Any]:
         image_values = image_data_url if isinstance(image_data_url, list) else [image_data_url]
         image_payload = [
             self._image_variable_payload(item, index)
@@ -330,6 +336,7 @@ class ChattodoServerClient:
                 "variables": {
                     "imags": image_payload,
                     "summary": sanitize_text(summary).strip(),
+                    "summary_type": sanitize_text(summary_type).strip(),
                 },
             },
             require_success_envelope=False,

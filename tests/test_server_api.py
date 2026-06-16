@@ -519,6 +519,7 @@ def test_analyze_screenshot_sends_runtime_request_and_parses_answer() -> None:
     payload = client.analyze_screenshot(
         image_data_url=["data:image/png;base64,YWFh", "data:image/png;base64,YmJi"],
         summary="待办标题: 在线编辑跑版\n压缩上下文:\n问题概述: 传参后仍跑版",
+        summary_type="problem_conclusion",
     )
 
     assert payload["result"]["title"] == "在线编辑跑版"
@@ -545,6 +546,7 @@ def test_analyze_screenshot_sends_runtime_request_and_parses_answer() -> None:
                 },
             ],
             "summary": "待办标题: 在线编辑跑版\n压缩上下文:\n问题概述: 传参后仍跑版",
+            "summary_type": "problem_conclusion",
         }
     }
     assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}

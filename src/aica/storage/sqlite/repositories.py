@@ -25,9 +25,15 @@ from aica.storage.adapters import (
 from aica.storage.contracts import ProjectMatchResult, ProjectRecord
 from aica.text_sanitize import sanitize_text
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
+from aica.todo.conclusion_timeline import sync_conclusion_timeline
+from aica.analysis.intent import SCENE_PROBLEM_CONCLUSION
 
 
 SCHEMA_VERSION = "15"
+
+
+def _is_problem_conclusion_scenario(scenario: str) -> bool:
+    return sanitize_text(scenario) == "问题结论" or sanitize_text(scenario) == SCENE_PROBLEM_CONCLUSION
 
 
 def _resolve_database_path(path_hint: str | None = None) -> Path:
@@ -1114,13 +1120,24 @@ class SQLiteTodoRepository:
 
     def create_todo_from_analysis(self, snapshot: TicketSnapshot, scenario: str) -> TodoItem:
         todo_id = str(uuid.uuid4())
-        event = TimelineEvent(
-            scenario=scenario,
-            content=snapshot.timeline_entry,
-        )
         stamp = now_iso()
         ach_no = sanitize_text(snapshot.fields.ach_no)
         ach_filled_at = sanitize_text(snapshot.fields.ach_filled_at) or (stamp if ach_no else "")
+        is_problem_conclusion = _is_problem_conclusion_scenario(scenario)
+        conclusion = TodoConclusion(
+            content=sanitize_text(snapshot.timeline_entry),
+            updated_at=stamp,
+        ) if is_problem_conclusion else TodoConclusion()
+        timeline = (
+            sync_conclusion_timeline([], conclusion)
+            if is_problem_conclusion
+            else [
+                TimelineEvent(
+                    scenario=scenario,
+                    content=snapshot.timeline_entry,
+                )
+            ]
+        )
         with self._connect() as connection:
             connection.execute(
                 """
@@ -1151,15 +1168,16 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.root_cause_desc_source),
                     sanitize_text(snapshot.fields.root_cause),
                     sanitize_text(snapshot.fields.root_cause_source),
-                    "",
-                    "",
+                    sanitize_text(conclusion.content),
+                    sanitize_text(conclusion.updated_at),
                     TodoStatus.OPEN,
                     stamp,
                     "",
                     stamp,
                 ),
             )
-            self._insert_timeline_event(connection, todo_id, event)
+            for event in timeline:
+                self._insert_timeline_event(connection, todo_id, event)
         self._refresh_project_link(todo_id, snapshot.fields.group_name)
         return self.get_todo(todo_id) or TodoItem(id=todo_id)
 
@@ -1192,6 +1210,7 @@ class SQLiteTodoRepository:
             merged_fields.product_line = current_todo.summary_fields.product_line
             if merged_fields.ach_no and not merged_fields.ach_filled_at and not current_todo.summary_fields.ach_no:
                 merged_fields.ach_filled_at = now_iso()
+            is_problem_conclusion = _is_problem_conclusion_scenario(scenario)
             connection.execute(
                 """
                 UPDATE todos
@@ -1220,14 +1239,41 @@ class SQLiteTodoRepository:
                     sanitized_id,
                 ),
             )
-            self._insert_timeline_event(
-                connection,
-                sanitized_id,
-                TimelineEvent(
-                    scenario=scenario,
-                    content=snapshot.timeline_entry,
-                ),
-            )
+            if is_problem_conclusion:
+                updated_conclusion = TodoConclusion(
+                    content=sanitize_text(snapshot.timeline_entry),
+                    updated_at=now_iso(),
+                    attachments=list(current_todo.conclusion.attachments),
+                )
+                updated_timeline = sync_conclusion_timeline(list(current_todo.timeline), updated_conclusion)
+                connection.execute(
+                    """
+                    UPDATE todos
+                    SET conclusion_content = ?, conclusion_updated_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        sanitize_text(updated_conclusion.content),
+                        sanitize_text(updated_conclusion.updated_at),
+                        now_iso(),
+                        sanitized_id,
+                    ),
+                )
+                connection.execute(
+                    "DELETE FROM todo_timeline_events WHERE todo_id = ?",
+                    (sanitized_id,),
+                )
+                for event in updated_timeline:
+                    self._insert_timeline_event(connection, sanitized_id, event)
+            else:
+                self._insert_timeline_event(
+                    connection,
+                    sanitized_id,
+                    TimelineEvent(
+                        scenario=scenario,
+                        content=snapshot.timeline_entry,
+                    ),
+                )
         self._refresh_project_link(sanitized_id, merged_fields.group_name)
         return self.get_todo(sanitized_id)
 

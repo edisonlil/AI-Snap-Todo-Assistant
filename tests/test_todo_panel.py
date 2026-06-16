@@ -155,6 +155,231 @@ def test_repair_size_on_screen_change_does_not_recalculate_panel_size(monkeypatc
     assert resize_calls == []
 
 
+def test_set_todos_keeps_visible_panel_position_on_size_change(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakeTodos(list):
+        pass
+
+    class FakeBridge:
+        minimized = False
+        expanded = False
+        miniHovering = False
+        pinned = True
+
+        @property
+        def visibleCount(self) -> int:
+            return 1
+
+        def set_state(self, todos, selected_id) -> None:
+            self.todos = FakeTodos(todos)
+            self.selected_id = selected_id
+
+    class FakeSignal:
+        def emit(self) -> None:
+            return None
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._drag_offset = None  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel.geometry_changed = FakeSignal()
+    panel._update_panel_size = lambda: setattr(panel, "_target_panel_size", todo_panel.QSize(286, 158))  # noqa: SLF001
+    panel._reposition_calls = []
+    panel._keep_calls = []
+    panel.isVisible = lambda: True
+    panel.show = lambda: None
+    panel.raise_ = lambda: None
+    panel._schedule_auto_minimize = lambda: None  # noqa: SLF001
+    panel._auto_minimize_timer = types.SimpleNamespace(stop=lambda: None)  # noqa: SLF001
+    panel._custom_position = types.SimpleNamespace(x=lambda: 100, y=lambda: 200)  # noqa: SLF001
+    panel.position = lambda: types.SimpleNamespace(x=lambda: 100, y=lambda: 200)
+    panel.width = lambda: 286
+    panel.height = lambda: 158
+    panel._reposition = lambda: panel._reposition_calls.append("reposition")  # noqa: SLF001
+    panel._keep_current_position = lambda: panel._keep_calls.append("keep")  # noqa: SLF001
+    monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: types.SimpleNamespace(availableGeometry=lambda: types.SimpleNamespace(left=lambda: 0, right=lambda: 999, top=lambda: 0, bottom=lambda: 799)))
+    panel._target_panel_size = todo_panel.QSize(286, 194)  # noqa: SLF001
+
+    panel.set_todos([object()], "todo-1")  # noqa: SLF001
+
+    assert panel._reposition_calls == []  # noqa: SLF001
+    assert panel._keep_calls == ["keep"]  # noqa: SLF001
+
+
+def test_set_todos_skips_position_clamp_when_selection_only_refreshes_content(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakeTodos(list):
+        pass
+
+    class FakeBridge:
+        minimized = False
+        expanded = False
+        miniHovering = False
+        pinned = True
+
+        def __init__(self) -> None:
+            self._selected = None
+
+        @property
+        def visibleCount(self) -> int:
+            return 2
+
+        def set_state(self, todos, selected_id) -> None:
+            self.todos = FakeTodos(todos)
+            self.selected_id = selected_id
+
+    class FakeSignal:
+        def emit(self) -> None:
+            return None
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._drag_offset = None  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel.geometry_changed = FakeSignal()
+    panel._update_panel_size = lambda: None  # noqa: SLF001
+    panel._reposition_calls = []
+    panel._keep_calls = []
+    panel.isVisible = lambda: True
+    panel.show = lambda: None
+    panel.raise_ = lambda: None
+    panel._schedule_auto_minimize = lambda: None  # noqa: SLF001
+    panel._auto_minimize_timer = types.SimpleNamespace(stop=lambda: None)  # noqa: SLF001
+    panel._custom_position = types.SimpleNamespace(x=lambda: 100, y=lambda: 200)  # noqa: SLF001
+    panel.position = lambda: types.SimpleNamespace(x=lambda: 100, y=lambda: 200)
+    panel.width = lambda: 286
+    panel.height = lambda: 158
+    panel._reposition = lambda: panel._reposition_calls.append("reposition")  # noqa: SLF001
+    panel._keep_current_position = lambda: panel._keep_calls.append("keep")  # noqa: SLF001
+    monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: types.SimpleNamespace(availableGeometry=lambda: types.SimpleNamespace(left=lambda: 0, right=lambda: 999, top=lambda: 0, bottom=lambda: 799)))
+
+    panel._target_panel_size = todo_panel.QSize(286, 158)  # noqa: SLF001
+    panel.set_todos([object(), object()], "todo-1")  # noqa: SLF001
+
+    assert panel._reposition_calls == []  # noqa: SLF001
+    assert panel._keep_calls == []  # noqa: SLF001
+
+
+def test_set_todos_does_not_re_show_visible_panel_on_refresh(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakeBridge:
+        minimized = False
+        expanded = False
+        miniHovering = False
+        pinned = True
+
+        @property
+        def visibleCount(self) -> int:
+            return 1
+
+        def set_state(self, todos, selected_id) -> None:
+            self.todos = list(todos)
+            self.selected_id = selected_id
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._drag_offset = None  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel._update_panel_size = lambda: None  # noqa: SLF001
+    panel._reposition = lambda: None  # noqa: SLF001
+    panel._keep_current_position = lambda: None  # noqa: SLF001
+    panel._schedule_auto_minimize = lambda: None  # noqa: SLF001
+    show_calls: list[str] = []
+    raise_calls: list[str] = []
+    panel.show = lambda: show_calls.append("show")
+    panel.raise_ = lambda: raise_calls.append("raise")
+    panel.isVisible = lambda: True
+    panel.width = lambda: 286
+    panel.height = lambda: 194
+    panel._target_panel_size = todo_panel.QSize(286, 194)  # noqa: SLF001
+    panel.position = lambda: types.SimpleNamespace(x=lambda: 100, y=lambda: 200)
+    panel._auto_minimize_timer = types.SimpleNamespace(stop=lambda: None)  # noqa: SLF001
+
+    panel.set_todos([object()], "todo-1")  # noqa: SLF001
+
+    assert show_calls == []
+    assert raise_calls == []
+
+
+def test_bridge_mini_status_text_prefers_selected_todo_title() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    bridge = todo_panel._TodoPanelBridge()
+    bridge._emit_all = lambda: None  # noqa: SLF001
+    todos = [
+        types.SimpleNamespace(id="todo-1", title="普通待办"),
+        types.SimpleNamespace(id="todo-2", title="这是一个很长的已选中待办标题"),
+    ]
+
+    bridge.set_state(todos, "todo-2")
+
+    assert bridge.miniStatusText == "这是一个很长的已选中待办标题"
+
+
+def test_bridge_mini_status_text_falls_back_to_header_status_text_without_selection() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    bridge = todo_panel._TodoPanelBridge()
+    bridge._emit_all = lambda: None  # noqa: SLF001
+    todos = [
+        types.SimpleNamespace(id="todo-1", title="普通待办"),
+    ]
+
+    bridge.set_state(todos, None)
+
+    assert bridge.miniStatusText == bridge.headerStatusText
+
+
+def test_bridge_selection_change_does_not_rebuild_todo_model() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class CountingSignal:
+        def __init__(self) -> None:
+            self.count = 0
+
+        def emit(self) -> None:
+            self.count += 1
+
+    bridge = todo_panel._TodoPanelBridge()
+    bridge.todosChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.selectedTodoIdChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.hasSelectedChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.miniStatusTextChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.todoCountChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.expandedChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.canExpandChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    bridge.headerStatusTextChanged = CountingSignal()  # type: ignore[assignment]  # noqa: SLF001
+    todos = [
+        types.SimpleNamespace(id="todo-1", title="普通待办"),
+        types.SimpleNamespace(id="todo-2", title="第二个待办"),
+    ]
+
+    bridge.set_state(todos, None)
+    assert bridge.todosChanged.count == 1  # type: ignore[attr-defined]
+
+    bridge.set_state(todos, "todo-2")
+
+    assert bridge.todosChanged.count == 1  # type: ignore[attr-defined]
+    assert bridge.selectedTodoIdChanged.count == 1  # type: ignore[attr-defined]
+    assert bridge.hasSelectedChanged.count == 1  # type: ignore[attr-defined]
+    assert bridge.miniStatusTextChanged.count == 2  # type: ignore[attr-defined]
+
+
 def test_hover_width_is_initialized_after_panel_width() -> None:
     source = (Path(__file__).resolve().parents[1] / "src" / "aica" / "todo" / "panel.py").read_text(encoding="utf-8")
 
@@ -375,6 +600,42 @@ def test_minimized_panel_uses_hover_strip_width(monkeypatch) -> None:
 
     assert sizes == [(286, 50)]
     assert positions[-1] == (713, 18)
+
+
+def test_update_panel_size_skips_reapply_when_size_is_unchanged() -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakeBridge:
+        minimized = False
+        expanded = False
+
+        @property
+        def visibleCount(self) -> int:
+            return 3
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._panel_width = 286  # noqa: SLF001
+    panel._panel_chrome_height = 58  # noqa: SLF001
+    panel._row_height = 32  # noqa: SLF001
+    panel._row_gap = 2  # noqa: SLF001
+    panel._max_expanded_rows = 6  # noqa: SLF001
+    panel._target_panel_size = todo_panel.QSize(286, 158)  # noqa: SLF001
+    panel._drawer_animation = None  # noqa: SLF001
+    panel.width = lambda: 286
+    panel.height = lambda: 158
+    panel.isVisible = lambda: True
+    panel._drag_offset = None  # noqa: SLF001
+    size_calls: list[tuple[int, int, bool]] = []
+    reposition_calls: list[str] = []
+    panel._set_fixed_panel_size = lambda width, height, *, animate=False: size_calls.append((width, height, animate)) or False  # noqa: SLF001
+    panel._reposition = lambda: reposition_calls.append("reposition")  # noqa: SLF001
+
+    panel._update_panel_size()  # noqa: SLF001
+
+    assert size_calls == []
+    assert reposition_calls == []
 
 
 def test_drawer_animation_keeps_right_edge_fixed() -> None:

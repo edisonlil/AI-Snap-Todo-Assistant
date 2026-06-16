@@ -8,6 +8,7 @@ from .intent import (
     AnalysisIntent,
     CAPTURE_MODE_SEQUENCE,
     SCENE_CHAT_FEEDBACK,
+    SCENE_PROBLEM_CONCLUSION,
     SCENE_STEP_SEQUENCE,
 )
 
@@ -42,6 +43,11 @@ _SCENE_RULES = {
         "当前场景：工单跟进。"
         "重点提取：问题现象、客户诉求、当前结论、待确认项、下一步动作。"
         "如果聊天里只提到客户补充了截图、参数、日志，但明细不在当前截图里，不要编造具体值。"
+    ),
+    SCENE_PROBLEM_CONCLUSION: (
+        "当前场景：问题结论。"
+        "重点提取：本次分析的最终结论、根因判断、已确认事实和可直接写入结论的内容。"
+        "timeline_entry 仍然输出简要结论文本，但保存时应作为待办结论而不是普通跟进。"
     ),
     SCENE_STEP_SEQUENCE: (
         "当前场景：连续步骤截图。"

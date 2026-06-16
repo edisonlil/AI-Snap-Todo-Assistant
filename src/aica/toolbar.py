@@ -1,14 +1,15 @@
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QComboBox,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
+    QToolButton,
     QWidget,
 )
 
@@ -16,6 +17,20 @@ from .runtime import RUNTIME_CAPABILITIES
 from .theme_controller import ThemeController
 from .analysis.intent import SCENE_OPTIONS, build_analysis_intent, scene_type_from_label
 from .paths import asset_file
+
+
+_SCENARIO_TOOLTIPS: dict[str, str] = {
+    "chat_feedback": "工单跟进：记录问题反馈与工单处理情况",
+    "problem_conclusion": "问题结论：把当前分析结果直接沉淀为问题结论",
+    "step_sequence": "连续步骤截图：拼接多步操作，输出可还原的流程",
+}
+
+# Scene types that the toolbar's dropdown must NOT surface. The
+# ``step_sequence`` capture flow is being phased out of the current
+# release — the option is still available in the analysis pipeline
+# (see ``SCENE_OPTIONS``) so workers can fall back to it, but users
+# must not be able to pick it from the toolbar.
+_HIDDEN_SCENARIOS: frozenset[str] = frozenset({"step_sequence"})
 
 
 class FloatingToolbar(QWidget):
@@ -46,7 +61,9 @@ class FloatingToolbar(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(180)
         self._timer.timeout.connect(self._tick_loading)
-        self._updating_combo = False
+        self._scenario_labels: list[str] = []
+        self._scenario_label_to_action: dict[str, QAction] = {}
+        self._suppress_scenario_signal = False
         self._updating_edit_mode = False
         self._edit_buttons: dict[str, QPushButton] = {}
         self._copy_shortcuts: list[QShortcut] = []
@@ -74,13 +91,47 @@ class FloatingToolbar(QWidget):
         self._status_label.hide()
         surface_layout.addWidget(self._status_label)
 
-        self._scenario_combo = QComboBox()
-        self._scenario_combo.setObjectName("scenarioCombo")
-        self._scenario_combo.setMinimumWidth(110)
-        self._scenario_combo.setMaximumWidth(144)
-        self._scenario_combo.currentTextChanged.connect(self._on_scenario_changed)
-        self._scenario_combo.setToolTip("选择分析场景")
-        surface_layout.addWidget(self._scenario_combo)
+        self._scenario_button = QToolButton()
+        self._scenario_button.setObjectName("scenarioButton")
+        self._scenario_button.setMinimumWidth(92)
+        self._scenario_button.setMaximumWidth(124)
+        self._scenario_button.setToolTip("选择分析场景")
+        self._scenario_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._scenario_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._scenario_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        # Hide macOS's animated focus ring around the trigger so the
+        # dropdown reads as a calm control rather than an outlined
+        # button. Without this, opening the popup draws a blue/black
+        # ring around the trigger that gets mistaken for a hard border.
+        self._scenario_button.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self._scenario_menu = QMenu(self._scenario_button)
+        self._scenario_menu.setObjectName("scenarioMenu")
+        # Pin the popup to a compact 95px column so it sits visually
+        # balanced under the trigger button (which adapts to its label
+        # length). The items are styled with slim padding to keep both
+        # "工单跟进" and "连续步骤截图" legible inside this width.
+        self._scenario_menu.setFixedWidth(95)
+        # Force Qt-rendered popup on macOS. The default NSMenu wrapper
+        # ignores QSS border / radius, so without WA_TranslucentBackground
+        # our ``border: none`` and ``border-radius: %(radiusSm)spx``
+        # rules never reach the menu and the popup keeps its native
+        # hard outline. WA_TranslucentBackground makes Qt draw the
+        # popup itself, which honors the stylesheet and lets the
+        # dropdown read as a soft border-less cloud under the trigger.
+        self._scenario_menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # Suppress the platform window shadow around the popup itself.
+        # That system shadow reads as a dark outline in compact light
+        # menus, especially on macOS.
+        self._scenario_menu.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        # The macOS focus rect on the popup window would otherwise draw
+        # an animated blue/black outline around the menu — disable so
+        # the border-less look holds on every open.
+        self._scenario_menu.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self._scenario_button.setMenu(self._scenario_menu)
+        self._scenario_action_group = QActionGroup(self)
+        self._scenario_action_group.setExclusive(True)
+        self._scenario_menu.triggered.connect(self._on_scenario_action_triggered)
+        surface_layout.addWidget(self._scenario_button)
 
         self._btn_translate = QPushButton("")
         self._btn_translate.setObjectName("iconGhostButton")
@@ -197,7 +248,7 @@ class FloatingToolbar(QWidget):
 
     def _apply_style(self) -> None:
         theme = self._theme_controller.tokens
-        self.setStyleSheet(
+        stylesheet = (
             """
             QWidget {
                 background: transparent;
@@ -222,35 +273,92 @@ class FloatingToolbar(QWidget):
                 font-size: %(fontTiny)spx;
                 font-weight: 700;
             }
-            QComboBox#scenarioCombo {
+            QToolButton#scenarioButton {
                 background-color: %(inputBg)s;
-                color: %(titleInk)s;
+                color: %(buttonDefaultInk)s;
                 border: 1px solid %(panelLine)s;
-                border-radius: %(radiusSm)spx;
-                padding: 4px 22px 4px 8px;
-                font-size: %(fontCaption)spx;
+                border-radius: %(buttonRadius)spx;
+                padding: 4px 8px 4px 10px;
+                font-size: %(buttonFontSize)spx;
+                font-weight: 600;
                 min-height: 18px;
+                text-align: left;
             }
-            QComboBox#scenarioCombo:hover {
+            QToolButton#scenarioButton:hover {
                 border: 1px solid %(fieldLine)s;
+                background-color: %(hoverBg)s;
             }
-            QComboBox#scenarioCombo:focus {
+            QToolButton#scenarioButton:on,
+            QToolButton#scenarioButton:pressed {
                 border: 1px solid %(accent)s;
+                background-color: %(inputBg)s;
             }
-            QComboBox#scenarioCombo::drop-down {
+            QToolButton#scenarioButton:disabled {
+                color: %(buttonDisabledInk)s;
+                background-color: %(buttonDisabledBg)s;
+                border: 1px solid %(panelLine)s;
+            }
+            QToolButton#scenarioButton::menu-indicator {
+                image: none;
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 18px;
+                width: 10px;
+                height: 10px;
+                top: 5px;
+                right: 8px;
+            }
+            QMenu#scenarioMenu {
+                background-color: %(formPopupBg)s;
+                color: %(titleInk)s;
+                /* Borderless + 8px corners so the popup reads as a
+                   soft cloud under the trigger instead of a hard
+                   outlined card. ``border: 0px none`` + ``outline: 0``
+                   are belt-and-suspenders for macOS, where the
+                   native popup may otherwise draw a focus ring that
+                   masquerades as a hard border. */
+                border: 0px none;
+                border-width: 0;
+                outline: 0;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu#scenarioMenu::item {
+                background-color: transparent;
+                color: %(bodyInk)s;
+                border: none;
+                border-radius: %(formPopupItemRadius)spx;
+                /* Qt already reserves a checkmark column on the left
+                   for checkable QAction items, so we don't add any
+                   extra left padding — otherwise the popup would have
+                   ~40px of empty space before the label. */
+                padding: 4px 10px 4px 4px;
+                min-height: 16px;
+                margin: 1px 0;
+            }
+            QMenu#scenarioMenu::item:selected {
+                background-color: %(hoverBg)s;
+                color: %(titleInk)s;
+            }
+            QMenu#scenarioMenu::item:checked {
+                background-color: %(accentSoft)s;
+                color: %(accent)s;
+                font-weight: 600;
+            }
+            /* Hide Qt's default checkmark indicator — the dropdown is
+               small (96px wide) and the checkmark + its reserved column
+               eats too much of the limited horizontal space. The
+               selected state is already shown via :checked background
+               and ink colours above. */
+            QMenu#scenarioMenu::indicator {
+                width: 0px;
+                height: 0px;
+                padding: 0px;
+                margin: 0px;
+                image: none;
                 border: none;
             }
-            QComboBox QAbstractItemView {
-                background-color: %(toolbarPanelBg)s;
-                color: %(titleInk)s;
-                border: 1px solid %(panelLine)s;
-                border-radius: %(radiusMd)spx;
-                outline: none;
-                padding: 4px;
-                selection-background-color: %(accentTint)s;
+            QMenu#scenarioMenu::indicator:checked {
+                image: none;
             }
             QPushButton {
                 border-radius: %(buttonRadius)spx;
@@ -350,6 +458,15 @@ class FloatingToolbar(QWidget):
                 "widgetFontCss": str(theme.get("widgetFontCss") or RUNTIME_CAPABILITIES.widget_font_css),
             }
         )
+        self.setStyleSheet(stylesheet)
+        # Apply the same stylesheet to the popup menu directly. The menu
+        # becomes a top-level window when popped up; even with
+        # ``WA_TranslucentBackground`` set, some platforms do not always
+        # inherit the parent widget's stylesheet reliably. Setting the
+        # QSS on the menu itself is a belt-and-suspenders guarantee that
+        # the ``border: none`` and ``border-radius`` rules actually paint
+        # the popup the way we want it.
+        self._scenario_menu.setStyleSheet(stylesheet)
 
     def set_single_capture_mode(self) -> None:
         self._toolbar_mode = "single"
@@ -417,25 +534,60 @@ class FloatingToolbar(QWidget):
         self.raise_()
 
     def set_scenarios(self, scenarios: dict) -> None:
-        self._updating_combo = True
-        self._scenario_combo.clear()
-        for label in scenarios.keys():
-            self._scenario_combo.addItem(label)
-        self._updating_combo = False
+        self._suppress_scenario_signal = True
+        try:
+            self._scenario_menu.clear()
+            for action in self._scenario_action_group.actions():
+                self._scenario_action_group.removeAction(action)
+            self._scenario_labels = []
+            self._scenario_label_to_action = {}
+            for label, scene_type in scenarios.items():
+                if scene_type in _HIDDEN_SCENARIOS:
+                    # Filter out scenes the toolbar must not expose
+                    # (see ``_HIDDEN_SCENARIOS``).
+                    continue
+                action = QAction(label, self._scenario_menu)
+                action.setCheckable(True)
+                tooltip = _SCENARIO_TOOLTIPS.get(scene_type, "")
+                if tooltip:
+                    action.setToolTip(tooltip)
+                action.setData(scene_type)
+                self._scenario_menu.addAction(action)
+                self._scenario_action_group.addAction(action)
+                self._scenario_labels.append(label)
+                self._scenario_label_to_action[label] = action
+        finally:
+            self._suppress_scenario_signal = False
 
     def set_current_scenario(self, scenario_name: str) -> None:
-        self._updating_combo = True
-        target = scenario_name or next(iter(dict(SCENE_OPTIONS).keys()), "")
-        index = self._scenario_combo.findText(target)
-        if index >= 0:
-            self._scenario_combo.setCurrentIndex(index)
-        self._updating_combo = False
+        target = scenario_name or next(iter(self._scenario_labels), "")
+        action = self._scenario_label_to_action.get(target)
+        if action is None and self._scenario_labels:
+            # Fall back to the first registered scenario so the trigger
+            # always reflects a valid selection.
+            action = self._scenario_label_to_action[self._scenario_labels[0]]
+        if action is None:
+            return
+        self._suppress_scenario_signal = True
+        try:
+            action.setChecked(True)
+        finally:
+            self._suppress_scenario_signal = False
+        self._refresh_scenario_button_text(action.text())
 
     def set_scenario_selector_visible(self, visible: bool) -> None:
-        self._scenario_combo.setVisible(visible)
+        self._scenario_button.setVisible(visible)
 
     def get_current_scenario(self) -> str:
-        return self._scenario_combo.currentText()
+        action = self._scenario_action_group.checkedAction()
+        if action is not None:
+            return action.text()
+        # Fall back to the first registered action if nothing is checked
+        # yet — mirrors the previous dropdown behaviour of always having
+        # a default selection.
+        if self._scenario_labels:
+            return self._scenario_labels[0]
+        return ""
 
     def get_current_scene_type(self) -> str:
         return scene_type_from_label(self.get_current_scenario())
@@ -465,7 +617,7 @@ class FloatingToolbar(QWidget):
 
     def set_loading(self, loading: bool) -> None:
         self._loading = loading
-        self._scenario_combo.setEnabled(not loading)
+        self._scenario_button.setEnabled(not loading)
         self._btn_translate.setEnabled(not loading)
         self._btn_continue.setEnabled(not loading)
         self._btn_copy.setEnabled(not loading)
@@ -494,9 +646,18 @@ class FloatingToolbar(QWidget):
     def current_translation_direction(self) -> str:
         return "en_to_zh"
 
-    def _on_scenario_changed(self, scenario_name: str) -> None:
-        if not self._updating_combo:
-            self.scenario_changed.emit(scenario_name)
+    def _on_scenario_action_triggered(self, action: QAction) -> None:
+        """Handle user picking a scenario from the dropdown menu."""
+
+        if self._suppress_scenario_signal:
+            return
+        self._refresh_scenario_button_text(action.text())
+        self.scenario_changed.emit(action.text())
+
+    def _refresh_scenario_button_text(self, label: str) -> None:
+        """Show the chosen scenario on the trigger button with a caret."""
+
+        self._scenario_button.setText(f"{label}  ▾")
 
     def _on_edit_mode_clicked(self, mode: str, checked: bool) -> None:
         if checked and not self._updating_edit_mode:
@@ -530,7 +691,7 @@ class FloatingToolbar(QWidget):
             "QLineEdit",
             "QTextEdit",
             "QPlainTextEdit",
-            "QComboBox",
+            "QToolButton",
             "QAbstractSpinBox",
         )
         return not any(focus_widget.inherits(class_name) for class_name in blocked_classes)

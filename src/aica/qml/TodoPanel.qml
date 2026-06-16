@@ -50,6 +50,7 @@ Rectangle {
         readonly property string expandLabel: ""
         readonly property string logoSource: ""
         readonly property string headerStatusText: todoCount + " 进行中"
+        readonly property string miniStatusText: headerStatusText
         readonly property string dockSide: "right"
         readonly property bool miniHovering: false
 
@@ -113,28 +114,42 @@ Rectangle {
                 id: miniStatus
                 anchors.verticalCenter: parent.verticalCenter
                 readonly property bool mirrorForEdge: root.dockedLeft && !root.miniHovering
-                anchors.left: mirrorForEdge ? undefined : parent.left
+                anchors.left: parent.left
                 anchors.leftMargin: 13
-                anchors.right: mirrorForEdge ? parent.right : undefined
-                anchors.rightMargin: 13
                 spacing: 8
                 layoutDirection: mirrorForEdge ? Qt.RightToLeft : Qt.LeftToRight
+
+                width: Math.max(
+                    0,
+                    (root.miniHovering ? miniActions.x : parent.width - 13) - 13
+                )
 
                 Image {
                     width: 24
                     height: 24
                     source: root.bridge.logoSource
+                    sourceSize.width: 24
+                    sourceSize.height: 24
                     fillMode: Image.PreserveAspectFit
                     smooth: true
                     mipmap: true
                 }
 
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.bridge.headerStatusText
-                    font.family: root.uiFont
-                    font.pixelSize: root.fontCaption
-                    color: root.labelInk
+                Item {
+                    width: Math.max(0, miniStatus.width - 24 - miniStatus.spacing)
+                    height: 24
+
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: root.bridge.miniStatusText
+                        font.family: root.uiFont
+                        font.pixelSize: root.fontCaption
+                        color: root.labelInk
+                        elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
+                        maximumLineCount: 1
+                    }
                 }
             }
 
@@ -452,7 +467,8 @@ Rectangle {
                                 width: listColumn.width
                                 height: root.rowHeight
                                 radius: 15
-                                color: modelData.selected ? "#F5F5F5" : "transparent"
+                                readonly property bool selected: root.bridge.selectedTodoId === modelData.id
+                                color: selected ? root.accentSoft : "transparent"
                                 border.width: 0
                                 border.color: "transparent"
                                 antialiasing: true
@@ -466,15 +482,15 @@ Rectangle {
                                     anchors.verticalCenter: parent.verticalCenter
                                     color: "#FFFFFF"
                                     border.width: 1.5
-                                    border.color: modelData.selected ? "#2A313F" : "#C8C8C8"
+                                    border.color: selected ? root.accent : root.panelLine
 
                                     Rectangle {
                                         anchors.centerIn: parent
-                                        width: modelData.selected ? 8 : 0
-                                        height: modelData.selected ? 8 : 0
+                                        width: selected ? 8 : 0
+                                        height: selected ? 8 : 0
                                         radius: 4
-                                        color: "#2A313F"
-                                        visible: modelData.selected
+                                        color: root.accent
+                                        visible: selected
                                     }
 
                                     MouseArea {
@@ -496,8 +512,8 @@ Rectangle {
                                     wrapMode: Text.NoWrap
                                     maximumLineCount: 1
                                     font.pixelSize: 10
-                                    font.weight: modelData.selected ? 600 : 500
-                                    color: "#141414"
+                                    font.weight: selected ? 600 : 500
+                                    color: selected ? root.accent : root.titleInk
                                 }
 
                                 MouseArea {

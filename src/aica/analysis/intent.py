@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 
 SCENE_CHAT_FEEDBACK = "chat_feedback"
+SCENE_PROBLEM_CONCLUSION = "problem_conclusion"
 SCENE_STEP_SEQUENCE = "step_sequence"
 
 CAPTURE_MODE_SINGLE = "single"
@@ -12,6 +13,7 @@ CAPTURE_MODE_SEQUENCE = "sequence"
 
 SCENE_OPTIONS: list[tuple[str, str]] = [
     ("工单跟进", SCENE_CHAT_FEEDBACK),
+    ("问题结论", SCENE_PROBLEM_CONCLUSION),
     ("连续步骤截图", SCENE_STEP_SEQUENCE),
 ]
 

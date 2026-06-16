@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.main import (  # noqa: E402
     _ApplicationActivationFilter,
+    _TOOLBAR_BASE_SCENARIOS,
+    _TOOLBAR_SELECTED_TODO_SCENARIOS,
     _apply_application_icon,
     _build_hotkey_manager,
     _handle_application_state_changed,
@@ -19,6 +21,14 @@ from aica.main import (  # noqa: E402
     _show_startup_control_panel,
     _start_hotkey_listener,
 )
+
+
+def test_toolbar_scenarios_only_show_problem_conclusion_for_selected_todo() -> None:
+    assert _TOOLBAR_BASE_SCENARIOS == {"工单跟进": "chat_feedback"}
+    assert _TOOLBAR_SELECTED_TODO_SCENARIOS == {
+        "工单跟进": "chat_feedback",
+        "问题结论": "problem_conclusion",
+    }
 
 
 def test_build_hotkey_manager_falls_back_to_platform_default(monkeypatch) -> None:
@@ -380,4 +390,3 @@ def test_exception_handler_requests_qapplication_exit(monkeypatch, tmp_path: Pat
     sys.excepthook(ValueError, ValueError("bad value"), None)
 
     assert exit_codes == [1]
-

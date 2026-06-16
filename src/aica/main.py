@@ -78,6 +78,14 @@ from aica.windows_taskbar import install_windows_taskbar_tasks
 _APP_NAME = "Chattodo"
 _WINDOWS_APP_USER_MODEL_ID = "edison.Chattodo"
 
+_TOOLBAR_BASE_SCENARIOS: dict[str, str] = {
+    "工单跟进": "chat_feedback",
+}
+_TOOLBAR_SELECTED_TODO_SCENARIOS: dict[str, str] = {
+    "工单跟进": "chat_feedback",
+    "问题结论": "problem_conclusion",
+}
+
 
 class _ApplicationActivationFilter(QObject):
     """Open the control panel when the macOS Dock icon activates the app."""
@@ -437,6 +445,7 @@ def main() -> None:
     todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge, theme_controller=theme_controller)
     todo_detail_panel.set_pinned(todo_panel.pinned)
     toolbar.set_scenario_selector_visible(True)
+    toolbar.set_scenarios(dict(_TOOLBAR_BASE_SCENARIOS))
 
     capture_session = CaptureSession()
     analysis_metrics_store = AnalysisMetricsStore()
@@ -588,6 +597,16 @@ def main() -> None:
             max_items=10,
             max_chars=2000,
         )
+
+    def _sync_toolbar_scenarios() -> None:
+        if todo_controller.get_selected_todo() is None:
+            toolbar.set_scenarios(dict(_TOOLBAR_BASE_SCENARIOS))
+            toolbar.set_current_scenario("工单跟进")
+            return
+        toolbar.set_scenarios(dict(_TOOLBAR_SELECTED_TODO_SCENARIOS))
+        current_scene_type = toolbar.get_current_scene_type()
+        if current_scene_type not in {"chat_feedback", "problem_conclusion"}:
+            toolbar.set_current_scenario("工单跟进")
 
     def _save_analysis_to_todo(snapshot) -> tuple[str, str]:
         previous_todo = todo_controller.get_selected_todo()
@@ -909,6 +928,7 @@ def main() -> None:
     def _on_todo_selected(todo_id: str) -> None:
         todo_controller.toggle_selected_todo(todo_id)
         _refresh_todo_panel()
+        _sync_toolbar_scenarios()
 
     def _on_todo_completed(todo_id: str) -> None:
         was_detail_open = todo_controller.detail_todo_id == todo_id
@@ -923,6 +943,7 @@ def main() -> None:
     def _on_todo_selection_cleared() -> None:
         todo_controller.clear_selected_todo()
         _refresh_todo_panel()
+        _sync_toolbar_scenarios()
 
     def _on_todo_detail_requested(todo_id: str) -> None:
         _show_todo_detail(todo_id)
