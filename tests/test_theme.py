@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.config import ConfigManager, build_default_config  # noqa: E402
+from aica.theme_controller import ThemeController  # noqa: E402
 from aica.theme import ThemeConfig, build_theme_tokens, normalize_color, preset_options  # noqa: E402
 
 
@@ -217,6 +218,20 @@ def test_theme_is_saved_to_config_json(tmp_path: Path) -> None:
     assert loaded_theme.component_height == 34
     assert loaded_theme.button_radius == 22
     assert loaded_theme.button_height == 36
+
+
+def test_theme_controller_skips_deleted_qml_contexts() -> None:
+    class _DeletedContext:
+        def setContextProperty(self, *_args, **_kwargs):
+            raise RuntimeError("wrapped C/C++ object of type QQmlContext has been deleted")
+
+    controller = ThemeController()
+    deleted = _DeletedContext()
+    controller._contexts.append(deleted)  # type: ignore[attr-defined]
+
+    controller.set_config(ThemeConfig.from_dict({"preset_id": "qingyun"}))
+
+    assert controller._contexts == []  # type: ignore[attr-defined]
 
 
 def test_key_qml_windows_consume_theme_tokens() -> None:

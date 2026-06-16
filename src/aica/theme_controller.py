@@ -56,11 +56,19 @@ class ThemeController(QObject):
     def apply_to_context(self, context) -> None:
         if not any(item is context for item in self._contexts):
             self._contexts.append(context)
-        context.setContextProperty("theme", self.tokens)
+        if not self._apply_theme_to_context(context):
+            self._contexts = [item for item in self._contexts if item is not context]
 
     def _sync_contexts(self) -> None:
         live_contexts = []
         for context in self._contexts:
-            context.setContextProperty("theme", self.tokens)
-            live_contexts.append(context)
+            if self._apply_theme_to_context(context):
+                live_contexts.append(context)
         self._contexts = live_contexts
+
+    def _apply_theme_to_context(self, context) -> bool:
+        try:
+            context.setContextProperty("theme", self.tokens)
+        except (RuntimeError, ReferenceError):
+            return False
+        return True

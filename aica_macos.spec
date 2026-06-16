@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from PyInstaller.building.osx import BUNDLE
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 project_root = Path(SPEC).resolve().parent
@@ -20,7 +20,7 @@ datas = [
     (str(project_root / "src" / "aica" / "qml"), "aica/qml"),
     (str(project_root / "src" / "aica" / "storage" / "sqlite" / "schema.sql"), "aica/storage/sqlite"),
     (str(project_root / "assets"), "assets"),
-]
+] + collect_data_files("rapidocr")
 info_plist = {
     "CFBundleDisplayName": "Chattodo",
     "CFBundleName": "Chattodo",
