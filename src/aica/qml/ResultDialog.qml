@@ -72,6 +72,41 @@ Rectangle {
         return -1
     }
 
+    function projectCandidateTitle(candidate) {
+        if (!candidate) {
+            return ""
+        }
+        var title = String(candidate.projectName || "")
+        var taskOrderNo = String(candidate.taskOrderNo || "")
+        if (title.length > 0 && taskOrderNo.length > 0) {
+            return title + " / " + taskOrderNo
+        }
+        return title.length > 0 ? title : taskOrderNo
+    }
+
+    function projectCandidateReason(candidate) {
+        if (!candidate) {
+            return ""
+        }
+        var reason = String(candidate.matchReason || "")
+        if (reason === "alias_exact") {
+            return "群名别名命中"
+        }
+        if (reason === "project_name_match") {
+            return "项目名匹配"
+        }
+        if (reason === "task_order_match") {
+            return "任务单号匹配"
+        }
+        if (reason === "alias_match") {
+            return "别名匹配"
+        }
+        if (reason === "customer_match") {
+            return "客户名匹配"
+        }
+        return reason
+    }
+
     Connections {
         target: resultDialogBridge
         function onDataChanged() {
@@ -537,6 +572,105 @@ Rectangle {
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        radius: 16
+                        color: root.fieldBg
+                        visible: (resultDialogBridge.projectCandidates || []).length > 0
+                                 && !resultDialogBridge.hasProjectCandidateSelection
+                        implicitHeight: candidatePanel.implicitHeight + 16
+
+                        Column {
+                            id: candidatePanel
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 8
+
+                            Text {
+                                text: resultDialogBridge.hasProjectCandidateSelection ? "已选中候选项目" : "候选项目"
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
+                            }
+
+                            Text {
+                                text: resultDialogBridge.hasProjectCandidateSelection
+                                    ? projectCandidateTitle(resultDialogBridge.selectedProjectCandidate)
+                                    : "输入群聊名称后将自动给出项目候选，点选后再保存。"
+                                color: root.titleInk
+                                font.family: root.uiFont
+                                font.pixelSize: 13
+                                font.weight: root.bodyWeight
+                                wrapMode: Text.Wrap
+                            }
+
+                            ListView {
+                                width: parent.width
+                                implicitHeight: Math.min(contentHeight, 180)
+                                clip: true
+                                spacing: 8
+                                model: resultDialogBridge.projectCandidates
+
+                                delegate: Rectangle {
+                                    width: ListView.view.width
+                                    height: candidateItem.implicitHeight + 18
+                                    radius: 12
+                                    color: candidateMouseArea.containsMouse ? "#F6F8FA" : "#FFFFFF"
+                                    border.width: resultDialogBridge.selectedProjectCandidate.projectId === modelData.projectId ? 1 : 0
+                                    border.color: resultDialogBridge.selectedProjectCandidate.projectId === modelData.projectId ? root.accent : "transparent"
+
+                                    Column {
+                                        id: candidateItem
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 4
+
+                                        Row {
+                                            width: parent.width
+                                            spacing: 8
+
+                                            Text {
+                                                width: parent.width - candidateReason.implicitWidth - parent.spacing
+                                                text: projectCandidateTitle(modelData)
+                                                color: root.titleInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 13
+                                                font.weight: 700
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                id: candidateReason
+                                                text: projectCandidateReason(modelData)
+                                                color: root.labelInk
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: "客户: " + (modelData.customerName || "未知") + "  别名: " + (modelData.matchedAlias || "无")
+                                            color: root.bodyInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: candidateMouseArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: resultDialogBridge.chooseProjectCandidate(modelData)
+                                    }
                                 }
                             }
                         }

@@ -22,7 +22,7 @@ from aica.storage.adapters import (
     parse_json_object,
     sanitize_string_dict,
 )
-from aica.storage.contracts import ProjectMatchResult, ProjectRecord
+from aica.storage.contracts import ProjectMatchCandidate, ProjectMatchResult, ProjectRecord
 from aica.text_sanitize import sanitize_text
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 from aica.todo.conclusion_timeline import sync_conclusion_timeline
@@ -100,6 +100,37 @@ def _build_project_record(
         created_at=str(payload.get("created_at") or now_iso()),
         updated_at=str(payload.get("updated_at") or now_iso()),
     )
+
+
+def _subsequence_score(source: str, keyword: str) -> int:
+    source_text = sanitize_text(source).casefold()
+    keyword_text = sanitize_text(keyword).casefold()
+    if not source_text or not keyword_text:
+        return 0
+    source_index = 0
+    matched = 0
+    gaps = 0
+    for char in keyword_text:
+        char_index = source_text.find(char, source_index)
+        if char_index < 0:
+            return 0
+        if matched > 0:
+            gaps += max(0, char_index - source_index)
+        source_index = char_index + 1
+        matched += 1
+    return max(1, matched * 10 - gaps)
+
+
+def _candidate_score(text: str, keyword: str) -> int:
+    source = sanitize_text(text).casefold()
+    target = sanitize_text(keyword).casefold()
+    if not source or not target:
+        return 0
+    if source == target:
+        return 500
+    if target in source:
+        return 400 + max(0, 100 - abs(len(source) - len(target)))
+    return _subsequence_score(source, target)
 
 
 class SQLiteStorageMigrator:
@@ -790,6 +821,38 @@ class SQLiteProjectRepository:
             )
         return cursor.rowcount > 0
 
+    def get_project_by_id(self, project_id: str) -> ProjectRecord | None:
+        sanitized_project_id = sanitize_text(project_id)
+        if not sanitized_project_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                  id, project_name, customer_name, task_order_no,
+                  follow_up_started_at, support_ended_at, product_line,
+                  product_version, project_manager, project_level,
+                  created_at, updated_at
+                FROM projects
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (sanitized_project_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            alias_rows = connection.execute(
+                """
+                SELECT alias_name
+                FROM project_group_aliases
+                WHERE project_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (sanitized_project_id,),
+            ).fetchall()
+        aliases = tuple(str(item["alias_name"] or "") for item in alias_rows if str(item["alias_name"] or ""))
+        return _build_project_record(row, aliases=aliases)
+
     def match_project_by_group_name(
         self,
         group_name: str,
@@ -895,6 +958,130 @@ class SQLiteProjectRepository:
             matched_alias=str(expired["alias_name"] or ""),
             project_snapshot=expired_project.to_snapshot(),
         )
+
+    def search_project_candidates_by_group_name(
+        self,
+        group_name: str,
+        *,
+        now: str | None = None,
+        limit: int = 5,
+        include_expired: bool = False,
+    ) -> list[ProjectMatchCandidate]:
+        normalized = normalize_group_alias(group_name)
+        keyword = sanitize_text(group_name)
+        if not normalized or not keyword:
+            return []
+        current_time = sanitize_text(now) or now_iso()
+        candidates: dict[str, dict[str, Any]] = {}
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                  projects.id AS project_id,
+                  projects.project_name,
+                  projects.customer_name,
+                  projects.task_order_no,
+                  projects.support_ended_at,
+                  projects.follow_up_started_at,
+                  projects.product_line,
+                  projects.product_version,
+                  projects.project_manager,
+                  projects.project_level,
+                  project_group_aliases.alias_name
+                FROM projects
+                LEFT JOIN project_group_aliases ON project_group_aliases.project_id = projects.id
+                ORDER BY projects.updated_at DESC, projects.created_at DESC, projects.id DESC, project_group_aliases.created_at ASC
+                """
+            ).fetchall()
+        for row in rows:
+            project_id = str(row["project_id"] or "")
+            if not project_id:
+                continue
+            project_name = str(row["project_name"] or "")
+            task_order_no = str(row["task_order_no"] or "")
+            customer_name = str(row["customer_name"] or "")
+            project_snapshot = _build_project_record(
+                {
+                    "id": row["project_id"],
+                    "project_name": row["project_name"],
+                    "customer_name": row["customer_name"],
+                    "task_order_no": row["task_order_no"],
+                    "follow_up_started_at": row["follow_up_started_at"],
+                    "support_ended_at": row["support_ended_at"],
+                    "product_line": row["product_line"],
+                    "product_version": row["product_version"],
+                    "project_manager": row["project_manager"],
+                    "project_level": row["project_level"],
+                }
+            ).to_snapshot()
+            alias_name = str(row["alias_name"] or "")
+            alias_normalized = normalize_group_alias(alias_name)
+            support_ended_at = sanitize_text(row["support_ended_at"])
+            is_expired = not _is_project_active(support_ended_at, now=current_time)
+            if is_expired and not include_expired:
+                continue
+            score = 0
+            match_reason = ""
+            if alias_normalized and alias_normalized == normalized:
+                score = 1000
+                match_reason = "alias_exact"
+            else:
+                project_name_score = _candidate_score(project_name, keyword)
+                task_order_score = _candidate_score(task_order_no, keyword)
+                alias_score = _candidate_score(alias_name, keyword)
+                customer_score = _candidate_score(customer_name, keyword)
+                score = max(project_name_score, task_order_score, alias_score, customer_score)
+                if score == project_name_score and project_name_score > 0:
+                    match_reason = "project_name_match"
+                elif score == task_order_score and task_order_score > 0:
+                    match_reason = "task_order_match"
+                elif score == alias_score and alias_score > 0:
+                    match_reason = "alias_match"
+                elif score == customer_score and customer_score > 0:
+                    match_reason = "customer_match"
+            if score <= 0:
+                continue
+            existing = candidates.get(project_id)
+            if existing is None or score > int(existing["score"]):
+                candidates[project_id] = {
+                    "score": score,
+                    "project_name": project_name,
+                    "task_order_no": task_order_no,
+                    "customer_name": customer_name,
+                    "matched_alias": alias_name,
+                    "match_reason": match_reason,
+                    "is_expired": is_expired,
+                    "project_snapshot": project_snapshot,
+                }
+            elif score == int(existing["score"]) and match_reason == "alias_exact":
+                existing["matched_alias"] = alias_name
+                existing["match_reason"] = match_reason
+                existing["project_snapshot"] = project_snapshot
+        result = [
+            ProjectMatchCandidate(
+                project_id=project_id,
+                project_name=str(item["project_name"] or ""),
+                task_order_no=str(item["task_order_no"] or ""),
+                customer_name=str(item["customer_name"] or ""),
+                matched_alias=str(item["matched_alias"] or ""),
+                match_reason=str(item["match_reason"] or ""),
+                match_score=int(item["score"]),
+                is_expired=bool(item["is_expired"]),
+                project_snapshot=dict(item["project_snapshot"] or {}),
+            )
+            for project_id, item in candidates.items()
+        ]
+        result.sort(
+            key=lambda candidate: (
+                candidate.match_score,
+                1 if candidate.match_reason == "alias_exact" else 0,
+                0 if candidate.is_expired else 1,
+                candidate.project_name.casefold(),
+                candidate.task_order_no.casefold(),
+            ),
+            reverse=True,
+        )
+        return result[: max(0, int(limit))]
 
     def get_project_link(self, todo_id: str) -> TodoProjectLink | None:
         with self._connect() as connection:
@@ -1178,7 +1365,7 @@ class SQLiteTodoRepository:
             )
             for event in timeline:
                 self._insert_timeline_event(connection, todo_id, event)
-        self._refresh_project_link(todo_id, snapshot.fields.group_name)
+        self._refresh_project_link(todo_id, snapshot.fields.group_name, snapshot.project_link)
         return self.get_todo(todo_id) or TodoItem(id=todo_id)
 
     def append_analysis_to_todo(
@@ -1274,7 +1461,7 @@ class SQLiteTodoRepository:
                         content=snapshot.timeline_entry,
                     ),
                 )
-        self._refresh_project_link(sanitized_id, merged_fields.group_name)
+        self._refresh_project_link(sanitized_id, merged_fields.group_name, snapshot.project_link)
         return self.get_todo(sanitized_id)
 
     def complete_todo(self, todo_id: str) -> bool:
@@ -1669,7 +1856,23 @@ class SQLiteTodoRepository:
             ),
         )
 
-    def _refresh_project_link(self, todo_id: str, group_name: str) -> None:
+    def _refresh_project_link(self, todo_id: str, group_name: str, project_link_payload: dict[str, Any] | None = None) -> None:
+        payload = project_link_payload if isinstance(project_link_payload, dict) else {}
+        project_id = sanitize_text(payload.get("project_id") or payload.get("projectId"))
+        if project_id:
+            project = self._project_repository.get_project_by_id(project_id)
+            if project is not None:
+                match_result = ProjectMatchResult(
+                    status="manual",
+                    reason=str(payload.get("match_reason") or payload.get("matchReason") or "manual_project_selection"),
+                    project_id=project.id,
+                    matched_group_name=sanitize_text(group_name),
+                    matched_alias=str(payload.get("matched_alias") or payload.get("matchedAlias") or ""),
+                    project_snapshot=project.to_snapshot(),
+                )
+                self._project_repository.bind_todo_to_project(todo_id, match_result)
+                self._synchronize_project_fields(todo_id, match_result)
+                return
         match_result = self._project_repository.match_project_by_group_name(group_name)
         self._project_repository.bind_todo_to_project(todo_id, match_result)
         self._synchronize_project_fields(todo_id, match_result)

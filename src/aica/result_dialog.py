@@ -171,6 +171,7 @@ from aica.analysis.metrics import AnalysisRunStats
 from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
 from aica.project_management import split_project_product_lines
 from aica.runtime import RUNTIME_CAPABILITIES
+from aica.storage.contracts import ProjectMatchCandidate
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.theme_controller import ThemeController
 from aica.ticket_field_resolver import (
@@ -217,12 +218,20 @@ def _call_product_line_provider(provider, group_name: str) -> object:  # noqa: A
         return provider()
 
 
+def _call_candidate_provider(provider, group_name: str) -> object:  # noqa: ANN001
+    try:
+        return provider(group_name)
+    except TypeError:
+        return provider()
+
+
 class _ResultDialogBridge(QObject):
     dataChanged = pyqtSignal()
 
     closeRequested = pyqtSignal()
     saveRequested = pyqtSignal()
     dragRequested = pyqtSignal()
+    projectCandidateSelected = pyqtSignal()
 
     def __init__(
         self,
@@ -232,10 +241,12 @@ class _ResultDialogBridge(QObject):
         analysis_stats: AnalysisRunStats | None = None,
         product_line_options_provider=None,
         default_product_line_provider=None,
+        project_candidate_provider=None,
     ) -> None:
         super().__init__()
         self._product_line_options_provider = product_line_options_provider
         self._default_product_line_provider = default_product_line_provider
+        self._project_candidate_provider = project_candidate_provider
         self._scenario = scenario
         self._model = model
         self._timing_summary = analysis_stats.timing_summary if analysis_stats is not None else ""
@@ -244,13 +255,17 @@ class _ResultDialogBridge(QObject):
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
         self._product_line = resolve_product_line(raw_value=result.fields.product_line)
+        self._product_line_manual = bool(str(result.fields.product_line or "").strip()) and not is_unknown_text(result.fields.product_line)
         self._product_line_error = ""
+        self._project_candidates: list[dict[str, object]] = []
+        self._selected_project_candidate: dict[str, object] = {}
         self._recognition_conclusion = sanitize_text(result.timeline_entry) or sanitize_text(result.current_summary)
         self._ticket_type = normalize_ticket_type(
             result.fields.ticket_type,
             summary_text=self._recognition_conclusion,
         )
         self._apply_product_line_default(force=False)
+        self._refresh_project_candidates()
 
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
@@ -289,9 +304,14 @@ class _ResultDialogBridge(QObject):
         provider = self._product_line_options_provider
         if callable(provider):
             try:
-                return _normalize_product_line_options(_call_product_line_provider(provider, self._group_name))
+                options = _normalize_product_line_options(_call_product_line_provider(provider, self._group_name))
             except Exception:
-                return []
+                options = []
+            if options:
+                return options
+        if self._selected_project_candidate:
+            snapshot = dict(self._selected_project_candidate.get("projectSnapshot") or {})
+            return _normalize_product_line_options(snapshot.get("product_line") or snapshot.get("productLine") or "")
         return []
 
     @pyqtProperty(bool, notify=dataChanged)
@@ -301,6 +321,18 @@ class _ResultDialogBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def productLineError(self) -> str:
         return self._product_line_error
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def projectCandidates(self):  # noqa: ANN201
+        return list(self._project_candidates)
+
+    @pyqtProperty("QVariantMap", notify=dataChanged)
+    def selectedProjectCandidate(self):  # noqa: ANN201
+        return dict(self._selected_project_candidate)
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def hasProjectCandidateSelection(self) -> bool:
+        return bool(self._selected_project_candidate)
 
     @pyqtProperty(str, notify=dataChanged)
     def ticketType(self) -> str:
@@ -326,10 +358,12 @@ class _ResultDialogBridge(QObject):
         elif name == "group_name":
             self._group_name = text
             self._apply_product_line_default(force=True)
+            self._refresh_project_candidates()
         elif name == "environment":
             self._environment = text
         elif name == "product_line":
             self._product_line = resolve_product_line(raw_value=text)
+            self._product_line_manual = bool(self._product_line.strip()) and not is_unknown_text(self._product_line)
             if self._product_line.strip():
                 self._product_line_error = ""
         elif name == "ticket_type":
@@ -343,6 +377,23 @@ class _ResultDialogBridge(QObject):
     def build_snapshot(self) -> TicketSnapshot:
         normalized_conclusion = self._recognition_conclusion.strip() or _PENDING_TEXT
         normalized_title = self._title.strip() or self._fallback_title
+        project_link = {}
+        if self._selected_project_candidate:
+            project_snapshot = dict(self._selected_project_candidate.get("projectSnapshot") or {})
+            project_link = {
+                "project_id": str(self._selected_project_candidate.get("projectId") or ""),
+                "projectId": str(self._selected_project_candidate.get("projectId") or ""),
+                "project_name": str(self._selected_project_candidate.get("projectName") or ""),
+                "projectName": str(self._selected_project_candidate.get("projectName") or ""),
+                "matched_alias": str(self._selected_project_candidate.get("matchedAlias") or ""),
+                "matchedAlias": str(self._selected_project_candidate.get("matchedAlias") or ""),
+                "match_reason": str(self._selected_project_candidate.get("matchReason") or ""),
+                "matchReason": str(self._selected_project_candidate.get("matchReason") or ""),
+                "match_status": "manual",
+                "matchStatus": "manual",
+                "project_snapshot": project_snapshot,
+                "projectSnapshot": project_snapshot,
+            }
         return TicketSnapshot(
             title=normalized_title,
             fields=TicketSummaryFields(
@@ -364,6 +415,7 @@ class _ResultDialogBridge(QObject):
             current_summary=normalized_conclusion,
             timeline_entry=normalized_conclusion,
             evidence_items=[],
+            project_link=project_link,
         )
 
     @pyqtSlot()
@@ -375,6 +427,28 @@ class _ResultDialogBridge(QObject):
         if not self._validate_product_line_selection():
             return
         self.saveRequested.emit()
+
+    @pyqtSlot("QVariantMap")
+    def chooseProjectCandidate(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        project_id = sanitize_text(payload.get("projectId") or payload.get("project_id"))
+        if not project_id:
+            return
+        matched = next(
+            (candidate for candidate in self._project_candidates if str(candidate.get("projectId") or "") == project_id),
+            None,
+        )
+        if matched is None:
+            return
+        self._selected_project_candidate = dict(matched)
+        preferred_group_name = sanitize_text(matched.get("matchedAlias") or matched.get("matched_alias"))
+        if not preferred_group_name:
+            preferred_group_name = sanitize_text(matched.get("projectName") or matched.get("project_name"))
+        if preferred_group_name:
+            self._group_name = preferred_group_name
+        self._apply_product_line_default(force=not self._product_line_manual)
+        self.dataChanged.emit()
 
     def _validate_product_line_selection(self) -> bool:
         if not self.productLineRequired or not is_unknown_text(self._product_line):
@@ -418,7 +492,38 @@ class _ResultDialogBridge(QObject):
         if force or is_unknown_text(current) or current.casefold() not in normalized_options:
             self._product_line = self._resolve_default_product_line(options)
             self._product_line_error = ""
-        return False
+
+    def _refresh_project_candidates(self) -> None:
+        repository_provider = getattr(self, "_project_candidate_provider", None)
+        candidates: list[dict[str, object]] = []
+        if callable(repository_provider):
+            try:
+                raw_candidates = _call_candidate_provider(repository_provider, self._group_name)
+            except Exception:
+                raw_candidates = []
+            if isinstance(raw_candidates, list):
+                for item in raw_candidates:
+                    if isinstance(item, ProjectMatchCandidate):
+                        candidates.append(item.to_dict())
+                    elif isinstance(item, dict):
+                        candidates.append(
+                            {
+                                "projectId": sanitize_text(item.get("projectId") or item.get("project_id")),
+                                "projectName": sanitize_text(item.get("projectName") or item.get("project_name")),
+                                "taskOrderNo": sanitize_text(item.get("taskOrderNo") or item.get("task_order_no")),
+                                "customerName": sanitize_text(item.get("customerName") or item.get("customer_name")),
+                                "matchedAlias": sanitize_text(item.get("matchedAlias") or item.get("matched_alias")),
+                                "matchReason": sanitize_text(item.get("matchReason") or item.get("match_reason")),
+                                "matchScore": int(item.get("matchScore") or item.get("match_score") or 0),
+                                "isExpired": bool(item.get("isExpired") or item.get("is_expired")),
+                                "projectSnapshot": dict(item.get("projectSnapshot") or item.get("project_snapshot") or {}),
+                            }
+                        )
+        self._project_candidates = candidates
+        if self._selected_project_candidate:
+            selected_id = str(self._selected_project_candidate.get("projectId") or "")
+            if not any(str(item.get("projectId") or "") == selected_id for item in candidates):
+                self._selected_project_candidate = {}
 
     @pyqtSlot()
     def startWindowDrag(self) -> None:
@@ -437,6 +542,7 @@ class ResultDialog(QDialog):
         save_callback: Optional[Callable] = None,
         product_line_options_provider=None,
         default_product_line_provider=None,
+        project_candidate_provider=None,
         parent=None,
         theme_controller: ThemeController | None = None,
     ):
@@ -470,6 +576,9 @@ class ResultDialog(QDialog):
             analysis_stats=analysis_stats,
             product_line_options_provider=self._product_line_options_provider,
             default_product_line_provider=self._default_product_line_provider,
+            project_candidate_provider=project_candidate_provider
+            if callable(project_candidate_provider)
+            else getattr(self._product_line_repository, "search_project_candidates_by_group_name", None),
         )
 
         self.setObjectName("resultDialog")

@@ -425,6 +425,7 @@ class TicketSnapshot:
     current_summary: str
     timeline_entry: str
     evidence_items: list[EvidenceItem] = field(default_factory=list)
+    project_link: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -444,6 +445,7 @@ class TicketSnapshot:
             "root_cause_source": self.fields.root_cause_source,
             "current_summary": self.current_summary,
             "timeline_entry": self.timeline_entry,
+            "project_link": dict(self.project_link or {}),
         }
 
     @classmethod
@@ -504,6 +506,7 @@ class TicketSnapshot:
             current_summary=current_summary[:400],
             timeline_entry=merge_timeline_with_evidence(timeline_entry, merged_evidence_items),
             evidence_items=[],
+            project_link=dict(payload.get("project_link") or {}) if isinstance(payload.get("project_link"), dict) else {},
         )
 
     @classmethod
@@ -517,6 +520,7 @@ class TicketSnapshot:
             current_summary=summary[:400],
             timeline_entry=summary[:600],
             evidence_items=[],
+            project_link={},
         )
 
     def __str__(self) -> str:

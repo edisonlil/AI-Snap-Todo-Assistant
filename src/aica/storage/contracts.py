@@ -61,6 +61,32 @@ class ProjectMatchResult:
     project_snapshot: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ProjectMatchCandidate:
+    project_id: str
+    project_name: str
+    task_order_no: str = ""
+    customer_name: str = ""
+    matched_alias: str = ""
+    match_reason: str = ""
+    match_score: int = 0
+    is_expired: bool = False
+    project_snapshot: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "projectId": self.project_id,
+            "projectName": self.project_name,
+            "taskOrderNo": self.task_order_no,
+            "customerName": self.customer_name,
+            "matchedAlias": self.matched_alias,
+            "matchReason": self.match_reason,
+            "matchScore": self.match_score,
+            "isExpired": self.is_expired,
+            "projectSnapshot": dict(self.project_snapshot),
+        }
+
+
 class TodoRepository(Protocol):
     path: str
 
@@ -141,11 +167,24 @@ class ProjectRepository(Protocol):
     ) -> ProjectMatchResult:
         """Resolve a project from a group name."""
 
+    def search_project_candidates_by_group_name(
+        self,
+        group_name: str,
+        *,
+        now: str | None = None,
+        limit: int = 5,
+        include_expired: bool = False,
+    ) -> list[ProjectMatchCandidate]:
+        """Search candidate projects by a group name."""
+
     def get_project_link(self, todo_id: str) -> "TodoProjectLink | None":
         """Fetch the current project link for a Todo."""
 
     def bind_todo_to_project(self, todo_id: str, match_result: ProjectMatchResult) -> "TodoProjectLink":
         """Persist the latest project match result for a Todo."""
+
+    def get_project_by_id(self, project_id: str) -> "ProjectRecord | None":
+        """Fetch a project by id."""
 
 
 class BindingRepository(Protocol):
