@@ -262,10 +262,8 @@ Rectangle {
         syncingFields = true
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
-        environmentEdit.text = todoDetailBridge.environment
         productLineFallbackEdit.text = todoDetailBridge.productLine
         productLineEdit.currentIndex = optionIndex(root.productLineOptions, root.productLineValue)
-        ticketTypeEdit.text = todoDetailBridge.ticketType
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
 
@@ -624,254 +622,175 @@ Rectangle {
 
                     Item {
                         width: parent.width
-                        height: Math.max(leftFieldColumn.implicitHeight, rightFieldColumn.implicitHeight)
+                        height: root.fieldCardHeight
 
-                        Column {
-                            id: leftFieldColumn
+                        Rectangle {
+                            id: groupNameField
                             anchors.left: parent.left
-                            anchors.top: parent.top
+                            anchors.verticalCenter: parent.verticalCenter
                             width: root.fieldWidth
-                            spacing: root.fieldGap
+                            height: root.fieldCardHeight
+                            radius: 16
+                            color: root.fieldBg
+                            border.width: 0
+                            border.color: root.fieldLine
 
-                            Rectangle {
-                                width: parent.width
-                                height: root.fieldCardHeight
-                                radius: 16
-                                color: root.fieldBg
-                                border.width: 0
-                                border.color: root.fieldLine
-
-                                Text {
-                                    x: root.fieldTextInset
-                                    y: 13
-                                    text: "群聊名称"
-                                    color: root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
-
-                                TextInput {
-                                    id: groupNameEdit
-                                    x: root.fieldTextInset
-                                    y: 35
-                                    width: parent.width - root.fieldTextInset * 2
-                                    height: 22
-                                    clip: true
-                                    selectByMouse: true
-                                    color: root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("group_name", text)
-                                }
+                            Text {
+                                x: root.fieldTextInset
+                                y: 13
+                                text: "群聊名称"
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
                             }
 
-                            Rectangle {
-                                id: productLineField
-                                width: parent.width
-                                height: root.fieldCardHeight
-                                radius: 16
-                                color: root.fieldBg
-                                border.width: 0
-                                border.color: root.fieldLine
-
-                                Text {
-                                    x: root.fieldTextInset
-                                    y: 13
-                                    text: "产品线"
-                                    color: root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
-
-                                TextInput {
-                                    id: productLineFallbackEdit
-                                    x: root.fieldTextInset
-                                    y: 35
-                                    width: parent.width - root.fieldTextInset * 2
-                                    height: 22
-                                    visible: root.productLineOptions.length <= 1
-                                    clip: true
-                                    readOnly: true
-                                    selectByMouse: true
-                                    color: root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: root.bodyWeight
-                                }
-
-                                ComboBox {
-                                    id: productLineEdit
-                                    x: root.fieldTextInset
-                                    y: 35
-                                    width: parent.width - root.fieldTextInset * 2
-                                    height: 22
-                                    visible: root.productLineOptions.length > 1
-                                    model: root.productLineOptions
-                                    currentIndex: root.optionIndex(root.productLineOptions, root.productLineValue)
-                                    enabled: root.productLineOptions.length > 1
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    onActivated: if (currentIndex >= 0) root.selectProductLine(root.productLineOptions[currentIndex])
-
-                                    contentItem: Text {
-                                        text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : productLineFallbackEdit.text
-                                        color: root.titleInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: root.bodyWeight
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-
-                                    indicator: Text {
-                                        x: productLineEdit.width - width
-                                        y: 0
-                                        width: 14
-                                        height: productLineEdit.height
-                                        text: productLineEdit.popup.visible ? "⌃" : "⌄"
-                                        color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
-                                        visible: root.productLineOptions.length > 1
-                                        font.family: root.uiFont
-                                        font.pixelSize: 14
-                                        horizontalAlignment: Text.AlignRight
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-
-                                    background: Item {}
-
-                                    delegate: ItemDelegate {
-                                        id: productLineOption
-                                        width: productLineEdit.width
-                                        height: 36
-                                        padding: 0
-                                        highlighted: productLineEdit.highlightedIndex === index
-
-                                        background: Rectangle {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 4
-                                            anchors.rightMargin: 4
-                                            anchors.topMargin: 2
-                                            anchors.bottomMargin: 2
-                                            radius: 10
-                                            color: productLineEdit.currentIndex === index ? root.accentTint : (productLineOption.hovered || productLineOption.highlighted ? "#F6F8FA" : "transparent")
-                                        }
-
-                                        contentItem: Text {
-                                            leftPadding: 12
-                                            rightPadding: 12
-                                            text: modelData
-                                            color: root.titleInk
-                                            font.family: root.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: productLineEdit.currentIndex === index ? root.labelWeight : root.bodyWeight
-                                            verticalAlignment: Text.AlignVCenter
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-
-                                    popup: Popup {
-                                        y: productLineEdit.height + 8
-                                        width: productLineEdit.width
-                                        implicitHeight: Math.min(contentItem.implicitHeight + 8, 148)
-                                        padding: 4
-                                        modal: false
-                                        focus: true
-                                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-
-                                        background: Rectangle {
-                                            radius: 14
-                                            color: "#FFFFFF"
-                                            border.width: 1
-                                            border.color: "#DDE3EB"
-                                        }
-
-                                        contentItem: ListView {
-                                            clip: true
-                                            implicitHeight: contentHeight
-                                            model: productLineEdit.popup.visible ? productLineEdit.delegateModel : null
-                                            currentIndex: productLineEdit.highlightedIndex
-                                            boundsBehavior: Flickable.StopAtBounds
-                                        }
-                                    }
-                                }
+                            TextInput {
+                                id: groupNameEdit
+                                x: root.fieldTextInset
+                                y: 35
+                                width: parent.width - root.fieldTextInset * 2
+                                height: 22
+                                clip: true
+                                selectByMouse: true
+                                color: root.titleInk
+                                font.family: root.uiFont
+                                font.pixelSize: 13
+                                font.weight: root.bodyWeight
+                                onTextChanged: root.pushField("group_name", text)
                             }
                         }
 
-                        Column {
-                            id: rightFieldColumn
+                        Rectangle {
+                            id: productLineField
                             anchors.right: parent.right
-                            anchors.top: parent.top
+                            anchors.verticalCenter: parent.verticalCenter
                             width: root.fieldWidth
-                            spacing: root.fieldGap
+                            height: root.fieldCardHeight
+                            radius: 16
+                            color: root.fieldBg
+                            border.width: 0
+                            border.color: root.fieldLine
 
-                            Rectangle {
-                                width: parent.width
-                                height: root.fieldCardHeight
-                                radius: 16
-                                color: root.fieldBg
-                                border.width: 0
-                                border.color: root.fieldLine
-
-                                Text {
-                                    x: root.fieldTextInset
-                                    y: 13
-                                    text: "环境"
-                                    color: root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
-
-                                TextInput {
-                                    id: environmentEdit
-                                    x: root.fieldTextInset
-                                    y: 35
-                                    width: parent.width - root.fieldTextInset * 2
-                                    height: 22
-                                    clip: true
-                                    selectByMouse: true
-                                    color: root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: root.bodyWeight
-                                    onTextChanged: root.pushField("environment", text)
-                                }
+                            Text {
+                                x: root.fieldTextInset
+                                y: 13
+                                text: "产品线"
+                                color: root.labelInk
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
                             }
 
-                            Rectangle {
-                                width: parent.width
-                                height: root.fieldCardHeight
-                                radius: 16
-                                color: root.fieldBg
-                                border.width: 0
-                                border.color: root.fieldLine
+                            TextInput {
+                                id: productLineFallbackEdit
+                                x: root.fieldTextInset
+                                y: 35
+                                width: parent.width - root.fieldTextInset * 2
+                                height: 22
+                                visible: root.productLineOptions.length <= 1
+                                clip: true
+                                readOnly: true
+                                selectByMouse: true
+                                color: root.titleInk
+                                font.family: root.uiFont
+                                font.pixelSize: 13
+                                font.weight: root.bodyWeight
+                            }
 
-                                Text {
-                                    x: root.fieldTextInset
-                                    y: 13
-                                    text: "工单类型"
-                                    color: root.labelInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
+                            ComboBox {
+                                id: productLineEdit
+                                x: root.fieldTextInset
+                                y: 35
+                                width: parent.width - root.fieldTextInset * 2
+                                height: 22
+                                visible: root.productLineOptions.length > 1
+                                model: root.productLineOptions
+                                currentIndex: root.optionIndex(root.productLineOptions, root.productLineValue)
+                                enabled: root.productLineOptions.length > 1
+                                font.family: root.uiFont
+                                font.pixelSize: 13
+                                onActivated: if (currentIndex >= 0) root.selectProductLine(root.productLineOptions[currentIndex])
 
-                                TextInput {
-                                    id: ticketTypeEdit
-                                    x: root.fieldTextInset
-                                    y: 35
-                                    width: parent.width - root.fieldTextInset * 2
-                                    height: 22
-                                    clip: true
-                                    readOnly: true
-                                    selectByMouse: true
+                                contentItem: Text {
+                                    text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : productLineFallbackEdit.text
                                     color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                }
+
+                                indicator: Text {
+                                    x: productLineEdit.width - width
+                                    y: 0
+                                    width: 14
+                                    height: productLineEdit.height
+                                    text: productLineEdit.popup.visible ? "⌃" : "⌄"
+                                    color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
+                                    visible: root.productLineOptions.length > 1
+                                    font.family: root.uiFont
+                                    font.pixelSize: 14
+                                    horizontalAlignment: Text.AlignRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Item {}
+
+                                delegate: ItemDelegate {
+                                    id: productLineOption
+                                    width: productLineEdit.width
+                                    height: 36
+                                    padding: 0
+                                    highlighted: productLineEdit.highlightedIndex === index
+
+                                    background: Rectangle {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 4
+                                        anchors.rightMargin: 4
+                                        anchors.topMargin: 2
+                                        anchors.bottomMargin: 2
+                                        radius: 10
+                                        color: productLineEdit.currentIndex === index ? root.accentTint : (productLineOption.hovered || productLineOption.highlighted ? "#F6F8FA" : "transparent")
+                                    }
+
+                                    contentItem: Text {
+                                        leftPadding: 12
+                                        rightPadding: 12
+                                        text: modelData
+                                        color: root.titleInk
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: productLineEdit.currentIndex === index ? root.labelWeight : root.bodyWeight
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                popup: Popup {
+                                    y: productLineEdit.height + 8
+                                    width: productLineEdit.width
+                                    implicitHeight: Math.min(contentItem.implicitHeight + 8, 148)
+                                    padding: 4
+                                    modal: false
+                                    focus: true
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+
+                                    background: Rectangle {
+                                        radius: 14
+                                        color: "#FFFFFF"
+                                        border.width: 1
+                                        border.color: "#DDE3EB"
+                                    }
+
+                                    contentItem: ListView {
+                                        clip: true
+                                        implicitHeight: contentHeight
+                                        model: productLineEdit.popup.visible ? productLineEdit.delegateModel : null
+                                        currentIndex: productLineEdit.highlightedIndex
+                                        boundsBehavior: Flickable.StopAtBounds
+                                    }
                                 }
                             }
                         }
