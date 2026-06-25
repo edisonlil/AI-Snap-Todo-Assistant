@@ -1468,6 +1468,13 @@ class _TodoDetailBridge(QObject):
     def syncUpdatedAtLabel(self) -> str:
         return self._sync_updated_at
 
+    @pyqtProperty(bool, notify=dataChanged)
+    def showSyncStatus(self) -> bool:
+        try:
+            return bool(self._config_manager.load().show_todo_sync_status)
+        except Exception:
+            return True
+
     @pyqtProperty(int, notify=dataChanged)
     def syncRecordCount(self) -> int:
         return len(self._sync_records)

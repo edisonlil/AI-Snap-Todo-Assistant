@@ -473,7 +473,7 @@ _SECTION_GROUPS = [
         "items": [
             {
                 "id": "hotkeys",
-                "title": "\u5feb\u6377\u952e\u8bbe\u7f6e",
+                "title": "\u7cfb\u7edf\u8bbe\u7f6e",
                 "description": "\u8c03\u6574\u622a\u56fe\u70ed\u952e\u5e76\u7acb\u5373\u751f\u6548\u3002",
             },
             {
@@ -507,7 +507,7 @@ _SECTION_VIEW_META = {
         "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
     },
     "hotkeys": {
-        "title": "\u5feb\u6377\u952e\u8bbe\u7f6e",
+        "title": "\u7cfb\u7edf\u8bbe\u7f6e",
         "description": "\u622a\u56fe\u70ed\u952e\u4fdd\u5b58\u540e\u4f1a\u7acb\u5373\u91cd\u7ed1\uff0c\u65e0\u9700\u91cd\u542f\u5e94\u7528\u3002",
         "primaryActionLabel": "\u4fdd\u5b58\u914d\u7f6e",
     },
@@ -1107,6 +1107,7 @@ class _ControlPanelBridge(QObject):
         self._selected_prompt_debug_trace_id = ""
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -1310,6 +1311,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def maxImageMegabytes(self) -> str:
         return self._max_image_megabytes
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def showTodoSyncStatus(self) -> bool:
+        return self._show_todo_sync_status
 
     @pyqtProperty(str, notify=dataChanged)
     def errorMessage(self) -> str:
@@ -2129,6 +2134,7 @@ class _ControlPanelBridge(QObject):
         self._server_login_required = not _is_server_config_ready(self._config.server)
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -2360,6 +2366,12 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot(str)
     def updateMaxImageMegabytes(self, value: str) -> None:
         self._max_image_megabytes = str(value or "")
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(bool)
+    def updateShowTodoSyncStatus(self, value: bool) -> None:
+        self._show_todo_sync_status = bool(value)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -2633,6 +2645,7 @@ class _ControlPanelBridge(QObject):
                 capture_hotkey=self._capture_hotkey,
                 max_image_megabytes=self._max_image_megabytes,
                 theme=self._theme_draft.to_dict(),
+                show_todo_sync_status=self._show_todo_sync_status,
             )
         except ValueError as exc:
             self._error_message = str(exc)
@@ -2641,6 +2654,7 @@ class _ControlPanelBridge(QObject):
 
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
+        self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
         self._theme_controller.set_config(self._config.theme)
         self._status_message = "配置已保存"

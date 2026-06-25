@@ -2053,6 +2053,45 @@ Rectangle {
                                 }
 
                                 SectionCard {
+                                    visible: root.currentSection === "hotkeys"
+                                    Layout.fillWidth: true
+                                    implicitHeight: syncStatusContent.implicitHeight + 32
+                                    color: root.panelAltBg
+
+                                    ColumnLayout {
+                                        id: syncStatusContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "待办同步状态"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "控制在待办详情面板中是否显示与服务端同步相关的状态、时间与按钮。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        ControlPanelSettingsCheckBox {
+                                            Layout.fillWidth: true
+                                            theme: root.themeTokens
+                                            checked: controlPanelBridge.showTodoSyncStatus
+                                            text: "显示同步状态"
+                                            onToggled: controlPanelBridge.updateShowTodoSyncStatus(checked)
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
                                     visible: root.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32

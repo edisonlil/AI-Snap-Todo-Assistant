@@ -1355,9 +1355,9 @@ def test_hotkeys_menu_uses_settings_label(monkeypatch: pytest.MonkeyPatch) -> No
 
     hotkey_item = next(item for item in bridge.sections if item["id"] == "hotkeys")
 
-    assert hotkey_item["title"] == "快捷键设置"
+    assert hotkey_item["title"] == "系统设置"
     bridge.setCurrentSection("hotkeys")
-    assert bridge.currentSectionMeta["title"] == "快捷键设置"
+    assert bridge.currentSectionMeta["title"] == "系统设置"
 
 
 def test_logo_source_uses_runtime_asset_uri(monkeypatch: pytest.MonkeyPatch) -> None:

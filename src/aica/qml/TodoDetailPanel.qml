@@ -970,7 +970,8 @@ Rectangle {
 
                             Item {
                                 width: parent.width
-                                height: 24
+                                height: todoDetailBridge.showSyncStatus ? 24 : 0
+                                visible: todoDetailBridge.showSyncStatus
 
                                 Row {
                                     id: syncActionRow
@@ -1062,7 +1063,8 @@ Rectangle {
                             }
 
                             Text {
-                                visible: todoDetailBridge.syncEventLabel.length > 0 || todoDetailBridge.syncUpdatedAtLabel.length > 0
+                                visible: todoDetailBridge.showSyncStatus && (todoDetailBridge.syncEventLabel.length > 0 || todoDetailBridge.syncUpdatedAtLabel.length > 0)
+                                height: visible ? implicitHeight : 0
                                 width: parent.width
                                 text: {
                                     var parts = []

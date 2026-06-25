@@ -151,6 +151,7 @@ class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     max_image_bytes: int = 4 * 1024 * 1024
+    show_todo_sync_status: bool = True
 
 
 def _binding(provider_id: str, model_id: str) -> TaskModelBinding:
@@ -271,6 +272,7 @@ def build_default_config() -> AppConfig:
         server=ServerConfig(),
         theme=ThemeConfig(),
         max_image_bytes=4 * 1024 * 1024,
+        show_todo_sync_status=True,
     )
 
 
@@ -399,6 +401,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         server=ServerConfig.from_dict(data.get("server")),
         theme=ThemeConfig.from_dict(data.get("theme")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
+        show_todo_sync_status=_coerce_bool(data.get("show_todo_sync_status"), defaults.show_todo_sync_status),
     )
 
 
@@ -428,6 +431,7 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     migrated.server = ServerConfig()
     migrated.theme = ThemeConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
+    migrated.show_todo_sync_status = _coerce_bool(data.get("show_todo_sync_status"), migrated.show_todo_sync_status)
     return migrated
 
 

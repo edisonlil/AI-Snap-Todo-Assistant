@@ -107,12 +107,15 @@ def persist_control_panel_config(
     capture_hotkey: str,
     max_image_megabytes: str,
     theme: object | None = None,
+    show_todo_sync_status: bool | None = None,
 ) -> AppConfig:
     updated = deepcopy(config)
     updated.hotkeys.capture = normalize_hotkey(capture_hotkey)
     updated.max_image_bytes = parse_image_limit_megabytes(max_image_megabytes)
     if theme is not None:
         updated.theme = ThemeConfig.from_dict(theme)
+    if show_todo_sync_status is not None:
+        updated.show_todo_sync_status = bool(show_todo_sync_status)
     updated.default_provider_id = updated.task_model_bindings.analysis.provider_id
     config_manager.save(updated)
     return updated
