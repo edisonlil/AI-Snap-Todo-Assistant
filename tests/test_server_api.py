@@ -120,6 +120,45 @@ def test_fetch_identity_me_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 45
 
 
+def test_lookup_error_codes_sends_expected_request_and_parses_python_list_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": "[{'code': '10001', 'value': 'InvalidArgument', 'description': '参数无效'}]",
+                "trace_id": "trace_xxx",
+                "usage": {
+                    "prompt_tokens": 128,
+                    "completion_tokens": 256,
+                    "total_tokens": 384,
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.lookup_error_codes(describe="描述")
+
+    assert payload["items"] == [
+        {"code": "10001", "value": "InvalidArgument", "description": "参数无效"}
+    ]
+    assert payload["trace_id"] == "trace_xxx"
+    assert payload["usage"]["total_tokens"] == 384
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mquntp53/run"
+    assert session.calls[0]["json"] == {"variables": {"describe": "描述"}}
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
+    assert session.calls[0]["timeout"] == 45
+
+
 def test_bind_chat_groups_by_task_order_no_sends_expected_request() -> None:
     session = _FakeSession(_FakeResponse(200, {"success": True, "data": {}}))
     client = ChattodoServerClient(

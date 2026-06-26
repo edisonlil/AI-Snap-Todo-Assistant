@@ -1,6 +1,7 @@
 """Chattodo server API client."""
 from __future__ import annotations
 
+import ast
 import json
 import mimetypes
 import base64
@@ -331,6 +332,49 @@ class ChattodoServerClient:
                     "match_reason": sanitize_text(item.get("match_reason")).strip(),
                     "solution": sanitize_text(item.get("solution")).strip(),
                     "detail_url": sanitize_text(item.get("detail_url") or item.get("detailUrl")).strip(),
+                }
+            )
+        return {
+            "items": normalized_items,
+            "trace_id": sanitize_text(payload.get("trace_id")).strip(),
+            "usage": dict(payload.get("usage")) if isinstance(payload.get("usage"), dict) else {},
+        }
+
+    def lookup_error_codes(self, *, describe: str) -> dict[str, Any]:
+        normalized_describe = sanitize_text(describe).strip()
+        if not normalized_describe:
+            raise ChattodoServerError("错误码查询描述不能为空。")
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/workflow-mquntp53/run",
+            json={
+                "variables": {
+                    "describe": normalized_describe,
+                }
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端错误码查询未返回有效结果。")
+        try:
+            parsed = json.loads(raw_answer)
+        except ValueError as exc:
+            try:
+                parsed = ast.literal_eval(raw_answer)
+            except (ValueError, SyntaxError) as inner_exc:
+                raise ChattodoServerError("服务端错误码结果不是有效 JSON。") from inner_exc
+        if not isinstance(parsed, list):
+            raise ChattodoServerError("服务端错误码结果格式错误。")
+        normalized_items: list[dict[str, str]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            normalized_items.append(
+                {
+                    "code": sanitize_text(item.get("code")).strip(),
+                    "value": sanitize_text(item.get("value")).strip(),
+                    "description": sanitize_text(item.get("description")).strip(),
                 }
             )
         return {

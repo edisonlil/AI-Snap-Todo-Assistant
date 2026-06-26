@@ -62,10 +62,11 @@ class _SuccessfulCaseProvider:
 
 class _ServerClient:
     def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
+        self.case_calls: list[dict[str, object]] = []
+        self.error_code_calls: list[dict[str, object]] = []
 
     def search_assist_cases(self, *, question: str, function_point: str = "") -> dict[str, object]:
-        self.calls.append({"question": question, "function_point": function_point})
+        self.case_calls.append({"question": question, "function_point": function_point})
         return {
             "items": [
                 {
@@ -79,6 +80,20 @@ class _ServerClient:
             ],
             "trace_id": "trace_xxx",
             "usage": {"total_tokens": 100},
+        }
+
+    def lookup_error_codes(self, *, describe: str) -> dict[str, object]:
+        self.error_code_calls.append({"describe": describe})
+        return {
+            "items": [
+                {
+                    "code": "15041",
+                    "value": "EditNoAvailableWpsService",
+                    "description": "文字组件服务所有节点均已下线",
+                }
+            ],
+            "trace_id": "trace_err",
+            "usage": {"total_tokens": 42},
         }
 
 
@@ -185,7 +200,7 @@ def test_assist_analysis_prefers_server_case_search_when_server_ready(monkeypatc
     todo = _todo()
     client = _ServerClient()
     monkeypatch.setattr(
-        "aica.worker.ChattodoServerClient.from_config",
+        "aica.error_codes.ChattodoServerClient.from_config",
         lambda _config: client,
     )
     worker = AssistAnalysisWorker(
@@ -202,8 +217,8 @@ def test_assist_analysis_prefers_server_case_search_when_server_ready(monkeypatc
     assert result["countLabel"] == "检索 1 条结果"
     assert result["items"][0]["title"] == "历史工单 A"
     assert result["items"][0]["scoreLabel"] == "高匹配"
-    assert client.calls and client.calls[0]["function_point"] == ""
-    assert "工单标题：测试待办" in str(client.calls[0]["question"])
+    assert client.case_calls and client.case_calls[0]["function_point"] == ""
+    assert "工单标题：测试待办" in str(client.case_calls[0]["question"])
 
 
 def test_initial_assist_analysis_includes_error_code_results_when_case_search_fails() -> None:
@@ -240,3 +255,35 @@ def test_initial_assist_analysis_includes_error_code_results_when_case_search_fa
     assert result["caseResults"]["status"] == "error"
     assert result["errorCodeResults"]["status"] == "success"
     assert result["errorCodeResults"]["items"][0]["code"] == "15041"
+
+
+def test_initial_assist_analysis_uses_server_error_code_lookup_when_server_ready(monkeypatch) -> None:
+    todo = TodoItem(
+        id="todo-1",
+        title="文档中台错误",
+        current_summary="用户反馈错误码 15041",
+        summary_fields=TicketSummaryFields(),
+    )
+    client = _ServerClient()
+    monkeypatch.setattr(
+        "aica.worker.ChattodoServerClient.from_config",
+        lambda _config: client,
+    )
+    worker = AssistAnalysisWorker(
+        llm_service=_LLM(),
+        todo_id=todo.id,
+        request_id="req-4",
+        payload={"todoPayload": build_assist_todo_payload(todo)},
+        case_search_provider=_FailingCaseProvider(),
+        error_code_lookup_service=ErrorCodeLookupService(
+            repository=SQLiteErrorCodeRepository(Path(tempfile.mkdtemp()) / "aica.db")
+        ),
+        server_config=ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
+    )
+
+    result = worker._build_initial_result(todo)  # noqa: SLF001
+
+    assert result["errorCodeResults"]["status"] == "success"
+    assert result["errorCodeResults"]["items"][0]["code"] == "15041"
+    assert result["errorCodeResults"]["items"][0]["source"] == "Chattodo 服务端"
+    assert client.error_code_calls and client.error_code_calls[0]["describe"] == "错误码 15041"

@@ -1299,7 +1299,7 @@ class AssistAnalysisWorker(QThread):
     def _lookup_error_codes(self, todo: TodoItem) -> dict[str, object]:
         try:
             service = self._error_code_lookup_service or ErrorCodeLookupService()
-            return service.lookup_for_todo(todo)
+            return service.lookup_for_todo_with_server(todo, server_config=self._server_config)
         except Exception:
             return self._empty_error_code_result()
 

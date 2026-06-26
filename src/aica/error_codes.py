@@ -9,6 +9,8 @@ from pathlib import Path
 
 from aica.paths import aica_database_file, runtime_root
 from aica.storage.sqlite.error_code_repository import ErrorCodeRecord, SQLiteErrorCodeRepository
+from aica.config import ServerConfig
+from aica.server_api import ChattodoServerClient, ChattodoServerError
 from aica.text_sanitize import sanitize_text
 from aica.todo.models import TodoItem
 
@@ -23,6 +25,34 @@ class ExternalErrorCodeClient:
 
     def fetch_many(self, codes: list[str]) -> list[ErrorCodeRecord]:
         return []
+
+
+class ChattodoServerErrorCodeClient(ExternalErrorCodeClient):
+    def __init__(self, config: ServerConfig) -> None:
+        self._config = config
+
+    def fetch_many(self, codes: list[str]) -> list[ErrorCodeRecord]:
+        if not codes:
+            return []
+        describe = _build_describe_text(codes)
+        try:
+            payload = ChattodoServerClient.from_config(self._config).lookup_error_codes(describe=describe)
+        except ChattodoServerError as exc:
+            raise exc
+        return [
+            ErrorCodeRecord(
+                code=item["code"],
+                title=item["code"],
+                message=item["description"],
+                meaning=item["value"],
+                suggestion="",
+                source_name="Chattodo 服务端",
+                source_type="runtime_workflow",
+                raw_payload=dict(item),
+            )
+            for item in payload.get("items", [])
+            if isinstance(item, dict) and sanitize_text(item.get("code")).strip()
+        ]
 
 
 class ErrorCodeLookupService:
@@ -72,6 +102,36 @@ class ErrorCodeLookupService:
             "emptyText": _GENERIC_EMPTY_TEXT,
             "items": items,
         }
+
+    def lookup_for_todo_with_server(self, todo: TodoItem, *, server_config: ServerConfig | None = None) -> dict[str, object]:
+        codes = extract_error_codes(_todo_text(todo))
+        if server_config is not None and bool(getattr(server_config, "enabled", False)):
+            try:
+                client = ChattodoServerErrorCodeClient(server_config)
+                fetched = client.fetch_many(codes)
+            except Exception:
+                fetched = []
+            if fetched:
+                try:
+                    self._repository.upsert_many(fetched)
+                    cached = self._repository.get_many(codes)
+                    items = [
+                        _record_to_payload(cached[code])
+                        for code in codes
+                        if code in cached
+                    ]
+                except Exception:
+                    items = [_record_to_payload(record) for record in fetched]
+                if items:
+                    return {
+                        "status": "success",
+                        "title": "错误码说明",
+                        "countLabel": f"命中 {len(items)} 条说明",
+                        "count": f"命中 {len(items)} 条说明",
+                        "emptyText": _GENERIC_EMPTY_TEXT,
+                        "items": items,
+                    }
+        return self.lookup_for_todo(todo)
 
 
 def extract_error_codes(text: str) -> list[str]:
@@ -192,3 +252,8 @@ def _empty_result() -> dict[str, object]:
         "emptyText": _GENERIC_EMPTY_TEXT,
         "items": [],
     }
+
+
+def _build_describe_text(codes: list[str]) -> str:
+    unique_codes = [sanitize_text(code).strip() for code in codes if sanitize_text(code).strip()]
+    return "；".join(f"错误码 {code}" for code in unique_codes)
