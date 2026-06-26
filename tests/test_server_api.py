@@ -493,6 +493,61 @@ def test_match_feature_point_sends_workflow_request_and_returns_answer() -> None
     assert session.calls[0]["timeout"] == 12
 
 
+def test_search_assist_cases_sends_workflow_request_and_parses_answer() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "answer": json.dumps(
+                    [
+                        {
+                            "title": "历史工单 A",
+                            "description": "原始问题描述",
+                            "match_confidence": "High",
+                            "match_reason": "共同报错 20022",
+                            "solution": "检查参数并修复返回类型",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                "trace_id": "trace_xxx",
+                "usage": {"total_tokens": 384},
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    payload = client.search_assist_cases(question="问题描述", function_point="功能点")
+
+    assert payload == {
+        "items": [
+            {
+                "title": "历史工单 A",
+                "description": "原始问题描述",
+                "match_confidence": "High",
+                "match_reason": "共同报错 20022",
+                "solution": "检查参数并修复返回类型",
+                "detail_url": "",
+            }
+        ],
+        "trace_id": "trace_xxx",
+        "usage": {"total_tokens": 384},
+    }
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mq63n60i/run"
+    assert session.calls[0]["json"] == {
+        "variables": {
+            "question": "问题描述",
+            "function_point": "功能点",
+        }
+    }
+
+
 def test_generate_root_cause_sends_single_turn_request_and_parses_answer() -> None:
     session = _FakeSession(
         _FakeResponse(

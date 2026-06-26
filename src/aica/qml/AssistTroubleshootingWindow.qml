@@ -52,6 +52,7 @@ Rectangle {
         readonly property real chipFontSize: root.fontCaption
         readonly property real headerHeight: 28
         readonly property real helperHeight: 48
+        readonly property real resultCardMaxHeight: 220
         readonly property real bodyHeight: root.height
             - panel.panelTopPadding
             - panel.panelBottomPadding
@@ -246,17 +247,6 @@ Rectangle {
                 return errorCodeResults()
             }
             return resultData[selectedKey] || resultData["case"]
-        }
-
-        function appendTimelineDraft(text) {
-            var value = String(text || "").trim()
-            if (value.length === 0 || !todoDetailBridge) {
-                return
-            }
-            var current = String(todoDetailBridge.timelineDraftText || "").trim()
-            todoDetailBridge.setTimelineDraftEntryType("follow_up")
-            todoDetailBridge.updateTimelineDraftText(current.length > 0 ? current + "\n\n" + value : value)
-            panel.showToast("已引用到跟进")
         }
 
         function showToast(text) {
@@ -513,11 +503,12 @@ Rectangle {
 
                                 delegate: Rectangle {
                                     width: parent.width
-                                    height: resultCardColumn.implicitHeight + 20
+                                    height: Math.min(resultCardColumn.implicitHeight + 20, panel.resultCardMaxHeight)
                                     radius: root.themeTokens.radiusMd || 12
                                     color: panel.contentFill
                                     border.width: 1
                                     border.color: panel.contentBorder
+                                    clip: true
 
                                     Column {
                                         id: resultCardColumn
@@ -576,37 +567,18 @@ Rectangle {
                                             lineHeight: 1.25
                                         }
 
-                                        Row {
-                                            spacing: 14
-                                            height: 18
+                                        Text {
+                                            text: "查看详情"
+                                            visible: String(modelData.detailUrl || "").length > 0
+                                            color: panel.primaryFill
+                                            font.family: root.uiFont
+                                            font.pixelSize: root.fontBody
+                                            font.weight: 500
 
-                                            Text {
-                                                text: "引用到跟进"
-                                                color: panel.primaryFill
-                                                font.family: root.uiFont
-                                                font.pixelSize: root.fontBody
-                                                font.weight: 500
-
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: panel.appendTimelineDraft(modelData.text)
-                                                }
-                                            }
-
-                                            Text {
-                                                text: "查看详情"
-                                                visible: String(modelData.detailUrl || "").length > 0
-                                                color: panel.primaryFill
-                                                font.family: root.uiFont
-                                                font.pixelSize: root.fontBody
-                                                font.weight: 500
-
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: todoDetailBridge.openAssistResultDetail(modelData.detailUrl)
-                                                }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: todoDetailBridge.openAssistResultDetail(modelData.detailUrl)
                                             }
                                         }
                                     }

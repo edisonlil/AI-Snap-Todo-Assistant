@@ -81,6 +81,8 @@ from .todo.assist_analysis import build_assist_analysis_cache_key, should_update
 from .case_search import (
     CaseSearchProvider,
     NullCaseSearchProvider,
+    build_case_search_result_from_server_items,
+    build_server_case_search_question,
     build_case_search_queries,
     build_case_search_request,
     empty_case_result,
@@ -1137,6 +1139,7 @@ class AssistAnalysisWorker(QThread):
         request_id: str,
         payload: dict[str, object],
         phase: str = "initial",
+        server_config=None,
         case_search_provider: CaseSearchProvider | None = None,
         error_code_lookup_service: ErrorCodeLookupService | None = None,
         parent=None,
@@ -1147,6 +1150,7 @@ class AssistAnalysisWorker(QThread):
         self._request_id = str(request_id or "").strip()
         self._payload = dict(payload or {})
         self._phase = str(phase or "initial").strip() or "initial"
+        self._server_config = server_config
         self._case_search_enabled = case_search_provider is not None
         self._case_search_provider = case_search_provider or NullCaseSearchProvider()
         self._error_code_lookup_service = error_code_lookup_service
@@ -1266,15 +1270,26 @@ class AssistAnalysisWorker(QThread):
         return result
 
     def _search_cases(self, todo: TodoItem) -> dict[str, object]:
+        request = build_case_search_request(
+            todo_id=todo.id,
+            title=todo.title,
+            current_summary=todo.current_summary,
+            timeline_lines=_timeline_lines_for_assist(todo),
+            function_point=sanitize_text(getattr(todo.summary_fields, "feature_point", "")).strip(),
+        )
+        if _stage_summary_server_ready(self._server_config):
+            try:
+                payload = ChattodoServerClient.from_config(self._server_config).search_assist_cases(
+                    question=build_server_case_search_question(request),
+                    function_point=request.function_point,
+                )
+                return build_case_search_result_from_server_items(payload).to_payload()
+            except Exception as exc:  # noqa: BLE001
+                if not self._case_search_enabled:
+                    return empty_case_result(error_message=str(exc)).to_payload()
         if not self._case_search_enabled:
             return empty_case_result().to_payload()
         try:
-            request = build_case_search_request(
-                todo_id=todo.id,
-                title=todo.title,
-                current_summary=todo.current_summary,
-                timeline_lines=_timeline_lines_for_assist(todo),
-            )
             queries = build_case_search_queries(self._llm_service, request)
             result = self._case_search_provider.search_many(queries)
             return rank_case_search_result(self._llm_service, request, result, max_results=5).to_payload()

@@ -295,6 +295,50 @@ class ChattodoServerClient:
             raise ChattodoServerError("服务端功能点匹配未返回有效结果。")
         return answer
 
+    def search_assist_cases(self, *, question: str, function_point: str = "") -> dict[str, Any]:
+        normalized_question = sanitize_text(question).strip()
+        if not normalized_question:
+            raise ChattodoServerError("辅助排查案例检索问题描述不能为空。")
+        payload = self._request_json(
+            "POST",
+            "/api/runtime/apps/workflow-mq63n60i/run",
+            json={
+                "variables": {
+                    "question": normalized_question,
+                    "function_point": sanitize_text(function_point).strip(),
+                }
+            },
+            require_success_envelope=False,
+        )
+        raw_answer = sanitize_text(self._runtime_answer(payload)).strip()
+        if not raw_answer:
+            raise ChattodoServerError("服务端辅助排查案例检索未返回有效结果。")
+        try:
+            parsed = json.loads(raw_answer)
+        except ValueError as exc:
+            raise ChattodoServerError("服务端辅助排查案例结果不是有效 JSON。") from exc
+        if not isinstance(parsed, list):
+            raise ChattodoServerError("服务端辅助排查案例结果格式错误。")
+        normalized_items: list[dict[str, str]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            normalized_items.append(
+                {
+                    "title": sanitize_text(item.get("title")).strip(),
+                    "description": sanitize_text(item.get("description")).strip(),
+                    "match_confidence": sanitize_text(item.get("match_confidence")).strip(),
+                    "match_reason": sanitize_text(item.get("match_reason")).strip(),
+                    "solution": sanitize_text(item.get("solution")).strip(),
+                    "detail_url": sanitize_text(item.get("detail_url") or item.get("detailUrl")).strip(),
+                }
+            )
+        return {
+            "items": normalized_items,
+            "trace_id": sanitize_text(payload.get("trace_id")).strip(),
+            "usage": dict(payload.get("usage")) if isinstance(payload.get("usage"), dict) else {},
+        }
+
     def generate_root_cause(self, *, task_desc: str, answer: str) -> dict[str, str]:
         payload = self._request_json(
             "POST",

@@ -12,6 +12,7 @@ from aica.todo.assist_analysis import (  # noqa: E402
 from aica.error_codes import ErrorCodeLookupService  # noqa: E402
 from aica.storage.sqlite.error_code_repository import ErrorCodeRecord, SQLiteErrorCodeRepository  # noqa: E402
 from aica.case_search import CaseSearchItem, CaseSearchResult  # noqa: E402
+from aica.config import ServerConfig  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.todo.models import TodoItem  # noqa: E402
 from aica.worker import AssistAnalysisWorker  # noqa: E402
@@ -57,6 +58,28 @@ class _SuccessfulCaseProvider:
             count_label="1 result",
             items=[CaseSearchItem(title="Case A", score=81)],
         )
+
+
+class _ServerClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def search_assist_cases(self, *, question: str, function_point: str = "") -> dict[str, object]:
+        self.calls.append({"question": question, "function_point": function_point})
+        return {
+            "items": [
+                {
+                    "title": "历史工单 A",
+                    "description": "原始问题描述",
+                    "match_confidence": "High",
+                    "match_reason": "共同报错 20022",
+                    "solution": "检查参数并修复返回类型",
+                    "detail_url": "",
+                }
+            ],
+            "trace_id": "trace_xxx",
+            "usage": {"total_tokens": 100},
+        }
 
 
 class _SignalRecorder:
@@ -156,6 +179,31 @@ def test_assist_analysis_worker_emits_partial_result_before_case_search_finishes
     assert recorder.items[1]["isFinal"] is True
     assert recorder.items[1]["summary"] == "Fast summary"
     assert recorder.items[1]["caseResults"]["status"] != "loading"
+
+
+def test_assist_analysis_prefers_server_case_search_when_server_ready(monkeypatch) -> None:
+    todo = _todo()
+    client = _ServerClient()
+    monkeypatch.setattr(
+        "aica.worker.ChattodoServerClient.from_config",
+        lambda _config: client,
+    )
+    worker = AssistAnalysisWorker(
+        llm_service=_LLM(),
+        todo_id=todo.id,
+        request_id="req-server",
+        payload={"todoPayload": build_assist_todo_payload(todo)},
+        server_config=ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
+    )
+
+    result = worker._search_cases(todo)  # noqa: SLF001
+
+    assert result["status"] == "success"
+    assert result["countLabel"] == "检索 1 条结果"
+    assert result["items"][0]["title"] == "历史工单 A"
+    assert result["items"][0]["scoreLabel"] == "高匹配"
+    assert client.calls and client.calls[0]["function_point"] == ""
+    assert "工单标题：测试待办" in str(client.calls[0]["question"])
 
 
 def test_initial_assist_analysis_includes_error_code_results_when_case_search_fails() -> None:

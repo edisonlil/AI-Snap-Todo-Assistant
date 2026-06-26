@@ -64,6 +64,7 @@ from aica.todo.store import TodoConclusion, TodoStore
 from aica.todo.work_order_sync import WorkOrderSyncEventHandler
 from aica.theme_controller import ThemeController
 from aica.toolbar import FloatingToolbar
+from aica.case_search import KDocsSseCaseSearchProvider
 from aica.worker import (
     AIWorker,
     AssistAnalysisWorker,
@@ -1140,6 +1141,8 @@ def main() -> None:
             request_id=str(payload["requestId"]),
             payload=payload,
             phase="review",
+            server_config=config_mgr.load().server,
+            case_search_provider=KDocsSseCaseSearchProvider(),
         )
         assist_analysis_workers.append(worker)
         worker.result_ready.connect(_on_assist_analysis_review_finished)
@@ -1175,6 +1178,8 @@ def main() -> None:
             request_id=str(payload["requestId"]),
             payload=payload,
             phase="initial",
+            server_config=config_mgr.load().server,
+            case_search_provider=KDocsSseCaseSearchProvider(),
         )
         assist_analysis_workers.append(worker)
         worker.result_ready.connect(_on_assist_analysis_prewarm_finished)
@@ -1219,6 +1224,8 @@ def main() -> None:
             todo_id=todo_id,
             request_id=request_id,
             payload=payload,
+            server_config=config.server,
+            case_search_provider=KDocsSseCaseSearchProvider(),
         )
         assist_analysis_workers.append(worker)
         worker.result_ready.connect(_on_assist_analysis_finished)
