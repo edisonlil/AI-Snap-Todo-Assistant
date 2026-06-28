@@ -1017,6 +1017,8 @@ class _TodoDetailBridge(QObject):
         self._environment = _EMPTY_TEXT
         self._product_line = _EMPTY_TEXT
         self._ticket_type = _EMPTY_TEXT
+        self._customer_environment_code = ""
+        self._customer_environment_value = ""
         self._feature_point = ""
         self._feature_point_source = ""
         self._root_cause_desc = ""
@@ -1809,6 +1811,8 @@ class _TodoDetailBridge(QObject):
             todo.summary_fields.ticket_type,
             summary_text=todo.current_summary,
         )
+        self._customer_environment_code = str(todo.summary_fields.customer_environment_code or "").strip()
+        self._customer_environment_value = str(todo.summary_fields.customer_environment_value or "").strip()
         self._feature_point = str(todo.summary_fields.feature_point or "").strip()
         self._feature_point_source = str(todo.summary_fields.feature_point_source or "").strip()
         self._root_cause_desc = str(todo.summary_fields.root_cause_desc or "").strip()
@@ -3153,6 +3157,8 @@ class _TodoDetailBridge(QObject):
                         if part
                     ),
                 ),
+                customer_environment_code=self._customer_environment_code,
+                customer_environment_value=self._customer_environment_value,
                 feature_point=self._feature_point.strip(),
                 feature_point_source=self._feature_point_source,
                 root_cause_desc=self._root_cause_desc.strip(),

@@ -264,6 +264,8 @@ class TicketSummaryFields:
     environment: str = UNKNOWN_TEXT
     product_line: str = UNKNOWN_TEXT
     ticket_type: str = UNKNOWN_TEXT
+    customer_environment_code: str = ""
+    customer_environment_value: str = ""
     ach_no: str = ""
     ach_filled_at: str = ""
     ticket_version: str = ""
@@ -279,6 +281,8 @@ class TicketSummaryFields:
         self.environment = _clean(self.environment)
         self.product_line = resolve_product_line(raw_value=self.product_line)
         self.ticket_type = normalize_ticket_type(self.ticket_type)
+        self.customer_environment_code = _clean_free_text(self.customer_environment_code)
+        self.customer_environment_value = _clean_free_text(self.customer_environment_value)
         self.ach_no = _clean_free_text(self.ach_no)
         self.ach_filled_at = _clean_free_text(self.ach_filled_at)
         self.ticket_version = _clean_free_text(self.ticket_version)
@@ -300,6 +304,8 @@ class TicketSummaryFields:
             environment=_clean(payload.get("environment")),
             product_line=payload.get("product_line"),
             ticket_type=payload.get("ticket_type"),
+            customer_environment_code=payload.get("customer_environment_code"),
+            customer_environment_value=payload.get("customer_environment_value"),
             ach_no=payload.get("ach_no"),
             ach_filled_at=payload.get("ach_filled_at"),
             ticket_version=payload.get("ticket_version"),
@@ -406,6 +412,14 @@ def merge_summary_fields_for_append(
         environment=_merge_value(existing.environment, incoming.environment),
         product_line=_merge_value(existing.product_line, incoming.product_line),
         ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
+        customer_environment_code=_merge_value(
+            existing.customer_environment_code,
+            incoming.customer_environment_code,
+        ),
+        customer_environment_value=_merge_value(
+            existing.customer_environment_value,
+            incoming.customer_environment_value,
+        ),
         ach_no=_merge_value(existing.ach_no, incoming.ach_no),
         ach_filled_at=_merge_value(existing.ach_filled_at, incoming.ach_filled_at),
         ticket_version=_merge_value(existing.ticket_version, incoming.ticket_version),
@@ -434,6 +448,8 @@ class TicketSnapshot:
             "environment": self.fields.environment,
             "product_line": self.fields.product_line,
             "ticket_type": self.fields.ticket_type,
+            "customer_environment_code": self.fields.customer_environment_code,
+            "customer_environment_value": self.fields.customer_environment_value,
             "ach_no": self.fields.ach_no,
             "ach_filled_at": self.fields.ach_filled_at,
             "ticket_version": self.fields.ticket_version,
@@ -481,6 +497,8 @@ class TicketSnapshot:
                     payload.get("ticket_type"),
                     summary_text=ticket_context,
                 ),
+                "customer_environment_code": payload.get("customer_environment_code"),
+                "customer_environment_value": payload.get("customer_environment_value"),
                 "ach_no": payload.get("ach_no"),
                 "ach_filled_at": payload.get("ach_filled_at"),
                 "ticket_version": payload.get("ticket_version"),

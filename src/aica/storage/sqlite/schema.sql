@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS todos (
   environment TEXT NOT NULL DEFAULT '',
   product_line TEXT NOT NULL DEFAULT '',
   ticket_type TEXT NOT NULL DEFAULT '',
+  customer_environment_code TEXT NOT NULL DEFAULT '',
+  customer_environment_value TEXT NOT NULL DEFAULT '',
   ach_no TEXT NOT NULL DEFAULT '',
   ach_filled_at TEXT NOT NULL DEFAULT '',
   ticket_version TEXT NOT NULL DEFAULT '',

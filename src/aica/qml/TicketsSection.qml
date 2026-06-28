@@ -201,6 +201,9 @@ ColumnLayout {
         if (fieldName === "ticketVersion") {
             return controlPanelBridge.selectedTicket.ticketVersion || ""
         }
+        if (fieldName === "customerEnvironment") {
+            return controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
+        }
         if (fieldName === "featurePoint") {
             return controlPanelBridge.selectedTicket.featurePoint || ""
         }
@@ -1687,6 +1690,35 @@ ColumnLayout {
                                             label: "产品线"
                                             value: controlPanelBridge.selectedTicket.productLine
                                             placeholderText: "未填写"
+                                        }
+
+                                        SingleSelectCascadeField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "客户环境"
+                                            value: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
+                                            selectedCode: controlPanelBridge.selectedTicket.customerEnvironmentCode || ""
+                                            placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.customerEnvironmentEditable && ticketSection.isFieldEditing("customerEnvironment")
+                                            saving: ticketSection.isFieldSaving("customerEnvironment")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            options: controlPanelBridge.selectedTicket.customerEnvironmentOptions || []
+                                            onClicked: {
+                                                if (!controlPanelBridge.selectedTicket.customerEnvironmentEditable || ticketSection.activeActionField.length > 0) {
+                                                    return
+                                                }
+                                                ticketSection.beginTicketFieldEdit("customerEnvironment")
+                                            }
+                                            onAccepted: function(code, value) {
+                                                ticketSection.setFieldState("customerEnvironment", { draft: value, original: currentTicketFieldValue("customerEnvironment"), saving: true, editing: false })
+                                                Qt.callLater(function() {
+                                                    if (!ticketSection.isFieldSaving("customerEnvironment")) {
+                                                        return
+                                                    }
+                                                    controlPanelBridge.saveSelectedTicketField("customer_environment", code)
+                                                })
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("customerEnvironment")
                                         }
 
                                         DetailField {

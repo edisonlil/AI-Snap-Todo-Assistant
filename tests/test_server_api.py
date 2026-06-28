@@ -120,6 +120,157 @@ def test_fetch_identity_me_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 45
 
 
+def test_fetch_dictionary_options_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "code": "paid",
+                            "value": "已支付",
+                            "sort_order": 1,
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_dictionary_options("状态 类型")
+
+    assert items == [
+        {
+            "label": "已支付",
+            "value": "已支付",
+            "code": "paid",
+            "sort_order": 1,
+            "item": None,
+        }
+    ]
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/basic-data/dictionaries/%E7%8A%B6%E6%80%81%20%E7%B1%BB%E5%9E%8B/options"
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Accept": "application/json"}
+    assert session.calls[0]["timeout"] == 45
+
+
+def test_fetch_dictionary_options_supports_legacy_nested_item_payload() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "label": "已支付",
+                            "value": "paid",
+                            "code": "paid",
+                            "sort_order": 1,
+                            "item": {
+                                "id": 12,
+                                "type_id": 3,
+                                "code": "paid",
+                                "value": "已支付",
+                                "status": "active",
+                                "sort_order": 1,
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_dictionary_options("状态 类型")
+
+    assert items == [
+        {
+            "label": "已支付",
+            "value": "paid",
+            "code": "paid",
+            "sort_order": 1,
+            "item": {
+                "id": 12,
+                "type_id": 3,
+                "code": "paid",
+                "value": "已支付",
+                "status": "active",
+                "sort_order": 1,
+            },
+        }
+    ]
+
+
+def test_fetch_dictionary_options_validates_and_normalizes_bad_inputs() -> None:
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        session=_FakeSession(_FakeResponse(200, {"success": True})) ,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ChattodoServerError, match="字典类型编码不能为空"):
+        client.fetch_dictionary_options("   ")
+
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        "paid",
+                        {
+                            "label": "",
+                            "value": "",
+                            "code": "",
+                            "item": {"id": 12},
+                        },
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient(
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=12,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_dictionary_options("status")
+
+    assert items == [
+        {
+            "label": "paid",
+            "value": "paid",
+            "code": "paid",
+            "sort_order": None,
+            "item": "paid",
+        }
+    ]
+
+
 def test_lookup_error_codes_sends_expected_request_and_parses_python_list_answer() -> None:
     session = _FakeSession(
         _FakeResponse(

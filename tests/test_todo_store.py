@@ -30,6 +30,8 @@ def _build_snapshot(title: str) -> TicketSnapshot:
             group_name="test-group",
             environment="prod",
             ticket_type="investigation",
+            customer_environment_code="env-prod",
+            customer_environment_value="生产环境",
         ),
         current_summary=f"{title} summary",
         timeline_entry=f"{title} timeline",
@@ -126,6 +128,8 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
     assert linked.project_link.project_snapshot["project_name"] == "Demo Project"
     assert linked.summary_fields.product_line == "WPS协作"
     assert linked.summary_fields.ticket_version == "release_dc_v7"
+    assert linked.summary_fields.customer_environment_code == "env-prod"
+    assert linked.summary_fields.customer_environment_value == "生产环境"
 
     updated = repository.unlink_todo_project(todo.id)
 
@@ -134,18 +138,20 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
     assert updated.project_link.project_snapshot == {}
     assert updated.summary_fields.product_line == "未知"
     assert updated.summary_fields.ticket_version == ""
+    assert updated.summary_fields.customer_environment_code == "env-prod"
+    assert updated.summary_fields.customer_environment_value == "生产环境"
     with sqlite3.connect(repository.path) as connection:
         link_rows = connection.execute(
             "SELECT todo_id FROM todo_project_links WHERE todo_id = ?",
             (todo.id,),
         ).fetchall()
         todo_row = connection.execute(
-            "SELECT product_line, ticket_version FROM todos WHERE id = ?",
+            "SELECT product_line, ticket_version, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
             (todo.id,),
         ).fetchone()
 
     assert link_rows == []
-    assert todo_row == ("", "")
+    assert todo_row == ("", "", "env-prod", "生产环境")
 
 
 def test_project_repair_preserves_selected_product_line_option() -> None:
@@ -173,6 +179,36 @@ def test_project_repair_preserves_selected_product_line_option() -> None:
     assert linked is not None
     assert linked.project_link.match_status == "matched"
     assert linked.summary_fields.product_line == "文档中台"
+
+
+def test_project_link_inherits_latest_customer_environment_when_current_is_empty() -> None:
+    db_path = _make_db_path("todo-customer-environment-inherit")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first = repository.create_todo_from_analysis(_build_snapshot("todo-first"), "analysis")
+    assert first.summary_fields.customer_environment_code == "env-prod"
+    assert first.summary_fields.customer_environment_value == "生产环境"
+
+    second_snapshot = _build_snapshot("todo-second")
+    second_snapshot.fields.customer_environment_code = ""
+    second_snapshot.fields.customer_environment_value = ""
+    second = repository.create_todo_from_analysis(second_snapshot, "analysis")
+
+    assert second.summary_fields.customer_environment_code == "env-prod"
+    assert second.summary_fields.customer_environment_value == "生产环境"
 
 
 def test_create_todo_from_problem_conclusion_saves_into_conclusion() -> None:
@@ -250,6 +286,8 @@ def test_schema_migration_adds_completed_at_column() -> None:
         }
 
     assert "completed_at" in columns
+    assert "customer_environment_code" in columns
+    assert "customer_environment_value" in columns
 
 
 def test_schema_migration_creates_error_codes_table_and_updates_version() -> None:
@@ -270,8 +308,8 @@ def test_schema_migration_creates_error_codes_table_and_updates_version() -> Non
             "SELECT value FROM schema_meta WHERE key='schema_version'"
         ).fetchone()[0]
 
-    assert SCHEMA_VERSION == "15"
-    assert version == "15"
+    assert SCHEMA_VERSION == "16"
+    assert version == "16"
     assert "error_codes" in tables
     assert "idx_error_codes_category" in indexes
     assert "idx_error_codes_last_seen" in indexes

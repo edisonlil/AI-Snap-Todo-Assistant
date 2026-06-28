@@ -94,6 +94,29 @@ class ChattodoServerClient:
             raise ChattodoServerError("服务端返回格式错误：缺少 data。")
         return dict(data)
 
+    def fetch_dictionary_options(self, type_code: str) -> list[dict[str, Any]]:
+        normalized_type_code = sanitize_text(type_code).strip()
+        if not normalized_type_code:
+            raise ChattodoServerError("字典类型编码不能为空。")
+
+        payload = self._request_json(
+            "GET",
+            f"/api/open/v1/basic-data/dictionaries/{quote(normalized_type_code, safe='')}/options",
+            headers={"Accept": "application/json"},
+        )
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChattodoServerError("服务端返回格式错误：缺少 data。")
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise ChattodoServerError("服务端返回格式错误：缺少 data.items。")
+        normalized_items: list[dict[str, Any]] = []
+        for item in items:
+            normalized_item = self._normalize_dictionary_option_item(item)
+            if normalized_item is not None:
+                normalized_items.append(normalized_item)
+        return normalized_items
+
     def bind_chat_groups_by_task_order_no(self, *, task_order_no: str, group_names: list[str]) -> None:
         normalized_task_order = sanitize_text(task_order_no)
         normalized_group_names = [sanitize_text(item) for item in group_names if sanitize_text(item)]
@@ -614,6 +637,56 @@ class ChattodoServerClient:
             "size": size,
             "data_url": normalized,
         }
+
+    @staticmethod
+    def _normalize_dictionary_option_item(item: object) -> dict[str, Any] | None:
+        if isinstance(item, dict):
+            raw_item = item.get("item")
+            nested_item = raw_item if isinstance(raw_item, dict) else {}
+            value = sanitize_text(item.get("value") or nested_item.get("value") or item.get("code") or nested_item.get("code"))
+            label = sanitize_text(item.get("label") or value or nested_item.get("label") or nested_item.get("value"))
+            code = sanitize_text(item.get("code") or nested_item.get("code") or value)
+            sort_order = ChattodoServerClient._coerce_dictionary_sort_order(
+                item.get("sort_order"),
+                nested_item.get("sort_order"),
+            )
+            if not label and not value and not code:
+                return None
+            return {
+                "label": label,
+                "value": value or code or label,
+                "code": code or value or label,
+                "sort_order": sort_order,
+                "item": dict(raw_item) if isinstance(raw_item, dict) else raw_item,
+            }
+        text = sanitize_text(item).strip()
+        if not text:
+            return None
+        return {
+            "label": text,
+            "value": text,
+            "code": text,
+            "sort_order": None,
+            "item": item,
+        }
+
+    @staticmethod
+    def _coerce_dictionary_sort_order(*values: object) -> int | None:
+        for value in values:
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            text = sanitize_text(value)
+            if not text:
+                continue
+            try:
+                return int(text)
+            except (TypeError, ValueError):
+                continue
+        return None
 
     def _request_file_upload(
         self,

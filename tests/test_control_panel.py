@@ -280,6 +280,8 @@ def _build_todo() -> TodoItem:
             group_name="test-group",
             environment="prod",
             ticket_type="investigation",
+            customer_environment_code="env-prod",
+            customer_environment_value="生产环境",
         ),
         conclusion=TodoConclusion(content="resolved"),
         project_link=TodoProjectLink(
@@ -313,6 +315,16 @@ def _build_bridge(
     monkeypatch.setattr(control_panel, "SQLiteProjectRepository", lambda _path: _FakeProjectRepository())
     monkeypatch.setattr(control_panel, "SQLiteProjectEnvironmentRepository", lambda _path: fake_environment_repository)
     monkeypatch.setattr(control_panel, "TodoStore", lambda _path: _FakeTodoStore(todo))
+    monkeypatch.setattr(
+        control_panel,
+        "CustomerEnvironmentDictionaryWorker",
+        lambda *, config_manager, parent=None: SimpleNamespace(
+            finished=control_panel._Signal(),
+            error=control_panel._Signal(),
+            start=lambda: None,
+            deleteLater=lambda: None,
+        ),
+    )
     monkeypatch.setattr(control_panel, "app_data_dir", lambda: temp_dir)
     monkeypatch.setattr(control_panel, "log_dir", lambda: temp_dir / "logs")
     monkeypatch.setattr(control_panel, "aica_database_file", lambda: temp_dir / "aica.db")
@@ -1109,6 +1121,38 @@ def test_save_selected_ticket_field_ignores_readonly_ach_no(monkeypatch: pytest.
     assert publisher.events == []
 
 
+def test_selected_ticket_exposes_customer_environment_value_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._customer_environment_options = [  # noqa: SLF001
+        {"code": "env-prod", "value": "生产环境", "text": "生产环境", "sortOrder": 1},
+        {"code": "env-uat", "value": "预发环境", "text": "预发环境", "sortOrder": 2},
+    ]
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-prod"
+    assert bridge.selectedTicket["customerEnvironmentValue"] == "生产环境"
+    assert bridge.selectedTicket["customerEnvironmentOptions"][0]["text"] == "生产环境"
+
+
+def test_save_selected_ticket_customer_environment_maps_code_to_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge._customer_environment_options = [  # noqa: SLF001
+        {"code": "env-prod", "value": "生产环境", "text": "生产环境", "sortOrder": 1},
+        {"code": "env-uat", "value": "预发环境", "text": "预发环境", "sortOrder": 2},
+    ]
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("customer_environment", "env-uat")
+
+    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-uat"
+    assert bridge.selectedTicket["customerEnvironmentValue"] == "预发环境"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
 def test_external_ticket_refresh_updates_list_and_selected_detail(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
@@ -1169,6 +1213,8 @@ def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.Monke
     assert bridge.selectedTicket["taskOrderNo"] == ""
     assert bridge.selectedTicket["projectManager"] == ""
     assert bridge.selectedTicket["productLine"] == ""
+    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-prod"
+    assert bridge.selectedTicket["customerEnvironmentValue"] == "生产环境"
     assert bridge.selectedTicket["ticketVersion"] == ""
     assert bridge.statusMessage == "已解除项目关联"
     assert bridge.errorMessage == ""

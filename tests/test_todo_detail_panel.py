@@ -380,6 +380,23 @@ def test_detail_save_preserves_existing_ach_fields() -> None:
     assert summary_fields["ticket_version"] == "release_dc_v7"
 
 
+def test_detail_save_preserves_existing_customer_environment_fields() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields(
+        customer_environment_code="env-prod",
+        customer_environment_value="生产环境",
+        ticket_version="release_dc_v7",
+    )
+    bridge.set_todo(todo)
+
+    payload = bridge._build_payload()  # noqa: SLF001
+    summary_fields = payload["summary_fields"]
+
+    assert summary_fields["customer_environment_code"] == "env-prod"
+    assert summary_fields["customer_environment_value"] == "生产环境"
+
+
 def test_todo_detail_product_line_field_uses_inline_combo_box() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
     qml_text = qml_path.read_text(encoding="utf-8")

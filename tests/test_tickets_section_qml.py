@@ -66,3 +66,14 @@ def test_tickets_section_uses_numbered_pagination() -> None:
     assert '"\\u5171 " + ticketSection.ticketTotalPages + " \\u9875"' in qml_text
     assert '"\\u4e0a\\u4e00\\u9875"' not in qml_text
     assert '"\\u4e0b\\u4e00\\u9875"' not in qml_text
+
+
+def test_tickets_section_includes_customer_environment_dropdown() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert 'label: "客户环境"' in qml_text
+    assert "SingleSelectCascadeField {" in qml_text
+    assert "customerEnvironmentOptions" in qml_text
+    assert 'saveSelectedTicketField("customer_environment"' in qml_text
+    assert "customerEnvironmentValue" in qml_text

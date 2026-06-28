@@ -34,6 +34,8 @@ def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
             environment="生产",
             product_line="私网文档中台",
             ticket_type="排查类",
+            customer_environment_code="env-prod",
+            customer_environment_value="生产环境",
             ach_no="ACH-001",
             ach_filled_at="2026-05-24T00:45:00+08:00",
             ticket_version="v1",
@@ -85,6 +87,8 @@ def test_build_work_order_payload_maps_todo_snapshot() -> None:
     assert payload["title"] == "上传失败"
     assert payload["status"] == "in_progress"
     assert payload["project_hit_status"] == "matched"
+    assert payload["customer_environment_code"] == "env-prod"
+    assert payload["customer_environment_value"] == "生产环境"
     assert payload["project"] == {
         "task_order_no": "PJ-001",
         "display_name": "广州项目",
@@ -388,6 +392,8 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
             "group_name": "客户支持群",
             "environment": "生产环境",
             "work_order_type": "排查类",
+            "customer_environment_code": "env-uat",
+            "customer_environment_value": "预发环境",
             "product_line": "私网文档中台",
             "product_version": "v1.2.3",
             "function_point": "文档中台-上传-失败",
@@ -415,12 +421,27 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
 
     assert todo.id == "WO-002"
     assert todo.status == TodoStatus.OPEN
+    assert todo.summary_fields.customer_environment_code == "env-uat"
+    assert todo.summary_fields.customer_environment_value == "预发环境"
     assert todo.summary_fields.ach_no == "ACH-002"
     assert todo.summary_fields.feature_point == "文档中台-上传-失败"
     assert todo.project_link.match_status == "matched"
     assert todo.project_link.project_snapshot["task_order_no"] == "PJ-24080225"
     assert todo.timeline[0].attachments[0].file_object_id == "123"
     assert todo.timeline[0].attachments[0].path == "https://example.com/install-log.txt"
+
+
+def test_todo_from_server_work_order_keeps_other_customer_environment_field_empty_when_missing() -> None:
+    todo = todo_from_server_work_order(
+        {
+            "id": "WO-004",
+            "title": "客户环境半字段返回",
+            "customer_environment_value": "生产环境",
+        }
+    )
+
+    assert todo.summary_fields.customer_environment_code == ""
+    assert todo.summary_fields.customer_environment_value == "生产环境"
 
 
 def test_todo_from_server_work_order_uses_file_id_when_url_missing() -> None:
