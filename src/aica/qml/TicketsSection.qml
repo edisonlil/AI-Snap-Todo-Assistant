@@ -17,6 +17,7 @@ ColumnLayout {
     property var fieldStates: ({})
     property string activeActionField: ""
     property string currentTicketId: ""
+    property bool pendingCustomerEnvironmentEdit: false
     property string selectedProductLine: "all"
     property string selectedTicketType: "all"
     property int ticketPageSize: 10
@@ -274,6 +275,57 @@ ColumnLayout {
         fieldStates = {}
         activeActionField = ""
         unlinkProjectConfirmVisible = false
+        pendingCustomerEnvironmentEdit = false
+    }
+
+    function requestCustomerEnvironmentEdit() {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        if (controlPanelBridge.selectedTicket.customerEnvironmentEditable) {
+            pendingCustomerEnvironmentEdit = false
+            beginTicketFieldEdit("customerEnvironment")
+            return
+        }
+        if (controlPanelBridge.customerEnvironmentLoading) {
+            pendingCustomerEnvironmentEdit = true
+            return
+        }
+        if (!controlPanelBridge.customerEnvironmentError && (controlPanelBridge.customerEnvironmentOptions || []).length === 0) {
+            pendingCustomerEnvironmentEdit = true
+            controlPanelBridge.refreshCustomerEnvironmentOptions()
+        }
+    }
+
+    function resumePendingCustomerEnvironmentEdit() {
+        if (!pendingCustomerEnvironmentEdit) {
+            return
+        }
+        if ((controlPanelBridge.selectedTicket.id || "") !== currentTicketId) {
+            pendingCustomerEnvironmentEdit = false
+            return
+        }
+        if (activeActionField.length > 0) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        if (controlPanelBridge.selectedTicket.customerEnvironmentEditable) {
+            pendingCustomerEnvironmentEdit = false
+            beginTicketFieldEdit("customerEnvironment")
+            return
+        }
+        if (!controlPanelBridge.customerEnvironmentLoading) {
+            pendingCustomerEnvironmentEdit = false
+        }
     }
 
     function parseRootCausePath(value) {
@@ -1226,6 +1278,8 @@ ColumnLayout {
                             ticketSection.resetAllFieldStates()
                             return
                         }
+
+                        ticketSection.resumePendingCustomerEnvironmentEdit()
                         
                         // When ticket data changes, sync all field states
                         for (var fieldName in ticketSection.fieldStates) {
@@ -1703,12 +1757,7 @@ ColumnLayout {
                                             saving: ticketSection.isFieldSaving("customerEnvironment")
                                             compact: ticketSection.detailGridColumns === 1
                                             options: controlPanelBridge.selectedTicket.customerEnvironmentOptions || []
-                                            onClicked: {
-                                                if (!controlPanelBridge.selectedTicket.customerEnvironmentEditable || ticketSection.activeActionField.length > 0) {
-                                                    return
-                                                }
-                                                ticketSection.beginTicketFieldEdit("customerEnvironment")
-                                            }
+                                            onClicked: ticketSection.requestCustomerEnvironmentEdit()
                                             onAccepted: function(code, value) {
                                                 ticketSection.setFieldState("customerEnvironment", { draft: value, original: currentTicketFieldValue("customerEnvironment"), saving: true, editing: false })
                                                 Qt.callLater(function() {

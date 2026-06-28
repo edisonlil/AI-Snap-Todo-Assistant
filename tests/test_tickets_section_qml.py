@@ -77,3 +77,28 @@ def test_tickets_section_includes_customer_environment_dropdown() -> None:
     assert "customerEnvironmentOptions" in qml_text
     assert 'saveSelectedTicketField("customer_environment"' in qml_text
     assert "customerEnvironmentValue" in qml_text
+
+
+def test_tickets_section_retries_customer_environment_edit_after_dictionary_load() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "property bool pendingCustomerEnvironmentEdit: false" in qml_text
+    assert "function requestCustomerEnvironmentEdit()" in qml_text
+    assert "controlPanelBridge.refreshCustomerEnvironmentOptions()" in qml_text
+    assert "function resumePendingCustomerEnvironmentEdit()" in qml_text
+    assert "ticketSection.resumePendingCustomerEnvironmentEdit()" in qml_text
+
+
+def test_dropdown_popups_anchor_below_editor_actions() -> None:
+    single_select_qml = (
+        Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "SingleSelectCascadeField.qml"
+    ).read_text(encoding="utf-8")
+    root_cause_qml = (
+        Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "RootCauseCascadeField.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "return editorColumn.mapToItem(rootField, 0, editorColumn.height + 8)" in single_select_qml
+    assert "return cascadeEditor.mapToItem(rootField, 0, cascadeEditor.height + 8)" in root_cause_qml
+    assert "y: rootField.popupAnchorPoint().y" in single_select_qml
+    assert "y: rootField.popupAnchorPoint().y" in root_cause_qml

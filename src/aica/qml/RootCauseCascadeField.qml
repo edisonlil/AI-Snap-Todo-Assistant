@@ -91,6 +91,13 @@ Rectangle {
         level3 = ensureSelection(level3Options, parsed.level3)
     }
 
+    function popupAnchorPoint() {
+        if (!cascadeEditor) {
+            return Qt.point(0, formInlineEditHeight + 8)
+        }
+        return cascadeEditor.mapToItem(rootField, 0, cascadeEditor.height + 8)
+    }
+
     onEditingChanged: {
         if (editing) {
             syncCascadeFromValue(value)
@@ -294,8 +301,8 @@ Rectangle {
                 Popup {
                     id: cascadePopup
                     parent: rootField
-                    x: 0
-                    y: rootField.formInlineEditHeight + 12
+                    x: rootField.popupAnchorPoint().x
+                    y: rootField.popupAnchorPoint().y
                     width: Math.max(320, Math.min(rootField.width - 12, 760))
                     modal: false
                     focus: true

@@ -59,6 +59,13 @@ Rectangle {
         return -1
     }
 
+    function popupAnchorPoint() {
+        if (!editorColumn) {
+            return Qt.point(0, formInlineEditHeight + 8)
+        }
+        return editorColumn.mapToItem(rootField, 0, editorColumn.height + 8)
+    }
+
     onEditingChanged: {
         if (!editing) {
             popup.close()
@@ -250,8 +257,8 @@ Rectangle {
                 Popup {
                     id: popup
                     parent: rootField
-                    x: 0
-                    y: rootField.formInlineEditHeight + 12
+                    x: rootField.popupAnchorPoint().x
+                    y: rootField.popupAnchorPoint().y
                     width: Math.max(320, Math.min(rootField.width - 12, 420))
                     modal: false
                     focus: true
