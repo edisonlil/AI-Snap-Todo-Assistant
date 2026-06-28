@@ -1168,7 +1168,8 @@ class _ControlPanelBridge(QObject):
         self._todo_store = TodoStore(str(aica_database_file()))
         self._project_query = ""
         self._include_expired_projects = True
-        self._projects = self._load_project_payloads()
+        self._projects: list[dict[str, object]] = []
+        self._projects_loaded = False
         self._environment_scope_filter = "global"
         self._project_environment_project_id = ""
         self._project_environment_groups: list[dict[str, object]] = []
@@ -1200,7 +1201,8 @@ class _ControlPanelBridge(QObject):
         self._customer_environment_worker: CustomerEnvironmentDictionaryWorker | None = None
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
-        self._tickets = self._load_ticket_payloads()
+        self._tickets: list[dict[str, object]] = []
+        self._tickets_loaded = False
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._error_message = ""
@@ -1740,6 +1742,7 @@ class _ControlPanelBridge(QObject):
 
     def _refresh_project_payloads(self) -> None:
         self._projects = self._load_project_payloads()
+        self._projects_loaded = True
 
     @staticmethod
     def _normalize_environment_scope_filter(value: str) -> str:
@@ -1859,6 +1862,7 @@ class _ControlPanelBridge(QObject):
         self._clear_selected_environment()
 
     def _refresh_project_environment_payloads(self, project_id: str) -> None:
+        self._ensure_projects_loaded()
         self._project_environment_project_id = self._resolve_project_environment_project_id(project_id)
         if not self._project_environment_project_id:
             self._project_environment_groups = []
@@ -2128,8 +2132,10 @@ class _ControlPanelBridge(QObject):
 
     def _refresh_ticket_payloads(self) -> None:
         self._tickets = self._load_ticket_payloads()
+        self._tickets_loaded = True
 
     def _refresh_selected_ticket_payload(self) -> None:
+        self._ensure_tickets_loaded()
         if not self._selected_ticket_id:
             self._selected_ticket = self._empty_ticket_detail_payload()
             return
@@ -2227,10 +2233,31 @@ class _ControlPanelBridge(QObject):
         if not any(item["id"] == section for item in _SECTION_ITEMS):
             return
         self._current_section = section
-        if section == "environments":
-            self._refresh_environment_lists_for_current_scope()
+        self._ensure_section_data_loaded(section)
         self.currentSectionChanged.emit()
         self._emit_data_changed()
+
+    def _ensure_projects_loaded(self) -> None:
+        if self._projects_loaded:
+            return
+        self._refresh_project_payloads()
+
+    def _ensure_tickets_loaded(self) -> None:
+        if self._tickets_loaded:
+            return
+        self._refresh_ticket_payloads()
+
+    def _ensure_section_data_loaded(self, section: str | None = None) -> None:
+        normalized = _normalize_section_id(section or self._current_section)
+        if normalized == "projects":
+            self._ensure_projects_loaded()
+            return
+        if normalized == "tickets":
+            self._ensure_tickets_loaded()
+            return
+        if normalized == "environments":
+            self._ensure_projects_loaded()
+            self._refresh_environment_lists_for_current_scope()
 
     @pyqtSlot()
     def reloadConfig(self) -> None:
@@ -2252,16 +2279,15 @@ class _ControlPanelBridge(QObject):
         self._environment_repository = SQLiteProjectEnvironmentRepository(aica_database_file())
         self._environment_access_service = EnvironmentAccessService(self._environment_repository)
         self._todo_store = TodoStore(str(aica_database_file()))
-        self._refresh_project_payloads()
-        if self._project_environment_project_id or self._environment_scope_filter == "project":
-            self._refresh_project_environment_payloads(self._project_environment_project_id)
-        else:
-            self._project_environment_project_id = self._resolve_project_environment_project_id()
-            self._project_environment_groups = []
-        if self._current_section == "environments" or self._global_environment_groups:
-            self._refresh_global_environment_payloads()
+        self._projects = []
+        self._projects_loaded = False
+        self._project_environment_project_id = ""
+        self._project_environment_groups = []
+        self._global_environment_groups = []
+        self._tickets = []
+        self._tickets_loaded = False
+        self._ensure_section_data_loaded(self._current_section)
         self._refresh_selected_environment_payload()
-        self._refresh_ticket_payloads()
         self._refresh_selected_ticket_payload()
         if self._selected_rule_scene not in self._analysis_rules.scene_rules:
             self._selected_rule_scene = next(iter(self._analysis_rules.scene_rules), "")
@@ -3649,7 +3675,7 @@ class _ControlPanelBridge(QObject):
             "customer_environment": "客户环境",
             "ticket_version": "\u7248\u672c\u53f7",
             "feature_point": "\u529f\u80fd\u70b9",
-            "root_cause": "\u95ee\u9898\u6839\u56e0",
+            "root_cause": "\u6839\u56e0\u63cf\u8ff0",
             "root_cause_desc": "\u6839\u56e0\u63cf\u8ff0",
         }
         field_label = field_labels.get(normalized_field, "\u5b57\u6bb5")
@@ -3888,6 +3914,7 @@ class ControlPanelWindow(QWidget):
     ) -> None:
         super().__init__(parent)
         self._positioned = False
+        self._has_loaded_on_show = False
         self._notification_bridge = notification_bridge or AppNotificationBridge()
         self._theme_controller = theme_controller or ThemeController(config_manager.load().theme)
         self._bridge = _ControlPanelBridge(
@@ -3939,7 +3966,8 @@ class ControlPanelWindow(QWidget):
         raise RuntimeError(f"Failed to load ControlPanel.qml:\n{errors}")
 
     def show_panel(self, section_id: str = _DEFAULT_CONTROL_PANEL_SECTION) -> None:
-        self._bridge.reloadConfig()
+        if self._has_loaded_on_show:
+            self._bridge.reloadConfig()
         self._bridge.setCurrentSection(section_id)
         if self.isMinimized():
             if self.windowState() & Qt.WindowState.WindowMaximized:
@@ -3947,6 +3975,7 @@ class ControlPanelWindow(QWidget):
             else:
                 self.showNormal()
         self.show()
+        self._has_loaded_on_show = True
         self._sync_window_state()
         self.raise_()
         self.activateWindow()

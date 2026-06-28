@@ -1825,7 +1825,7 @@ ColumnLayout {
                                         RootCauseCascadeField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            label: "\u95ee\u9898\u6839\u56e0"
+                                            label: "\u6839\u56e0\u63cf\u8ff0"
                                             value: ticketSection.isFieldEditing("rootCause") ? ticketSection.getFieldDraft("rootCause") : controlPanelBridge.selectedTicket.rootCause
                                             placeholderText: "\u672a\u751f\u6210"
                                             editing: ticketSection.isFieldEditing("rootCause")

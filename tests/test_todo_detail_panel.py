@@ -59,6 +59,14 @@ def _notification_messages(bridge: _TodoDetailBridge) -> list[str]:
     return [str(item["message"]) for item in bridge.notificationBridge.notifications]
 
 
+def test_detail_panel_defers_auxiliary_window_creation(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+
+    assert panel._stage_summary_window is None  # noqa: SLF001
+    assert panel._timeline_detail_window is None  # noqa: SLF001
+    assert panel._assist_troubleshooting_window is None  # noqa: SLF001
+
+
 def test_timeline_draft_text_update_does_not_emit_draft_changed(tmp_path: Path) -> None:
     bridge = _build_bridge(tmp_path)
     signal_count = 0
@@ -1358,11 +1366,12 @@ def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:
     panel = _build_panel(monkeypatch)
     panel.show()
     panel._bridge._assist_troubleshooting_visible = True  # noqa: SLF001
+    assist_window = panel._ensure_assist_troubleshooting_window()  # noqa: SLF001
     panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
 
     hide_calls: list[str] = []
     monkeypatch.setattr(
-        panel._assist_troubleshooting_window,
+        assist_window,
         "hide",
         lambda: hide_calls.append("assist"),
     )
@@ -1377,12 +1386,14 @@ def test_closing_detail_panel_hides_assist_troubleshooting(monkeypatch) -> None:
 def test_hiding_detail_panel_hides_auxiliary_windows(monkeypatch) -> None:
     panel = _build_panel(monkeypatch)
     panel.show()
+    stage_window = panel._ensure_stage_summary_window()  # noqa: SLF001
+    assist_window = panel._ensure_assist_troubleshooting_window()  # noqa: SLF001
     panel._stage_summary_window_visible = True  # noqa: SLF001
     panel._assist_troubleshooting_window_visible = True  # noqa: SLF001
 
     hide_calls: list[str] = []
-    monkeypatch.setattr(panel._stage_summary_window, "hide", lambda: hide_calls.append("stage"))
-    monkeypatch.setattr(panel._assist_troubleshooting_window, "hide", lambda: hide_calls.append("assist"))
+    monkeypatch.setattr(stage_window, "hide", lambda: hide_calls.append("stage"))
+    monkeypatch.setattr(assist_window, "hide", lambda: hide_calls.append("assist"))
 
     panel.hide()
 

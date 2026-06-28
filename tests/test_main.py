@@ -154,6 +154,19 @@ def test_show_startup_control_panel_opens_server_section(tmp_path: Path) -> None
     assert "control panel shown" in log_file.read_text(encoding="utf-8")
 
 
+def test_show_startup_control_panel_relies_on_existing_state_without_forcing_reload(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class _ControlPanel:
+        @staticmethod
+        def show_panel(section_id: str) -> None:
+            calls.append(section_id)
+
+    _show_startup_control_panel(_ControlPanel(), tmp_path / "startup.log")
+
+    assert calls == ["server"]
+
+
 def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path: Path) -> None:
     events: list[object] = []
 

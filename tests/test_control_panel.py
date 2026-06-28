@@ -340,6 +340,22 @@ def _notification_messages(bridge: control_panel._ControlPanelBridge) -> list[st
     return [str(item["message"]) for item in bridge.notificationBridge.notifications]
 
 
+def test_control_panel_bridge_defers_projects_and_tickets_until_needed(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    assert bridge.projects == []
+    assert bridge.tickets == []
+    assert bridge._projects_loaded is False  # noqa: SLF001
+    assert bridge._tickets_loaded is False  # noqa: SLF001
+
+    bridge.setCurrentSection("projects")
+    assert bridge._projects_loaded is True  # noqa: SLF001
+
+    bridge.setCurrentSection("tickets")
+    assert bridge._tickets_loaded is True  # noqa: SLF001
+
+
 def test_task_bindings_use_readable_chinese_labels(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()

@@ -5069,6 +5069,9 @@ class TodoDetailPanel(QQuickView):
         self._auto_collapse_hold_count = 0
         self._target_panel_width = self._panel_width
         self._target_panel_height = self._panel_height
+        self._stage_summary_window: _StageSummaryWindow | None = None
+        self._timeline_detail_window: _TimelineDetailWindow | None = None
+        self._assist_troubleshooting_window: _AssistTroubleshootingWindow | None = None
 
         self._apply_window_flags()
         self.setColor(QColor(0, 0, 0, 0))
@@ -5081,33 +5084,6 @@ class TodoDetailPanel(QQuickView):
             )
         )
         self._ensure_qml_loaded()
-        self._stage_summary_window = _StageSummaryWindow(
-            self._bridge,
-            panel_width=self._stage_summary_window_width,
-            panel_height=self._stage_summary_window_height,
-            screen_margin=self._screen_margin,
-            theme_controller=self._theme_controller,
-        )
-        self._stage_summary_window.set_owner_panel(self)
-        self._stage_summary_window.set_pinned(self._pinned)
-        self._timeline_detail_window = _TimelineDetailWindow(
-            self._bridge,
-            panel_width=self._timeline_detail_window_width,
-            panel_height=self._timeline_detail_window_height,
-            screen_margin=self._screen_margin,
-            theme_controller=self._theme_controller,
-        )
-        self._timeline_detail_window.set_owner_panel(self)
-        self._timeline_detail_window.set_pinned(self._pinned)
-        self._assist_troubleshooting_window = _AssistTroubleshootingWindow(
-            self._bridge,
-            panel_width=self._assist_troubleshooting_window_width,
-            panel_height=self._assist_troubleshooting_window_height,
-            screen_margin=self._screen_margin,
-            theme_controller=self._theme_controller,
-        )
-        self._assist_troubleshooting_window.set_owner_panel(self)
-        self._assist_troubleshooting_window.set_pinned(self._pinned)
 
         self._bridge.saveRequested.connect(self.save_requested)
         self._bridge.logAnalysisRequested.connect(self.log_analysis_requested)
@@ -5135,6 +5111,51 @@ class TodoDetailPanel(QQuickView):
         self._set_tracked_panel_size(self._panel_width, self._panel_height)
         self.hide()
 
+    def _ensure_stage_summary_window(self) -> _StageSummaryWindow:
+        window = self._stage_summary_window
+        if window is None:
+            window = _StageSummaryWindow(
+                self._bridge,
+                panel_width=self._stage_summary_window_width,
+                panel_height=self._stage_summary_window_height,
+                screen_margin=self._screen_margin,
+                theme_controller=self._theme_controller,
+            )
+            window.set_owner_panel(self)
+            window.set_pinned(self._pinned)
+            self._stage_summary_window = window
+        return window
+
+    def _ensure_timeline_detail_window(self) -> _TimelineDetailWindow:
+        window = self._timeline_detail_window
+        if window is None:
+            window = _TimelineDetailWindow(
+                self._bridge,
+                panel_width=self._timeline_detail_window_width,
+                panel_height=self._timeline_detail_window_height,
+                screen_margin=self._screen_margin,
+                theme_controller=self._theme_controller,
+            )
+            window.set_owner_panel(self)
+            window.set_pinned(self._pinned)
+            self._timeline_detail_window = window
+        return window
+
+    def _ensure_assist_troubleshooting_window(self) -> _AssistTroubleshootingWindow:
+        window = self._assist_troubleshooting_window
+        if window is None:
+            window = _AssistTroubleshootingWindow(
+                self._bridge,
+                panel_width=self._assist_troubleshooting_window_width,
+                panel_height=self._assist_troubleshooting_window_height,
+                screen_margin=self._screen_margin,
+                theme_controller=self._theme_controller,
+            )
+            window.set_owner_panel(self)
+            window.set_pinned(self._pinned)
+            self._assist_troubleshooting_window = window
+        return window
+
     def _hold_auto_collapse(self) -> None:
         self._auto_collapse_hold_count += 1
 
@@ -5161,9 +5182,12 @@ class TodoDetailPanel(QQuickView):
             return
         self._pinned = pinned
         self._apply_window_flags()
-        self._stage_summary_window.set_pinned(pinned)
-        self._timeline_detail_window.set_pinned(pinned)
-        self._assist_troubleshooting_window.set_pinned(pinned)
+        if self._stage_summary_window is not None:
+            self._stage_summary_window.set_pinned(pinned)
+        if self._timeline_detail_window is not None:
+            self._timeline_detail_window.set_pinned(pinned)
+        if self._assist_troubleshooting_window is not None:
+            self._assist_troubleshooting_window.set_pinned(pinned)
         self._sync_stage_summary_window()
         self._sync_timeline_detail_window()
         self._sync_assist_troubleshooting_window()
@@ -5235,8 +5259,9 @@ class TodoDetailPanel(QQuickView):
     def _sync_timeline_detail_window(self) -> None:
         should_show = bool(self._bridge.timelineDetailVisible) and self.isVisible()
         if should_show and not self._timeline_detail_window_visible:
-            self._timeline_detail_window.refresh_from_bridge()
-            self._timeline_detail_window.show_near(
+            window = self._ensure_timeline_detail_window()
+            window.refresh_from_bridge()
+            window.show_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._timeline_detail_window_gap,
@@ -5245,8 +5270,9 @@ class TodoDetailPanel(QQuickView):
             self._timeline_detail_window_visible = True
             return
         if should_show and self._timeline_detail_window_visible:
-            self._timeline_detail_window.refresh_from_bridge()
-            self._timeline_detail_window.update_near(
+            window = self._ensure_timeline_detail_window()
+            window.refresh_from_bridge()
+            window.update_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._timeline_detail_window_gap,
@@ -5254,7 +5280,8 @@ class TodoDetailPanel(QQuickView):
             )
             return
         if not should_show and self._timeline_detail_window_visible:
-            self._timeline_detail_window.hide()
+            if self._timeline_detail_window is not None:
+                self._timeline_detail_window.hide()
             self._timeline_detail_window_visible = False
 
     def show_todo(
@@ -5266,11 +5293,14 @@ class TodoDetailPanel(QQuickView):
         preserve_position: bool = False,
     ) -> None:
         self._bridge.set_todo(todo, sync_records=sync_records, task_status_map=task_status_map)
-        self._stage_summary_window.hide()
+        if self._stage_summary_window is not None:
+            self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
-        self._timeline_detail_window.hide()
+        if self._timeline_detail_window is not None:
+            self._timeline_detail_window.hide()
         self._timeline_detail_window_visible = False
-        self._assist_troubleshooting_window.hide()
+        if self._assist_troubleshooting_window is not None:
+            self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
         self._set_tracked_panel_size(self._panel_width, self._panel_height)
         self._bridge.prewarmAssistAnalysisIfNeeded()
@@ -5284,7 +5314,8 @@ class TodoDetailPanel(QQuickView):
         self.show()
         self.raise_()
         self.requestActivate()
-        self._timeline_detail_window.refresh_from_bridge()
+        if self._timeline_detail_window is not None:
+            self._timeline_detail_window.refresh_from_bridge()
         self._sync_stage_summary_window()
         self._sync_timeline_detail_window()
         self._sync_assist_troubleshooting_window()
@@ -5295,7 +5326,8 @@ class TodoDetailPanel(QQuickView):
     def _sync_stage_summary_window(self) -> None:
         should_show = bool(self._bridge.stageSummaryVisible) and self.isVisible()
         if should_show and not self._stage_summary_window_visible:
-            self._stage_summary_window.show_near(
+            window = self._ensure_stage_summary_window()
+            window.show_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._stage_summary_window_gap,
@@ -5304,7 +5336,8 @@ class TodoDetailPanel(QQuickView):
             self._stage_summary_window_visible = True
             return
         if should_show and self._stage_summary_window_visible:
-            self._stage_summary_window.update_near(
+            window = self._ensure_stage_summary_window()
+            window.update_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._stage_summary_window_gap,
@@ -5312,13 +5345,15 @@ class TodoDetailPanel(QQuickView):
             )
             return
         if not should_show and self._stage_summary_window_visible:
-            self._stage_summary_window.hide()
+            if self._stage_summary_window is not None:
+                self._stage_summary_window.hide()
             self._stage_summary_window_visible = False
 
     def _sync_assist_troubleshooting_window(self) -> None:
         should_show = bool(self._bridge.assistTroubleshootingVisible) and self.isVisible()
         if should_show and not self._assist_troubleshooting_window_visible:
-            self._assist_troubleshooting_window.show_near(
+            window = self._ensure_assist_troubleshooting_window()
+            window.show_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._assist_troubleshooting_window_gap,
@@ -5327,7 +5362,8 @@ class TodoDetailPanel(QQuickView):
             self._assist_troubleshooting_window_visible = True
             return
         if should_show and self._assist_troubleshooting_window_visible:
-            self._assist_troubleshooting_window.update_near(
+            window = self._ensure_assist_troubleshooting_window()
+            window.update_near(
                 self,
                 anchor_width=self._panel_width,
                 anchor_gap=self._assist_troubleshooting_window_gap,
@@ -5335,7 +5371,8 @@ class TodoDetailPanel(QQuickView):
             )
             return
         if not should_show and self._assist_troubleshooting_window_visible:
-            self._assist_troubleshooting_window.hide()
+            if self._assist_troubleshooting_window is not None:
+                self._assist_troubleshooting_window.hide()
             self._assist_troubleshooting_window_visible = False
 
     def _reposition(self, anchor_rect=None) -> None:
@@ -5429,11 +5466,14 @@ class TodoDetailPanel(QQuickView):
         self._bridge.reset_stage_summary_session()
         self._bridge.reset_timeline_detail_session()
         self._bridge.reset_assist_troubleshooting_session()
-        self._stage_summary_window.hide()
+        if self._stage_summary_window is not None:
+            self._stage_summary_window.hide()
         self._stage_summary_window_visible = False
-        self._timeline_detail_window.hide()
+        if self._timeline_detail_window is not None:
+            self._timeline_detail_window.hide()
         self._timeline_detail_window_visible = False
-        self._assist_troubleshooting_window.hide()
+        if self._assist_troubleshooting_window is not None:
+            self._assist_troubleshooting_window.hide()
         self._assist_troubleshooting_window_visible = False
         self.hide()
         self.closed.emit()

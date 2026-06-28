@@ -30,6 +30,7 @@ from aica.analysis.intent import SCENE_PROBLEM_CONCLUSION
 
 
 SCHEMA_VERSION = "16"
+_INITIALIZED_DATABASES: set[str] = set()
 
 
 def _is_problem_conclusion_scenario(scenario: str) -> bool:
@@ -149,6 +150,18 @@ class SQLiteStorageMigrator:
     def path(self) -> str:
         return str(self._db_path)
 
+    def _cache_key(self) -> str:
+        try:
+            return str(self._db_path.resolve())
+        except Exception:
+            return str(self._db_path)
+
+    def _mark_initialized(self) -> None:
+        _INITIALIZED_DATABASES.add(self._cache_key())
+
+    def _is_initialized(self) -> bool:
+        return self._cache_key() in _INITIALIZED_DATABASES
+
     def _connect(self) -> sqlite3.Connection:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self._db_path)
@@ -157,6 +170,8 @@ class SQLiteStorageMigrator:
         return connection
 
     def ensure_schema(self) -> None:
+        if self._is_initialized():
+            return
         with self._connect() as connection:
             self._preflight_legacy_tables(connection)
             connection.executescript(_load_schema_sql())
@@ -169,6 +184,7 @@ class SQLiteStorageMigrator:
                 """,
                 (SCHEMA_VERSION,),
             )
+        self._mark_initialized()
 
     def _preflight_legacy_tables(self, connection: sqlite3.Connection) -> None:
         preflight_columns = {
@@ -411,11 +427,14 @@ class SQLiteStorageMigrator:
         return str(row["value"]) if row is not None else ""
 
     def migrate_json_to_sqlite(self) -> None:
+        if self._is_initialized():
+            return
         self.ensure_schema()
         with self._connect() as connection:
             self._migrate_legacy_todos(connection)
             self._migrate_legacy_bindings(connection)
             self._backfill_ticket_versions(connection)
+        self._mark_initialized()
 
     def _meta_value(self, connection: sqlite3.Connection, key: str) -> str:
         row = connection.execute(
