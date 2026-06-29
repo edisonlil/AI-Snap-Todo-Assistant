@@ -79,15 +79,11 @@ from .analysis.metrics import AnalysisRunStats
 from .analysis.strategy import AnalysisPromptBundle, build_analysis_prompt_bundle_from_rules
 from .todo.assist_analysis import build_assist_analysis_cache_key, should_update_assist_analysis
 from .case_search import (
-    CaseSearchProvider,
-    NullCaseSearchProvider,
     build_case_search_result_from_server_items,
     build_server_case_search_question,
-    build_case_search_queries,
     build_case_search_request,
     empty_case_result,
     loading_case_result,
-    rank_case_search_result,
 )
 from .context_summary.models import ContextSummaryRequest, build_context_summary_request_for_todo
 from .context_summary.service import ContextSummaryService, format_summary_for_analysis_context
@@ -1140,7 +1136,6 @@ class AssistAnalysisWorker(QThread):
         payload: dict[str, object],
         phase: str = "initial",
         server_config=None,
-        case_search_provider: CaseSearchProvider | None = None,
         error_code_lookup_service: ErrorCodeLookupService | None = None,
         parent=None,
     ) -> None:
@@ -1151,8 +1146,6 @@ class AssistAnalysisWorker(QThread):
         self._payload = dict(payload or {})
         self._phase = str(phase or "initial").strip() or "initial"
         self._server_config = server_config
-        self._case_search_enabled = case_search_provider is not None
-        self._case_search_provider = case_search_provider or NullCaseSearchProvider()
         self._error_code_lookup_service = error_code_lookup_service
 
     def run(self) -> None:
@@ -1180,14 +1173,14 @@ class AssistAnalysisWorker(QThread):
                 )
                 initial_result["caseResults"] = (
                     loading_case_result().to_payload()
-                    if self._case_search_enabled
+                    if _stage_summary_server_ready(self._server_config)
                     else empty_case_result().to_payload()
                 )
                 initial_result["errorCodeResults"] = self._lookup_error_codes(todo)
                 self.result_ready.emit(self._todo_id, self._request_id, initial_result)
 
                 final_result = dict(initial_result)
-                if self._case_search_enabled:
+                if _stage_summary_server_ready(self._server_config):
                     try:
                         final_result["caseResults"] = self._search_cases(todo)
                     except Exception as exc:  # noqa: BLE001
@@ -1277,22 +1270,14 @@ class AssistAnalysisWorker(QThread):
             timeline_lines=_timeline_lines_for_assist(todo),
             function_point=sanitize_text(getattr(todo.summary_fields, "feature_point", "")).strip(),
         )
-        if _stage_summary_server_ready(self._server_config):
-            try:
-                payload = ChattodoServerClient.from_config(self._server_config).search_assist_cases(
-                    question=build_server_case_search_question(request),
-                    function_point=request.function_point,
-                )
-                return build_case_search_result_from_server_items(payload).to_payload()
-            except Exception as exc:  # noqa: BLE001
-                if not self._case_search_enabled:
-                    return empty_case_result(error_message=str(exc)).to_payload()
-        if not self._case_search_enabled:
+        if not _stage_summary_server_ready(self._server_config):
             return empty_case_result().to_payload()
         try:
-            queries = build_case_search_queries(self._llm_service, request)
-            result = self._case_search_provider.search_many(queries)
-            return rank_case_search_result(self._llm_service, request, result, max_results=5).to_payload()
+            payload = ChattodoServerClient.from_config(self._server_config).search_assist_cases(
+                question=build_server_case_search_question(request),
+                function_point=request.function_point,
+            )
+            return build_case_search_result_from_server_items(payload).to_payload()
         except Exception as exc:  # noqa: BLE001
             return empty_case_result(error_message=str(exc)).to_payload()
 

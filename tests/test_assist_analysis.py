@@ -11,7 +11,6 @@ from aica.todo.assist_analysis import (  # noqa: E402
 )
 from aica.error_codes import ErrorCodeLookupService  # noqa: E402
 from aica.storage.sqlite.error_code_repository import ErrorCodeRecord, SQLiteErrorCodeRepository  # noqa: E402
-from aica.case_search import CaseSearchItem, CaseSearchResult  # noqa: E402
 from aica.config import ServerConfig  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.todo.models import TodoItem  # noqa: E402
@@ -36,27 +35,6 @@ class _FastLLM:
             '"informationStatus":{"recognized":"recognized","checkedDirections":[{"title":"known","evidence":"demo ok"}]},'
             '"missingSupplement":{"directions":[{"title":"params","reason":"need compare"}]},'
             '"upgradeSuggestion":{"decision":"wait","reason":"need logs"}}'
-        )
-
-
-class _FailingCaseProvider:
-    def search_many(self, queries):  # noqa: ANN001
-        raise RuntimeError("case search down")
-
-
-class _ExplodingQueryLLM(_LLM):
-    def run_task(self, task_name: str, *, messages, temperature: float = 0.2, **_kwargs):  # noqa: ANN001
-        if task_name == "context_summary":
-            return super().run_task(task_name, messages=messages, temperature=temperature, **_kwargs)
-        raise AssertionError("case query rewrite should stay disabled by default")
-
-
-class _SuccessfulCaseProvider:
-    def search_many(self, queries):  # noqa: ANN001
-        return CaseSearchResult(
-            status="success",
-            count_label="1 result",
-            items=[CaseSearchItem(title="Case A", score=81)],
         )
 
 
@@ -140,14 +118,18 @@ def test_assist_analysis_review_requires_clear_improvement() -> None:
     assert should_update_assist_analysis(previous, better) is True
 
 
-def test_initial_assist_analysis_keeps_llm_result_when_case_search_fails() -> None:
+def test_initial_assist_analysis_keeps_llm_result_when_server_case_search_fails(monkeypatch) -> None:
     todo = _todo()
+    monkeypatch.setattr(
+        "aica.worker.ChattodoServerClient.from_config",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("case search down")),
+    )
     worker = AssistAnalysisWorker(
         llm_service=_LLM(),
         todo_id=todo.id,
         request_id="req-1",
         payload={"todoPayload": build_assist_todo_payload(todo)},
-        case_search_provider=_FailingCaseProvider(),
+        server_config=ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
     )
 
     result = worker._build_initial_result(todo)  # noqa: SLF001
@@ -157,10 +139,10 @@ def test_initial_assist_analysis_keeps_llm_result_when_case_search_fails() -> No
     assert "case search down" in result["caseResults"]["errorMessage"]
 
 
-def test_initial_assist_analysis_disables_case_search_by_default() -> None:
+def test_initial_assist_analysis_disables_case_search_without_server_config() -> None:
     todo = _todo()
     worker = AssistAnalysisWorker(
-        llm_service=_ExplodingQueryLLM(),
+        llm_service=_LLM(),
         todo_id=todo.id,
         request_id="req-default",
         payload={"todoPayload": build_assist_todo_payload(todo)},
@@ -173,14 +155,19 @@ def test_initial_assist_analysis_disables_case_search_by_default() -> None:
     assert result["caseResults"]["items"] == []
 
 
-def test_assist_analysis_worker_emits_partial_result_before_case_search_finishes() -> None:
+def test_assist_analysis_worker_emits_partial_result_before_case_search_finishes(monkeypatch) -> None:
     todo = _todo()
+    client = _ServerClient()
+    monkeypatch.setattr(
+        "aica.worker.ChattodoServerClient.from_config",
+        lambda _config: client,
+    )
     worker = AssistAnalysisWorker(
         llm_service=_FastLLM(),
         todo_id=todo.id,
         request_id="req-2",
         payload={"todoPayload": build_assist_todo_payload(todo)},
-        case_search_provider=_SuccessfulCaseProvider(),
+        server_config=ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
     )
     recorder = _SignalRecorder()
     worker.result_ready = recorder
@@ -200,7 +187,7 @@ def test_assist_analysis_prefers_server_case_search_when_server_ready(monkeypatc
     todo = _todo()
     client = _ServerClient()
     monkeypatch.setattr(
-        "aica.error_codes.ChattodoServerClient.from_config",
+        "aica.worker.ChattodoServerClient.from_config",
         lambda _config: client,
     )
     worker = AssistAnalysisWorker(
@@ -221,7 +208,7 @@ def test_assist_analysis_prefers_server_case_search_when_server_ready(monkeypatc
     assert "工单标题：测试待办" in str(client.case_calls[0]["question"])
 
 
-def test_initial_assist_analysis_includes_error_code_results_when_case_search_fails() -> None:
+def test_initial_assist_analysis_includes_error_code_results_without_server_case_search() -> None:
     todo = TodoItem(
         id="todo-1",
         title="文档中台错误",
@@ -246,13 +233,12 @@ def test_initial_assist_analysis_includes_error_code_results_when_case_search_fa
         todo_id=todo.id,
         request_id="req-3",
         payload={"todoPayload": build_assist_todo_payload(todo)},
-        case_search_provider=_FailingCaseProvider(),
         error_code_lookup_service=ErrorCodeLookupService(repository=repository),
     )
 
     result = worker._build_initial_result(todo)  # noqa: SLF001
 
-    assert result["caseResults"]["status"] == "error"
+    assert result["caseResults"]["status"] == "empty"
     assert result["errorCodeResults"]["status"] == "success"
     assert result["errorCodeResults"]["items"][0]["code"] == "15041"
 
@@ -274,7 +260,6 @@ def test_initial_assist_analysis_uses_server_error_code_lookup_when_server_ready
         todo_id=todo.id,
         request_id="req-4",
         payload={"todoPayload": build_assist_todo_payload(todo)},
-        case_search_provider=_FailingCaseProvider(),
         error_code_lookup_service=ErrorCodeLookupService(
             repository=SQLiteErrorCodeRepository(Path(tempfile.mkdtemp()) / "aica.db")
         ),
