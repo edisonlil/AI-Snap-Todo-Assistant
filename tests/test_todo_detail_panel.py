@@ -524,13 +524,14 @@ def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
 
     assert 'todoDetailBridge.currentSummaryAttachmentCount > 0' in qml_text
     assert '"添加附件（" + todoDetailBridge.currentSummaryAttachmentCount + "）"' in qml_text
-    assert 'text: "附件管理"' in qml_text
-    assert summary_actions.index('text: "附件管理"') < summary_actions.index('text: "粘贴截图"')
+    attachment_toggle_text = 'text: root.currentSummaryAttachmentManagerExpanded ? "收起列表" : "附件管理"'
+    assert attachment_toggle_text in qml_text
+    assert summary_actions.index(attachment_toggle_text) < summary_actions.index('text: "粘贴截图"')
     assert "property bool currentSummaryAttachmentManagerExpanded: false" in qml_text
     assert "function toggleCurrentSummaryAttachmentManager()" in qml_text
     assert "onClicked: root.toggleCurrentSummaryAttachmentManager()" in qml_text
     assert 'text: "打开目录"' in qml_text
-    assert 'text: "收起"' in qml_text
+    assert '"收起列表"' in attachment_toggle_text
     assert "visible: root.currentSummaryAttachmentManagerExpanded" in qml_text
     assert "onClicked: todoDetailBridge.openCurrentSummaryAttachmentFolder()" in qml_text
     assert "height: modelData.isImage ? 74 : 42" in qml_text

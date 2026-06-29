@@ -219,10 +219,6 @@ Rectangle {
         todoDetailBridge.selectProductLine(value)
     }
 
-    function closeCurrentSummaryAttachmentManager() {
-        currentSummaryAttachmentManagerExpanded = false
-    }
-
     function toggleCurrentSummaryAttachmentManager() {
         currentSummaryAttachmentManagerExpanded = !currentSummaryAttachmentManagerExpanded
     }
@@ -949,7 +945,7 @@ Rectangle {
                             }
 
                             Text {
-                                text: "附件管理"
+                                text: root.currentSummaryAttachmentManagerExpanded ? "收起列表" : "附件管理"
                                 color: root.accent
                                 font.family: root.uiFont
                                 font.pixelSize: 11
@@ -959,6 +955,21 @@ Rectangle {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: root.toggleCurrentSummaryAttachmentManager()
+                                }
+                            }
+
+                            Text {
+                                visible: root.currentSummaryAttachmentManagerExpanded
+                                text: "打开目录"
+                                color: root.accent
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.weight: root.labelWeight
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: todoDetailBridge.openCurrentSummaryAttachmentFolder()
                                 }
                             }
 
@@ -981,71 +992,6 @@ Rectangle {
                             width: parent.width
                             spacing: 8
                             visible: root.currentSummaryAttachmentManagerExpanded
-
-                            Rectangle {
-                                width: parent.width
-                                height: 34
-                                radius: 12
-                                color: root.fieldBg
-                                border.width: 1
-                                border.color: root.fieldLine
-
-                                Text {
-                                    x: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "附件管理"
-                                    color: root.bodyInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.labelWeight
-                                }
-
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 68
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: todoDetailBridge.currentSummaryAttachmentCount > 0 ? todoDetailBridge.currentSummaryAttachmentCount + " 个" : ""
-                                    color: root.mutedInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: root.bodyWeight
-                                }
-
-                                Row {
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 12
-
-                                    Text {
-                                        text: "打开目录"
-                                        color: root.accent
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.labelWeight
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: todoDetailBridge.openCurrentSummaryAttachmentFolder()
-                                        }
-                                    }
-
-                                    Text {
-                                        text: "收起"
-                                        color: root.bodyInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 11
-                                        font.weight: root.labelWeight
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.closeCurrentSummaryAttachmentManager()
-                                        }
-                                    }
-                                }
-                            }
 
                             Rectangle {
                                 width: parent.width
