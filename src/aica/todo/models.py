@@ -143,6 +143,7 @@ class TodoItem:
     title: str = "鏈垎绫讳换鍔?"
     summary_fields: TicketSummaryFields = field(default_factory=TicketSummaryFields)
     current_summary: str = ""
+    current_summary_attachments: list[TimelineAttachment] = field(default_factory=list)
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     completed_at: str = ""
@@ -155,6 +156,12 @@ class TodoItem:
         self.id = sanitize_text(self.id) or str(uuid.uuid4())
         self.title = sanitize_text(self.title) or "鏈垎绫讳换鍔?"
         self.current_summary = sanitize_text(self.current_summary)
+        self.current_summary_attachments = [
+            attachment
+            if isinstance(attachment, TimelineAttachment)
+            else TimelineAttachment(**dict(attachment or {}))
+            for attachment in list(self.current_summary_attachments or [])
+        ]
         self.created_at = sanitize_text(self.created_at) or _now_iso()
         self.updated_at = sanitize_text(self.updated_at) or _now_iso()
         self.completed_at = sanitize_text(self.completed_at)

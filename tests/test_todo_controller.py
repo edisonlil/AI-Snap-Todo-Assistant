@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
 from aica.todo.controller import TodoController
-from aica.todo.models import TodoConclusion, TodoItem
+from aica.todo.models import TimelineAttachment, TodoConclusion, TodoItem
 
 
 class _Store:
@@ -26,6 +26,7 @@ class _Store:
         *,
         title: str | None = None,
         current_summary: str | None = None,
+        current_summary_attachments=None,
         summary_fields: TicketSummaryFields | None = None,
         timeline=None,
         conclusion: TodoConclusion | None = None,
@@ -36,6 +37,8 @@ class _Store:
             self.todo.title = title
         if current_summary is not None:
             self.todo.current_summary = current_summary
+        if current_summary_attachments is not None:
+            self.todo.current_summary_attachments = current_summary_attachments
         if summary_fields is not None:
             self.todo.summary_fields = summary_fields
         if timeline is not None:
@@ -94,3 +97,17 @@ def test_update_todo_runs_enrichment_by_default() -> None:
     assert updated is not None
     assert service.calls == 1
     assert updated.summary_fields.root_cause_desc == "异步生成的根因描述"
+
+
+def test_update_todo_passes_current_summary_attachments() -> None:
+    controller = TodoController(_Store(_build_todo()), enrichment_service=None)
+    attachments = [TimelineAttachment(id="att-1", name="a.txt", path="/tmp/a.txt", size_bytes=1)]
+
+    updated = controller.update_todo(
+        "todo-1",
+        current_summary_attachments=attachments,
+        run_enrichment=False,
+    )
+
+    assert updated is not None
+    assert updated.current_summary_attachments == attachments

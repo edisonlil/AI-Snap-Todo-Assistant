@@ -256,7 +256,27 @@ class SQLiteStorageMigrator:
             "todo_conclusion_attachments": {
                 "file_object_id": "TEXT NOT NULL DEFAULT ''",
             },
+            "todo_current_summary_attachments": {
+                "file_object_id": "TEXT NOT NULL DEFAULT ''",
+            },
         }
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS todo_current_summary_attachments (
+              id TEXT PRIMARY KEY,
+              todo_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              path TEXT NOT NULL,
+              size_bytes INTEGER NOT NULL DEFAULT 0,
+              file_object_id TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_current_summary_attachments_todo ON todo_current_summary_attachments(todo_id)"
+        )
         for table_name, columns in attachment_columns.items():
             if not _table_info(connection, table_name):
                 continue
@@ -1526,6 +1546,7 @@ class SQLiteTodoRepository:
         *,
         title: str | None = None,
         current_summary: str | None = None,
+        current_summary_attachments: list[TimelineAttachment] | None = None,
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
         conclusion: TodoConclusion | None = None,
@@ -1672,6 +1693,13 @@ class SQLiteTodoRepository:
                 )
                 for event in timeline:
                     self._insert_timeline_event(connection, sanitized_id, event)
+            if current_summary_attachments is not None:
+                connection.execute(
+                    "DELETE FROM todo_current_summary_attachments WHERE todo_id = ?",
+                    (sanitized_id,),
+                )
+                for attachment in current_summary_attachments:
+                    self._insert_current_summary_attachment(connection, sanitized_id, attachment)
             if conclusion is not None:
                 connection.execute(
                     "DELETE FROM todo_conclusion_attachments WHERE todo_id = ?",
@@ -1748,6 +1776,18 @@ class SQLiteTodoRepository:
                 (str(row["id"]),),
             ).fetchall()
         ]
+        current_summary_attachment_rows = [
+            dict(item)
+            for item in connection.execute(
+                """
+                SELECT id, todo_id, name, path, size_bytes, file_object_id, created_at
+                FROM todo_current_summary_attachments
+                WHERE todo_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (str(row["id"]),),
+            ).fetchall()
+        ]
         conclusion_attachment_rows = [
             dict(item)
             for item in connection.execute(
@@ -1764,6 +1804,7 @@ class SQLiteTodoRepository:
             todo_row=row_payload,
             timeline_rows=timeline_rows,
             attachment_rows=attachment_rows,
+            current_summary_attachment_rows=current_summary_attachment_rows,
             conclusion_attachment_rows=conclusion_attachment_rows,
             project_link_row=project_link.to_dict() if project_link is not None else None,
         )
@@ -1907,6 +1948,29 @@ class SQLiteTodoRepository:
         connection.execute(
             """
             INSERT INTO todo_conclusion_attachments(
+              id, todo_id, name, path, size_bytes, file_object_id, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sanitize_text(attachment.id) or str(uuid.uuid4()),
+                sanitize_text(todo_id),
+                sanitize_text(attachment.name),
+                sanitize_text(attachment.path),
+                max(0, int(attachment.size_bytes)),
+                sanitize_text(attachment.file_object_id),
+                now_iso(),
+            ),
+        )
+
+    def _insert_current_summary_attachment(
+        self,
+        connection: sqlite3.Connection,
+        todo_id: str,
+        attachment: TimelineAttachment,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO todo_current_summary_attachments(
               id, todo_id, name, path, size_bytes, file_object_id, created_at
             ) VALUES(?, ?, ?, ?, ?, ?, ?)
             """,
@@ -2589,10 +2653,13 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         ),
     )
     connection.execute("DELETE FROM todo_timeline_events WHERE todo_id = ?", (sanitize_text(todo.id),))
+    connection.execute("DELETE FROM todo_current_summary_attachments WHERE todo_id = ?", (sanitize_text(todo.id),))
     connection.execute("DELETE FROM todo_conclusion_attachments WHERE todo_id = ?", (sanitize_text(todo.id),))
     repository = SQLiteTodoRepository.__new__(SQLiteTodoRepository)
     for event in todo.timeline:
         SQLiteTodoRepository._insert_timeline_event(repository, connection, todo.id, event)
+    for attachment in todo.current_summary_attachments:
+        SQLiteTodoRepository._insert_current_summary_attachment(repository, connection, todo.id, attachment)
     for attachment in todo.conclusion.attachments:
         SQLiteTodoRepository._insert_conclusion_attachment(repository, connection, todo.id, attachment)
     if todo.project_link.match_status:

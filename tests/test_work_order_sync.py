@@ -26,6 +26,14 @@ def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
         id="todo-1",
         title="上传失败",
         current_summary="客户反馈上传时报错 500",
+        current_summary_attachments=[
+            TimelineAttachment(
+                id="summary-att-1",
+                name="screen.png",
+                path="C:/tmp/screen.png",
+                size_bytes=1024,
+            )
+        ],
         status=status,
         created_at="2026-05-24T00:50:00+08:00",
         updated_at="2026-05-24T01:00:00+08:00",
@@ -101,6 +109,15 @@ def test_build_work_order_payload_maps_todo_snapshot() -> None:
     }
     assert payload["product_version"] == "release_1"
     assert payload["root_cause_description"] == "上游服务超时"
+    assert payload["attachments"] == [
+        {
+            "external_attachment_id": "summary-att-1",
+            "file_name": "screen.png",
+            "file_size": 1024,
+            "content_type": "image/png",
+            "_local_path": "C:/tmp/screen.png",
+        }
+    ]
     assert payload["timeline"] == [
         {
             "external_timeline_id": "timeline-1",
@@ -256,7 +273,6 @@ class _Client:
             "data": {
                 "file_object_id": "file-123",
                 "url": "/api/files/file-123/download",
-                "preview_url": "/api/files/file-123/preview",
             },
         }
 
@@ -311,8 +327,69 @@ def test_work_order_sync_handler_uploads_local_attachments(tmp_path: Path) -> No
     assert attachment["external_attachment_id"] == "att-1"
     assert attachment["file_object_id"] == "file-123"
     assert attachment["url"] == "/api/files/file-123/download"
-    assert attachment["preview_url"] == "/api/files/file-123/preview"
     assert "_local_path" not in attachment
+
+
+def test_work_order_sync_handler_uploads_current_summary_attachments(tmp_path: Path) -> None:
+    attachment_path = tmp_path / "screen.png"
+    attachment_path.write_bytes(b"png")
+    todo = _todo()
+    todo.current_summary_attachments[0].name = attachment_path.name
+    todo.current_summary_attachments[0].path = str(attachment_path)
+    todo.current_summary_attachments[0].size_bytes = attachment_path.stat().st_size
+    store = _BindingStore()
+    client = _Client()
+    handler = WorkOrderSyncEventHandler(
+        binding_store=store,  # type: ignore[arg-type]
+        config_provider=lambda: ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
+        client_factory=lambda _config: client,
+    )
+
+    handler.handle(TodoDomainEvent.updated(todo, "当前描述附件", ["current_summary_attachments"]))
+
+    attachment = client.payloads[0]["attachments"][0]  # type: ignore[index]
+    assert client.uploads[0] == {
+        "file_path": str(attachment_path),
+        "file_name": attachment_path.name,
+        "content_type": "image/png",
+        "source_system": "Chattodo",
+        "external_order_no": "todo-1",
+        "external_timeline_id": "",
+        "external_attachment_id": "summary-att-1",
+    }
+    assert attachment["external_attachment_id"] == "summary-att-1"
+    assert attachment["file_object_id"] == "file-123"
+
+
+def test_build_work_order_payload_keeps_empty_current_summary_attachments() -> None:
+    todo = _todo()
+    todo.current_summary_attachments = []
+
+    payload = build_work_order_payload(TodoDomainEvent.updated(todo, "当前描述附件清空", ["current_summary_attachments"]))
+
+    assert payload["attachments"] == []
+
+
+def test_work_order_sync_handler_clears_removed_current_summary_attachments(tmp_path: Path) -> None:
+    attachment_path = tmp_path / "screen.png"
+    attachment_path.write_bytes(b"png")
+    todo = _todo()
+    todo.current_summary_attachments[0].name = attachment_path.name
+    todo.current_summary_attachments[0].path = str(attachment_path)
+    todo.current_summary_attachments[0].size_bytes = attachment_path.stat().st_size
+    todo.current_summary_attachments = []
+    store = _BindingStore()
+    client = _Client()
+    handler = WorkOrderSyncEventHandler(
+        binding_store=store,  # type: ignore[arg-type]
+        config_provider=lambda: ServerConfig(enabled=True, base_url="https://server.example.com", api_key="key"),
+        client_factory=lambda _config: client,
+    )
+
+    handler.handle(TodoDomainEvent.updated(todo, "当前描述附件移除", ["current_summary_attachments"]))
+
+    assert client.payloads[0]["attachments"] == []
+    assert client.uploads == []
 
 
 def test_work_order_sync_handler_skips_attachment_without_download_source() -> None:

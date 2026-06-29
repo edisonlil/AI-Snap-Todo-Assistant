@@ -271,6 +271,90 @@ def test_add_timeline_entry_moves_draft_attachments_into_new_event(monkeypatch) 
     assert event["attachments"][0]["path"] == f"/final/{event['id']}/note.txt"
 
 
+def test_current_summary_attachments_are_saved_separately(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    monkeypatch.setattr(
+        bridge,
+        "_copy_attachment",
+        lambda file_path, event_id: {
+            "id": "summary-1",
+            "name": Path(file_path).name,
+            "path": f"/{event_id}/{Path(file_path).name}",
+            "sizeBytes": 9,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        },
+    )
+
+    bridge.attach_files_to_current_summary(["evidence.txt"])
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.currentSummaryAttachmentCount == 1
+    assert payload is not None
+    assert [item.name for item in payload["current_summary_attachments"]] == ["evidence.txt"]
+    assert payload["timeline"] == []
+    assert payload["conclusion"].attachments == []
+
+
+def test_remove_current_summary_attachment_updates_only_summary_attachments(monkeypatch) -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge._current_summary_attachments = [  # noqa: SLF001
+        {
+            "id": "summary-1",
+            "name": "evidence.txt",
+            "path": "/__current_summary__/evidence.txt",
+            "sizeBytes": 9,
+            "isImage": False,
+            "isVideo": False,
+            "isPreviewable": False,
+            "fileUrl": "",
+        }
+    ]
+    removed_paths: list[str] = []
+    monkeypatch.setattr(bridge, "_remove_attachment_file", lambda file_path: removed_paths.append(file_path))
+
+    bridge.removeCurrentSummaryAttachment("summary-1")
+
+    assert bridge.currentSummaryAttachmentCount == 0
+    assert bridge.timelineCount == 0
+    assert removed_paths == ["/__current_summary__/evidence.txt"]
+
+
+def test_open_current_summary_attachment_folder_falls_back_to_managed_directory(tmp_path: Path, monkeypatch) -> None:
+    bridge = _build_bridge(tmp_path)
+    todo = _build_todo()
+    todo.current_summary_attachments = [
+        TimelineAttachment(
+            id="summary-1",
+            name="evidence.txt",
+            path="/api/files/file-123/download",
+            file_object_id="file-123",
+        )
+    ]
+    bridge.set_todo(todo)
+
+    opened_paths: list[str] = []
+
+    def _capture_open_url(url) -> bool:
+        local_path = url.toLocalFile() if hasattr(url, "toLocalFile") else ""
+        opened_paths.append(local_path or url.toString())
+        return True
+
+    monkeypatch.setattr("aica.todo.detail_panel.QDesktopServices.openUrl", _capture_open_url)
+
+    bridge.openCurrentSummaryAttachmentFolder()
+
+    expected_dir = tmp_path / todo.id / "__current_summary__"
+    assert expected_dir.is_dir()
+    assert opened_paths == [str(expected_dir)]
+
+
 def test_detail_bridge_no_longer_exposes_manual_plan_export() -> None:
     bridge = _build_bridge(Path("unused"))
 
@@ -431,6 +515,35 @@ def test_todo_detail_summary_panel_uses_theme_field_background() -> None:
 
     assert 'text: "当前描述"' in qml_text
     assert "color: root.fieldBg" in qml_text
+
+
+def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+    summary_actions = qml_text.split('text: "当前描述"', 1)[1].split("Column {", 1)[0]
+
+    assert 'todoDetailBridge.currentSummaryAttachmentCount > 0' in qml_text
+    assert '"添加附件（" + todoDetailBridge.currentSummaryAttachmentCount + "）"' in qml_text
+    assert 'text: "附件管理"' in qml_text
+    assert summary_actions.index('text: "附件管理"') < summary_actions.index('text: "粘贴截图"')
+    assert "property bool currentSummaryAttachmentManagerExpanded: false" in qml_text
+    assert "function toggleCurrentSummaryAttachmentManager()" in qml_text
+    assert "onClicked: root.toggleCurrentSummaryAttachmentManager()" in qml_text
+    assert 'text: "打开目录"' in qml_text
+    assert 'text: "收起"' in qml_text
+    assert "visible: root.currentSummaryAttachmentManagerExpanded" in qml_text
+    assert "onClicked: todoDetailBridge.openCurrentSummaryAttachmentFolder()" in qml_text
+    assert "height: modelData.isImage ? 74 : 42" in qml_text
+    assert "source: modelData.isImage ? modelData.fileUrl : \"\"" in qml_text
+    assert 'text: "预览"' in qml_text
+    assert 'text: "复制"' in qml_text
+    assert 'text: "复制名"' in qml_text
+    assert 'text: "复制路径"' in qml_text
+    assert 'text: "打开"' in qml_text
+    assert 'text: "下载"' in qml_text
+    assert "model: todoDetailBridge.currentSummaryAttachments" in qml_text
+    assert "todoDetailBridge.removeCurrentSummaryAttachment(modelData.id)" in qml_text
+    assert '"当前描述附件 " + todoDetailBridge.currentSummaryAttachmentCount' not in qml_text
 
 
 def test_todo_detail_product_line_options_come_from_matched_project() -> None:

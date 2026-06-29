@@ -125,6 +125,7 @@ def build_todo_item(
     todo_row: dict[str, Any],
     timeline_rows: list[dict[str, Any]],
     attachment_rows: list[dict[str, Any]],
+    current_summary_attachment_rows: list[dict[str, Any]] | None = None,
     conclusion_attachment_rows: list[dict[str, Any]] | None = None,
     project_link_row: dict[str, Any] | None = None,
 ) -> TodoItem:
@@ -178,6 +179,16 @@ def build_todo_item(
         )
         for row in timeline_rows
     ]
+    current_summary_attachments = [
+        TimelineAttachment(
+            id=str(row.get("id", str(uuid.uuid4()))),
+            name=row.get("name", ""),
+            path=row.get("path", ""),
+            size_bytes=row.get("size_bytes", 0),
+            file_object_id=row.get("file_object_id", ""),
+        )
+        for row in (current_summary_attachment_rows or [])
+    ]
     conclusion_attachments = [
         TimelineAttachment(
             id=str(row.get("id", str(uuid.uuid4()))),
@@ -193,6 +204,7 @@ def build_todo_item(
         title=str(todo_row.get("title", "")),
         summary_fields=summary_fields,
         current_summary=str(todo_row.get("current_summary", "")),
+        current_summary_attachments=current_summary_attachments,
         created_at=str(todo_row.get("created_at", now_iso())),
         updated_at=str(todo_row.get("updated_at", now_iso())),
         completed_at=str(todo_row.get("completed_at", "")),
@@ -231,6 +243,7 @@ def deserialize_legacy_todo_item(payload: dict[str, Any]) -> TodoItem:
         title=str(payload.get("title", "")),
         summary_fields=summary_fields,
         current_summary=current_summary,
+        current_summary_attachments=deserialize_legacy_timeline_attachments(payload.get("current_summary_attachments", [])),
         created_at=str(payload.get("created_at", now_iso())),
         updated_at=str(payload.get("updated_at", now_iso())),
         completed_at=str(payload.get("completed_at", "")),

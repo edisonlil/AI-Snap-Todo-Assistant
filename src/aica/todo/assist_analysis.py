@@ -15,6 +15,7 @@ def build_assist_todo_payload(todo: TodoItem) -> dict[str, object]:
     return {
         "title": sanitize_text(todo.title).strip(),
         "current_summary": sanitize_text(todo.current_summary).strip(),
+        "current_summary_attachments": list(todo.current_summary_attachments),
         "summary_fields": todo.summary_fields.to_dict(),
         "conclusion": todo.conclusion,
         "timeline": list(todo.timeline),

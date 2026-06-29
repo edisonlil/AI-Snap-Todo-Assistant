@@ -143,6 +143,20 @@ CREATE TABLE IF NOT EXISTS todo_conclusion_attachments (
 CREATE INDEX IF NOT EXISTS idx_conclusion_attachments_todo
 ON todo_conclusion_attachments(todo_id);
 
+CREATE TABLE IF NOT EXISTS todo_current_summary_attachments (
+  id TEXT PRIMARY KEY,
+  todo_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  path TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  file_object_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_current_summary_attachments_todo
+ON todo_current_summary_attachments(todo_id);
+
 CREATE TABLE IF NOT EXISTS todo_bindings (
   todo_id TEXT NOT NULL,
   integration_id TEXT NOT NULL,

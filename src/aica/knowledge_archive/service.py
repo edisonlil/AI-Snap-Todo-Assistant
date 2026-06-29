@@ -134,6 +134,16 @@ def _todo_to_payload(todo: TodoItem) -> dict[str, object]:
         "id": todo.id,
         "title": todo.title.strip(),
         "current_summary": todo.current_summary.strip(),
+        "current_summary_attachments": [
+            {
+                "id": attachment.id,
+                "name": attachment.name,
+                "path": attachment.path,
+                "sizeBytes": attachment.size_bytes,
+                "kind": _attachment_kind(attachment.name),
+            }
+            for attachment in todo.current_summary_attachments
+        ],
         "summary_fields": todo.summary_fields.to_dict(),
         "conclusion": {
             "content": todo.conclusion.content.strip(),
@@ -235,6 +245,7 @@ def _build_archive_metadata_lines(todo_payload: dict[str, object]) -> list[str]:
         f"根因分类: {_clean_text(summary_fields.get('root_cause'))}",
         f"根因说明: {_clean_text(summary_fields.get('root_cause_desc'))}",
         f"当前摘要: {_clean_text(todo_payload.get('current_summary'))}",
+        f"当前描述附件: {_clean_text('、'.join(str(item.get('name') or '').strip() for item in list(todo_payload.get('current_summary_attachments') or []) if isinstance(item, dict)), fallback='无')}",
         f"问题结论: {_clean_text(dict(todo_payload.get('conclusion', {}) or {}).get('content'), fallback='暂无明确结论')}",
     ]
 

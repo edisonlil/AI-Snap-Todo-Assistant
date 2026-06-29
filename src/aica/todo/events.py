@@ -101,6 +101,9 @@ def serialize_todo_item(todo: TodoItem) -> dict[str, Any]:
         "status": todo.status,
         "summary_fields": todo.summary_fields.to_dict(),
         "current_summary": todo.current_summary,
+        "current_summary_attachments": [
+            serialize_timeline_attachment(item) for item in todo.current_summary_attachments
+        ],
         "created_at": todo.created_at,
         "updated_at": todo.updated_at,
         "timeline": [serialize_timeline_event(event) for event in todo.timeline],

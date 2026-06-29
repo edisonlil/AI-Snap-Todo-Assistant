@@ -91,6 +91,12 @@ def _has_value(value: object) -> bool:
     return True
 
 
+def _has_payload_value(key: str, value: object) -> bool:
+    if key == "attachments":
+        return value is not None
+    return _has_value(value)
+
+
 def _status_for_event(event: TodoDomainEvent) -> str:
     if event.event_type == TodoDomainEventType.DELETED:
         return "cancelled"
@@ -151,9 +157,6 @@ def _attachment_payload(item: dict[str, Any]) -> dict[str, object]:
     file_object_id = _clean(item.get("file_object_id") or item.get("fileObjectId"))
     if file_object_id:
         payload["file_object_id"] = file_object_id
-    preview_url = _clean(item.get("preview_url"))
-    if preview_url:
-        payload["preview_url"] = preview_url
     path = _clean(item.get("path"))
     if path:
         payload["_local_path"] = path
@@ -175,9 +178,8 @@ def _timeline_payload(item: dict[str, Any]) -> dict[str, object]:
         for attachment in list(item.get("attachments") or [])
         if isinstance(attachment, dict) and _clean(attachment.get("name") or attachment.get("file_name"))
     ]
-    if attachments:
-        payload["attachments"] = attachments
-    return {key: value for key, value in payload.items() if _has_value(value)}
+    payload["attachments"] = attachments
+    return {key: value for key, value in payload.items() if _has_payload_value(key, value)}
 
 
 def build_work_order_payload(event: TodoDomainEvent) -> dict[str, object]:
@@ -241,6 +243,13 @@ def build_work_order_payload(event: TodoDomainEvent) -> dict[str, object]:
             "linked": _linked_from_text(feature_point),
         }
 
+    attachments = [
+        _attachment_payload(dict(attachment))
+        for attachment in list(snapshot.get("current_summary_attachments") or [])
+        if isinstance(attachment, dict) and _clean(attachment.get("name") or attachment.get("file_name"))
+    ]
+    payload["attachments"] = attachments
+
     timeline = [
         _timeline_payload(dict(item))
         for item in list(snapshot.get("timeline") or [])
@@ -249,7 +258,7 @@ def build_work_order_payload(event: TodoDomainEvent) -> dict[str, object]:
     if timeline:
         payload["timeline"] = timeline
 
-    return {key: value for key, value in payload.items() if _has_value(value)}
+    return {key: value for key, value in payload.items() if _has_payload_value(key, value)}
 
 
 def _server_item_external_id(response: dict[str, Any]) -> str:
@@ -530,6 +539,11 @@ def todo_from_server_work_order(item: dict[str, Any]) -> TodoItem:
         id=todo_id,
         title=_clean(item.get("title")) or "未分类任务",
         current_summary=_clean(item.get("description")),
+        current_summary_attachments=[
+            _attachment_from_server_item(dict(attachment))
+            for attachment in list(item.get("attachments") or [])
+            if isinstance(attachment, dict)
+        ],
         created_at=created_at,
         updated_at=updated_at,
         completed_at=updated_at if status == TodoStatus.DONE else "",
@@ -579,7 +593,7 @@ def _timeline_from_server_item(item: dict[str, Any]) -> TimelineEvent:
 def _attachment_from_server_item(item: dict[str, Any]) -> TimelineAttachment:
     file_name = _clean(item.get("file_name") or item.get("name"))
     file_id = _clean(item.get("file_object_id") or item.get("file_id"))
-    file_url = _clean(item.get("url") or item.get("preview_url"))
+    file_url = _clean(item.get("url"))
     try:
         file_size = max(0, int(item.get("file_size") or item.get("size_bytes") or 0))
     except (TypeError, ValueError):
@@ -611,7 +625,6 @@ def _uploaded_attachment_payload(attachment: dict[str, object], file_object: dic
         ("id", "file_object_id"),
         ("url", "url"),
         ("download_url", "url"),
-        ("preview_url", "preview_url"),
     ):
         value = _clean(file_object.get(source_key))
         if value and not _clean(payload.get(target_key)):
@@ -652,10 +665,25 @@ def _prepare_attachment_for_sync(
 
 def _prepare_payload_attachments(client: WorkOrderClient, payload: dict[str, object]) -> dict[str, object]:
     prepared_payload = dict(payload)
+    external_order_no = _clean(prepared_payload.get("external_order_no"))
+    root_attachments = prepared_payload.get("attachments")
+    if isinstance(root_attachments, list):
+        prepared_root_attachments: list[dict[str, object]] = []
+        for attachment in root_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            prepared_attachment = _prepare_attachment_for_sync(
+                client,
+                dict(attachment),
+                external_order_no=external_order_no,
+                external_timeline_id="",
+            )
+            if prepared_attachment is not None:
+                prepared_root_attachments.append(prepared_attachment)
+        prepared_payload["attachments"] = prepared_root_attachments
     timeline = prepared_payload.get("timeline")
     if not isinstance(timeline, list):
-        return prepared_payload
-    external_order_no = _clean(prepared_payload.get("external_order_no"))
+        return {key: value for key, value in prepared_payload.items() if _has_payload_value(key, value)}
     prepared_timeline: list[object] = []
     for item in timeline:
         if not isinstance(item, dict):
@@ -681,9 +709,9 @@ def _prepare_payload_attachments(client: WorkOrderClient, payload: dict[str, obj
                 prepared_item["attachments"] = prepared_attachments
             else:
                 prepared_item.pop("attachments", None)
-        prepared_timeline.append({key: value for key, value in prepared_item.items() if _has_value(value)})
+        prepared_timeline.append({key: value for key, value in prepared_item.items() if _has_payload_value(key, value)})
     prepared_payload["timeline"] = prepared_timeline
-    return {key: value for key, value in prepared_payload.items() if _has_value(value)}
+    return {key: value for key, value in prepared_payload.items() if _has_payload_value(key, value)}
 
 
 @dataclass

@@ -207,6 +207,7 @@ class TodoController:
         *,
         title: str | None = None,
         current_summary: str | None = None,
+        current_summary_attachments: list[TimelineAttachment] | None = None,
         summary_fields: TicketSummaryFields | None = None,
         timeline: list[TimelineEvent] | None = None,
         conclusion: TodoConclusion | None = None,
@@ -220,6 +221,8 @@ class TodoController:
             changed_fields.append("title")
         if current_summary is not None:
             changed_fields.append("current_summary")
+        if current_summary_attachments is not None:
+            changed_fields.append("current_summary_attachments")
         if summary_fields is not None:
             changed_fields.append("summary_fields")
         if timeline is not None:
@@ -252,6 +255,7 @@ class TodoController:
             todo_id,
             title=title,
             current_summary=resolved_current_summary,
+            current_summary_attachments=current_summary_attachments if current_summary_attachments is not None else existing.current_summary_attachments,
             summary_fields=resolved_summary,
             timeline=resolved_timeline,
             conclusion=resolved_conclusion,

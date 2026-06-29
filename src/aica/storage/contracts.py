@@ -122,6 +122,7 @@ class TodoRepository(Protocol):
         *,
         title: str | None = None,
         current_summary: str | None = None,
+        current_summary_attachments: list["TimelineAttachment"] | None = None,
         summary_fields: "TicketSummaryFields | None" = None,
         timeline: list["TimelineEvent"] | None = None,
         conclusion: "TodoConclusion | None" = None,

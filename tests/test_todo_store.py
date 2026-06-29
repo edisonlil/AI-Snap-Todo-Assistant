@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
 from aica.storage.sqlite.repositories import SCHEMA_VERSION, SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
-from aica.todo.models import TodoStatus
+from aica.todo.models import TimelineAttachment, TodoStatus
 
 
 def _make_db_path(name: str) -> Path:
@@ -243,6 +243,32 @@ def test_append_problem_conclusion_updates_conclusion_instead_of_follow_up() -> 
     assert updated.timeline[-1].scenario == "结论更新"
     assert updated.timeline[-1].content == "新的问题结论 timeline"
     assert updated.timeline[0].scenario == "工单跟进"
+
+
+def test_update_todo_persists_current_summary_attachments() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-summary-attachments")))
+    todo = repository.create_todo_from_analysis(_build_snapshot("带描述附件"), "analysis")
+
+    updated = repository.update_todo(
+        todo.id,
+        current_summary_attachments=[
+            TimelineAttachment(
+                id="summary-att-1",
+                name="screen.png",
+                path="/tmp/screen.png",
+                size_bytes=128,
+                file_object_id="file-123",
+            )
+        ],
+    )
+
+    assert updated is not None
+    assert len(updated.current_summary_attachments) == 1
+    assert updated.current_summary_attachments[0].name == "screen.png"
+    reloaded = repository.get_todo(todo.id)
+    assert reloaded is not None
+    assert len(reloaded.current_summary_attachments) == 1
+    assert reloaded.current_summary_attachments[0].file_object_id == "file-123"
 
 
 def test_schema_migration_adds_completed_at_column() -> None:

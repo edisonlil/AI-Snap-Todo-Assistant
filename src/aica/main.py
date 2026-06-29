@@ -60,7 +60,7 @@ from aica.todo.detail_panel import TodoDetailPanel
 from aica.todo.detail_save_policy import should_run_ticket_enrichment_for_todo_detail_save
 from aica.todo.events import ScriptEventHandler, TodoBindingStore, TodoEventBus
 from aica.todo.panel import TodoPanel
-from aica.todo.store import TodoConclusion, TodoStore
+from aica.todo.store import TimelineAttachment, TodoConclusion, TodoStore
 from aica.todo.work_order_sync import WorkOrderSyncEventHandler
 from aica.theme_controller import ThemeController
 from aica.toolbar import FloatingToolbar
@@ -245,10 +245,19 @@ def _build_hotkey_manager(config_mgr: ConfigManager, initial_config) -> HotkeyMa
         return HotkeyManager(default_hotkey, platform_id=RUNTIME_CAPABILITIES.platform_id)
 
 
-def _resolve_todo_detail_draft(payload: dict[str, object]) -> tuple[str, str, TicketSummaryFields, TodoConclusion]:
+def _resolve_todo_detail_draft(
+    payload: dict[str, object],
+) -> tuple[str, str, list[TimelineAttachment], TicketSummaryFields, TodoConclusion]:
     draft_payload = payload.get("draft")
     source = dict(draft_payload or {}) if isinstance(draft_payload, dict) else dict(payload)
     summary_fields = TicketSummaryFields.from_dict(source.get("summary_fields"))
+    current_summary_attachments = [
+        attachment
+        if isinstance(attachment, TimelineAttachment)
+        else TimelineAttachment(**dict(attachment or {}))
+        for attachment in list(source.get("current_summary_attachments") or [])
+        if isinstance(attachment, (TimelineAttachment, dict))
+    ]
     conclusion_payload = source.get("conclusion")
     conclusion = (
         conclusion_payload
@@ -258,6 +267,7 @@ def _resolve_todo_detail_draft(payload: dict[str, object]) -> tuple[str, str, Ti
     return (
         str(source.get("title", "")),
         str(source.get("current_summary", "")),
+        current_summary_attachments,
         summary_fields,
         conclusion,
     )
@@ -955,7 +965,7 @@ def main() -> None:
         previous_todo = todo_store.get_todo(todo_id)
         action = str(payload.get("action", "")).strip()
         save_mode = payload.get("saveMode")
-        title, current_summary, summary_fields, conclusion = _resolve_todo_detail_draft(payload)
+        title, current_summary, current_summary_attachments, summary_fields, conclusion = _resolve_todo_detail_draft(payload)
         timeline_payload = payload.get("timeline", [])
         if action == "append_timeline_entry":
             current_todo = todo_store.get_todo(todo_id)
@@ -976,6 +986,7 @@ def main() -> None:
             todo_id,
             title=title,
             current_summary=current_summary,
+            current_summary_attachments=current_summary_attachments,
             summary_fields=summary_fields,
             timeline=timeline_payload,
             conclusion=conclusion,
