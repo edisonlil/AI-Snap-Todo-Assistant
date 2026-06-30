@@ -14,6 +14,7 @@ from aica.todo.detail_panel import (
     TodoDetailPanel,
     _AssistTroubleshootingWindow,
     _TimelineDetailWindow,
+    _project_status_detail,
     _render_timeline_markdown_html,
     _resolve_neighbor_panel_x,
     _StageSummaryWindow,
@@ -567,6 +568,29 @@ def test_todo_detail_empty_product_line_does_not_default_from_project_snapshot()
 
     assert bridge.productLine == "未知"
     assert payload["summary_fields"]["product_line"] == "未知"
+
+
+def test_manual_project_link_detail_prefers_project_snapshot() -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={"project_name": "企业知识库重构", "task_order_no": "ACH-20240630-01"},
+    )
+
+    assert _project_status_detail(todo) == "企业知识库重构 ACH-20240630-01"
+
+
+def test_manual_project_link_detail_falls_back_when_snapshot_missing() -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+    )
+
+    assert _project_status_detail(todo) == "当前待办使用了手动项目关联结果。"
 
 
 def test_todo_detail_save_preserves_issue_product_field() -> None:

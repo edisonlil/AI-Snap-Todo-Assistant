@@ -764,15 +764,20 @@ def _ticket_project_status_tone(status: str) -> str:
     return mapping.get(str(status or "").strip(), "default")
 
 
+def _ticket_project_snapshot_detail(link: TodoProjectLink) -> str:
+    project_name = str(link.project_snapshot.get("project_name") or "").strip()
+    task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+    if project_name and task_order_no:
+        return f"{project_name} / {task_order_no}"
+    return project_name or task_order_no
+
+
 def _ticket_project_status_detail(todo: TodoItem) -> str:
     link = todo.project_link
     status = str(link.match_status or "").strip()
     project_name = str(link.project_snapshot.get("project_name") or "").strip()
-    task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
     if status == "matched":
-        if project_name and task_order_no:
-            return f"{project_name} / {task_order_no}"
-        return project_name or task_order_no or "\u5df2\u6839\u636e\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u9879\u76ee\u4e3b\u6570\u636e\u3002"
+        return _ticket_project_snapshot_detail(link) or "\u5df2\u6839\u636e\u7fa4\u804a\u540d\u79f0\u547d\u4e2d\u9879\u76ee\u4e3b\u6570\u636e\u3002"
     if status == "conflict":
         reason = str(link.match_reason or "").strip()
         if reason.startswith("multiple_active_projects:"):
@@ -781,7 +786,7 @@ def _ticket_project_status_detail(todo: TodoItem) -> str:
     if status == "expired":
         return f"{project_name} \u5df2\u8fc7\u4fdd\u3002" if project_name else "\u5f53\u524d\u7fa4\u804a\u540d\u79f0\u53ea\u547d\u4e2d\u8fc7\u4fdd\u9879\u76ee\u3002"
     if status == "manual":
-        return "\u5f53\u524d\u5de5\u5355\u4f7f\u7528\u4e86\u624b\u52a8\u9879\u76ee\u5173\u8054\u7ed3\u679c\u3002"
+        return _ticket_project_snapshot_detail(link) or "\u5f53\u524d\u5de5\u5355\u4f7f\u7528\u4e86\u624b\u52a8\u9879\u76ee\u5173\u8054\u7ed3\u679c\u3002"
     reason = str(link.match_reason or "").strip()
     if reason == "missing_group_name":
         return "\u5f53\u524d\u5de5\u5355\u7f3a\u5c11\u7fa4\u804a\u540d\u79f0\uff0c\u65e0\u6cd5\u81ea\u52a8\u5339\u914d\u9879\u76ee\u3002"

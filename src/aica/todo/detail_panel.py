@@ -757,15 +757,19 @@ def _project_status_label(status: str) -> str:
     return mapping.get(str(status or "").strip(), "未匹配项目")
 
 
+def _project_snapshot_detail(link: TodoProjectLink) -> str:
+    project_name = str(link.project_snapshot.get("project_name") or "").strip()
+    task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
+    if project_name and task_order_no:
+        return f"{project_name} {task_order_no}"
+    return project_name or task_order_no
+
+
 def _project_status_detail(todo: TodoItem) -> str:
     link = todo.project_link
     status = str(link.match_status or "").strip()
     if status == "matched":
-        project_name = str(link.project_snapshot.get("project_name") or "").strip()
-        task_order_no = str(link.project_snapshot.get("task_order_no") or "").strip()
-        if project_name and task_order_no:
-            return f"{project_name} {task_order_no}"
-        return project_name or task_order_no or "已根据群聊名称命中项目主数据。"
+        return _project_snapshot_detail(link) or "已根据群聊名称命中项目主数据。"
     if status == "conflict":
         reason = str(link.match_reason or "").strip()
         if reason.startswith("multiple_active_projects:"):
@@ -775,7 +779,7 @@ def _project_status_detail(todo: TodoItem) -> str:
         project_name = str(link.project_snapshot.get("project_name") or "").strip()
         return f"{project_name} 已过保。" if project_name else "当前群聊名称只命中过保项目。"
     if status == "manual":
-        return "当前待办使用了手动项目关联结果。"
+        return _project_snapshot_detail(link) or "当前待办使用了手动项目关联结果。"
     reason = str(link.match_reason or "").strip()
     if reason == "missing_group_name":
         return "当前待办缺少群聊名称，无法自动匹配项目。"

@@ -1339,6 +1339,41 @@ def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.Monke
     assert _notification_messages(bridge)
 
 
+def test_manual_selected_ticket_project_detail_prefers_project_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_id": "project-1",
+            "project_name": "Demo Project",
+            "task_order_no": "WO-001",
+        },
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["projectStatus"] == "manual"
+    assert bridge.selectedTicket["projectStatusDetail"] == "Demo Project / WO-001"
+
+
+def test_manual_selected_ticket_project_detail_falls_back_without_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["projectStatus"] == "manual"
+    assert bridge.selectedTicket["projectStatusDetail"] == "当前工单使用了手动项目关联结果。"
+
+
 def test_unlink_selected_ticket_project_failure_pushes_error(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
