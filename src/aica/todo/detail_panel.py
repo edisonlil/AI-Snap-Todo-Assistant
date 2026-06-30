@@ -1490,6 +1490,13 @@ class _TodoDetailBridge(QObject):
         except Exception:
             return True
 
+    @pyqtProperty(bool, notify=dataChanged)
+    def timelinePolishEnabled(self) -> bool:
+        try:
+            return bool(self._config_manager.load().enable_timeline_polish)
+        except Exception:
+            return True
+
     @pyqtProperty(int, notify=dataChanged)
     def syncRecordCount(self) -> int:
         return len(self._sync_records)
@@ -2375,6 +2382,12 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot(str)
     def requestTimelinePolish(self, event_id: str) -> None:
         if self._todo_id is None:
+            return
+        if not self.timelinePolishEnabled:
+            self._timeline_detail_busy = False
+            self._timeline_detail_pending_request_id = ""
+            self._timeline_detail_error = "时间线润色功能已关闭"
+            self.dataChanged.emit()
             return
         item = self._find_timeline_item(event_id)
         if item is None:

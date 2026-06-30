@@ -126,8 +126,8 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
     assert linked is not None
     assert linked.project_link.match_status == "matched"
     assert linked.project_link.project_snapshot["project_name"] == "Demo Project"
-    assert linked.summary_fields.product_line == "WPS协作"
-    assert linked.summary_fields.ticket_version == "release_dc_v7"
+    assert linked.summary_fields.product_line == "未知"
+    assert linked.summary_fields.ticket_version == ""
     assert linked.summary_fields.customer_environment_code == "env-prod"
     assert linked.summary_fields.customer_environment_value == "生产环境"
 
@@ -146,15 +146,15 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
             (todo.id,),
         ).fetchall()
         todo_row = connection.execute(
-            "SELECT product_line, ticket_version, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
+            "SELECT product_line, product_module, ticket_version, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
             (todo.id,),
         ).fetchone()
 
     assert link_rows == []
-    assert todo_row == ("", "", "env-prod", "生产环境")
+    assert todo_row == ("", "", "", "env-prod", "生产环境")
 
 
-def test_project_repair_preserves_selected_product_line_option() -> None:
+def test_linked_todo_keeps_snapshot_selected_product_line_option() -> None:
     db_path = _make_db_path("todo-product-option")
     project_repository = SQLiteProjectRepository(db_path)
     project_repository.upsert_project(
@@ -179,6 +179,35 @@ def test_project_repair_preserves_selected_product_line_option() -> None:
     assert linked is not None
     assert linked.project_link.match_status == "matched"
     assert linked.summary_fields.product_line == "文档中台"
+
+
+def test_linked_todo_keeps_manual_product_line_outside_project_snapshot() -> None:
+    db_path = _make_db_path("todo-product-manual-override")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="文档中台",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+    snapshot = _build_snapshot("todo-product-manual-override")
+    snapshot.fields.product_line = "私网文档中台"
+    snapshot.fields.product_module = "文档中台"
+    todo = repository.create_todo_from_analysis(snapshot, "analysis")
+
+    linked = repository.get_todo(todo.id)
+
+    assert linked is not None
+    assert linked.project_link.match_status == "matched"
+    assert linked.summary_fields.product_line == "私网文档中台"
+    assert linked.summary_fields.product_module == "文档中台"
 
 
 def test_project_link_inherits_latest_customer_environment_when_current_is_empty() -> None:
@@ -209,6 +238,190 @@ def test_project_link_inherits_latest_customer_environment_when_current_is_empty
 
     assert second.summary_fields.customer_environment_code == "env-prod"
     assert second.summary_fields.customer_environment_value == "生产环境"
+
+
+def test_create_todo_inherits_latest_project_fields_when_current_values_are_default_empty() -> None:
+    db_path = _make_db_path("todo-project-latest-defaults")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first_snapshot = _build_snapshot("todo-first-with-history")
+    first_snapshot.fields.environment = "生产"
+    first_snapshot.fields.product_line = "PC Office"
+    first_snapshot.fields.product_module = "PC Office-文字"
+    first_snapshot.fields.customer_environment_code = "env-prod"
+    first_snapshot.fields.customer_environment_value = "生产环境"
+    first_snapshot.fields.issue_product = "产品A/模块B/功能C"
+    first = repository.create_todo_from_analysis(first_snapshot, "analysis")
+
+    second_snapshot = _build_snapshot("todo-second-inherit")
+    second_snapshot.fields.environment = ""
+    second_snapshot.fields.product_line = ""
+    second_snapshot.fields.product_module = ""
+    second_snapshot.fields.customer_environment_code = ""
+    second_snapshot.fields.customer_environment_value = ""
+    second_snapshot.fields.issue_product = ""
+    second = repository.create_todo_from_analysis(second_snapshot, "analysis")
+
+    assert first.project_link.project_id == "project-1"
+    assert second.project_link.project_id == "project-1"
+    assert second.summary_fields.environment == "生产"
+    assert second.summary_fields.product_line == "PC Office"
+    assert second.summary_fields.product_module == "PC Office-文字"
+    assert second.summary_fields.customer_environment_code == "env-prod"
+    assert second.summary_fields.customer_environment_value == "生产环境"
+    assert second.summary_fields.issue_product == "产品A/模块B/功能C"
+
+
+def test_create_todo_keeps_fields_empty_without_previous_project_todo() -> None:
+    db_path = _make_db_path("todo-project-no-history-defaults")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    snapshot = _build_snapshot("todo-first-no-history")
+    snapshot.fields.environment = ""
+    snapshot.fields.product_line = ""
+    snapshot.fields.product_module = ""
+    snapshot.fields.customer_environment_code = ""
+    snapshot.fields.customer_environment_value = ""
+    snapshot.fields.issue_product = ""
+    todo = repository.create_todo_from_analysis(snapshot, "analysis")
+
+    assert todo.project_link.project_id == "project-1"
+    assert todo.summary_fields.environment == "未知"
+    assert todo.summary_fields.product_line == "未知"
+    assert todo.summary_fields.product_module == ""
+    assert todo.summary_fields.customer_environment_code == ""
+    assert todo.summary_fields.customer_environment_value == ""
+    assert todo.summary_fields.issue_product == ""
+
+
+def test_project_relink_inherits_latest_project_fields_only_for_default_empty_values() -> None:
+    db_path = _make_db_path("todo-project-relink-defaults")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first_snapshot = _build_snapshot("todo-history")
+    first_snapshot.fields.environment = "生产"
+    first_snapshot.fields.product_line = "PC Office"
+    first_snapshot.fields.product_module = "PC Office-文字"
+    first_snapshot.fields.customer_environment_code = "env-prod"
+    first_snapshot.fields.customer_environment_value = "生产环境"
+    first_snapshot.fields.issue_product = "产品A/模块B/功能C"
+    repository.create_todo_from_analysis(first_snapshot, "analysis")
+
+    second_snapshot = _build_snapshot("todo-relink")
+    second_snapshot.fields.group_name = "unmatched-group"
+    second_snapshot.fields.environment = ""
+    second_snapshot.fields.product_line = ""
+    second_snapshot.fields.product_module = ""
+    second_snapshot.fields.customer_environment_code = ""
+    second_snapshot.fields.customer_environment_value = ""
+    second_snapshot.fields.issue_product = ""
+    second = repository.create_todo_from_analysis(second_snapshot, "analysis")
+    assert second.project_link.project_id == ""
+
+    updated = repository.update_todo(
+        second.id,
+        summary_fields=TicketSummaryFields(
+            group_name="test-group",
+            environment="",
+            product_line="",
+            product_module="",
+            ticket_type=second.summary_fields.ticket_type,
+            customer_environment_code="",
+            customer_environment_value="",
+            issue_product="",
+        ),
+    )
+
+    assert updated is not None
+    assert updated.project_link.project_id == "project-1"
+    assert updated.summary_fields.environment == "生产"
+    assert updated.summary_fields.product_line == "PC Office"
+    assert updated.summary_fields.product_module == "PC Office-文字"
+    assert updated.summary_fields.customer_environment_code == "env-prod"
+    assert updated.summary_fields.customer_environment_value == "生产环境"
+    assert updated.summary_fields.issue_product == "产品A/模块B/功能C"
+
+
+def test_create_todo_does_not_override_existing_project_fields_with_latest_history() -> None:
+    db_path = _make_db_path("todo-project-existing-values")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first_snapshot = _build_snapshot("todo-history")
+    first_snapshot.fields.environment = "生产"
+    first_snapshot.fields.product_line = "PC Office"
+    first_snapshot.fields.product_module = "PC Office-文字"
+    first_snapshot.fields.customer_environment_code = "env-prod"
+    first_snapshot.fields.customer_environment_value = "生产环境"
+    first_snapshot.fields.issue_product = "产品A/模块B/功能C"
+    repository.create_todo_from_analysis(first_snapshot, "analysis")
+
+    second_snapshot = _build_snapshot("todo-current-values")
+    second_snapshot.fields.environment = "预发"
+    second_snapshot.fields.product_line = "WPS会议"
+    second_snapshot.fields.product_module = "会议室"
+    second_snapshot.fields.customer_environment_code = "env-uat"
+    second_snapshot.fields.customer_environment_value = "预发环境"
+    second_snapshot.fields.issue_product = "产品X/模块Y/功能Z"
+    second = repository.create_todo_from_analysis(second_snapshot, "analysis")
+
+    assert second.summary_fields.environment == "预发"
+    assert second.summary_fields.product_line == "WPS会议"
+    assert second.summary_fields.product_module == "会议室"
+    assert second.summary_fields.customer_environment_code == "env-uat"
+    assert second.summary_fields.customer_environment_value == "预发环境"
+    assert second.summary_fields.issue_product == "产品X/模块Y/功能Z"
 
 
 def test_create_todo_from_problem_conclusion_saves_into_conclusion() -> None:
@@ -314,6 +527,7 @@ def test_schema_migration_adds_completed_at_column() -> None:
     assert "completed_at" in columns
     assert "customer_environment_code" in columns
     assert "customer_environment_value" in columns
+    assert "product_module" in columns
 
 
 def test_schema_migration_creates_error_codes_table_and_updates_version() -> None:

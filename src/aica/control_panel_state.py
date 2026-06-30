@@ -108,6 +108,7 @@ def persist_control_panel_config(
     max_image_megabytes: str,
     theme: object | None = None,
     show_todo_sync_status: bool | None = None,
+    enable_timeline_polish: bool | None = None,
 ) -> AppConfig:
     updated = deepcopy(config)
     updated.hotkeys.capture = normalize_hotkey(capture_hotkey)
@@ -116,6 +117,8 @@ def persist_control_panel_config(
         updated.theme = ThemeConfig.from_dict(theme)
     if show_todo_sync_status is not None:
         updated.show_todo_sync_status = bool(show_todo_sync_status)
+    if enable_timeline_polish is not None:
+        updated.enable_timeline_polish = bool(enable_timeline_polish)
     updated.default_provider_id = updated.task_model_bindings.analysis.provider_id
     config_manager.save(updated)
     return updated

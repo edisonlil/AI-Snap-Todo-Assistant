@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from aica.models import TicketSnapshot, TicketSummaryFields, merge_summary_fields_for_append
+from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text, merge_summary_fields_for_append
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
 from aica.project_management import is_project_active, split_project_product_lines
 from aica.log_analysis.models import LogAnalysisTask
@@ -232,10 +232,12 @@ class SQLiteStorageMigrator:
         todo_columns = {
             "sort_order": "INTEGER NOT NULL DEFAULT 0",
             "product_line": "TEXT NOT NULL DEFAULT ''",
+            "product_module": "TEXT NOT NULL DEFAULT ''",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
             "ach_filled_at": "TEXT NOT NULL DEFAULT ''",
             "customer_environment_code": "TEXT NOT NULL DEFAULT ''",
             "customer_environment_value": "TEXT NOT NULL DEFAULT ''",
+            "issue_product": "TEXT NOT NULL DEFAULT ''",
             "feature_point": "TEXT NOT NULL DEFAULT ''",
             "feature_point_source": "TEXT NOT NULL DEFAULT ''",
             "root_cause_desc": "TEXT NOT NULL DEFAULT ''",
@@ -1219,6 +1221,97 @@ class SQLiteTodoRepository:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    def _apply_latest_project_field_defaults(
+        self,
+        connection: sqlite3.Connection,
+        todo_id: str,
+        project_id: str,
+    ) -> None:
+        normalized_todo_id = sanitize_text(todo_id)
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_todo_id or not normalized_project_id:
+            return
+        current_row = connection.execute(
+            """
+            SELECT environment, product_line, product_module,
+                   customer_environment_code, customer_environment_value, issue_product
+            FROM todos
+            WHERE id = ?
+            """,
+            (normalized_todo_id,),
+        ).fetchone()
+        if current_row is None:
+            return
+        previous_row = connection.execute(
+            """
+            SELECT todos.environment, todos.product_line, todos.product_module,
+                   todos.customer_environment_code, todos.customer_environment_value, todos.issue_product
+            FROM todos
+            JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+            WHERE todo_project_links.project_id = ?
+              AND todo_project_links.todo_id <> ?
+              AND todo_project_links.match_status IN ('matched', 'manual', 'expired')
+            ORDER BY todos.created_at DESC, todos.updated_at DESC, todos.id DESC
+            LIMIT 1
+            """,
+            (normalized_project_id, normalized_todo_id),
+        ).fetchone()
+
+        current_environment = sanitize_text(current_row["environment"])
+        current_product_line = sanitize_text(current_row["product_line"])
+        current_product_module = sanitize_text(current_row["product_module"])
+        current_customer_environment_code = sanitize_text(current_row["customer_environment_code"])
+        current_customer_environment_value = sanitize_text(current_row["customer_environment_value"])
+        current_issue_product = sanitize_text(current_row["issue_product"])
+
+        previous_environment = sanitize_text(previous_row["environment"]) if previous_row is not None else ""
+        previous_product_line = sanitize_text(previous_row["product_line"]) if previous_row is not None else ""
+        previous_product_module = sanitize_text(previous_row["product_module"]) if previous_row is not None else ""
+        previous_customer_environment_code = (
+            sanitize_text(previous_row["customer_environment_code"]) if previous_row is not None else ""
+        )
+        previous_customer_environment_value = (
+            sanitize_text(previous_row["customer_environment_value"]) if previous_row is not None else ""
+        )
+        previous_issue_product = sanitize_text(previous_row["issue_product"]) if previous_row is not None else ""
+
+        updated_environment = previous_environment if is_unknown_text(current_environment) else current_environment
+        updated_product_line = previous_product_line if is_unknown_text(current_product_line) else current_product_line
+        updated_product_module = current_product_module or previous_product_module
+        updated_customer_environment_code = current_customer_environment_code or previous_customer_environment_code
+        updated_customer_environment_value = current_customer_environment_value or previous_customer_environment_value
+        updated_issue_product = current_issue_product or previous_issue_product
+
+        if (
+            updated_environment == current_environment
+            and updated_product_line == current_product_line
+            and updated_product_module == current_product_module
+            and updated_customer_environment_code == current_customer_environment_code
+            and updated_customer_environment_value == current_customer_environment_value
+            and updated_issue_product == current_issue_product
+        ):
+            return
+
+        connection.execute(
+            """
+            UPDATE todos
+            SET environment = ?, product_line = ?, product_module = ?,
+                customer_environment_code = ?, customer_environment_value = ?, issue_product = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                updated_environment,
+                updated_product_line,
+                updated_product_module,
+                updated_customer_environment_code,
+                updated_customer_environment_value,
+                updated_issue_product,
+                now_iso(),
+                normalized_todo_id,
+            ),
+        )
+
     def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
         normalized_query = sanitize_text(query).lower()
         normalized_status = sanitize_text(status).lower() or TodoStatus.OPEN
@@ -1333,7 +1426,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, ticket_type, customer_environment_code, customer_environment_value,
+                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -1374,14 +1467,15 @@ class SQLiteTodoRepository:
                 """
                 INSERT INTO todos(
                   id, title, current_summary, group_name,
-                  environment, product_line, ticket_type, customer_environment_code, customer_environment_value,
+                  environment, product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
+                  issue_product,
                   ach_no, ach_filled_at, ticket_version,
                   feature_point, feature_point_source,
                   root_cause_desc, root_cause_desc_source,
                   root_cause, root_cause_source,
                   conclusion_content, conclusion_updated_at,
                   status, created_at, completed_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -1390,9 +1484,11 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.group_name),
                     sanitize_text(snapshot.fields.environment),
                     sanitize_text(snapshot.fields.product_line),
+                    sanitize_text(snapshot.fields.product_module),
                     sanitize_text(snapshot.fields.ticket_type),
                     sanitize_text(snapshot.fields.customer_environment_code),
                     sanitize_text(snapshot.fields.customer_environment_value),
+                    sanitize_text(snapshot.fields.issue_product),
                     ach_no,
                     ach_filled_at,
                     sanitize_text(snapshot.fields.ticket_version),
@@ -1426,7 +1522,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, ticket_type, customer_environment_code, customer_environment_value,
+                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -1449,7 +1545,7 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET group_name = ?, environment = ?, product_line = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
+                SET group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -1460,9 +1556,11 @@ class SQLiteTodoRepository:
                     sanitize_text(merged_fields.group_name),
                     sanitize_text(merged_fields.environment),
                     sanitize_text(merged_fields.product_line),
+                    sanitize_text(merged_fields.product_module),
                     sanitize_text(merged_fields.ticket_type),
                     sanitize_text(merged_fields.customer_environment_code),
                     sanitize_text(merged_fields.customer_environment_value),
+                    sanitize_text(merged_fields.issue_product),
                     sanitize_text(merged_fields.ach_no),
                     sanitize_text(merged_fields.ach_filled_at),
                     sanitize_text(merged_fields.ticket_version),
@@ -1556,7 +1654,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, ticket_type, customer_environment_code, customer_environment_value,
+                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -1579,6 +1677,11 @@ class SQLiteTodoRepository:
                 if summary_fields is not None
                 else str(row["product_line"])
             )
+            updated_product_module = (
+                sanitize_text(summary_fields.product_module)
+                if summary_fields is not None
+                else str(row["product_module"])
+            )
             updated_ticket_type = sanitize_text(summary_fields.ticket_type) if summary_fields is not None else str(row["ticket_type"])
             updated_customer_environment_code = (
                 sanitize_text(summary_fields.customer_environment_code)
@@ -1589,6 +1692,11 @@ class SQLiteTodoRepository:
                 sanitize_text(summary_fields.customer_environment_value)
                 if summary_fields is not None
                 else str(row["customer_environment_value"])
+            )
+            updated_issue_product = (
+                sanitize_text(summary_fields.issue_product)
+                if summary_fields is not None
+                else str(row["issue_product"])
             )
             updated_ach_no = (
                 sanitize_text(summary_fields.ach_no)
@@ -1654,7 +1762,7 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, current_summary = ?, group_name = ?, environment = ?, product_line = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
+                SET title = ?, current_summary = ?, group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -1668,9 +1776,11 @@ class SQLiteTodoRepository:
                     updated_group_name,
                     updated_environment,
                     updated_product_line,
+                    updated_product_module,
                     updated_ticket_type,
                     updated_customer_environment_code,
                     updated_customer_environment_value,
+                    updated_issue_product,
                     updated_ach_no,
                     updated_ach_filled_at,
                     updated_ticket_version,
@@ -1728,7 +1838,7 @@ class SQLiteTodoRepository:
                 (sanitized_id,),
             )
             connection.execute(
-                "UPDATE todos SET product_line = '', ticket_version = '', updated_at = ? WHERE id = ?",
+                "UPDATE todos SET product_line = '', product_module = '', ticket_version = '', updated_at = ? WHERE id = ?",
                 (stamp, sanitized_id),
             )
         return self.get_todo(sanitized_id)
@@ -1743,7 +1853,6 @@ class SQLiteTodoRepository:
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:
         row_payload = dict(row)
         project_link = self._project_repository.get_project_link(str(row["id"]))
-        row_payload = self._repair_project_backed_fields(connection, row_payload, project_link)
         timeline_rows = [
             dict(item)
             for item in connection.execute(
@@ -1809,68 +1918,11 @@ class SQLiteTodoRepository:
             project_link_row=project_link.to_dict() if project_link is not None else None,
         )
 
-    def _repair_project_backed_fields(
-        self,
-        connection: sqlite3.Connection,
-        row_payload: dict[str, Any],
-        project_link: TodoProjectLink | None,
-    ) -> dict[str, Any]:
-        if project_link is None or project_link.match_status not in {"matched", "manual", "expired"}:
-            return row_payload
-
-        snapshot = project_link.project_snapshot
-        current_product_line = sanitize_text(row_payload.get("product_line", ""))
-        current_ticket_version = sanitize_text(row_payload.get("ticket_version", ""))
-        current_customer_environment_code = sanitize_text(row_payload.get("customer_environment_code", ""))
-        current_customer_environment_value = sanitize_text(row_payload.get("customer_environment_value", ""))
-        snapshot_product_line = sanitize_text(snapshot.get("product_line", ""))
-        snapshot_product_line_options = split_project_product_lines(snapshot_product_line)
-        next_product_line = snapshot_product_line
-        if current_product_line and current_product_line in snapshot_product_line_options:
-            next_product_line = current_product_line
-        snapshot_ticket_version = sanitize_text(snapshot.get("product_version", ""))
-        next_ticket_version = current_ticket_version or snapshot_ticket_version
-        next_customer_environment_code = current_customer_environment_code
-        next_customer_environment_value = current_customer_environment_value
-        if not current_customer_environment_code and not current_customer_environment_value:
-            inherited_customer_environment = self._latest_customer_environment_for_project(
-                connection,
-                todo_id=sanitize_text(row_payload.get("id", "")),
-                project_link=project_link,
-            )
-            next_customer_environment_code = inherited_customer_environment.get("code", "")
-            next_customer_environment_value = inherited_customer_environment.get("value", "")
-
-        if (
-            current_product_line == next_product_line
-            and current_ticket_version == next_ticket_version
-            and current_customer_environment_code == next_customer_environment_code
-            and current_customer_environment_value == next_customer_environment_value
-        ):
-            return row_payload
-
-        connection.execute(
-            "UPDATE todos SET product_line = ?, ticket_version = ?, customer_environment_code = ?, customer_environment_value = ?, updated_at = ? WHERE id = ?",
-            (
-                next_product_line,
-                next_ticket_version,
-                next_customer_environment_code,
-                next_customer_environment_value,
-                now_iso(),
-                sanitize_text(row_payload.get("id", "")),
-            ),
-        )
-        row_payload["product_line"] = next_product_line
-        row_payload["ticket_version"] = next_ticket_version
-        row_payload["customer_environment_code"] = next_customer_environment_code
-        row_payload["customer_environment_value"] = next_customer_environment_value
-        return row_payload
-
     def _load_todo(self, connection: sqlite3.Connection, todo_id: str) -> TodoItem:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   product_line, ticket_type, customer_environment_code, customer_environment_value,
+                   product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
                    ach_no, ach_filled_at, ticket_version,
                    feature_point, feature_point_source,
                    root_cause_desc, root_cause_desc_source,
@@ -2000,119 +2052,14 @@ class SQLiteTodoRepository:
                     project_snapshot=project.to_snapshot(),
                 )
                 self._project_repository.bind_todo_to_project(todo_id, match_result)
-                self._synchronize_project_fields(todo_id, match_result)
+                with self._connect() as connection:
+                    self._apply_latest_project_field_defaults(connection, todo_id, project.id)
                 return
         match_result = self._project_repository.match_project_by_group_name(group_name)
         self._project_repository.bind_todo_to_project(todo_id, match_result)
-        self._synchronize_project_fields(todo_id, match_result)
-
-    def _latest_customer_environment_for_project(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        todo_id: str,
-        project_link: TodoProjectLink | None = None,
-        match_result: ProjectMatchResult | None = None,
-    ) -> dict[str, str]:
-        candidate_values: list[tuple[str, str]] = []
-        project_id = ""
-        project_snapshot: dict[str, Any] = {}
-        if project_link is not None:
-            project_id = sanitize_text(project_link.project_id)
-            project_snapshot = dict(project_link.project_snapshot or {})
-        if match_result is not None:
-            project_id = sanitize_text(match_result.project_id) or project_id
-            if not project_snapshot:
-                project_snapshot = dict(match_result.project_snapshot or {})
-
-        candidate_values.append(("project_id", project_id))
-        candidate_values.append(("task_order_no", sanitize_text(project_snapshot.get("task_order_no"))))
-        candidate_values.append(("server_project_id", sanitize_text(project_snapshot.get("server_project_id"))))
-
-        normalized_todo_id = sanitize_text(todo_id)
-        rows = connection.execute(
-            """
-            SELECT
-              todos.customer_environment_code,
-              todos.customer_environment_value,
-              todo_project_links.project_id,
-              todo_project_links.project_snapshot_json
-            FROM todos
-            JOIN todo_project_links ON todo_project_links.todo_id = todos.id
-            WHERE todos.id <> ?
-              AND TRIM(COALESCE(todos.customer_environment_value, '')) <> ''
-            ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC
-            """,
-            (normalized_todo_id,),
-        ).fetchall()
-
-        for key_name, key_value in candidate_values:
-            if not key_value:
-                continue
-            for row in rows:
-                snapshot = parse_json_object(row["project_snapshot_json"])
-                if key_name == "project_id":
-                    row_key_value = sanitize_text(row["project_id"])
-                elif key_name == "task_order_no":
-                    row_key_value = sanitize_text(snapshot.get("task_order_no"))
-                else:
-                    row_key_value = sanitize_text(snapshot.get("server_project_id"))
-                if row_key_value != key_value:
-                    continue
-                value = sanitize_text(row["customer_environment_value"])
-                code = sanitize_text(row["customer_environment_code"])
-                if value:
-                    return {"code": code, "value": value}
-        return {"code": "", "value": ""}
-
-    def _synchronize_project_fields(self, todo_id: str, match_result: ProjectMatchResult) -> None:
-        snapshot = match_result.project_snapshot if match_result.status in {"matched", "manual", "expired"} else {}
-        product_line = sanitize_text(snapshot.get("product_line", ""))
-        ticket_version = sanitize_text(snapshot.get("product_version", ""))
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT product_line, ticket_version, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
-                (sanitize_text(todo_id),),
-            ).fetchone()
-            if row is None:
-                return
-            current_product_line = sanitize_text(row["product_line"])
-            current_ticket_version = sanitize_text(row["ticket_version"])
-            current_customer_environment_code = sanitize_text(row["customer_environment_code"])
-            current_customer_environment_value = sanitize_text(row["customer_environment_value"])
-            product_line_options = split_project_product_lines(product_line)
-            next_product_line = product_line
-            if current_product_line and current_product_line in product_line_options:
-                next_product_line = current_product_line
-            next_ticket_version = current_ticket_version or ticket_version
-            next_customer_environment_code = current_customer_environment_code
-            next_customer_environment_value = current_customer_environment_value
-            if not current_customer_environment_code and not current_customer_environment_value:
-                inherited_customer_environment = self._latest_customer_environment_for_project(
-                    connection,
-                    todo_id=todo_id,
-                    match_result=match_result,
-                )
-                next_customer_environment_code = inherited_customer_environment.get("code", "")
-                next_customer_environment_value = inherited_customer_environment.get("value", "")
-            if (
-                current_product_line == next_product_line
-                and current_ticket_version == next_ticket_version
-                and current_customer_environment_code == next_customer_environment_code
-                and current_customer_environment_value == next_customer_environment_value
-            ):
-                return
-            connection.execute(
-                "UPDATE todos SET product_line = ?, ticket_version = ?, customer_environment_code = ?, customer_environment_value = ?, updated_at = ? WHERE id = ?",
-                (
-                    next_product_line,
-                    next_ticket_version,
-                    next_customer_environment_code,
-                    next_customer_environment_value,
-                    now_iso(),
-                    sanitize_text(todo_id),
-                ),
-            )
+        if sanitize_text(match_result.project_id) and sanitize_text(match_result.status) in {"matched", "manual"}:
+            with self._connect() as connection:
+                self._apply_latest_project_field_defaults(connection, todo_id, match_result.project_id)
 
     def _relink_rows(self, rows: list[sqlite3.Row]) -> int:
         relinked_count = 0
@@ -2593,7 +2540,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         """
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
-          product_line, ticket_type, customer_environment_code, customer_environment_value,
+          product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
           ach_no, ach_filled_at, ticket_version,
           feature_point, feature_point_source,
           root_cause_desc, root_cause_desc_source,
@@ -2607,6 +2554,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           group_name=excluded.group_name,
           environment=excluded.environment,
           product_line=excluded.product_line,
+          product_module=excluded.product_module,
           ticket_type=excluded.ticket_type,
           customer_environment_code=excluded.customer_environment_code,
           customer_environment_value=excluded.customer_environment_value,
@@ -2632,6 +2580,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.group_name),
             sanitize_text(todo.summary_fields.environment),
             sanitize_text(todo.summary_fields.product_line),
+            sanitize_text(todo.summary_fields.product_module),
             sanitize_text(todo.summary_fields.ticket_type),
             sanitize_text(todo.summary_fields.customer_environment_code),
             sanitize_text(todo.summary_fields.customer_environment_value),

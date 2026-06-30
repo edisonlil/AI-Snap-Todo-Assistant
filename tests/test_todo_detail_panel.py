@@ -2,12 +2,14 @@
 
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.todo.assist_analysis import build_assist_analysis_cache_key, build_assist_todo_payload
 from aica.models import TicketSummaryFields
+from aica.config import ConfigManager
 from aica.todo.detail_panel import (
     TodoDetailPanel,
     _AssistTroubleshootingWindow,
@@ -2097,6 +2099,34 @@ def test_timeline_polish_error_does_not_overwrite_content() -> None:
     assert saved == []
     assert bridge.timeline[0]["content"] == "原文"
     assert bridge.timelineDetailError == "服务端失败"
+
+
+def test_timeline_polish_request_is_blocked_when_feature_disabled() -> None:
+    temp_dir = Path(tempfile.mkdtemp(prefix="todo-detail-config-", dir=Path.cwd()))
+    config_manager = ConfigManager(str(temp_dir / "config.json"))
+    config = config_manager.load()
+    config.enable_timeline_polish = False
+    config_manager.save(config)
+    bridge = _TodoDetailBridge(
+        attachment_root=Path("unused"),
+        environment_access_service=SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
+        ),
+        config_manager=config_manager,
+    )
+    todo = _build_todo()
+    todo.timeline = [TimelineEvent(id="event-1", kind="manual", content="原文")]
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.timelinePolishRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.requestTimelinePolish("event-1")
+
+    assert requests == []
+    assert bridge.timelinePolishEnabled is False
+    assert bridge.timelineDetailError == "时间线润色功能已关闭"
 
 
 def test_timeline_detail_markdown_renderer_outputs_html() -> None:

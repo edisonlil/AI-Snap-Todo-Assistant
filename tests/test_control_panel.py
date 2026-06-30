@@ -279,9 +279,12 @@ def _build_todo() -> TodoItem:
         summary_fields=TicketSummaryFields(
             group_name="test-group",
             environment="prod",
+            product_line="PC Office",
+            product_module="PC Office-文字",
             ticket_type="investigation",
             customer_environment_code="env-prod",
             customer_environment_value="生产环境",
+            issue_product="产品A/模块B/功能C",
         ),
         conclusion=TodoConclusion(content="resolved"),
         project_link=TodoProjectLink(
@@ -534,6 +537,20 @@ def test_server_config_values_do_not_unlock_login_until_login_clicked(monkeypatc
     bridge.saveConfig()
 
     assert bridge.serverLoginRequired is True
+
+
+def test_system_settings_persists_timeline_polish_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    assert bridge.enableTimelinePolish is True
+
+    bridge.updateEnableTimelinePolish(False)
+    bridge.saveConfig()
+
+    saved = bridge._config_manager.load()
+    assert saved.enable_timeline_polish is False
+    assert bridge.enableTimelinePolish is False
 
 
 def test_server_login_requires_base_url_and_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1147,7 +1164,6 @@ def test_selected_ticket_exposes_customer_environment_value_and_options(monkeypa
 
     bridge.openTicketDetail(todo.id)
 
-    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-prod"
     assert bridge.selectedTicket["customerEnvironmentValue"] == "生产环境"
     assert bridge.selectedTicket["customerEnvironmentOptions"][0]["text"] == "生产环境"
 
@@ -1162,10 +1178,94 @@ def test_save_selected_ticket_customer_environment_maps_code_to_value(monkeypatc
     ]
     bridge.openTicketDetail(todo.id)
 
-    bridge.saveSelectedTicketField("customer_environment", "env-uat")
+    bridge.saveSelectedTicketField("customer_environment", "预发环境")
 
-    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-uat"
     assert bridge.selectedTicket["customerEnvironmentValue"] == "预发环境"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_selected_ticket_exposes_issue_product_value_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._issue_product_options = [  # noqa: SLF001
+        {"code": "p1", "value": "产品A/模块B/功能C", "text": "产品A/模块B/功能C", "sortOrder": 1},
+        {"code": "p2", "value": "产品A/模块B/功能D", "text": "产品A/模块B/功能D", "sortOrder": 2},
+    ]
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["issueProduct"] == "产品A/模块B/功能C"
+    assert bridge.selectedTicket["issueProductOptions"][0]["text"] == "产品A/模块B/功能C"
+
+
+def test_save_selected_ticket_issue_product_updates_summary_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge._issue_product_options = [  # noqa: SLF001
+        {"code": "p1", "value": "产品A/模块B/功能C", "text": "产品A/模块B/功能C", "sortOrder": 1},
+        {"code": "p2", "value": "产品X/模块Y/功能Z", "text": "产品X/模块Y/功能Z", "sortOrder": 2},
+    ]
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("issue_product", "产品X/模块Y/功能Z")
+
+    assert bridge.selectedTicket["issueProduct"] == "产品X/模块Y/功能Z"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_selected_ticket_exposes_product_line_and_module_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["productLine"] == "PC Office"
+    assert bridge.selectedTicket["productLineOptions"][0]["text"] == "PC Office"
+    assert bridge.selectedTicket["productModule"] == "PC Office-文字"
+    assert bridge.selectedTicket["productModuleOptions"][0]["text"] == "PC Office-文字"
+
+
+def test_selected_ticket_hides_unknown_environment_and_product_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields(
+        group_name="test-group",
+        environment="",
+        product_line="",
+        product_module="",
+        ticket_type="investigation",
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["environment"] == ""
+    assert bridge.selectedTicket["productLine"] == ""
+
+
+def test_save_selected_ticket_product_line_clears_invalid_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("product_line", "WPS会议")
+
+    assert bridge.selectedTicket["productLine"] == "WPS会议"
+    assert bridge.selectedTicket["productModule"] == ""
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_save_selected_ticket_product_module_uses_current_product_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("product_module", "PC Office-表格")
+
+    assert bridge.selectedTicket["productLine"] == "PC Office"
+    assert bridge.selectedTicket["productModule"] == "PC Office-表格"
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
 
 
@@ -1229,7 +1329,6 @@ def test_unlink_selected_ticket_project_updates_detail(monkeypatch: pytest.Monke
     assert bridge.selectedTicket["taskOrderNo"] == ""
     assert bridge.selectedTicket["projectManager"] == ""
     assert bridge.selectedTicket["productLine"] == ""
-    assert bridge.selectedTicket["customerEnvironmentCode"] == "env-prod"
     assert bridge.selectedTicket["customerEnvironmentValue"] == "生产环境"
     assert bridge.selectedTicket["ticketVersion"] == ""
     assert bridge.statusMessage == "已解除项目关联"

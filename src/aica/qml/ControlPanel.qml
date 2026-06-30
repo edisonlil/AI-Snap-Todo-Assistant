@@ -2092,6 +2092,45 @@ Rectangle {
                                 }
 
                                 SectionCard {
+                                    visible: root.currentSection === "hotkeys"
+                                    Layout.fillWidth: true
+                                    implicitHeight: timelinePolishContent.implicitHeight + 32
+                                    color: root.panelAltBg
+
+                                    ColumnLayout {
+                                        id: timelinePolishContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "时间线润色"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "控制时间线详情窗口中的润色按钮是否可用。关闭后将禁用时间线内容润色请求。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        ControlPanelSettingsCheckBox {
+                                            Layout.fillWidth: true
+                                            theme: root.themeTokens
+                                            checked: controlPanelBridge.enableTimelinePolish
+                                            text: "启用时间线润色"
+                                            onToggled: controlPanelBridge.updateEnableTimelinePolish(checked)
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
                                     visible: root.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32

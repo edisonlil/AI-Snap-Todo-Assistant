@@ -34,6 +34,7 @@ Item {
     readonly property bool detailBusy: root.detailBridge ? root.detailBridge.timelineDetailBusy : false
     readonly property string detailError: root.detailBridge ? root.detailBridge.timelineDetailError : ""
     readonly property string detailEventId: root.detailBridge ? root.detailBridge.timelineDetailEventId : ""
+    readonly property bool timelinePolishEnabled: root.detailBridge ? root.detailBridge.timelinePolishEnabled : true
     readonly property bool isMac: Qt.platform.os === "osx"
     readonly property bool hasTimelineSummary: root.detailBridge ? root.detailBridge.timelineDetailSummary.trim().length > 0 : false
     readonly property int pageMargin: 20
@@ -350,7 +351,7 @@ Item {
             IconButton {
                 id: polishButton
                 active: false
-                buttonEnabled: root.detailBridge && !root.detailBusy && markdownEditor.text.trim().length > 0
+                buttonEnabled: root.detailBridge && root.timelinePolishEnabled && !root.detailBusy && markdownEditor.text.trim().length > 0
                 iconColor: root.detailBusy ? root.mutedInk : root.accent
                 onClicked: {
                     root.detailBridge.requestTimelinePolish(root.detailEventId)

@@ -152,6 +152,7 @@ class AppConfig:
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     max_image_bytes: int = 4 * 1024 * 1024
     show_todo_sync_status: bool = True
+    enable_timeline_polish: bool = True
 
 
 def _binding(provider_id: str, model_id: str) -> TaskModelBinding:
@@ -273,6 +274,7 @@ def build_default_config() -> AppConfig:
         theme=ThemeConfig(),
         max_image_bytes=4 * 1024 * 1024,
         show_todo_sync_status=True,
+        enable_timeline_polish=True,
     )
 
 
@@ -402,6 +404,7 @@ def _app_config_from_dict(data: object) -> AppConfig:
         theme=ThemeConfig.from_dict(data.get("theme")),
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
         show_todo_sync_status=_coerce_bool(data.get("show_todo_sync_status"), defaults.show_todo_sync_status),
+        enable_timeline_polish=_coerce_bool(data.get("enable_timeline_polish"), defaults.enable_timeline_polish),
     )
 
 

@@ -18,6 +18,7 @@ ColumnLayout {
     property string activeActionField: ""
     property string currentTicketId: ""
     property bool pendingCustomerEnvironmentEdit: false
+    property bool pendingIssueProductEdit: false
     property string selectedProductLine: "all"
     property string selectedTicketType: "all"
     property int ticketPageSize: 10
@@ -199,11 +200,20 @@ ColumnLayout {
         if (fieldName === "achNo") {
             return controlPanelBridge.selectedTicket.achNo || ""
         }
+        if (fieldName === "productLine") {
+            return controlPanelBridge.selectedTicket.productLine || ""
+        }
+        if (fieldName === "productModule") {
+            return controlPanelBridge.selectedTicket.productModule || ""
+        }
         if (fieldName === "ticketVersion") {
             return controlPanelBridge.selectedTicket.ticketVersion || ""
         }
         if (fieldName === "customerEnvironment") {
             return controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
+        }
+        if (fieldName === "issueProduct") {
+            return controlPanelBridge.selectedTicket.issueProduct || ""
         }
         if (fieldName === "featurePoint") {
             return controlPanelBridge.selectedTicket.featurePoint || ""
@@ -276,6 +286,7 @@ ColumnLayout {
         activeActionField = ""
         unlinkProjectConfirmVisible = false
         pendingCustomerEnvironmentEdit = false
+        pendingIssueProductEdit = false
     }
 
     function requestCustomerEnvironmentEdit() {
@@ -296,10 +307,8 @@ ColumnLayout {
             pendingCustomerEnvironmentEdit = true
             return
         }
-        if (!controlPanelBridge.customerEnvironmentError && (controlPanelBridge.customerEnvironmentOptions || []).length === 0) {
-            pendingCustomerEnvironmentEdit = true
-            controlPanelBridge.refreshCustomerEnvironmentOptions()
-        }
+        pendingCustomerEnvironmentEdit = true
+        controlPanelBridge.refreshCustomerEnvironmentOptions()
     }
 
     function resumePendingCustomerEnvironmentEdit() {
@@ -326,6 +335,58 @@ ColumnLayout {
         if (!controlPanelBridge.customerEnvironmentLoading) {
             pendingCustomerEnvironmentEdit = false
         }
+    }
+
+    function requestIssueProductEdit() {
+        if (!controlPanelBridge.selectedTicket.id || activeActionField.length > 0) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        if (controlPanelBridge.selectedTicket.issueProductEditable) {
+            pendingIssueProductEdit = false
+            beginTicketFieldEdit("issueProduct")
+            return
+        }
+        if (controlPanelBridge.issueProductLoading) {
+            pendingIssueProductEdit = true
+            return
+        }
+        pendingIssueProductEdit = true
+        controlPanelBridge.refreshIssueProductOptions()
+    }
+
+    function resumePendingIssueProductEdit() {
+        if (!pendingIssueProductEdit) {
+            return
+        }
+        if ((controlPanelBridge.selectedTicket.id || "") !== currentTicketId) {
+            pendingIssueProductEdit = false
+            return
+        }
+        if (activeActionField.length > 0) {
+            return
+        }
+        for (var key in fieldStates) {
+            if (fieldStates[key].saving) {
+                return
+            }
+        }
+        if (controlPanelBridge.selectedTicket.issueProductEditable) {
+            pendingIssueProductEdit = false
+            beginTicketFieldEdit("issueProduct")
+            return
+        }
+        if (!controlPanelBridge.issueProductLoading) {
+            pendingIssueProductEdit = false
+        }
+    }
+
+    function productModuleOptionsForCurrentLine() {
+        return controlPanelBridge.selectedTicket.productModuleOptions || []
     }
 
     function parseRootCausePath(value) {
@@ -380,6 +441,67 @@ ColumnLayout {
         var result = []
         for (var i = 0; i < options.length; i += 1) {
             var path = parseRootCausePath(options[i])
+            if (path.level1 !== selectedLevel1 || path.level2 !== selectedLevel2 || !path.level3 || seen[path.level3]) {
+                continue
+            }
+            seen[path.level3] = true
+            result.push({ text: path.level3, value: path.level3 })
+        }
+        return result
+    }
+
+    function parseIssueProductPath(value) {
+        var parts = String(value || "").split("/")
+        var level1 = parts.length > 0 ? parts[0] : ""
+        var level2 = parts.length > 1 ? parts[1] : ""
+        var level3 = parts.length > 2 ? parts.slice(2).join("/") : ""
+        return {
+            level1: level1,
+            level2: level2,
+            level3: level3
+        }
+    }
+
+    function issueProductLevel1Options() {
+        var options = controlPanelBridge.issueProductOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseIssueProductPath(options[i].value || "")
+            var key = path.level1
+            if (!key || seen[key]) {
+                continue
+            }
+            seen[key] = true
+            result.push({ text: key, value: key })
+        }
+        return result
+    }
+
+    function issueProductLevel2Options(level1) {
+        var selectedLevel1 = String(level1 || "")
+        var options = controlPanelBridge.issueProductOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseIssueProductPath(options[i].value || "")
+            if (path.level1 !== selectedLevel1 || !path.level2 || seen[path.level2]) {
+                continue
+            }
+            seen[path.level2] = true
+            result.push({ text: path.level2, value: path.level2 })
+        }
+        return result
+    }
+
+    function issueProductLevel3Options(level1, level2) {
+        var selectedLevel1 = String(level1 || "")
+        var selectedLevel2 = String(level2 || "")
+        var options = controlPanelBridge.issueProductOptions || []
+        var seen = {}
+        var result = []
+        for (var i = 0; i < options.length; i += 1) {
+            var path = parseIssueProductPath(options[i].value || "")
             if (path.level1 !== selectedLevel1 || path.level2 !== selectedLevel2 || !path.level3 || seen[path.level3]) {
                 continue
             }
@@ -1280,6 +1402,7 @@ ColumnLayout {
                         }
 
                         ticketSection.resumePendingCustomerEnvironmentEdit()
+                        ticketSection.resumePendingIssueProductEdit()
                         
                         // When ticket data changes, sync all field states
                         for (var fieldName in ticketSection.fieldStates) {
@@ -1738,12 +1861,42 @@ ColumnLayout {
                                             placeholderText: "未填写"
                                         }
 
-                                        DetailField {
+                                        SingleSelectCascadeField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "产品线"
-                                            value: controlPanelBridge.selectedTicket.productLine
+                                            value: ticketSection.isFieldEditing("productLine") ? ticketSection.getFieldDraft("productLine") : (controlPanelBridge.selectedTicket.productLine || "")
+                                            selectedCode: ticketSection.isFieldEditing("productLine") ? ticketSection.getFieldDraft("productLine") : (controlPanelBridge.selectedTicket.productLine || "")
                                             placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.productLineEditable && ticketSection.isFieldEditing("productLine")
+                                            saving: ticketSection.isFieldSaving("productLine")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            options: controlPanelBridge.selectedTicket.productLineOptions || []
+                                            onClicked: ticketSection.beginTicketFieldEdit("productLine")
+                                            onAccepted: function(code, value) {
+                                                ticketSection.setFieldState("productLine", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("productLine", "product_line")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("productLine")
+                                        }
+
+                                        SingleSelectCascadeField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "产品模块/组件"
+                                            value: ticketSection.isFieldEditing("productModule") ? ticketSection.getFieldDraft("productModule") : (controlPanelBridge.selectedTicket.productModule || "")
+                                            selectedCode: ticketSection.isFieldEditing("productModule") ? ticketSection.getFieldDraft("productModule") : (controlPanelBridge.selectedTicket.productModule || "")
+                                            placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.productModuleEditable && ticketSection.isFieldEditing("productModule")
+                                            saving: ticketSection.isFieldSaving("productModule")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            options: ticketSection.productModuleOptionsForCurrentLine()
+                                            onClicked: ticketSection.beginTicketFieldEdit("productModule")
+                                            onAccepted: function(code, value) {
+                                                ticketSection.setFieldState("productModule", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("productModule", "product_module")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("productModule")
                                         }
 
                                         SingleSelectCascadeField {
@@ -1751,7 +1904,7 @@ ColumnLayout {
                                             Layout.fillWidth: true
                                             label: "客户环境"
                                             value: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
-                                            selectedCode: controlPanelBridge.selectedTicket.customerEnvironmentCode || ""
+                                            selectedCode: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
                                             placeholderText: "未填写"
                                             editing: !!controlPanelBridge.selectedTicket.customerEnvironmentEditable && ticketSection.isFieldEditing("customerEnvironment")
                                             saving: ticketSection.isFieldSaving("customerEnvironment")
@@ -1764,10 +1917,31 @@ ColumnLayout {
                                                     if (!ticketSection.isFieldSaving("customerEnvironment")) {
                                                         return
                                                     }
-                                                    controlPanelBridge.saveSelectedTicketField("customer_environment", code)
+                                                    controlPanelBridge.saveSelectedTicketField("customer_environment", value)
                                                 })
                                             }
                                             onCanceled: ticketSection.cancelTicketFieldEdit("customerEnvironment")
+                                        }
+
+                                        RootCauseCascadeField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "问题所属产品"
+                                            value: ticketSection.isFieldEditing("issueProduct") ? ticketSection.getFieldDraft("issueProduct") : controlPanelBridge.selectedTicket.issueProduct
+                                            placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.issueProductEditable && ticketSection.isFieldEditing("issueProduct")
+                                            saving: ticketSection.isFieldSaving("issueProduct")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            parsePathFn: ticketSection.parseIssueProductPath
+                                            level1OptionsFn: ticketSection.issueProductLevel1Options
+                                            level2OptionsFn: ticketSection.issueProductLevel2Options
+                                            level3OptionsFn: ticketSection.issueProductLevel3Options
+                                            onClicked: ticketSection.requestIssueProductEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("issueProduct", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("issueProduct", "issue_product")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("issueProduct")
                                         }
 
                                         DetailField {

@@ -90,6 +90,42 @@ def test_tickets_section_retries_customer_environment_edit_after_dictionary_load
     assert "ticketSection.resumePendingCustomerEnvironmentEdit()" in qml_text
 
 
+def test_tickets_section_includes_issue_product_cascade_dropdown() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert 'label: "问题所属产品"' in qml_text
+    assert "issueProductOptions" in qml_text
+    assert 'commitTicketFieldEdit("issueProduct", "issue_product")' in qml_text
+    assert "parseIssueProductPath" in qml_text
+    assert "issueProductLevel1Options" in qml_text
+
+
+def test_tickets_section_includes_local_product_line_and_module_dropdowns() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert 'label: "产品线"' in qml_text
+    assert "productLineOptions" in qml_text
+    assert 'label: "产品模块/组件"' in qml_text
+    assert "productModuleOptionsForCurrentLine" in qml_text
+    assert 'commitTicketFieldEdit("productLine", "product_line")' in qml_text
+    assert 'commitTicketFieldEdit("productModule", "product_module")' in qml_text
+
+
+def test_tickets_section_retries_issue_product_edit_after_dictionary_load() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "property bool pendingIssueProductEdit: false" in qml_text
+    assert "function requestIssueProductEdit()" in qml_text
+    assert "controlPanelBridge.refreshIssueProductOptions()" in qml_text
+    assert "if (controlPanelBridge.issueProductLoading)" in qml_text
+    assert "pendingIssueProductEdit = true" in qml_text
+    assert "function resumePendingIssueProductEdit()" in qml_text
+    assert "ticketSection.resumePendingIssueProductEdit()" in qml_text
+
+
 def test_dropdown_popups_anchor_below_editor_actions() -> None:
     single_select_qml = (
         Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "SingleSelectCascadeField.qml"

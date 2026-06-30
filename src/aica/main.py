@@ -1309,6 +1309,7 @@ def main() -> None:
         except ValueError:
             hotkey_mgr.update_hotkey(RUNTIME_CAPABILITIES.default_capture_hotkey)
         log_analysis_orchestrator.update_app_config(saved_config)
+        todo_detail_panel._bridge.dataChanged.emit()  # noqa: SLF001
 
     def _on_project_saved(project_id: str) -> None:
         normalized_project_id = str(project_id or "").strip()

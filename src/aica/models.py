@@ -263,9 +263,11 @@ class TicketSummaryFields:
     group_name: str = UNKNOWN_TEXT
     environment: str = UNKNOWN_TEXT
     product_line: str = UNKNOWN_TEXT
+    product_module: str = ""
     ticket_type: str = UNKNOWN_TEXT
     customer_environment_code: str = ""
     customer_environment_value: str = ""
+    issue_product: str = ""
     ach_no: str = ""
     ach_filled_at: str = ""
     ticket_version: str = ""
@@ -280,9 +282,11 @@ class TicketSummaryFields:
         self.group_name = _clean(self.group_name)
         self.environment = _clean(self.environment)
         self.product_line = resolve_product_line(raw_value=self.product_line)
+        self.product_module = _clean_free_text(self.product_module)
         self.ticket_type = normalize_ticket_type(self.ticket_type)
         self.customer_environment_code = _clean_free_text(self.customer_environment_code)
         self.customer_environment_value = _clean_free_text(self.customer_environment_value)
+        self.issue_product = _clean_free_text(self.issue_product)
         self.ach_no = _clean_free_text(self.ach_no)
         self.ach_filled_at = _clean_free_text(self.ach_filled_at)
         self.ticket_version = _clean_free_text(self.ticket_version)
@@ -294,18 +298,25 @@ class TicketSummaryFields:
         self.root_cause_source = _normalize_field_source(self.root_cause_source)
 
     def to_dict(self) -> dict[str, str]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["customer_environment"] = self.customer_environment_value
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "TicketSummaryFields":
         payload = payload or {}
+        customer_environment = payload.get("customer_environment")
+        customer_environment_value = payload.get("customer_environment_value")
+        normalized_customer_environment = customer_environment_value if customer_environment_value is not None else customer_environment
         return cls(
             group_name=_clean(payload.get("group_name")),
             environment=_clean(payload.get("environment")),
             product_line=payload.get("product_line"),
+            product_module=payload.get("product_module"),
             ticket_type=payload.get("ticket_type"),
             customer_environment_code=payload.get("customer_environment_code"),
-            customer_environment_value=payload.get("customer_environment_value"),
+            customer_environment_value=normalized_customer_environment,
+            issue_product=payload.get("issue_product"),
             ach_no=payload.get("ach_no"),
             ach_filled_at=payload.get("ach_filled_at"),
             ticket_version=payload.get("ticket_version"),
@@ -411,6 +422,7 @@ def merge_summary_fields_for_append(
         group_name=_merge_value(existing.group_name, incoming.group_name),
         environment=_merge_value(existing.environment, incoming.environment),
         product_line=_merge_value(existing.product_line, incoming.product_line),
+        product_module=_merge_value(existing.product_module, incoming.product_module),
         ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
         customer_environment_code=_merge_value(
             existing.customer_environment_code,
@@ -420,6 +432,7 @@ def merge_summary_fields_for_append(
             existing.customer_environment_value,
             incoming.customer_environment_value,
         ),
+        issue_product=_merge_value(existing.issue_product, incoming.issue_product),
         ach_no=_merge_value(existing.ach_no, incoming.ach_no),
         ach_filled_at=_merge_value(existing.ach_filled_at, incoming.ach_filled_at),
         ticket_version=_merge_value(existing.ticket_version, incoming.ticket_version),
@@ -447,9 +460,12 @@ class TicketSnapshot:
             "group_name": self.fields.group_name,
             "environment": self.fields.environment,
             "product_line": self.fields.product_line,
+            "product_module": self.fields.product_module,
             "ticket_type": self.fields.ticket_type,
+            "customer_environment": self.fields.customer_environment_value,
             "customer_environment_code": self.fields.customer_environment_code,
             "customer_environment_value": self.fields.customer_environment_value,
+            "issue_product": self.fields.issue_product,
             "ach_no": self.fields.ach_no,
             "ach_filled_at": self.fields.ach_filled_at,
             "ticket_version": self.fields.ticket_version,
@@ -493,12 +509,15 @@ class TicketSnapshot:
                 "group_name": payload.get("group_name"),
                 "environment": payload.get("environment"),
                 "product_line": payload.get("product_line") or payload.get("platform"),
+                "product_module": payload.get("product_module"),
                 "ticket_type": normalize_ticket_type(
                     payload.get("ticket_type"),
                     summary_text=ticket_context,
                 ),
+                "customer_environment": payload.get("customer_environment"),
                 "customer_environment_code": payload.get("customer_environment_code"),
                 "customer_environment_value": payload.get("customer_environment_value"),
+                "issue_product": payload.get("issue_product"),
                 "ach_no": payload.get("ach_no"),
                 "ach_filled_at": payload.get("ach_filled_at"),
                 "ticket_version": payload.get("ticket_version"),
@@ -553,6 +572,7 @@ class TicketSnapshot:
             f"群聊名称: {strip_invalid_surrogates(self.fields.group_name)}\n"
             f"环境: {strip_invalid_surrogates(self.fields.environment)}\n"
             f"产品线: {strip_invalid_surrogates(self.fields.product_line)}\n"
+            f"产品模块/组件: {strip_invalid_surrogates(self.fields.product_module)}\n"
             f"工单类型: {strip_invalid_surrogates(self.fields.ticket_type)}\n"
             f"ACH单号: {strip_invalid_surrogates(self.fields.ach_no)}\n"
             f"ACH填写时间: {strip_invalid_surrogates(self.fields.ach_filled_at)}\n"

@@ -41,6 +41,8 @@ def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
             group_name="客户支持群",
             environment="生产",
             product_line="私网文档中台",
+            product_module="文档中台",
+            issue_product="客户环境",
             ticket_type="排查类",
             customer_environment_code="env-prod",
             customer_environment_value="生产环境",
@@ -95,8 +97,9 @@ def test_build_work_order_payload_maps_todo_snapshot() -> None:
     assert payload["title"] == "上传失败"
     assert payload["status"] == "in_progress"
     assert payload["project_hit_status"] == "matched"
-    assert payload["customer_environment_code"] == "env-prod"
-    assert payload["customer_environment_value"] == "生产环境"
+    assert payload["customer_environment"] == "生产环境"
+    assert payload["product_module"] == "文档中台"
+    assert payload["issue_product"] == "客户环境"
     assert payload["project"] == {
         "task_order_no": "PJ-001",
         "display_name": "广州项目",
@@ -469,9 +472,10 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
             "group_name": "客户支持群",
             "environment": "生产环境",
             "work_order_type": "排查类",
-            "customer_environment_code": "env-uat",
-            "customer_environment_value": "预发环境",
+            "customer_environment": "预发环境",
             "product_line": "私网文档中台",
+            "product_module": "文档中台",
+            "issue_product": "客户环境",
             "product_version": "v1.2.3",
             "function_point": "文档中台-上传-失败",
             "root_cause": "待分析",
@@ -498,8 +502,9 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
 
     assert todo.id == "WO-002"
     assert todo.status == TodoStatus.OPEN
-    assert todo.summary_fields.customer_environment_code == "env-uat"
     assert todo.summary_fields.customer_environment_value == "预发环境"
+    assert todo.summary_fields.product_module == "文档中台"
+    assert todo.summary_fields.issue_product == "客户环境"
     assert todo.summary_fields.ach_no == "ACH-002"
     assert todo.summary_fields.feature_point == "文档中台-上传-失败"
     assert todo.project_link.match_status == "matched"
@@ -513,7 +518,7 @@ def test_todo_from_server_work_order_keeps_other_customer_environment_field_empt
         {
             "id": "WO-004",
             "title": "客户环境半字段返回",
-            "customer_environment_value": "生产环境",
+            "customer_environment": "生产环境",
         }
     )
 

@@ -35,6 +35,13 @@ class _FakeSession:
         self.calls.append({"method": method, "url": url, **kwargs})
         if isinstance(self.response, BaseException):
             raise self.response
+        if isinstance(self.response, list):
+            if not self.response:
+                raise AssertionError("No fake response left for request")
+            next_response = self.response.pop(0)
+            if isinstance(next_response, BaseException):
+                raise next_response
+            return next_response
         return self.response
 
 
@@ -268,6 +275,271 @@ def test_fetch_dictionary_options_validates_and_normalizes_bad_inputs() -> None:
             "sort_order": None,
             "item": "paid",
         }
+    ]
+
+
+def test_fetch_custom_field_options_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "code": "env-prod",
+                            "value": "生产环境",
+                            "sort_order": 1,
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_custom_field_options(["select_field_123"])
+
+    assert items == [
+        {
+            "label": "生产环境",
+            "value": "生产环境",
+            "code": "env-prod",
+            "sort_order": 1,
+            "item": None,
+        }
+    ]
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/ach/custom-field-options"
+    assert session.calls[0]["json"] == {"field_ids": ["select_field_123"]}
+    assert session.calls[0]["headers"] == {
+        "X-API-Key": "server-key",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    assert session.calls[0]["timeout"] == 45
+
+
+def test_fetch_customer_environment_options_resolves_ach_field_by_value() -> None:
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": {
+                        "items": [
+                            {
+                                "code": "select_field_1964892725260812289",
+                                "value": "客户环境",
+                            }
+                        ]
+                    },
+                },
+            ),
+            _FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": {
+                        "items": [
+                            {
+                                "code": "env-uat",
+                                "value": "预发环境",
+                            }
+                        ]
+                    },
+                },
+            ),
+        ]
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_customer_environment_options()
+
+    assert items == [
+        {
+            "label": "预发环境",
+            "value": "预发环境",
+            "code": "env-uat",
+            "sort_order": None,
+            "item": None,
+        }
+    ]
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[1]["method"] == "POST"
+    assert session.calls[1]["json"] == {"field_ids": ["select_field_1964892725260812289"]}
+
+
+def test_fetch_issue_product_options_resolves_ach_field_by_value() -> None:
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": {
+                        "items": [
+                            {
+                                "code": "related_field_1988864485569003521",
+                                "value": "问题所属产品",
+                            }
+                        ]
+                    },
+                },
+            ),
+            _FakeResponse(
+                200,
+                {
+                    "success": True,
+                    "data": {
+                        "items": [
+                            {
+                                "field_id": "related_field_1988864485569003521",
+                                "field_type": "related_field",
+                                "field_name": "问题所属产品",
+                                "options": [],
+                                "related_options": {
+                                    "level": 2,
+                                    "list": [
+                                        {
+                                            "value": "产品A",
+                                            "label": "产品A",
+                                            "children": [
+                                                {
+                                                    "value": "模块B",
+                                                    "label": "模块B",
+                                                    "children": [
+                                                        {
+                                                            "value": "功能C",
+                                                            "label": "功能C",
+                                                        }
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    },
+                },
+            ),
+        ]
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_issue_product_options()
+
+    assert items == [
+        {
+            "label": "产品A/模块B/功能C",
+            "value": "产品A/模块B/功能C",
+            "code": "产品A/模块B/功能C",
+            "sort_order": None,
+            "item": {
+                "value": "功能C",
+                "label": "功能C",
+            },
+        }
+    ]
+    assert session.calls[1]["json"] == {"field_ids": ["related_field_1988864485569003521"]}
+
+
+def test_fetch_custom_field_options_flattens_related_field_options() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "field_id": "related_field_x",
+                            "field_type": "related_field",
+                            "field_name": "问题所属产品",
+                            "options": [],
+                            "related_options": {
+                                "level": 2,
+                                "list": [
+                                    {
+                                        "value": "文档中心",
+                                        "label": "文档中心",
+                                        "children": [
+                                            {"value": "V7", "label": "V7"},
+                                            {"value": "V6", "label": "V6"},
+                                        ],
+                                    },
+                                    {
+                                        "value": "统一平台",
+                                        "label": "统一平台",
+                                    },
+                                ],
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_custom_field_options(["related_field_x"])
+
+    assert items == [
+        {
+            "label": "文档中心/V7",
+            "value": "文档中心/V7",
+            "code": "文档中心/V7",
+            "sort_order": None,
+            "item": {"value": "V7", "label": "V7"},
+        },
+        {
+            "label": "文档中心/V6",
+            "value": "文档中心/V6",
+            "code": "文档中心/V6",
+            "sort_order": None,
+            "item": {"value": "V6", "label": "V6"},
+        },
+        {
+            "label": "统一平台",
+            "value": "统一平台",
+            "code": "统一平台",
+            "sort_order": None,
+            "item": {"value": "统一平台", "label": "统一平台"},
+        },
     ]
 
 

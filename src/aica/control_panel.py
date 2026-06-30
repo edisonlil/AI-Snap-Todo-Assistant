@@ -333,6 +333,7 @@ from aica.paths import (
     qml_dir,
 )
 from aica.models import TicketSummaryFields, is_unknown_text
+from aica.product_catalog import canonical_product_line, normalize_product_module, product_line_options, product_module_options
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import normalize_group_alias
 from aica.storage.contracts import ProjectRecord
@@ -876,6 +877,22 @@ def _sort_customer_environment_options(items: list[dict[str, object]]) -> list[d
     return sorted(items, key=_sort_key)
 
 
+def _normalize_local_option(item: object) -> dict[str, object] | None:
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("code") or "").strip()
+    value = str(item.get("value") or "").strip()
+    text = str(item.get("text") or value or code).strip()
+    if not text:
+        return None
+    return {
+        "code": code or value or text,
+        "value": value or code or text,
+        "text": text,
+        "sortOrder": None,
+    }
+
+
 class ProjectServerSyncWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -1108,7 +1125,27 @@ class CustomerEnvironmentDictionaryWorker(QThread):
     def run(self) -> None:
         try:
             client = ChattodoServerClient.from_config(self._config_manager.load().server)
-            items = client.fetch_dictionary_options("customer-environment")
+            items = client.fetch_customer_environment_options()
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        else:
+            self.finished.emit(items)
+
+
+class IssueProductOptionsWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, *, config_manager: ConfigManager, parent=None) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            items = client.fetch_issue_product_options()
         except (ChattodoServerError, ValueError) as exc:
             self.error.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
@@ -1160,6 +1197,7 @@ class _ControlPanelBridge(QObject):
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
+        self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -1199,6 +1237,13 @@ class _ControlPanelBridge(QObject):
         self._customer_environment_loading = False
         self._customer_environment_error = ""
         self._customer_environment_worker: CustomerEnvironmentDictionaryWorker | None = None
+        self._issue_product_options: list[dict[str, object]] = []
+        self._issue_product_loading = False
+        self._issue_product_error = ""
+        self._issue_product_worker: IssueProductOptionsWorker | None = None
+        self._product_line_options: list[dict[str, object]] = [
+            item for item in (_normalize_local_option(option) for option in product_line_options()) if item is not None
+        ]
         self._ticket_query = ""
         self._ticket_status_filter = TodoStatus.OPEN
         self._tickets: list[dict[str, object]] = []
@@ -1216,6 +1261,7 @@ class _ControlPanelBridge(QObject):
         if _is_server_config_ready(self._config.server):
             self.refreshServerIdentity()
             self.refreshCustomerEnvironmentOptions()
+            self.refreshIssueProductOptions()
 
     @property
     def notificationBridge(self) -> AppNotificationBridge:
@@ -1374,6 +1420,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def showTodoSyncStatus(self) -> bool:
         return self._show_todo_sync_status
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def enableTimelinePolish(self) -> bool:
+        return self._enable_timeline_polish
 
     @pyqtProperty(str, notify=dataChanged)
     def errorMessage(self) -> str:
@@ -1572,6 +1622,22 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(str, notify=dataChanged)
     def customerEnvironmentError(self) -> str:
         return self._customer_environment_error
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def issueProductOptions(self):  # noqa: ANN201
+        return [dict(item) for item in self._issue_product_options]
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def issueProductLoading(self) -> bool:
+        return self._issue_product_loading
+
+    @pyqtProperty(str, notify=dataChanged)
+    def issueProductError(self) -> str:
+        return self._issue_product_error
+
+    @pyqtProperty("QVariantList", notify=dataChanged)
+    def productLineOptions(self):  # noqa: ANN201
+        return [dict(item) for item in self._product_line_options]
 
     @pyqtProperty(bool, notify=dataChanged)
     def workOrderSyncing(self) -> bool:
@@ -1937,8 +2003,8 @@ class _ControlPanelBridge(QObject):
             "title": str(todo.title or "").strip() or "\u672a\u5206\u7c7b\u4efb\u52a1",
             "summary": str(todo.current_summary or "").strip(),
             "groupName": str(todo.summary_fields.group_name or "").strip(),
-            "environment": str(todo.summary_fields.environment or "").strip(),
-            "productLine": str(todo.summary_fields.product_line or "").strip(),
+            "environment": "" if is_unknown_text(todo.summary_fields.environment) else str(todo.summary_fields.environment or "").strip(),
+            "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
             "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
@@ -1963,8 +2029,10 @@ class _ControlPanelBridge(QObject):
         snapshot = todo.project_link.project_snapshot
         ticket_version = str(todo.summary_fields.ticket_version or "").strip()
         project_snapshot_version = str(snapshot.get("product_version") or "").strip()
-        customer_environment_code = str(todo.summary_fields.customer_environment_code or "").strip()
+        product_line = str(todo.summary_fields.product_line or "").strip()
+        product_module = str(todo.summary_fields.product_module or "").strip()
         customer_environment_value = str(todo.summary_fields.customer_environment_value or "").strip()
+        issue_product = str(todo.summary_fields.issue_product or "").strip()
         timeline_payload = []
         for event in reversed(todo.timeline):
             attachments = [
@@ -2007,14 +2075,20 @@ class _ControlPanelBridge(QObject):
             "projectName": str(snapshot.get("project_name") or "").strip(),
             "customerName": str(snapshot.get("customer_name") or "").strip(),
             "taskOrderNo": str(snapshot.get("task_order_no") or "").strip(),
-            "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
-            "customerEnvironmentCode": customer_environment_code,
+            "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else product_line,
+            "productLineOptions": self._selected_ticket_product_line_options(product_line),
+            "productLineEditable": bool(self._product_line_options),
+            "productModule": product_module,
+            "productModuleOptions": self._selected_ticket_product_module_options(product_line, product_module),
+            "productModuleEditable": bool(product_line),
             "customerEnvironmentValue": customer_environment_value,
             "customerEnvironmentOptions": self._selected_ticket_customer_environment_options(
-                customer_environment_code,
                 customer_environment_value,
             ),
             "customerEnvironmentEditable": bool(self._customer_environment_options) and not self._customer_environment_loading and not self._customer_environment_error,
+            "issueProduct": issue_product,
+            "issueProductOptions": self._selected_ticket_issue_product_options(issue_product),
+            "issueProductEditable": bool(self._issue_product_options) and not self._issue_product_loading and not self._issue_product_error,
             "ticketVersion": ticket_version,
             "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
@@ -2050,10 +2124,17 @@ class _ControlPanelBridge(QObject):
             "customerName": "",
             "taskOrderNo": "",
             "productLine": "",
-            "customerEnvironmentCode": "",
+            "productLineOptions": [],
+            "productLineEditable": False,
+            "productModule": "",
+            "productModuleOptions": [],
+            "productModuleEditable": False,
             "customerEnvironmentValue": "",
             "customerEnvironmentOptions": [],
             "customerEnvironmentEditable": False,
+            "issueProduct": "",
+            "issueProductOptions": [],
+            "issueProductEditable": False,
             "ticketVersion": "",
             "projectSnapshotVersion": "",
             "projectManager": "",
@@ -2075,30 +2156,111 @@ class _ControlPanelBridge(QObject):
 
     def _selected_ticket_customer_environment_options(
         self,
-        customer_environment_code: str,
         customer_environment_value: str,
     ) -> list[dict[str, object]]:
         options = [dict(item) for item in self._customer_environment_options]
-        normalized_code = str(customer_environment_code or "").strip()
         normalized_value = str(customer_environment_value or "").strip()
-        if normalized_code and any(str(item.get("code") or "").strip() == normalized_code for item in options):
+        if normalized_value and any(str(item.get("value") or "").strip() == normalized_value for item in options):
             return options
         if normalized_value:
             options.append(
                 {
-                    "code": normalized_code or normalized_value,
+                    "code": normalized_value,
                     "value": normalized_value,
                     "text": normalized_value,
                     "sortOrder": -(10**9),
                 }
             )
         deduplicated: list[dict[str, object]] = []
-        seen_codes: set[str] = set()
+        seen_values: set[str] = set()
         for item in options:
-            code = str(item.get("code") or "").strip()
-            if code in seen_codes:
+            value = str(item.get("value") or "").strip()
+            if value in seen_values:
                 continue
-            seen_codes.add(code)
+            seen_values.add(value)
+            deduplicated.append(item)
+        return _sort_customer_environment_options(deduplicated)
+
+    def _selected_ticket_issue_product_options(self, issue_product: str) -> list[dict[str, object]]:
+        options = [dict(item) for item in self._issue_product_options]
+        normalized_value = str(issue_product or "").strip()
+        if normalized_value and any(str(item.get("value") or "").strip() == normalized_value for item in options):
+            return options
+        if normalized_value:
+            options.append(
+                {
+                    "code": normalized_value,
+                    "value": normalized_value,
+                    "text": normalized_value,
+                    "sortOrder": -(10**9),
+                }
+            )
+        deduplicated: list[dict[str, object]] = []
+        seen_values: set[str] = set()
+        for item in options:
+            value = str(item.get("value") or "").strip()
+            if value in seen_values:
+                continue
+            seen_values.add(value)
+            deduplicated.append(item)
+        return _sort_customer_environment_options(deduplicated)
+
+    def _selected_ticket_product_line_options(self, product_line: str) -> list[dict[str, object]]:
+        options = [dict(item) for item in self._product_line_options]
+        normalized_value = str(product_line or "").strip()
+        if normalized_value and any(str(item.get("value") or "").strip() == normalized_value for item in options):
+            return options
+        if normalized_value:
+            options.append(
+                {
+                    "code": normalized_value,
+                    "value": normalized_value,
+                    "text": normalized_value,
+                    "sortOrder": -(10**9),
+                }
+            )
+        deduplicated: list[dict[str, object]] = []
+        seen_values: set[str] = set()
+        for item in options:
+            value = str(item.get("value") or "").strip()
+            if value in seen_values:
+                continue
+            seen_values.add(value)
+            deduplicated.append(item)
+        return _sort_customer_environment_options(deduplicated)
+
+    def _selected_ticket_product_module_options(
+        self,
+        product_line: str,
+        product_module: str,
+    ) -> list[dict[str, object]]:
+        options = [
+            item
+            for item in (
+                _normalize_local_option(option)
+                for option in product_module_options(product_line)
+            )
+            if item is not None
+        ]
+        normalized_value = normalize_product_module(product_line, product_module)
+        if normalized_value and any(str(item.get("value") or "").strip() == normalized_value for item in options):
+            return options
+        if normalized_value:
+            options.append(
+                {
+                    "code": normalized_value,
+                    "value": normalized_value,
+                    "text": normalized_value,
+                    "sortOrder": -(10**9),
+                }
+            )
+        deduplicated: list[dict[str, object]] = []
+        seen_values: set[str] = set()
+        for item in options:
+            value = str(item.get("value") or "").strip()
+            if value in seen_values:
+                continue
+            seen_values.add(value)
             deduplicated.append(item)
         return _sort_customer_environment_options(deduplicated)
 
@@ -2273,6 +2435,7 @@ class _ControlPanelBridge(QObject):
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
+        self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -2509,6 +2672,12 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot(bool)
     def updateShowTodoSyncStatus(self, value: bool) -> None:
         self._show_todo_sync_status = bool(value)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(bool)
+    def updateEnableTimelinePolish(self, value: bool) -> None:
+        self._enable_timeline_polish = bool(value)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -2783,6 +2952,7 @@ class _ControlPanelBridge(QObject):
                 max_image_megabytes=self._max_image_megabytes,
                 theme=self._theme_draft.to_dict(),
                 show_todo_sync_status=self._show_todo_sync_status,
+                enable_timeline_polish=self._enable_timeline_polish,
             )
         except ValueError as exc:
             self._error_message = str(exc)
@@ -2792,6 +2962,7 @@ class _ControlPanelBridge(QObject):
         self._capture_hotkey = self._config.hotkeys.capture
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
+        self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
         self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
         self._theme_controller.set_config(self._config.theme)
         self._status_message = "配置已保存"
@@ -3590,6 +3761,11 @@ class _ControlPanelBridge(QObject):
             self._customer_environment_worker = None
         _delete_finished_thread(worker)
 
+    def _cleanup_issue_product_worker(self, worker: IssueProductOptionsWorker) -> None:
+        if self._issue_product_worker is worker:
+            self._issue_product_worker = None
+        _delete_finished_thread(worker)
+
     def _handle_customer_environment_options_finished(self, items: object) -> None:
         normalized_items: list[dict[str, object]] = []
         for item in list(items or []):
@@ -3608,6 +3784,24 @@ class _ControlPanelBridge(QObject):
         self._refresh_selected_ticket_payload()
         self._emit_data_changed()
 
+    def _handle_issue_product_options_finished(self, items: object) -> None:
+        normalized_items: list[dict[str, object]] = []
+        for item in list(items or []):
+            normalized_item = _normalize_customer_environment_option(item)
+            if normalized_item is not None:
+                normalized_items.append(normalized_item)
+        self._issue_product_options = _sort_customer_environment_options(normalized_items)
+        self._issue_product_loading = False
+        self._issue_product_error = ""
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
+    def _handle_issue_product_options_error(self, message: str) -> None:
+        self._issue_product_loading = False
+        self._issue_product_error = str(message or "").strip() or "问题所属产品字典加载失败。"
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
     @pyqtSlot()
     def refreshCustomerEnvironmentOptions(self) -> None:
         if self._customer_environment_loading:
@@ -3623,40 +3817,81 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
         worker.start()
 
+    @pyqtSlot()
+    def refreshIssueProductOptions(self) -> None:
+        if self._issue_product_loading:
+            return
+        self._issue_product_loading = True
+        self._issue_product_error = ""
+        worker = IssueProductOptionsWorker(config_manager=self._config_manager)
+        self._issue_product_worker = worker
+        worker.finished.connect(self._handle_issue_product_options_finished)
+        worker.error.connect(self._handle_issue_product_options_error)
+        worker.finished.connect(lambda _items, current=worker: self._cleanup_issue_product_worker(current))
+        worker.error.connect(lambda _message, current=worker: self._cleanup_issue_product_worker(current))
+        self._emit_data_changed()
+        worker.start()
+
     @pyqtSlot(str, str)
     def saveSelectedTicketField(self, field_name: str, value: str) -> None:
         if not self._selected_ticket_id:
             return
         normalized_field = str(field_name or "").strip()
-        if normalized_field not in {"ticket_version", "feature_point", "root_cause", "root_cause_desc", "customer_environment"}:
+        if normalized_field not in {
+            "product_line",
+            "product_module",
+            "ticket_version",
+            "feature_point",
+            "root_cause",
+            "root_cause_desc",
+            "customer_environment",
+            "issue_product",
+        }:
             return
         self._clear_messages()
         todo = self._resolve_selected_ticket_for_update()
         if todo is None:
             return
         next_value = str(value or "").strip()
-        customer_environment_code = todo.summary_fields.customer_environment_code
+        product_line = todo.summary_fields.product_line
+        product_module = todo.summary_fields.product_module
         customer_environment_value = todo.summary_fields.customer_environment_value
+        issue_product = todo.summary_fields.issue_product
+        if normalized_field == "product_line":
+            product_line = next(
+                (
+                    str(item.get("value") or "").strip()
+                    for item in self._selected_ticket_product_line_options(todo.summary_fields.product_line)
+                    if str(item.get("value") or "").strip() == next_value
+                ),
+                "",
+            )
+            product_line = canonical_product_line(product_line)
+            product_module = normalize_product_module(product_line, todo.summary_fields.product_module)
+        if normalized_field == "product_module":
+            product_module = normalize_product_module(product_line, next_value)
         if normalized_field == "customer_environment":
             selected_option = next(
                 (
                     item
                     for item in self._selected_ticket_customer_environment_options(
-                        todo.summary_fields.customer_environment_code,
                         todo.summary_fields.customer_environment_value,
                     )
-                    if str(item.get("code") or "").strip() == next_value
+                    if str(item.get("value") or "").strip() == next_value
                 ),
                 None,
             )
-            customer_environment_code = str(selected_option.get("code") or "").strip() if isinstance(selected_option, dict) else ""
             customer_environment_value = str(selected_option.get("value") or "").strip() if isinstance(selected_option, dict) else ""
+        if normalized_field == "issue_product":
+            issue_product = next_value
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(
                 todo,
-                customer_environment_code=customer_environment_code,
+                product_line=product_line,
+                product_module=product_module,
                 customer_environment_value=customer_environment_value,
+                issue_product=issue_product,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
                 feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
                 feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
@@ -3672,7 +3907,10 @@ class _ControlPanelBridge(QObject):
             return
         self._publish_ticket_update(updated, ["summary_fields"])
         field_labels = {
+            "product_line": "产品线",
+            "product_module": "产品模块/组件",
             "customer_environment": "客户环境",
+            "issue_product": "问题所属产品",
             "ticket_version": "\u7248\u672c\u53f7",
             "feature_point": "\u529f\u80fd\u70b9",
             "root_cause": "\u6839\u56e0\u63cf\u8ff0",

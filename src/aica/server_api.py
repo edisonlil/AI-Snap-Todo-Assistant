@@ -117,6 +117,48 @@ class ChattodoServerClient:
                 normalized_items.append(normalized_item)
         return normalized_items
 
+    def fetch_custom_field_options(self, field_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_field_ids = [
+            sanitize_text(field_id).strip()
+            for field_id in list(field_ids or [])
+            if sanitize_text(field_id).strip()
+        ]
+        if not normalized_field_ids:
+            raise ChattodoServerError("自定义字段编码不能为空。")
+
+        payload = self._request_json(
+            "POST",
+            "/api/open/v1/workbench/ach/custom-field-options",
+            json={"field_ids": normalized_field_ids},
+            headers={"Accept": "application/json"},
+        )
+        items = self._extract_custom_field_option_items(payload)
+        normalized_items: list[dict[str, Any]] = []
+        for item in items:
+            normalized_item = self._normalize_custom_field_option_item(item)
+            if normalized_item is not None:
+                normalized_items.append(normalized_item)
+        return normalized_items
+
+    def fetch_customer_environment_options(self) -> list[dict[str, Any]]:
+        return self.fetch_ach_custom_field_options_by_label("客户环境")
+
+    def fetch_issue_product_options(self) -> list[dict[str, Any]]:
+        return self.fetch_ach_custom_field_options_by_label("问题所属产品")
+
+    def fetch_ach_custom_field_options_by_label(self, field_label: str) -> list[dict[str, Any]]:
+        ach_field_options = self.fetch_dictionary_options("ach-field")
+        normalized_field_label = sanitize_text(field_label).strip()
+        customer_environment_field_code = ""
+        for item in ach_field_options:
+            if sanitize_text(item.get("value")).strip() == normalized_field_label:
+                customer_environment_field_code = sanitize_text(item.get("code")).strip()
+                if customer_environment_field_code:
+                    break
+        if not customer_environment_field_code:
+            raise ChattodoServerError(f"ACH 自定义字段字典里未找到“{normalized_field_label}”对应编码。")
+        return self.fetch_custom_field_options([customer_environment_field_code])
+
     def bind_chat_groups_by_task_order_no(self, *, task_order_no: str, group_names: list[str]) -> None:
         normalized_task_order = sanitize_text(task_order_no)
         normalized_group_names = [sanitize_text(item) for item in group_names if sanitize_text(item)]
@@ -655,6 +697,137 @@ class ChattodoServerClient:
             return {
                 "label": label,
                 "value": value or code or label,
+                "code": code or value or label,
+                "sort_order": sort_order,
+                "item": dict(raw_item) if isinstance(raw_item, dict) else raw_item,
+            }
+        text = sanitize_text(item).strip()
+        if not text:
+            return None
+        return {
+            "label": text,
+            "value": text,
+            "code": text,
+            "sort_order": None,
+            "item": item,
+        }
+
+    @staticmethod
+    def _extract_custom_field_option_items(payload: dict[str, Any]) -> list[object]:
+        data = payload.get("data")
+        container_items: list[object] = []
+        if isinstance(data, list):
+            container_items = list(data)
+        elif isinstance(data, dict):
+            direct_items = data.get("items")
+            if isinstance(direct_items, list):
+                container_items = list(direct_items)
+            else:
+                for key in ("list", "options"):
+                    value = data.get(key)
+                    if isinstance(value, list):
+                        container_items = list(value)
+                        break
+                if not container_items:
+                    for value in data.values():
+                        if isinstance(value, list):
+                            container_items = list(value)
+                            break
+
+        flattened: list[object] = []
+        for item in container_items:
+            if isinstance(item, dict):
+                related_options = item.get("related_options")
+                if isinstance(related_options, dict):
+                    related_list = related_options.get("list")
+                    if isinstance(related_list, list):
+                        flattened.extend(
+                            ChattodoServerClient._flatten_related_field_options(related_list)
+                        )
+                        continue
+                nested_options = item.get("options")
+                if isinstance(nested_options, list) and nested_options:
+                    flattened.extend(nested_options)
+                    continue
+            flattened.append(item)
+        if flattened:
+            return flattened
+        raise ChattodoServerError("服务端返回格式错误：缺少自定义字段选项。")
+
+    @staticmethod
+    def _flatten_related_field_options(
+        nodes: list[object],
+        *,
+        parent_parts: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        parent_parts = list(parent_parts or [])
+        flattened: list[dict[str, Any]] = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            value = sanitize_text(node.get("value") or node.get("label")).strip()
+            label = sanitize_text(node.get("label") or node.get("value")).strip()
+            if not value and not label:
+                continue
+            current_part = value or label
+            current_parts = [*parent_parts, current_part]
+            children = node.get("children")
+            if isinstance(children, list) and children:
+                flattened.extend(
+                    ChattodoServerClient._flatten_related_field_options(
+                        children,
+                        parent_parts=current_parts,
+                    )
+                )
+                continue
+            path_value = "/".join(part for part in current_parts if part)
+            if not path_value:
+                continue
+            flattened.append(
+                {
+                    "code": path_value,
+                    "value": path_value,
+                    "label": path_value,
+                    "sort_order": None,
+                    "item": dict(node),
+                }
+            )
+        return flattened
+
+    @staticmethod
+    def _normalize_custom_field_option_item(item: object) -> dict[str, Any] | None:
+        if isinstance(item, dict):
+            raw_item = item.get("item")
+            nested_item = raw_item if isinstance(raw_item, dict) else {}
+            code = sanitize_text(
+                item.get("code")
+                or item.get("option_code")
+                or item.get("id")
+                or nested_item.get("code")
+                or nested_item.get("option_code")
+                or nested_item.get("id")
+            )
+            value = sanitize_text(
+                item.get("value")
+                or item.get("label")
+                or item.get("name")
+                or nested_item.get("value")
+                or nested_item.get("label")
+                or nested_item.get("name")
+                or code
+            )
+            label = sanitize_text(item.get("label") or item.get("name") or nested_item.get("label") or value)
+            sort_order = ChattodoServerClient._coerce_dictionary_sort_order(
+                item.get("sort_order"),
+                item.get("sortOrder"),
+                nested_item.get("sort_order"),
+                nested_item.get("sortOrder"),
+            )
+            if not code and not value and not label:
+                return None
+            return {
+                "label": label or value or code,
+                "value": value or label or code,
                 "code": code or value or label,
                 "sort_order": sort_order,
                 "item": dict(raw_item) if isinstance(raw_item, dict) else raw_item,
