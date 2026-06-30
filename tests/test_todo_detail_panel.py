@@ -22,14 +22,15 @@ from aica.todo.detail_panel import (
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
-def _build_bridge(attachment_root: Path, *, project_product_line_provider=None) -> _TodoDetailBridge:
+def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
+    config_manager = SimpleNamespace(load=lambda: SimpleNamespace(show_todo_sync_status=True, enable_timeline_polish=True))
     return _TodoDetailBridge(
         attachment_root=attachment_root,
         environment_access_service=SimpleNamespace(
             list_project_environments=lambda _project_id: [],
             list_effective_environments=lambda _project_id: [],
         ),
-        project_product_line_provider=project_product_line_provider,
+        config_manager=config_manager,
     )
 
 
@@ -491,24 +492,21 @@ def test_detail_save_preserves_existing_customer_environment_fields() -> None:
     assert summary_fields["customer_environment_value"] == "生产环境"
 
 
-def test_todo_detail_product_line_field_uses_inline_combo_box() -> None:
+def test_todo_detail_issue_product_field_is_read_only() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
 
     assert "import QtQuick.Controls" in qml_text
-    assert "id: productLineField" in qml_text
-    assert "id: productLineEdit" in qml_text
-    assert "id: productLineFallbackEdit" in qml_text
+    assert "id: issueProductField" in qml_text
+    assert "id: issueProductEdit" in qml_text
     assert "readonly property var detailBridge" in qml_text
-    assert "readonly property var productLineOptions" in qml_text
-    assert "productLineFallbackEdit.text = todoDetailBridge.productLine" in qml_text
+    assert 'text: "问题所属产品"' in qml_text
+    assert "issueProductEdit.text = todoDetailBridge.issueProduct" in qml_text
     assert "readOnly: true" in qml_text
-    assert "visible: root.productLineOptions.length <= 1" in qml_text
-    assert "visible: root.productLineOptions.length > 1" in qml_text
-    assert "model: root.productLineOptions" in qml_text
-    assert "onActivated: if (currentIndex >= 0) root.selectProductLine" in qml_text
-    assert "background: Item {}" in qml_text
-    assert "id: productLineFlow" not in qml_text
+    assert "selectByMouse: true" in qml_text
+    assert "id: productLineField" not in qml_text
+    assert "id: productLineEdit" not in qml_text
+    assert "id: productLineFallbackEdit" not in qml_text
 
 
 def test_todo_detail_summary_panel_uses_theme_field_background() -> None:
@@ -549,77 +547,39 @@ def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
     assert '"当前描述附件 " + todoDetailBridge.currentSummaryAttachmentCount' not in qml_text
 
 
-def test_todo_detail_product_line_options_come_from_matched_project() -> None:
-    bridge = _build_bridge(Path("unused"))
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台, 协作套件, 文档中台"))
-
-    assert bridge.productLineOptions == ["文档中台", "协作套件"]
-
-
-def test_todo_detail_product_line_options_use_current_project_data() -> None:
-    bridge = _build_bridge(
-        Path("unused"),
-        project_product_line_provider=lambda project_id: "私网文档中心;zhongt" if project_id == "project-1" else "",
-    )
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "旧产品线"))
-
-    assert bridge.productLineOptions == ["私网文档中心", "zhongt"]
-    assert bridge.productLine == "私网文档中心"
-
-
-def test_todo_detail_product_line_options_fall_back_to_project_snapshot() -> None:
-    bridge = _build_bridge(
-        Path("unused"),
-        project_product_line_provider=lambda _project_id: "",
-    )
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台, 协作套件"))
-
-    assert bridge.productLineOptions == ["文档中台", "协作套件"]
-
-
-def test_todo_detail_refreshes_current_project_product_line_options() -> None:
-    current_product_line = {"value": "文档中台"}
-    bridge = _build_bridge(
-        Path("unused"),
-        project_product_line_provider=lambda _project_id: current_product_line["value"],
-    )
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "旧产品线"))
-
-    current_product_line["value"] = "私网文档中心;zhongt"
-
-    assert bridge.refresh_project_product_lines("project-1") is True
-    assert bridge.productLineOptions == ["私网文档中心", "zhongt"]
-    assert bridge.productLine == "私网文档中心"
-
-
-def test_todo_detail_single_project_product_line_has_no_extra_options() -> None:
-    bridge = _build_bridge(Path("unused"))
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台"))
-
-    assert bridge.productLineOptions == ["文档中台"]
-    assert bridge.productLine == "文档中台"
-
-
-def test_todo_detail_selects_project_product_line_into_save_payload() -> None:
-    bridge = _build_bridge(Path("unused"))
-    bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台, 协作套件"))
-
-    bridge.selectProductLine("协作套件")
-
-    payload = bridge._build_payload()  # noqa: SLF001
-    assert bridge.productLine == "协作套件"
-    assert payload["summary_fields"]["product_line"] == "协作套件"
-
-
-def test_todo_detail_rejects_unknown_product_line_selection() -> None:
+def test_todo_detail_product_line_does_not_follow_project_snapshot() -> None:
     bridge = _build_bridge(Path("unused"))
     todo = _build_todo()
-    todo.summary_fields = TicketSummaryFields(product_line="文档中台")
-    bridge.set_todo(_with_project_product_lines(todo, "文档中台"))
+    todo.summary_fields = TicketSummaryFields(product_line="手工产品线")
+    bridge.set_todo(_with_project_product_lines(todo, "文档中台, 协作套件"))
 
-    bridge.selectProductLine("手工产品线")
+    payload = bridge._build_payload()  # noqa: SLF001
 
-    assert bridge.productLine == "文档中台"
+    assert bridge.productLine == "手工产品线"
+    assert payload["summary_fields"]["product_line"] == "手工产品线"
+
+
+def test_todo_detail_empty_product_line_does_not_default_from_project_snapshot() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_with_project_product_lines(_build_todo(), "文档中台, 协作套件"))
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.productLine == "未知"
+    assert payload["summary_fields"]["product_line"] == "未知"
+
+
+def test_todo_detail_save_preserves_issue_product_field() -> None:
+    bridge = _build_bridge(Path("unused"))
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields(issue_product="产品A/模块B/功能C")
+    bridge.set_todo(todo)
+
+    payload = bridge._build_payload()  # noqa: SLF001
+    summary_fields = payload["summary_fields"]
+
+    assert bridge.issueProduct == "产品A/模块B/功能C"
+    assert summary_fields["issue_product"] == "产品A/模块B/功能C"
 
 
 def test_log_analysis_submission_pushes_notification() -> None:

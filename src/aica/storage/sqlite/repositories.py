@@ -737,56 +737,27 @@ class SQLiteProjectRepository:
                 seen.add(normalized)
         return product_lines
 
-    def list_product_lines_for_group(
-        self,
-        group_name: str,
-        *,
-        now: str | None = None,
-    ) -> list[str]:
-        match = self.match_project_by_group_name(group_name, now=now)
-        if match.status != "matched":
-            return []
-        return list(split_project_product_lines(match.project_snapshot.get("product_line", "")))
-
-    def most_used_product_line_for_group(
-        self,
-        group_name: str,
-        options: list[str] | tuple[str, ...],
-        *,
-        now: str | None = None,
-    ) -> str:
-        product_lines = list(options)
-        if not product_lines:
+    def latest_issue_product_for_project(self, project_id: str) -> str:
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
             return ""
-        if len(product_lines) == 1:
-            return product_lines[0]
-        match = self.match_project_by_group_name(group_name, now=now)
-        if match.status != "matched":
-            return ""
-        project_id = sanitize_text(match.project_id)
-        normalized_options = {sanitize_text(item).casefold(): item for item in product_lines if sanitize_text(item)}
-        if not project_id or not normalized_options:
-            return product_lines[0]
         with self._connect() as connection:
-            rows = connection.execute(
+            row = connection.execute(
                 """
-                SELECT todos.product_line
+                SELECT todos.issue_product
                 FROM todos
                 JOIN todo_project_links ON todo_project_links.todo_id = todos.id
                 WHERE todo_project_links.project_id = ?
                   AND todo_project_links.match_status IN ('matched', 'manual', 'expired')
-                  AND TRIM(todos.product_line) <> ''
+                  AND TRIM(todos.issue_product) <> ''
+                ORDER BY todos.created_at DESC, todos.updated_at DESC, todos.id DESC
+                LIMIT 1
                 """,
-                (project_id,),
-            ).fetchall()
-        counts: Counter[str] = Counter()
-        for row in rows:
-            normalized = sanitize_text(row["product_line"]).casefold()
-            if normalized in normalized_options:
-                counts[normalized_options[normalized]] += 1
-        if not counts:
-            return product_lines[0]
-        return max(product_lines, key=lambda item: (counts[item], -product_lines.index(item)))
+                (normalized_project_id,),
+            ).fetchone()
+        if row is None:
+            return ""
+        return sanitize_text(row["issue_product"])
 
     def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
         normalized_task_order = sanitize_text(task_order_no)
@@ -1250,7 +1221,7 @@ class SQLiteTodoRepository:
             JOIN todo_project_links ON todo_project_links.todo_id = todos.id
             WHERE todo_project_links.project_id = ?
               AND todo_project_links.todo_id <> ?
-              AND todo_project_links.match_status IN ('matched', 'manual', 'expired')
+              AND todo_project_links.match_status IN ('matched', 'manual')
             ORDER BY todos.created_at DESC, todos.updated_at DESC, todos.id DESC
             LIMIT 1
             """,

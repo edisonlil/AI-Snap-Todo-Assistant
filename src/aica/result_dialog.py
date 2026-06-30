@@ -169,15 +169,13 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
 
 from aica.analysis.metrics import AnalysisRunStats
 from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
-from aica.project_management import split_project_product_lines
 from aica.runtime import RUNTIME_CAPABILITIES
-from aica.storage.contracts import ProjectMatchCandidate
+from aica.storage.contracts import ProjectMatchCandidate, ProjectMatchResult
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.theme_controller import ThemeController
 from aica.ticket_field_resolver import (
     TICKET_TYPE_OPTIONS,
     normalize_ticket_type,
-    resolve_product_line,
 )
 from aica.text_sanitize import sanitize_text, strip_invalid_surrogates
 from aica.window_effects import disable_windows_window_border
@@ -195,27 +193,6 @@ def _clean_text(value: str, fallback: str = _UNKNOWN_TEXT) -> str:
 
 def _sanitize_edit_text(value: object) -> str:
     return strip_invalid_surrogates(str(value or ""))
-
-
-def _normalize_product_line_options(raw_options: object) -> list[str]:
-    options: list[str] = []
-    seen: set[str] = set()
-    source = raw_options if isinstance(raw_options, (list, tuple, set)) else [raw_options]
-    for raw_value in source:
-        for product_line in split_project_product_lines(raw_value):
-            normalized = product_line.casefold()
-            if normalized in seen:
-                continue
-            options.append(product_line)
-            seen.add(normalized)
-    return options
-
-
-def _call_product_line_provider(provider, group_name: str) -> object:  # noqa: ANN001
-    try:
-        return provider(group_name)
-    except TypeError:
-        return provider()
 
 
 def _call_candidate_provider(provider, group_name: str) -> object:  # noqa: ANN001
@@ -239,14 +216,14 @@ class _ResultDialogBridge(QObject):
         scenario: str,
         model: str,
         analysis_stats: AnalysisRunStats | None = None,
-        product_line_options_provider=None,
-        default_product_line_provider=None,
         project_candidate_provider=None,
+        latest_issue_product_provider=None,
+        project_match_provider=None,
     ) -> None:
         super().__init__()
-        self._product_line_options_provider = product_line_options_provider
-        self._default_product_line_provider = default_product_line_provider
         self._project_candidate_provider = project_candidate_provider
+        self._latest_issue_product_provider = latest_issue_product_provider
+        self._project_match_provider = project_match_provider
         self._scenario = scenario
         self._model = model
         self._timing_summary = analysis_stats.timing_summary if analysis_stats is not None else ""
@@ -254,8 +231,9 @@ class _ResultDialogBridge(QObject):
         self._title = sanitize_text(result.title)
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
-        self._product_line = resolve_product_line(raw_value=result.fields.product_line)
-        self._product_line_manual = bool(str(result.fields.product_line or "").strip()) and not is_unknown_text(result.fields.product_line)
+        self._product_line = sanitize_text(result.fields.product_line)
+        self._issue_product = sanitize_text(result.fields.issue_product)
+        self._issue_product_manual = bool(self._issue_product.strip())
         self._product_line_error = ""
         self._project_candidates: list[dict[str, object]] = []
         self._selected_project_candidate: dict[str, object] = {}
@@ -264,8 +242,8 @@ class _ResultDialogBridge(QObject):
             result.fields.ticket_type,
             summary_text=self._recognition_conclusion,
         )
-        self._apply_product_line_default(force=False)
         self._refresh_project_candidates()
+        self._apply_matched_project_issue_product_default()
 
     @pyqtProperty(str, notify=dataChanged)
     def scenario(self) -> str:
@@ -299,24 +277,9 @@ class _ResultDialogBridge(QObject):
     def productLine(self) -> str:
         return self._product_line
 
-    @pyqtProperty("QVariantList", notify=dataChanged)
-    def productLineOptions(self):  # noqa: ANN201
-        provider = self._product_line_options_provider
-        if callable(provider):
-            try:
-                options = _normalize_product_line_options(_call_product_line_provider(provider, self._group_name))
-            except Exception:
-                options = []
-            if options:
-                return options
-        if self._selected_project_candidate:
-            snapshot = dict(self._selected_project_candidate.get("projectSnapshot") or {})
-            return _normalize_product_line_options(snapshot.get("product_line") or snapshot.get("productLine") or "")
-        return []
-
-    @pyqtProperty(bool, notify=dataChanged)
-    def productLineRequired(self) -> bool:
-        return bool(self.productLineOptions)
+    @pyqtProperty(str, notify=dataChanged)
+    def issueProduct(self) -> str:
+        return self._issue_product
 
     @pyqtProperty(str, notify=dataChanged)
     def productLineError(self) -> str:
@@ -357,15 +320,13 @@ class _ResultDialogBridge(QObject):
             self._title = text
         elif name == "group_name":
             self._group_name = text
-            self._apply_product_line_default(force=True)
             self._refresh_project_candidates()
+            self._apply_matched_project_issue_product_default()
         elif name == "environment":
             self._environment = text
-        elif name == "product_line":
-            self._product_line = resolve_product_line(raw_value=text)
-            self._product_line_manual = bool(self._product_line.strip()) and not is_unknown_text(self._product_line)
-            if self._product_line.strip():
-                self._product_line_error = ""
+        elif name == "issue_product":
+            self._issue_product = text
+            self._issue_product_manual = bool(text.strip())
         elif name == "ticket_type":
             self._ticket_type = normalize_ticket_type(text, summary_text=self._recognition_conclusion)
         elif name == "timeline_entry":
@@ -399,7 +360,8 @@ class _ResultDialogBridge(QObject):
             fields=TicketSummaryFields(
                 group_name=_clean_text(self._group_name),
                 environment=_clean_text(self._environment),
-                product_line=resolve_product_line(raw_value=self._product_line),
+                product_line=self._product_line,
+                issue_product=self._issue_product.strip(),
                 ticket_type=normalize_ticket_type(
                     self._ticket_type,
                     summary_text="\n".join(
@@ -424,8 +386,6 @@ class _ResultDialogBridge(QObject):
 
     @pyqtSlot()
     def saveDialog(self) -> None:
-        if not self._validate_product_line_selection():
-            return
         self.saveRequested.emit()
 
     @pyqtSlot("QVariantMap")
@@ -447,51 +407,44 @@ class _ResultDialogBridge(QObject):
             preferred_group_name = sanitize_text(matched.get("projectName") or matched.get("project_name"))
         if preferred_group_name:
             self._group_name = preferred_group_name
-        self._apply_product_line_default(force=not self._product_line_manual)
+        self._apply_issue_product_default(str(matched.get("projectId") or ""))
         self.dataChanged.emit()
 
-    def _validate_product_line_selection(self) -> bool:
-        if not self.productLineRequired or not is_unknown_text(self._product_line):
-            if self._product_line_error:
-                self._product_line_error = ""
-                self.dataChanged.emit()
-            return True
-        self._product_line_error = "请选择产品线"
-        self.dataChanged.emit()
+    def _apply_issue_product_default(self, project_id: str) -> None:
+        if self._issue_product_manual and self._issue_product.strip():
+            return
+        provider = self._latest_issue_product_provider
+        if not callable(provider):
+            return
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
+            return
+        try:
+            latest_issue_product = sanitize_text(provider(normalized_project_id))
+        except Exception:
+            latest_issue_product = ""
+        if latest_issue_product:
+            self._issue_product = latest_issue_product
+            self._issue_product_manual = False
 
-    def _resolve_default_product_line(self, options: list[str]) -> str:
-        if not options:
-            return ""
-        if len(options) == 1:
-            return options[0]
-        provider = self._default_product_line_provider
+    def _apply_matched_project_issue_product_default(self) -> None:
+        project_id = self._resolve_issue_product_default_project_id()
+        if project_id:
+            self._apply_issue_product_default(project_id)
+
+    def _resolve_issue_product_default_project_id(self) -> str:
+        provider = self._project_match_provider
         if callable(provider):
             try:
-                candidate = sanitize_text(provider(self._group_name, options))
-            except TypeError:
-                candidate = sanitize_text(provider(options))
+                match_result = provider(self._group_name)
             except Exception:
-                candidate = ""
-            normalized_options = {item.casefold(): item for item in options}
-            if candidate.casefold() in normalized_options:
-                return normalized_options[candidate.casefold()]
-        return options[0]
-
-    def _apply_product_line_default(self, *, force: bool) -> None:
-        options = self.productLineOptions
-        if not options:
-            if force or is_unknown_text(self._product_line):
-                self._product_line = ""
-            self._product_line_error = ""
-            return
-        normalized_options = {item.casefold(): item for item in options}
-        current = sanitize_text(self._product_line)
-        if not force and current.casefold() in normalized_options:
-            self._product_line = normalized_options[current.casefold()]
-            return
-        if force or is_unknown_text(current) or current.casefold() not in normalized_options:
-            self._product_line = self._resolve_default_product_line(options)
-            self._product_line_error = ""
+                match_result = None
+            if isinstance(match_result, ProjectMatchResult):
+                if sanitize_text(match_result.status) == "matched":
+                    return sanitize_text(match_result.project_id)
+        if len(self._project_candidates) == 1:
+            return sanitize_text(self._project_candidates[0].get("projectId") or "")
+        return ""
 
     def _refresh_project_candidates(self) -> None:
         repository_provider = getattr(self, "_project_candidate_provider", None)
@@ -540,9 +493,9 @@ class ResultDialog(QDialog):
         model: str,
         analysis_stats: AnalysisRunStats | None = None,
         save_callback: Optional[Callable] = None,
-        product_line_options_provider=None,
-        default_product_line_provider=None,
         project_candidate_provider=None,
+        latest_issue_product_provider=None,
+        project_match_provider=None,
         parent=None,
         theme_controller: ThemeController | None = None,
     ):
@@ -554,18 +507,18 @@ class ResultDialog(QDialog):
         self._save_callback = save_callback
         self._product_line_repository = (
             None
-            if callable(product_line_options_provider) and callable(default_product_line_provider)
+            if callable(latest_issue_product_provider)
             else SQLiteProjectRepository()
         )
-        self._product_line_options_provider = (
-            product_line_options_provider
-            if callable(product_line_options_provider)
-            else self._product_line_repository.list_product_lines_for_group
+        self._latest_issue_product_provider = (
+            latest_issue_product_provider
+            if callable(latest_issue_product_provider)
+            else self._product_line_repository.latest_issue_product_for_project
         )
-        self._default_product_line_provider = (
-            default_product_line_provider
-            if callable(default_product_line_provider)
-            else self._product_line_repository.most_used_product_line_for_group
+        self._project_match_provider = (
+            project_match_provider
+            if callable(project_match_provider)
+            else self._product_line_repository.match_project_by_group_name
         )
         self._positioned = False
 
@@ -574,11 +527,11 @@ class ResultDialog(QDialog):
             scenario=scenario,
             model=model,
             analysis_stats=analysis_stats,
-            product_line_options_provider=self._product_line_options_provider,
-            default_product_line_provider=self._default_product_line_provider,
             project_candidate_provider=project_candidate_provider
             if callable(project_candidate_provider)
             else getattr(self._product_line_repository, "search_project_candidates_by_group_name", None),
+            latest_issue_product_provider=self._latest_issue_product_provider,
+            project_match_provider=self._project_match_provider,
         )
 
         self.setObjectName("resultDialog")

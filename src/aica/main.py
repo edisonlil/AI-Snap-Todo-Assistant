@@ -1320,8 +1320,7 @@ def main() -> None:
         if todo is None:
             return
         if str(todo.project_link.project_id or "").strip() == normalized_project_id:
-            if not todo_detail_panel.refresh_project_product_lines(project_id):
-                _show_todo_detail(current_todo_id)
+            _show_todo_detail(current_todo_id)
             return
         refreshed_todo = todo_controller.get_todo_detail(current_todo_id)
         if refreshed_todo is not None and str(refreshed_todo.project_link.project_id or "").strip() == normalized_project_id:

@@ -8,7 +8,8 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.storage.contracts import ProjectRecord  # noqa: E402
-from aica.storage.sqlite.repositories import SQLiteProjectRepository  # noqa: E402
+from aica.storage.sqlite.repositories import SQLiteProjectRepository, SQLiteTodoRepository  # noqa: E402
+from aica.models import TicketSnapshot, TicketSummaryFields  # noqa: E402
 
 
 def _make_db_path(name: str) -> Path:
@@ -82,3 +83,44 @@ def test_search_project_candidates_excludes_expired_projects_by_default() -> Non
 
     assert [candidate.project_id for candidate in candidates] == ["active-project"]
     assert all(candidate.is_expired is False for candidate in candidates)
+
+
+def test_latest_issue_product_for_project_returns_most_recent_non_empty_value() -> None:
+    db_path = _make_db_path("project-latest-issue-product")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            aliases=("测试群",),
+        )
+    )
+    todo_repository = SQLiteTodoRepository(str(db_path))
+
+    first = TicketSnapshot(
+        title="待办一",
+        fields=TicketSummaryFields(group_name="测试群", issue_product="产品A/模块B/功能C"),
+        current_summary="描述一",
+        timeline_entry="结论一",
+    )
+    second = TicketSnapshot(
+        title="待办二",
+        fields=TicketSummaryFields(group_name="测试群", issue_product=""),
+        current_summary="描述二",
+        timeline_entry="结论二",
+    )
+    third = TicketSnapshot(
+        title="待办三",
+        fields=TicketSummaryFields(group_name="测试群", issue_product="产品X/模块Y/功能Z"),
+        current_summary="描述三",
+        timeline_entry="结论三",
+    )
+
+    todo_repository.create_todo_from_analysis(first, "analysis")
+    todo_repository.create_todo_from_analysis(second, "analysis")
+    todo_repository.create_todo_from_analysis(third, "analysis")
+
+    assert project_repository.latest_issue_product_for_project("project-1") == "产品X/模块Y/功能Z"
+

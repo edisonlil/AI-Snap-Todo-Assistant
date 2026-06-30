@@ -46,7 +46,9 @@ Rectangle {
         if (environmentEdit.text !== resultDialogBridge.environment) {
             environmentEdit.text = resultDialogBridge.environment
         }
-        productLineEdit.currentIndex = root.optionIndex(resultDialogBridge.productLineOptions, resultDialogBridge.productLine)
+        if (issueProductEdit.text !== resultDialogBridge.issueProduct) {
+            issueProductEdit.text = resultDialogBridge.issueProduct
+        }
         if (ticketTypeEdit.text !== resultDialogBridge.ticketType) {
             ticketTypeEdit.text = resultDialogBridge.ticketType
         }
@@ -399,108 +401,26 @@ Rectangle {
                                 Text {
                                     x: 14
                                     y: 12
-                                    text: resultDialogBridge.productLineRequired ? "\u4ea7\u54c1\u7ebf *" : "\u4ea7\u54c1\u7ebf"
+                                    text: "\u95ee\u9898\u6240\u5c5e\u4ea7\u54c1"
                                     color: resultDialogBridge.productLineError.length > 0 ? "#D93025" : root.labelInk
                                     font.family: root.uiFont
                                     font.pixelSize: 11
                                     font.weight: root.labelWeight
                                 }
 
-                                ComboBox {
-                                    id: productLineEdit
+                                TextInput {
+                                    id: issueProductEdit
                                     x: 14
-                                    y: 24
+                                    y: 27
                                     width: parent.width - 28
-                                    height: 24
-                                    model: resultDialogBridge.productLineOptions
-                                    currentIndex: root.optionIndex(resultDialogBridge.productLineOptions, resultDialogBridge.productLine)
+                                    height: 22
+                                    clip: true
+                                    selectByMouse: true
+                                    color: root.titleInk
                                     font.family: root.uiFont
                                     font.pixelSize: 13
-                                    enabled: resultDialogBridge.productLineOptions.length > 1
-                                    onActivated: if (currentIndex >= 0) root.pushField("product_line", resultDialogBridge.productLineOptions[currentIndex])
-
-                                    contentItem: Text {
-                                        text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : (resultDialogBridge.productLineOptions.length > 0 ? "请选择产品线" : "未匹配项目")
-                                        color: productLineEdit.currentIndex >= 0 ? root.titleInk : root.mutedInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: root.bodyWeight
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-
-                                    indicator: Text {
-                                        x: productLineEdit.width - width
-                                        y: 0
-                                        width: 14
-                                        height: productLineEdit.height
-                                        text: productLineEdit.popup.visible ? "⌃" : "⌄"
-                                        color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
-                                        visible: resultDialogBridge.productLineOptions.length > 1
-                                        font.family: root.uiFont
-                                        font.pixelSize: 14
-                                        horizontalAlignment: Text.AlignRight
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-
-                                    background: Item {}
-
-                                    delegate: ItemDelegate {
-                                        id: productLineOption
-                                        width: productLineEdit.width
-                                        height: 38
-                                        padding: 0
-                                        highlighted: productLineEdit.highlightedIndex === index
-
-                                        background: Rectangle {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 4
-                                            anchors.rightMargin: 4
-                                            anchors.topMargin: 2
-                                            anchors.bottomMargin: 2
-                                            radius: 8
-                                            color: productLineEdit.currentIndex === index ? "#EDF1F6" : (productLineOption.hovered || productLineOption.highlighted ? "#F6F8FA" : "transparent")
-                                        }
-
-                                        contentItem: Text {
-                                            leftPadding: 12
-                                            rightPadding: 12
-                                            text: modelData
-                                            color: root.titleInk
-                                            font.family: root.uiFont
-                                            font.pixelSize: 13
-                                            font.weight: productLineEdit.currentIndex === index ? 700 : root.bodyWeight
-                                            verticalAlignment: Text.AlignVCenter
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-
-                                    popup: Popup {
-                                        y: productLineEdit.height + 6
-                                        width: productLineEdit.width
-                                        implicitHeight: Math.min(contentItem.implicitHeight + 8, 156)
-                                        padding: 4
-                                        modal: false
-                                        focus: true
-                                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-
-                                        background: Rectangle {
-                                            radius: 12
-                                            color: "#FFFFFF"
-                                            border.width: 1
-                                            border.color: "#DDE3EB"
-                                            layer.enabled: true
-                                            layer.samples: 4
-                                        }
-
-                                        contentItem: ListView {
-                                            clip: true
-                                            implicitHeight: contentHeight
-                                            model: productLineEdit.popup.visible ? productLineEdit.delegateModel : null
-                                            currentIndex: productLineEdit.highlightedIndex
-                                            boundsBehavior: Flickable.StopAtBounds
-                                        }
-                                    }
+                                    font.weight: root.bodyWeight
+                                    onTextChanged: root.pushField("issue_product", text)
                                 }
                             }
                         }

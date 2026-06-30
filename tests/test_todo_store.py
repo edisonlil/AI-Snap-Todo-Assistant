@@ -424,6 +424,62 @@ def test_create_todo_does_not_override_existing_project_fields_with_latest_histo
     assert second.summary_fields.issue_product == "产品X/模块Y/功能Z"
 
 
+def test_create_todo_does_not_inherit_defaults_from_expired_project_history() -> None:
+    db_path = _make_db_path("todo-project-expired-history-defaults")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Expired Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            product_version="release_dc_v7",
+            project_manager="Alice",
+            support_ended_at="2024-01-01T00:00:00",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    history_snapshot = _build_snapshot("todo-expired-history")
+    history_snapshot.fields.environment = "生产"
+    history_snapshot.fields.product_line = "PC Office"
+    history_snapshot.fields.product_module = "PC Office-文字"
+    history_snapshot.fields.customer_environment_code = "env-prod"
+    history_snapshot.fields.customer_environment_value = "生产环境"
+    history_snapshot.fields.issue_product = "产品A/模块B/功能C"
+    history_todo = repository.create_todo_from_analysis(history_snapshot, "analysis")
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE todo_project_links
+            SET project_id = NULL, match_status = 'expired', match_reason = 'matched_project_expired'
+            WHERE todo_id = ?
+            """,
+            (history_todo.id,),
+        )
+        connection.commit()
+
+    next_snapshot = _build_snapshot("todo-next")
+    next_snapshot.fields.environment = ""
+    next_snapshot.fields.product_line = ""
+    next_snapshot.fields.product_module = ""
+    next_snapshot.fields.customer_environment_code = ""
+    next_snapshot.fields.customer_environment_value = ""
+    next_snapshot.fields.issue_product = ""
+    next_todo = repository.create_todo_from_analysis(next_snapshot, "analysis")
+
+    assert next_todo.project_link.project_id == ""
+    assert next_todo.summary_fields.environment == "未知"
+    assert next_todo.summary_fields.product_line == "未知"
+    assert next_todo.summary_fields.product_module == ""
+    assert next_todo.summary_fields.customer_environment_code == ""
+    assert next_todo.summary_fields.customer_environment_value == ""
+    assert next_todo.summary_fields.issue_product == ""
+
+
 def test_create_todo_from_problem_conclusion_saves_into_conclusion() -> None:
     repository = SQLiteTodoRepository(str(_make_db_path("todo-problem-conclusion-create")))
 

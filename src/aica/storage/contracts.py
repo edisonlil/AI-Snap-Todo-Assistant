@@ -178,6 +178,9 @@ class ProjectRepository(Protocol):
     ) -> list[ProjectMatchCandidate]:
         """Search candidate projects by a group name."""
 
+    def latest_issue_product_for_project(self, project_id: str) -> str:
+        """Return the latest selected issue_product for a project."""
+
     def get_project_link(self, todo_id: str) -> "TodoProjectLink | None":
         """Fetch the current project link for a Todo."""
 

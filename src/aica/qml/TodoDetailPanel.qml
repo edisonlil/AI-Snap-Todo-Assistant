@@ -17,8 +17,6 @@ Rectangle {
 
     readonly property var themeTokens: typeof theme !== "undefined" ? theme : ({})
     readonly property var detailBridge: typeof todoDetailBridge !== "undefined" ? todoDetailBridge : null
-    readonly property var productLineOptions: detailBridge ? detailBridge.productLineOptions : []
-    readonly property string productLineValue: detailBridge ? detailBridge.productLine : ""
     readonly property color shellBg: themeTokens.shellBg || "#FFFFFF"
     readonly property color panelBg: themeTokens.panelBg || "#FFFFFF"
     readonly property color panelLine: themeTokens.panelLine || "#E5E7EB"
@@ -212,13 +210,6 @@ Rectangle {
         cancelActiveTimelineEdit()
     }
 
-    function selectProductLine(value) {
-        if (!root.detailBridge) {
-            return
-        }
-        todoDetailBridge.selectProductLine(value)
-    }
-
     function toggleCurrentSummaryAttachmentManager() {
         currentSummaryAttachmentManagerExpanded = !currentSummaryAttachmentManagerExpanded
     }
@@ -267,8 +258,7 @@ Rectangle {
         syncingFields = true
         titleEdit.text = todoDetailBridge.title
         groupNameEdit.text = todoDetailBridge.groupName
-        productLineFallbackEdit.text = todoDetailBridge.productLine
-        productLineEdit.currentIndex = optionIndex(root.productLineOptions, root.productLineValue)
+        issueProductEdit.text = todoDetailBridge.issueProduct
         summaryEdit.text = todoDetailBridge.currentSummary
         syncingFields = false
 
@@ -667,7 +657,7 @@ Rectangle {
                         }
 
                         Rectangle {
-                            id: productLineField
+                            id: issueProductField
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             width: root.fieldWidth
@@ -680,7 +670,7 @@ Rectangle {
                             Text {
                                 x: root.fieldTextInset
                                 y: 13
-                                text: "产品线"
+                                text: "问题所属产品"
                                 color: root.labelInk
                                 font.family: root.uiFont
                                 font.pixelSize: 11
@@ -688,12 +678,11 @@ Rectangle {
                             }
 
                             TextInput {
-                                id: productLineFallbackEdit
+                                id: issueProductEdit
                                 x: root.fieldTextInset
                                 y: 35
                                 width: parent.width - root.fieldTextInset * 2
                                 height: 22
-                                visible: root.productLineOptions.length <= 1
                                 clip: true
                                 readOnly: true
                                 selectByMouse: true
@@ -701,102 +690,6 @@ Rectangle {
                                 font.family: root.uiFont
                                 font.pixelSize: 13
                                 font.weight: root.bodyWeight
-                            }
-
-                            ComboBox {
-                                id: productLineEdit
-                                x: root.fieldTextInset
-                                y: 35
-                                width: parent.width - root.fieldTextInset * 2
-                                height: 22
-                                visible: root.productLineOptions.length > 1
-                                model: root.productLineOptions
-                                currentIndex: root.optionIndex(root.productLineOptions, root.productLineValue)
-                                enabled: root.productLineOptions.length > 1
-                                font.family: root.uiFont
-                                font.pixelSize: 13
-                                onActivated: if (currentIndex >= 0) root.selectProductLine(root.productLineOptions[currentIndex])
-
-                                contentItem: Text {
-                                    text: productLineEdit.currentIndex >= 0 ? productLineEdit.displayText : productLineFallbackEdit.text
-                                    color: root.titleInk
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: root.bodyWeight
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
-                                }
-
-                                indicator: Text {
-                                    x: productLineEdit.width - width
-                                    y: 0
-                                    width: 14
-                                    height: productLineEdit.height
-                                    text: productLineEdit.popup.visible ? "⌃" : "⌄"
-                                    color: productLineEdit.hovered || productLineEdit.popup.visible ? root.accent : root.labelInk
-                                    visible: root.productLineOptions.length > 1
-                                    font.family: root.uiFont
-                                    font.pixelSize: 14
-                                    horizontalAlignment: Text.AlignRight
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Item {}
-
-                                delegate: ItemDelegate {
-                                    id: productLineOption
-                                    width: productLineEdit.width
-                                    height: 36
-                                    padding: 0
-                                    highlighted: productLineEdit.highlightedIndex === index
-
-                                    background: Rectangle {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 4
-                                        anchors.rightMargin: 4
-                                        anchors.topMargin: 2
-                                        anchors.bottomMargin: 2
-                                        radius: 10
-                                        color: productLineEdit.currentIndex === index ? root.accentTint : (productLineOption.hovered || productLineOption.highlighted ? "#F6F8FA" : "transparent")
-                                    }
-
-                                    contentItem: Text {
-                                        leftPadding: 12
-                                        rightPadding: 12
-                                        text: modelData
-                                        color: root.titleInk
-                                        font.family: root.uiFont
-                                        font.pixelSize: 13
-                                        font.weight: productLineEdit.currentIndex === index ? root.labelWeight : root.bodyWeight
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                popup: Popup {
-                                    y: productLineEdit.height + 8
-                                    width: productLineEdit.width
-                                    implicitHeight: Math.min(contentItem.implicitHeight + 8, 148)
-                                    padding: 4
-                                    modal: false
-                                    focus: true
-                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-
-                                    background: Rectangle {
-                                        radius: 14
-                                        color: "#FFFFFF"
-                                        border.width: 1
-                                        border.color: "#DDE3EB"
-                                    }
-
-                                    contentItem: ListView {
-                                        clip: true
-                                        implicitHeight: contentHeight
-                                        model: productLineEdit.popup.visible ? productLineEdit.delegateModel : null
-                                        currentIndex: productLineEdit.highlightedIndex
-                                        boundsBehavior: Flickable.StopAtBounds
-                                    }
-                                }
                             }
                         }
                     }
