@@ -175,10 +175,10 @@ Rectangle {
             followUpStartedAt: "",
             supportEndedAt: "",
             productLine: "",
-            productVersion: "",
             projectManager: "",
             projectLevel: "normal",
-            aliases: []
+            aliases: [],
+            projectVersions: []
         }
     }
 
@@ -223,10 +223,10 @@ Rectangle {
             followUpStartedAt: source.followUpStartedAt || "",
             supportEndedAt: source.supportEndedAt || "",
             productLine: source.productLine || "",
-            productVersion: source.productVersion || "",
             projectManager: source.projectManager || "",
             projectLevel: source.projectLevel || "normal",
-            aliases: normalizedProjectAliases(source.aliases)
+            aliases: normalizedProjectAliases(source.aliases),
+            projectVersions: source.projectVersions || []
         }
     }
 
@@ -250,6 +250,19 @@ Rectangle {
     function updateProjectDraft(fieldName, value) {
         var next = copyProjectDraft(projectDraft)
         next[fieldName] = value || ""
+        projectDraft = next
+    }
+
+    function syncCurrentProjectDraftVersions() {
+        if (projectViewMode !== "detail" || !projectDraft.id.length) {
+            return
+        }
+        var refreshed = findProjectPayload(projectDraft.id, projectDraft.taskOrderNo)
+        if (!refreshed) {
+            return
+        }
+        var next = copyProjectDraft(projectDraft)
+        next.projectVersions = refreshed.projectVersions || []
         projectDraft = next
     }
 
@@ -363,6 +376,7 @@ Rectangle {
         }
         function onDataChanged() {
             root.ensureSelectedProvider()
+            root.syncCurrentProjectDraftVersions()
         }
         function onCurrentSectionChanged() {
             root.ensureSelectedProvider()
@@ -2965,15 +2979,6 @@ Rectangle {
                                                             text: root.projectDraft.productLine
                                                             placeholderText: "产品线"
                                                             onTextEdited: root.updateProjectDraft("productLine", text)
-                                                        }
-
-                                                        SettingsInput {
-                                                            Layout.fillWidth: true
-                                                            Layout.minimumWidth: 0
-                                                            Layout.preferredWidth: 1
-                                                            text: root.projectDraft.productVersion
-                                                            placeholderText: "产品版本"
-                                                            onTextEdited: root.updateProjectDraft("productVersion", text)
                                                         }
 
                                                         ControlPanelDateField {

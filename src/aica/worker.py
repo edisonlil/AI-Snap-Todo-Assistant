@@ -309,7 +309,7 @@ def _build_plan_export_metadata_lines(
         return _plan_export_text(project_snapshot.get(snapshot_key or summary_key))
 
     product_line = _summary_or_snapshot("product_line")
-    ticket_version = _summary_or_snapshot("ticket_version", "product_version")
+    ticket_version = _summary_or_snapshot("ticket_version")
     lines = [
         f"工单标题: {_plan_export_text(todo_payload.get('title'))}",
         f"群聊名称: {_plan_export_text(summary_fields.get('group_name'))}",

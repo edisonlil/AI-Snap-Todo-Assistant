@@ -124,3 +124,42 @@ def test_latest_issue_product_for_project_returns_most_recent_non_empty_value() 
 
     assert project_repository.latest_issue_product_for_project("project-1") == "产品X/模块Y/功能Z"
 
+
+def test_latest_environment_for_project_returns_most_recent_non_unknown_value() -> None:
+    db_path = _make_db_path("project-latest-environment")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            aliases=("测试群",),
+        )
+    )
+    todo_repository = SQLiteTodoRepository(str(db_path))
+
+    first = TicketSnapshot(
+        title="待办一",
+        fields=TicketSummaryFields(group_name="测试群", environment="测试环境"),
+        current_summary="描述一",
+        timeline_entry="结论一",
+    )
+    second = TicketSnapshot(
+        title="待办二",
+        fields=TicketSummaryFields(group_name="测试群", environment=""),
+        current_summary="描述二",
+        timeline_entry="结论二",
+    )
+    third = TicketSnapshot(
+        title="待办三",
+        fields=TicketSummaryFields(group_name="测试群", environment="正式环境"),
+        current_summary="描述三",
+        timeline_entry="结论三",
+    )
+
+    todo_repository.create_todo_from_analysis(first, "analysis")
+    todo_repository.create_todo_from_analysis(second, "analysis")
+    todo_repository.create_todo_from_analysis(third, "analysis")
+
+    assert project_repository.latest_environment_for_project("project-1") == "正式环境"

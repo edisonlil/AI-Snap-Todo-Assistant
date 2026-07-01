@@ -49,8 +49,8 @@ class _FeaturePointProvider:
     def __init__(self) -> None:
         self.calls: list[dict[str, str]] = []
 
-    def resolve(self, *, product_line: str, problem_desc: str):  # noqa: ANN201
-        self.calls.append({"product_line": product_line, "problem_desc": problem_desc})
+    def resolve(self, *, issue_product: str, problem_desc: str):  # noqa: ANN201
+        self.calls.append({"issue_product": issue_product, "problem_desc": problem_desc})
         return SimpleFeaturePointResult("自动功能点")
 
 
@@ -96,6 +96,7 @@ def _build_todo(
     todo_id: str = "todo-1",
     current_summary: str = "现象描述",
     product_line: str = "产品线A",
+    issue_product: str = "产品A/模块B/功能C",
     conclusion: str = "定位到配置缺失",
     feature_point: str = "",
     feature_point_source: str = "",
@@ -110,6 +111,7 @@ def _build_todo(
         current_summary=current_summary,
         summary_fields=TicketSummaryFields(
             product_line=product_line,
+            issue_product=issue_product,
             feature_point=feature_point,
             feature_point_source=feature_point_source,
             root_cause_desc=root_cause_desc,
@@ -221,7 +223,7 @@ def test_chattodo_feature_point_provider_uses_workflow_answer(monkeypatch) -> No
         )
     )
 
-    result = provider.resolve(product_line="产品线A", problem_desc="用户反馈无法保存")
+    result = provider.resolve(issue_product="产品A/模块A/功能A", problem_desc="用户反馈无法保存")
 
     assert result.value == "自动功能点"
     assert result.matched is True
@@ -229,7 +231,7 @@ def test_chattodo_feature_point_provider_uses_workflow_answer(monkeypatch) -> No
     assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mphzwo1h/run"
     assert session.calls[0]["json"] == {
         "variables": {
-            "product_line": "产品线A",
+            "product_line": "产品A/模块A/功能A",
             "desc": "用户反馈无法保存",
         }
     }
@@ -270,6 +272,7 @@ def test_ticket_enrichment_refreshes_feature_point_for_newly_saved_ticket() -> N
     todo = _build_todo(
         current_summary="保存后自动匹配",
         product_line="产品线A",
+        issue_product="产品A/模块A/功能A",
         feature_point="",
     )
 
@@ -282,7 +285,7 @@ def test_ticket_enrichment_refreshes_feature_point_for_newly_saved_ticket() -> N
         current_conclusion=todo.conclusion.content,
     )
 
-    assert provider.calls == [{"product_line": "产品线A", "problem_desc": "保存后自动匹配"}]
+    assert provider.calls == [{"issue_product": "产品A/模块A/功能A", "problem_desc": "保存后自动匹配"}]
     assert outcome.summary_fields.feature_point == "自动功能点"
     assert outcome.summary_fields.feature_point_source == "auto"
 

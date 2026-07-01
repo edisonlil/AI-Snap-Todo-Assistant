@@ -315,6 +315,7 @@ from aica.project_management import (
     find_active_alias_conflicts,
     project_record_from_payload,
     project_to_payload,
+    normalize_project_level,
     sync_projects_from_server,
 )
 from aica.server_api import ChattodoServerClient, ChattodoServerError
@@ -336,7 +337,7 @@ from aica.models import TicketSummaryFields, is_unknown_text
 from aica.product_catalog import canonical_product_line, normalize_product_module, product_line_options, product_module_options
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import normalize_group_alias
-from aica.storage.contracts import ProjectRecord
+from aica.storage.contracts import ProjectRecord, ProjectVersionRecord
 from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
 from aica.root_cause_options import ROOT_CAUSE_OPTIONS
@@ -820,11 +821,75 @@ def _project_date_for_server(value: str) -> str:
     return text
 
 
-def _project_update_payload(project: ProjectRecord) -> dict[str, object]:
-    return {
-        "task_order_no": project.task_order_no,
-        "product_version": project.product_version,
-    }
+def _project_versions_payload(project_versions: list[ProjectVersionRecord] | None = None) -> list[dict[str, str]]:
+    payloads: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in list(project_versions or []):
+        product_line = str(item.issue_product or "").strip()
+        environment = str(item.environment or "").strip()
+        version = str(item.version or "").strip()
+        if not product_line or not environment or not version:
+            continue
+        dedupe_key = (product_line.casefold(), environment.casefold(), version.casefold())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        payloads.append(
+            {
+                "product_line": product_line,
+                "environment": environment,
+                "version": version,
+            }
+        )
+    return payloads
+
+
+def _project_update_payload(
+    project: ProjectRecord,
+    existing: ProjectRecord | None = None,
+    *,
+    project_versions: list[ProjectVersionRecord] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {"task_order_no": project.task_order_no}
+    if existing is None:
+        field_pairs = [
+            ("project_name", project.project_name),
+            ("customer_name", project.customer_name),
+            ("product_line", project.product_line),
+            ("project_manager", project.project_manager),
+            ("project_level", normalize_project_level(project.project_level)),
+            ("follow_up_started_at", project.follow_up_started_at),
+            ("support_ended_at", project.support_ended_at),
+        ]
+        for key, value in field_pairs:
+            normalized = str(value or "").strip()
+            if normalized:
+                payload[key] = normalized
+        versions_payload = _project_versions_payload(project_versions)
+        if versions_payload:
+            payload["versions"] = versions_payload
+        return payload
+
+    normalized_existing_level = normalize_project_level(existing.project_level)
+    normalized_project_level = normalize_project_level(project.project_level)
+    field_pairs = [
+        ("project_name", project.project_name, existing.project_name),
+        ("customer_name", project.customer_name, existing.customer_name),
+        ("product_line", project.product_line, existing.product_line),
+        ("project_manager", project.project_manager, existing.project_manager),
+        ("project_level", normalized_project_level, normalized_existing_level),
+        ("follow_up_started_at", project.follow_up_started_at, existing.follow_up_started_at),
+        ("support_ended_at", project.support_ended_at, existing.support_ended_at),
+    ]
+    for key, current, previous in field_pairs:
+        normalized_current = str(current or "").strip()
+        normalized_previous = str(previous or "").strip()
+        if normalized_current != normalized_previous:
+            payload[key] = normalized_current
+    versions_payload = _project_versions_payload(project_versions)
+    if versions_payload:
+        payload["versions"] = versions_payload
+    return payload
 
 
 def _is_server_config_ready(config: object) -> bool:
@@ -1067,7 +1132,7 @@ class FeaturePointRefreshWorker(QThread):
         config_manager: ConfigManager,
         todo_id: str,
         request_id: str,
-        product_line: str,
+        issue_product: str,
         problem_desc: str,
         parent=None,
     ) -> None:
@@ -1075,7 +1140,7 @@ class FeaturePointRefreshWorker(QThread):
         self._config_manager = config_manager
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
-        self._product_line = str(product_line or "").strip()
+        self._issue_product = str(issue_product or "").strip()
         self._problem_desc = str(problem_desc or "").strip()
 
     def run(self) -> None:
@@ -1083,7 +1148,7 @@ class FeaturePointRefreshWorker(QThread):
             config = self._config_manager.load()
             provider = build_feature_point_provider(server_config=config.server)
             result = provider.resolve(
-                product_line=self._product_line,
+                issue_product=self._issue_product,
                 problem_desc=self._problem_desc,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1803,13 +1868,27 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
 
     def _load_project_payloads(self) -> list[dict[str, object]]:
-        return [
-            project_to_payload(project)
-            for project in self._project_repository.list_projects(
-                query=self._project_query,
-                include_expired=self._include_expired_projects,
-            )
-        ]
+        payloads: list[dict[str, object]] = []
+        for project in self._project_repository.list_projects(
+            query=self._project_query,
+            include_expired=self._include_expired_projects,
+        ):
+            payload = project_to_payload(project)
+            payload["projectVersions"] = [
+                {
+                    "id": item.id,
+                    "projectId": item.project_id,
+                    "issueProduct": item.issue_product,
+                    "environment": item.environment,
+                    "version": item.version,
+                    "createdAt": item.created_at,
+                    "updatedAt": item.updated_at,
+                    "updatedAtLabel": _format_display_timestamp(item.updated_at),
+                }
+                for item in self._project_repository.list_project_versions(project.id)
+            ]
+            payloads.append(payload)
+        return payloads
 
     def _refresh_project_payloads(self) -> None:
         self._projects = self._load_project_payloads()
@@ -2033,7 +2112,6 @@ class _ControlPanelBridge(QObject):
     def _build_ticket_detail_payload(self, todo: TodoItem) -> dict[str, object]:
         snapshot = todo.project_link.project_snapshot
         ticket_version = str(todo.summary_fields.ticket_version or "").strip()
-        project_snapshot_version = str(snapshot.get("product_version") or "").strip()
         product_line = str(todo.summary_fields.product_line or "").strip()
         product_module = str(todo.summary_fields.product_module or "").strip()
         customer_environment_value = str(todo.summary_fields.customer_environment_value or "").strip()
@@ -2095,7 +2173,6 @@ class _ControlPanelBridge(QObject):
             "issueProductOptions": self._selected_ticket_issue_product_options(issue_product),
             "issueProductEditable": bool(self._issue_product_options) and not self._issue_product_loading and not self._issue_product_error,
             "ticketVersion": ticket_version,
-            "projectSnapshotVersion": project_snapshot_version,
             "projectManager": str(snapshot.get("project_manager") or "").strip(),
             "timeline": timeline_payload,
         }
@@ -2141,7 +2218,6 @@ class _ControlPanelBridge(QObject):
             "issueProductOptions": [],
             "issueProductEditable": False,
             "ticketVersion": "",
-            "projectSnapshotVersion": "",
             "projectManager": "",
             "createdAt": "",
             "createdAtLabel": "",
@@ -3689,9 +3765,9 @@ class _ControlPanelBridge(QObject):
         todo = self._resolve_selected_ticket_for_update()
         if todo is None:
             return
-        product_line = str(todo.summary_fields.product_line or "").strip()
-        if is_unknown_text(product_line):
-            self._error_message = "\u7f3a\u5c11\u4ea7\u54c1\u7ebf\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
+        issue_product = str(todo.summary_fields.issue_product or "").strip()
+        if not issue_product:
+            self._error_message = "\u7f3a\u5c11\u95ee\u9898\u6240\u5c5e\u4ea7\u54c1\uff0c\u65e0\u6cd5\u5237\u65b0\u529f\u80fd\u70b9\u3002"
             self._emit_data_changed()
             return
         problem_desc = str(todo.current_summary or "").strip()
@@ -3705,7 +3781,7 @@ class _ControlPanelBridge(QObject):
             config_manager=self._config_manager,
             todo_id=todo.id,
             request_id=request_id,
-            product_line=product_line,
+            issue_product=issue_product,
             problem_desc=problem_desc,
         )
         self._pending_feature_point_refreshes[todo.id] = request_id
@@ -3843,6 +3919,7 @@ class _ControlPanelBridge(QObject):
             return
         normalized_field = str(field_name or "").strip()
         if normalized_field not in {
+            "environment",
             "product_line",
             "product_module",
             "ticket_version",
@@ -3858,10 +3935,13 @@ class _ControlPanelBridge(QObject):
         if todo is None:
             return
         next_value = str(value or "").strip()
+        environment = todo.summary_fields.environment
         product_line = todo.summary_fields.product_line
         product_module = todo.summary_fields.product_module
         customer_environment_value = todo.summary_fields.customer_environment_value
         issue_product = todo.summary_fields.issue_product
+        if normalized_field == "environment":
+            environment = next_value
         if normalized_field == "product_line":
             product_line = next(
                 (
@@ -3893,6 +3973,7 @@ class _ControlPanelBridge(QObject):
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(
                 todo,
+                environment=environment,
                 product_line=product_line,
                 product_module=product_module,
                 customer_environment_value=customer_environment_value,
@@ -3911,7 +3992,15 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
         self._publish_ticket_update(updated, ["summary_fields"])
+        project_id = str(updated.project_link.project_id or "").strip()
+        if project_id:
+            self._refresh_project_payloads()
+            if self._project_environment_project_id == project_id:
+                self._refresh_project_environment_payloads(project_id)
+            if normalized_field in {"environment", "issue_product", "ticket_version"}:
+                self._sync_project_versions_to_server(project_id)
         field_labels = {
+            "environment": "环境",
             "product_line": "产品线",
             "product_module": "产品模块/组件",
             "customer_environment": "客户环境",
@@ -3995,6 +4084,11 @@ class _ControlPanelBridge(QObject):
             return
         previous_aliases = list(existing.aliases) if existing is not None else []
         new_aliases = _new_project_aliases(previous_aliases, list(project.aliases))
+        project_update_payload = _project_update_payload(
+            project,
+            existing,
+            project_versions=self._project_repository.list_project_versions(project.id),
+        )
         self._project_repository.upsert_project(project)
         relinked_count = self._todo_store.relink_open_unresolved_todos_by_aliases(previous_aliases + list(project.aliases))
         self._refresh_project_payloads()
@@ -4005,15 +4099,17 @@ class _ControlPanelBridge(QObject):
         )
         self._emit_data_changed()
         self.projectSaved.emit(project.id)
-        self._sync_project_update_to_server(project)
+        self._sync_project_update_to_server(project_update_payload)
         self._sync_project_chat_groups_to_server(project.task_order_no, new_aliases)
 
-    def _sync_project_update_to_server(self, project: ProjectRecord) -> None:
+    def _sync_project_update_to_server(self, payload: dict[str, object]) -> None:
         if not _is_server_config_ready(self._config_manager.load().server):
+            return
+        if len(dict(payload or {})) <= 1:
             return
         worker = ProjectUpdateSyncWorker(
             config_manager=self._config_manager,
-            payload=_project_update_payload(project),
+            payload=payload,
         )
         self._project_update_sync_workers.append(worker)
         worker.finished.connect(self._handle_project_update_sync_finished)
@@ -4021,6 +4117,20 @@ class _ControlPanelBridge(QObject):
         worker.finished.connect(lambda _task_order_no, current=worker: self._cleanup_project_update_sync_worker(current))
         worker.error.connect(lambda _task_order_no, _message, current=worker: self._cleanup_project_update_sync_worker(current))
         worker.start()
+
+    def _sync_project_versions_to_server(self, project_id: str) -> None:
+        normalized_project_id = str(project_id or "").strip()
+        if not normalized_project_id:
+            return
+        project = self._project_repository.get_project_by_id(normalized_project_id)
+        if project is None:
+            return
+        payload = _project_update_payload(
+            project,
+            project,
+            project_versions=self._project_repository.list_project_versions(normalized_project_id),
+        )
+        self._sync_project_update_to_server(payload)
 
     def _handle_project_update_sync_finished(self, _task_order_no: str) -> None:
         return

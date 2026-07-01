@@ -108,6 +108,20 @@ def test_result_dialog_defaults_issue_product_from_matched_project_history() -> 
     assert bridge.issueProduct == "产品A/模块B/功能C"
 
 
+def test_result_dialog_defaults_environment_from_matched_project_history() -> None:
+    bridge = _ResultDialogBridge(
+        result=_build_snapshot(),
+        scenario="\u5de5\u5355\u8ddf\u8fdb",
+        model="test-model",
+        project_match_provider=lambda group_name: ProjectMatchResult(status="matched", project_id="project-1") if group_name == "测试群" else ProjectMatchResult(status="unmatched"),
+        latest_environment_provider=lambda project_id: "正式环境" if project_id == "project-1" else "",
+    )
+
+    bridge.updateField("group_name", "测试群")
+
+    assert bridge.environment == "正式环境"
+
+
 def test_result_dialog_initial_group_name_applies_issue_product_default() -> None:
     bridge = _ResultDialogBridge(
         result=TicketSnapshot(
@@ -123,6 +137,21 @@ def test_result_dialog_initial_group_name_applies_issue_product_default() -> Non
     )
 
     assert bridge.issueProduct == "产品A/模块B/功能C"
+
+
+def test_result_dialog_manual_environment_is_not_overwritten_by_default() -> None:
+    bridge = _ResultDialogBridge(
+        result=_build_snapshot(),
+        scenario="\u5de5\u5355\u8ddf\u8fdb",
+        model="test-model",
+        project_match_provider=lambda group_name: ProjectMatchResult(status="matched", project_id="project-1") if group_name == "测试群" else ProjectMatchResult(status="unmatched"),
+        latest_environment_provider=lambda project_id: "正式环境" if project_id == "project-1" else "",
+    )
+
+    bridge.updateField("environment", "测试环境")
+    bridge.updateField("group_name", "测试群")
+
+    assert bridge.environment == "测试环境"
 
 
 def test_result_dialog_single_candidate_applies_issue_product_default() -> None:
@@ -150,6 +179,33 @@ def test_result_dialog_single_candidate_applies_issue_product_default() -> None:
     bridge.updateField("group_name", "测试群")
 
     assert bridge.issueProduct == "产品A/模块B/功能C"
+
+
+def test_result_dialog_single_candidate_applies_environment_default() -> None:
+    bridge = _ResultDialogBridge(
+        result=_build_snapshot(),
+        scenario="\u5de5\u5355\u8ddf\u8fdb",
+        model="test-model",
+        project_match_provider=lambda _group_name: ProjectMatchResult(status="conflict", reason="multiple_active_projects"),
+        project_candidate_provider=lambda group_name: [
+            {
+                "projectId": "project-1",
+                "projectName": "Demo Project",
+                "taskOrderNo": "WO-001",
+                "customerName": "Demo Customer",
+                "matchedAlias": "测试群",
+                "matchReason": "alias_exact",
+                "matchScore": 320,
+                "isExpired": False,
+                "projectSnapshot": {"project_name": "Demo Project"},
+            }
+        ] if group_name == "测试群" else [],
+        latest_environment_provider=lambda project_id: "正式环境" if project_id == "project-1" else "",
+    )
+
+    bridge.updateField("group_name", "测试群")
+
+    assert bridge.environment == "正式环境"
 
 
 def test_result_dialog_group_name_without_unique_match_keeps_issue_product_empty() -> None:
@@ -220,6 +276,7 @@ def test_result_dialog_selecting_project_candidate_persists_project_link() -> No
     assert bridge.hasProjectCandidateSelection is True
     assert bridge.groupName == "测试群"
     assert bridge.projectCandidates[0]["projectId"] == "project-1"
+    assert bridge.environment == "未知"
     assert bridge.issueProduct == "产品A/模块B/功能C"
     assert snapshot.project_link["project_id"] == "project-1"
     assert snapshot.project_link["match_status"] == "manual"

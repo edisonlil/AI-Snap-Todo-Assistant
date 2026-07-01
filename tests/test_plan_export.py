@@ -58,25 +58,25 @@ def test_build_plan_export_messages_includes_project_backed_metadata() -> None:
     payload = {
         "title": "login fails",
         "current_summary": "user cannot login",
-        "summary_fields": {
-            "group_name": "Project A support",
-            "environment": "prod",
-            "product_line": "Collab",
-            "ticket_type": "bug",
-            "feature_point": "SSO",
-        },
-        "project_link": {
-            "match_status": "matched",
-            "matched_alias": "Project A support",
-            "project_snapshot": {
-                "project_name": "Project A",
-                "task_order_no": "TASK-1001",
-                "customer_name": "Customer A",
-                "product_version": "release_dc_v7",
-                "project_manager": "Alice",
-                "project_level": "P1",
+            "summary_fields": {
+                "group_name": "Project A support",
+                "environment": "prod",
+                "product_line": "Collab",
+                "ticket_version": "release_dc_v7",
+                "ticket_type": "bug",
+                "feature_point": "SSO",
             },
-        },
+            "project_link": {
+                "match_status": "matched",
+            "matched_alias": "Project A support",
+                "project_snapshot": {
+                    "project_name": "Project A",
+                    "task_order_no": "TASK-1001",
+                    "customer_name": "Customer A",
+                    "project_manager": "Alice",
+                    "project_level": "P1",
+                },
+            },
         "timeline": [],
     }
 

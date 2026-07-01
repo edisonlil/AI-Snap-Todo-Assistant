@@ -621,11 +621,17 @@ def test_update_project_by_task_order_no_sends_expected_request() -> None:
             "project_name": "project a",
             "customer_name": "customer a",
             "product_line": "line",
-            "product_version": "V2.0",
             "project_manager": "Alice",
             "project_level": "normal",
             "follow_up_started_at": "2026-05-23",
             "support_ended_at": "2026-12-31",
+            "versions": [
+                {
+                    "product_line": "文档中台",
+                    "environment": "测试环境",
+                    "version": "003",
+                }
+            ],
         }
     )
 
@@ -636,11 +642,17 @@ def test_update_project_by_task_order_no_sends_expected_request() -> None:
         "project_name": "project a",
         "customer_name": "customer a",
         "product_line": "line",
-        "product_version": "V2.0",
         "project_manager": "Alice",
         "project_level": "normal",
         "follow_up_started_at": "2026-05-23",
         "support_ended_at": "2026-12-31",
+        "versions": [
+            {
+                "product_line": "文档中台",
+                "environment": "测试环境",
+                "version": "003",
+            }
+        ],
     }
     assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Content-Type": "application/json"}
     assert session.calls[0]["timeout"] == 12

@@ -11,8 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
-from aica.storage.sqlite.repositories import SCHEMA_VERSION, SQLiteProjectRepository, SQLiteStorageMigrator, SQLiteTodoRepository
-from aica.todo.models import TimelineAttachment, TodoStatus
+from aica.storage.sqlite.repositories import (
+    SCHEMA_VERSION,
+    SQLiteProjectRepository,
+    SQLiteStorageMigrator,
+    SQLiteTodoRepository,
+    _INITIALIZED_DATABASES,
+)
+from aica.todo.models import TimelineAttachment, TodoProjectLink, TodoStatus
 
 
 def _make_db_path(name: str) -> Path:
@@ -114,7 +120,6 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -164,7 +169,6 @@ def test_linked_todo_keeps_snapshot_selected_product_line_option() -> None:
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作, 文档中台",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -191,7 +195,6 @@ def test_linked_todo_keeps_manual_product_line_outside_project_snapshot() -> Non
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="文档中台",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -220,7 +223,6 @@ def test_project_link_inherits_latest_customer_environment_when_current_is_empty
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -250,7 +252,6 @@ def test_create_todo_inherits_latest_project_fields_when_current_values_are_defa
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -295,7 +296,6 @@ def test_create_todo_keeps_fields_empty_without_previous_project_todo() -> None:
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -330,7 +330,6 @@ def test_project_relink_inherits_latest_project_fields_only_for_default_empty_va
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -391,7 +390,6 @@ def test_create_todo_does_not_override_existing_project_fields_with_latest_histo
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             aliases=("test-group",),
         )
@@ -434,7 +432,6 @@ def test_create_todo_does_not_inherit_defaults_from_expired_project_history() ->
             customer_name="Demo Customer",
             task_order_no="WO-001",
             product_line="WPS协作",
-            product_version="release_dc_v7",
             project_manager="Alice",
             support_ended_at="2024-01-01T00:00:00",
             aliases=("test-group",),
@@ -478,6 +475,255 @@ def test_create_todo_does_not_inherit_defaults_from_expired_project_history() ->
     assert next_todo.summary_fields.customer_environment_code == ""
     assert next_todo.summary_fields.customer_environment_value == ""
     assert next_todo.summary_fields.issue_product == ""
+
+
+def test_update_todo_ticket_version_upserts_project_version_record() -> None:
+    db_path = _make_db_path("todo-project-version-upsert")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="PC Office",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-version-upsert"), "analysis")
+
+    updated = repository.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields.from_dict(
+            {
+                **todo.summary_fields.to_dict(),
+                "issue_product": "产品A/模块B/功能C",
+                "environment": "prod",
+                "ticket_version": "release_2026_07",
+            }
+        ),
+    )
+
+    assert updated is not None
+    version_record = project_repository.get_project_version("project-1", "产品A/模块B/功能C", "prod")
+    assert version_record is not None
+    assert version_record.version == "release_2026_07"
+
+
+def test_update_todo_environment_backfills_ticket_version_from_project_version() -> None:
+    db_path = _make_db_path("todo-project-version-backfill-environment")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="PC Office",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    project_repository.upsert_project_version("project-1", "产品A/模块B/功能C", "prod", "release_2026_07")
+    repository = SQLiteTodoRepository(str(db_path))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-version-backfill-environment"), "analysis")
+
+    updated = repository.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields.from_dict(
+            {
+                **todo.summary_fields.to_dict(),
+                "issue_product": "产品A/模块B/功能C",
+                "environment": "prod",
+                "ticket_version": "",
+            }
+        ),
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.ticket_version == "release_2026_07"
+
+
+def test_update_todo_issue_product_backfills_ticket_version_from_project_version() -> None:
+    db_path = _make_db_path("todo-project-version-backfill-issue-product")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="PC Office",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    project_repository.upsert_project_version("project-1", "产品X/模块Y/功能Z", "prod", "release_2026_08")
+    repository = SQLiteTodoRepository(str(db_path))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-version-backfill-issue-product"), "analysis")
+
+    updated = repository.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields.from_dict(
+            {
+                **todo.summary_fields.to_dict(),
+                "issue_product": "产品X/模块Y/功能Z",
+                "environment": "prod",
+                "ticket_version": "",
+            }
+        ),
+    )
+
+    assert updated is not None
+    assert updated.summary_fields.ticket_version == "release_2026_08"
+
+
+def test_create_todo_inherits_environment_from_latest_non_unknown_project_history() -> None:
+    db_path = _make_db_path("todo-project-latest-non-unknown-environment")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first_snapshot = _build_snapshot("todo-history-env")
+    first_snapshot.fields.environment = "正式环境"
+    first_snapshot.fields.issue_product = "产品A/模块B/功能C"
+    repository.create_todo_from_analysis(first_snapshot, "analysis")
+
+    second_snapshot = _build_snapshot("todo-history-unknown")
+    second_snapshot.fields.environment = ""
+    second_snapshot.fields.issue_product = ""
+    repository.create_todo_from_analysis(second_snapshot, "analysis")
+
+    third_snapshot = _build_snapshot("todo-current")
+    third_snapshot.fields.environment = ""
+    third_snapshot.fields.issue_product = ""
+    third = repository.create_todo_from_analysis(third_snapshot, "analysis")
+
+    assert third.summary_fields.environment == "正式环境"
+    assert third.summary_fields.issue_product == "产品A/模块B/功能C"
+
+
+def test_get_todo_repairs_environment_from_latest_updated_project_history() -> None:
+    db_path = _make_db_path("todo-project-get-repairs-environment")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="WPS协作",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+
+    first_snapshot = _build_snapshot("todo-real-latest")
+    first_snapshot.fields.environment = "正式环境"
+    first = repository.create_todo_from_analysis(first_snapshot, "analysis")
+
+    second_snapshot = _build_snapshot("todo-created-later")
+    second_snapshot.fields.environment = ""
+    second = repository.create_todo_from_analysis(second_snapshot, "analysis")
+
+    current_snapshot = _build_snapshot("todo-current-empty")
+    current_snapshot.fields.environment = ""
+    current = repository.create_todo_from_analysis(current_snapshot, "analysis")
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE todos SET updated_at = ? WHERE id = ?",
+            ("2026-07-01T11:50:09.967894", first.id),
+        )
+        connection.execute(
+            "UPDATE todos SET updated_at = ? WHERE id = ?",
+            ("2026-06-29T17:03:21.911987", second.id),
+        )
+        connection.execute(
+            "UPDATE todos SET environment = ?, updated_at = ? WHERE id = ?",
+            ("", "2026-07-01T15:34:39.793219", current.id),
+        )
+
+    repaired = repository.get_todo(current.id)
+
+    assert repaired is not None
+    assert repaired.summary_fields.environment == "正式环境"
+
+
+def test_update_todo_repairs_matched_link_without_project_id_before_upserting_project_version() -> None:
+    db_path = _make_db_path("todo-project-version-repair")
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            product_line="PC Office",
+            project_manager="Alice",
+            aliases=("test-group",),
+        )
+    )
+    repository = SQLiteTodoRepository(str(db_path))
+    todo = repository.create_todo_from_analysis(_build_snapshot("todo-version-repair"), "analysis")
+
+    broken_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="",
+        match_status="matched",
+        matched_group_name="test-group",
+        matched_alias="test-group",
+        project_snapshot=project_repository.get_project_by_id("project-1").to_snapshot(),  # type: ignore[union-attr]
+    )
+    imported = repository.upsert_imported_todo(
+        todo.__class__(
+            id=todo.id,
+            title=todo.title,
+            summary_fields=todo.summary_fields,
+            current_summary=todo.current_summary,
+            current_summary_attachments=todo.current_summary_attachments,
+            created_at=todo.created_at,
+            updated_at=todo.updated_at,
+            completed_at=todo.completed_at,
+            status=todo.status,
+            timeline=todo.timeline,
+            conclusion=todo.conclusion,
+            project_link=broken_link,
+        )
+    )
+    assert imported is not None
+    assert imported.project_link.project_id == "project-1"
+
+    updated = repository.update_todo(
+        todo.id,
+        summary_fields=TicketSummaryFields.from_dict(
+            {
+                **todo.summary_fields.to_dict(),
+                "issue_product": "产品A/模块B/功能C",
+                "environment": "prod",
+                "ticket_version": "release_2026_07",
+            }
+        ),
+    )
+
+    assert updated is not None
+    assert updated.project_link.project_id == "project-1"
+    version_record = project_repository.get_project_version("project-1", "产品A/模块B/功能C", "prod")
+    assert version_record is not None
+    assert version_record.version == "release_2026_07"
 
 
 def test_create_todo_from_problem_conclusion_saves_into_conclusion() -> None:
@@ -604,8 +850,119 @@ def test_schema_migration_creates_error_codes_table_and_updates_version() -> Non
             "SELECT value FROM schema_meta WHERE key='schema_version'"
         ).fetchone()[0]
 
-    assert SCHEMA_VERSION == "16"
-    assert version == "16"
+    assert SCHEMA_VERSION == "18"
+    assert version == "18"
     assert "error_codes" in tables
     assert "idx_error_codes_category" in indexes
     assert "idx_error_codes_last_seen" in indexes
+
+
+def test_schema_migration_repairs_project_related_foreign_keys_after_projects_rebuild() -> None:
+    db_path = _make_db_path("todo-project-fk-repair")
+    migrator = SQLiteStorageMigrator(str(db_path))
+    migrator.ensure_schema()
+
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            PRAGMA foreign_keys = OFF;
+            ALTER TABLE projects RENAME TO projects_old;
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              project_name TEXT NOT NULL,
+              customer_name TEXT NOT NULL DEFAULT '',
+              task_order_no TEXT NOT NULL DEFAULT '',
+              follow_up_started_at TEXT NOT NULL DEFAULT '',
+              support_ended_at TEXT NOT NULL DEFAULT '',
+              product_line TEXT NOT NULL DEFAULT '',
+              product_version TEXT NOT NULL DEFAULT '',
+              project_manager TEXT NOT NULL DEFAULT '',
+              project_level TEXT NOT NULL DEFAULT 'normal',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            INSERT INTO projects(
+              id, project_name, customer_name, task_order_no,
+              follow_up_started_at, support_ended_at, product_line,
+              product_version, project_manager, project_level, created_at, updated_at
+            ) VALUES(
+              'project-1', 'Demo Project', 'Demo Customer', 'WO-001',
+              '', '', 'PC Office', 'legacy_version', 'Alice', 'normal', '2026-07-01T00:00:00', '2026-07-01T00:00:00'
+            );
+            ALTER TABLE project_group_aliases RENAME TO project_group_aliases_old;
+            CREATE TABLE project_group_aliases (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              alias_name TEXT NOT NULL,
+              alias_name_normalized TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES "projects_old"(id) ON DELETE CASCADE
+            );
+            INSERT INTO project_group_aliases VALUES(
+              'alias-1', 'project-1', 'test-group', 'test-group', '2026-07-01T00:00:00', '2026-07-01T00:00:00'
+            );
+            DROP TABLE project_group_aliases_old;
+            ALTER TABLE todo_project_links RENAME TO todo_project_links_old;
+            CREATE TABLE todo_project_links (
+              todo_id TEXT PRIMARY KEY,
+              project_id TEXT,
+              match_status TEXT NOT NULL,
+              match_reason TEXT NOT NULL DEFAULT '',
+              matched_group_name TEXT NOT NULL DEFAULT '',
+              matched_alias TEXT NOT NULL DEFAULT '',
+              project_snapshot_json TEXT NOT NULL DEFAULT '{}',
+              matched_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+              FOREIGN KEY(project_id) REFERENCES "projects_old"(id) ON DELETE SET NULL
+            );
+            DROP TABLE todo_project_links_old;
+            ALTER TABLE project_versions RENAME TO project_versions_old;
+            CREATE TABLE project_versions (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              issue_product TEXT NOT NULL DEFAULT '',
+              environment TEXT NOT NULL DEFAULT '',
+              version TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES "projects_old"(id) ON DELETE CASCADE
+            );
+            DROP TABLE project_versions_old;
+            ALTER TABLE project_environments RENAME TO project_environments_old;
+            CREATE TABLE project_environments (
+              id TEXT PRIMARY KEY,
+              project_id TEXT DEFAULT '',
+              env_name TEXT NOT NULL,
+              scope TEXT NOT NULL DEFAULT 'project',
+              env_type TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK(scope IN ('global', 'project')),
+              CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
+              FOREIGN KEY(project_id) REFERENCES "projects_old"(id) ON DELETE CASCADE
+            );
+            DROP TABLE project_environments_old;
+            PRAGMA foreign_keys = ON;
+            """
+        )
+
+    repair_migrator = SQLiteStorageMigrator(str(db_path))
+    _INITIALIZED_DATABASES.discard(repair_migrator._cache_key())  # noqa: SLF001
+    repair_migrator.ensure_schema()
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        group_fk = connection.execute("PRAGMA foreign_key_list(project_group_aliases)").fetchall()
+        link_fk = connection.execute("PRAGMA foreign_key_list(todo_project_links)").fetchall()
+        versions_fk = connection.execute("PRAGMA foreign_key_list(project_versions)").fetchall()
+        environments_fk = connection.execute("PRAGMA foreign_key_list(project_environments)").fetchall()
+
+    assert {row["table"] for row in group_fk} == {"projects"}
+    assert {row["table"] for row in link_fk} == {"todos", "projects"}
+    assert {row["table"] for row in versions_fk} == {"projects"}
+    assert {row["table"] for row in environments_fk} == {"projects"}

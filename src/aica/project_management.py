@@ -174,7 +174,6 @@ def project_record_from_server_payload(
         follow_up_started_at=_payload_text(payload, "follow_up_started_at", "followUpStartedAt"),
         support_ended_at=_payload_text(payload, "support_ended_at", "supportEndedAt"),
         product_line=_payload_text(payload, "product_line", "productLine"),
-        product_version=existing.product_version if existing is not None else _payload_text(payload, "product_version", "productVersion"),
         project_manager=_payload_text(payload, "project_manager", "projectManager"),
         project_level=normalize_project_level(_payload_text(payload, "project_level", "projectLevel") or "normal"),
         aliases=_merge_project_aliases(existing, remote_aliases),
@@ -202,7 +201,6 @@ def project_record_from_payload(payload: dict[str, Any], existing: ProjectRecord
         follow_up_started_at=sanitize_text(payload.get("followUpStartedAt") or payload.get("follow_up_started_at")),
         support_ended_at=sanitize_text(payload.get("supportEndedAt") or payload.get("support_ended_at")),
         product_line=sanitize_text(payload.get("productLine") or payload.get("product_line")),
-        product_version=sanitize_text(payload.get("productVersion") or payload.get("product_version")),
         project_manager=sanitize_text(payload.get("projectManager") or payload.get("project_manager")),
         project_level=normalize_project_level(
             sanitize_text(payload.get("projectLevel") or payload.get("project_level")) or "normal"
@@ -223,7 +221,6 @@ def project_to_payload(project: ProjectRecord, *, now: str | None = None) -> dic
         "followUpStartedAt": project.follow_up_started_at,
         "supportEndedAt": project.support_ended_at,
         "productLine": project.product_line,
-        "productVersion": project.product_version,
         "projectManager": project.project_manager,
         "projectLevel": project.project_level,
         "aliases": list(project.aliases),

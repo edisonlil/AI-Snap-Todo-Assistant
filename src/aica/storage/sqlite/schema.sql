@@ -183,7 +183,6 @@ CREATE TABLE IF NOT EXISTS projects (
   follow_up_started_at TEXT NOT NULL DEFAULT '',
   support_ended_at TEXT NOT NULL DEFAULT '',
   product_line TEXT NOT NULL DEFAULT '',
-  product_version TEXT NOT NULL DEFAULT '',
   project_manager TEXT NOT NULL DEFAULT '',
   project_level TEXT NOT NULL DEFAULT 'normal',
   created_at TEXT NOT NULL,
@@ -228,6 +227,23 @@ CREATE TABLE IF NOT EXISTS todo_project_links (
   FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS project_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  issue_product TEXT NOT NULL DEFAULT '',
+  environment TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_project_versions_key
+ON project_versions(project_id, issue_product, environment);
+
+CREATE INDEX IF NOT EXISTS idx_project_versions_project
+ON project_versions(project_id, updated_at DESC, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS project_environments (
   id TEXT PRIMARY KEY,

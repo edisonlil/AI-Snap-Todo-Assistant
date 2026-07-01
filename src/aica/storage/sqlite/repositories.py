@@ -22,14 +22,14 @@ from aica.storage.adapters import (
     parse_json_object,
     sanitize_string_dict,
 )
-from aica.storage.contracts import ProjectMatchCandidate, ProjectMatchResult, ProjectRecord
+from aica.storage.contracts import ProjectMatchCandidate, ProjectMatchResult, ProjectRecord, ProjectVersionRecord
 from aica.text_sanitize import sanitize_text
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus
 from aica.todo.conclusion_timeline import sync_conclusion_timeline
 from aica.analysis.intent import SCENE_PROBLEM_CONCLUSION
 
 
-SCHEMA_VERSION = "16"
+SCHEMA_VERSION = "18"
 _INITIALIZED_DATABASES: set[str] = set()
 
 
@@ -94,10 +94,22 @@ def _build_project_record(
         follow_up_started_at=str(payload.get("follow_up_started_at") or ""),
         support_ended_at=str(payload.get("support_ended_at") or ""),
         product_line=str(payload.get("product_line") or ""),
-        product_version=str(payload.get("product_version") or ""),
         project_manager=str(payload.get("project_manager") or ""),
         project_level=str(payload.get("project_level") or "normal"),
         aliases=aliases,
+        created_at=str(payload.get("created_at") or now_iso()),
+        updated_at=str(payload.get("updated_at") or now_iso()),
+    )
+
+
+def _build_project_version_record(row: sqlite3.Row | dict[str, Any]) -> ProjectVersionRecord:
+    payload = dict(row)
+    return ProjectVersionRecord(
+        id=str(payload.get("id") or ""),
+        project_id=str(payload.get("project_id") or ""),
+        issue_product=str(payload.get("issue_product") or ""),
+        environment=str(payload.get("environment") or ""),
+        version=str(payload.get("version") or ""),
         created_at=str(payload.get("created_at") or now_iso()),
         updated_at=str(payload.get("updated_at") or now_iso()),
     )
@@ -215,6 +227,26 @@ class SQLiteStorageMigrator:
             connection.execute(
                 "ALTER TABLE todos ADD COLUMN ticket_version TEXT NOT NULL DEFAULT ''"
             )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_versions (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              issue_product TEXT NOT NULL DEFAULT '',
+              environment TEXT NOT NULL DEFAULT '',
+              version TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_versions_key ON project_versions(project_id, issue_product, environment)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_versions_project ON project_versions(project_id, updated_at DESC, created_at DESC)"
+        )
         timeline_columns = {
             "event_type": "TEXT NOT NULL DEFAULT 'default'",
             "payload_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -316,6 +348,237 @@ class SQLiteStorageMigrator:
             WHERE TRIM(LOWER(COALESCE(access_type, ''))) IN ('', 'http', 'https', 'web')
             """
         )
+        self._migrate_projects_without_product_version(connection)
+        self._repair_project_foreign_keys_after_projects_rebuild(connection)
+
+    def _migrate_projects_without_product_version(self, connection: sqlite3.Connection) -> None:
+        columns = _table_info(connection, "projects")
+        if not columns or not _has_column(connection, "projects", "product_version"):
+            return
+        legacy_table_name = "projects_rebuild_old"
+        suffix = 0
+        while connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+            (legacy_table_name,),
+        ).fetchone() is not None:
+            suffix += 1
+            legacy_table_name = f"projects_rebuild_old_{suffix}"
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute(f"ALTER TABLE projects RENAME TO {legacy_table_name}")
+        connection.execute(
+            """
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              project_name TEXT NOT NULL,
+              customer_name TEXT NOT NULL DEFAULT '',
+              task_order_no TEXT NOT NULL DEFAULT '',
+              follow_up_started_at TEXT NOT NULL DEFAULT '',
+              support_ended_at TEXT NOT NULL DEFAULT '',
+              product_line TEXT NOT NULL DEFAULT '',
+              project_manager TEXT NOT NULL DEFAULT '',
+              project_level TEXT NOT NULL DEFAULT 'normal',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO projects(
+              id, project_name, customer_name, task_order_no,
+              follow_up_started_at, support_ended_at, product_line,
+              project_manager, project_level, created_at, updated_at
+            )
+            SELECT
+              id, project_name, COALESCE(customer_name, ''), COALESCE(task_order_no, ''),
+              COALESCE(follow_up_started_at, ''), COALESCE(support_ended_at, ''), COALESCE(product_line, ''),
+              COALESCE(project_manager, ''), COALESCE(project_level, 'normal'),
+              COALESCE(created_at, ''), COALESCE(updated_at, '')
+            FROM %s
+            """
+            % legacy_table_name
+        )
+        connection.execute(f"DROP TABLE {legacy_table_name}")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_projects_support_end ON projects(support_ended_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_projects_project_name ON projects(project_name)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_projects_task_order_no ON projects(task_order_no)")
+        connection.execute("PRAGMA foreign_keys = ON")
+
+    def _repair_project_foreign_keys_after_projects_rebuild(self, connection: sqlite3.Connection) -> None:
+        def _needs_project_fk_repair(table_name: str, expected_tables: set[str]) -> bool:
+            try:
+                rows = connection.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
+            except sqlite3.OperationalError:
+                return False
+            actual_tables = {str(row["table"] or "") for row in rows}
+            return actual_tables != expected_tables
+
+        needs_project_group_aliases = _needs_project_fk_repair("project_group_aliases", {"projects"})
+        needs_todo_project_links = _needs_project_fk_repair("todo_project_links", {"todos", "projects"})
+        needs_project_versions = _needs_project_fk_repair("project_versions", {"projects"})
+        needs_project_environments = _needs_project_fk_repair("project_environments", {"projects"})
+        if not any(
+            (
+                needs_project_group_aliases,
+                needs_todo_project_links,
+                needs_project_versions,
+                needs_project_environments,
+            )
+        ):
+            return
+
+        connection.execute("PRAGMA foreign_keys = OFF")
+
+        if needs_project_group_aliases:
+            connection.execute("ALTER TABLE project_group_aliases RENAME TO project_group_aliases_old")
+            connection.execute(
+                """
+                CREATE TABLE project_group_aliases (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  alias_name TEXT NOT NULL,
+                  alias_name_normalized TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO project_group_aliases(
+                  id, project_id, alias_name, alias_name_normalized, created_at, updated_at
+                )
+                SELECT
+                  id, project_id, alias_name, alias_name_normalized,
+                  COALESCE(created_at, ''), COALESCE(updated_at, '')
+                FROM project_group_aliases_old
+                """
+            )
+            connection.execute("DROP TABLE project_group_aliases_old")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_group_aliases_normalized ON project_group_aliases(alias_name_normalized, project_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_group_alias_lookup ON project_group_aliases(alias_name_normalized)"
+            )
+
+        if needs_todo_project_links:
+            connection.execute("ALTER TABLE todo_project_links RENAME TO todo_project_links_old")
+            connection.execute(
+                """
+                CREATE TABLE todo_project_links (
+                  todo_id TEXT PRIMARY KEY,
+                  project_id TEXT,
+                  match_status TEXT NOT NULL,
+                  match_reason TEXT NOT NULL DEFAULT '',
+                  matched_group_name TEXT NOT NULL DEFAULT '',
+                  matched_alias TEXT NOT NULL DEFAULT '',
+                  project_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                  matched_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO todo_project_links(
+                  todo_id, project_id, match_status, match_reason,
+                  matched_group_name, matched_alias, project_snapshot_json,
+                  matched_at, updated_at
+                )
+                SELECT
+                  todo_id, project_id, match_status, COALESCE(match_reason, ''),
+                  COALESCE(matched_group_name, ''), COALESCE(matched_alias, ''),
+                  COALESCE(project_snapshot_json, '{}'),
+                  COALESCE(matched_at, ''), COALESCE(updated_at, '')
+                FROM todo_project_links_old
+                """
+            )
+            connection.execute("DROP TABLE todo_project_links_old")
+
+        if needs_project_versions:
+            connection.execute("ALTER TABLE project_versions RENAME TO project_versions_old")
+            connection.execute(
+                """
+                CREATE TABLE project_versions (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  issue_product TEXT NOT NULL DEFAULT '',
+                  environment TEXT NOT NULL DEFAULT '',
+                  version TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO project_versions(
+                  id, project_id, issue_product, environment, version, created_at, updated_at
+                )
+                SELECT
+                  id, project_id, COALESCE(issue_product, ''), COALESCE(environment, ''),
+                  COALESCE(version, ''), COALESCE(created_at, ''), COALESCE(updated_at, '')
+                FROM project_versions_old
+                """
+            )
+            connection.execute("DROP TABLE project_versions_old")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_versions_key ON project_versions(project_id, issue_product, environment)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_versions_project ON project_versions(project_id, updated_at DESC, created_at DESC)"
+            )
+
+        if needs_project_environments:
+            connection.execute("ALTER TABLE project_environments RENAME TO project_environments_old_fkfix")
+            connection.execute(
+                """
+                CREATE TABLE project_environments (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT DEFAULT '',
+                  env_name TEXT NOT NULL,
+                  scope TEXT NOT NULL DEFAULT 'project',
+                  env_type TEXT NOT NULL DEFAULT '',
+                  sort_order INTEGER NOT NULL DEFAULT 0,
+                  is_active INTEGER NOT NULL DEFAULT 1,
+                  note TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  CHECK(scope IN ('global', 'project')),
+                  CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO project_environments(
+                  id, project_id, env_name, scope, env_type, sort_order,
+                  is_active, note, created_at, updated_at
+                )
+                SELECT
+                  id,
+                  CASE
+                    WHEN COALESCE(scope, 'project') = 'global' OR TRIM(COALESCE(project_id, '')) = '' THEN NULL
+                    ELSE project_id
+                  END,
+                  env_name, COALESCE(scope, 'project'),
+                  COALESCE(env_type, ''), COALESCE(sort_order, 0), COALESCE(is_active, 1),
+                  COALESCE(note, ''), COALESCE(created_at, ''), COALESCE(updated_at, '')
+                FROM project_environments_old_fkfix
+                """
+            )
+            connection.execute("DROP TABLE project_environments_old_fkfix")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_environments_project ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC)"
+            )
+
+        connection.execute("PRAGMA foreign_keys = ON")
 
     def _migrate_environment_sort_order_columns(self, connection: sqlite3.Connection) -> None:
         environment_columns = _table_info(connection, "project_environments")
@@ -557,36 +820,35 @@ class SQLiteStorageMigrator:
             """
             UPDATE todos
             SET ticket_version = (
-              SELECT COALESCE(
-                NULLIF(
-                  json_extract(
-                    COALESCE(todo_project_links.project_snapshot_json, '{}'),
-                    '$.product_version'
-                  ),
-                  ''
-                ),
-                ''
-              )
+              SELECT COALESCE(NULLIF(project_versions.version, ''), '')
               FROM todo_project_links
+              JOIN project_versions
+                ON project_versions.project_id = todo_project_links.project_id
+               AND project_versions.issue_product = COALESCE(todos.issue_product, '')
+               AND project_versions.environment = COALESCE(todos.environment, '')
               WHERE todo_project_links.todo_id = todos.id
+              LIMIT 1
             )
             WHERE EXISTS (
               SELECT 1
               FROM todo_project_links
+              JOIN project_versions
+                ON project_versions.project_id = todo_project_links.project_id
+               AND project_versions.issue_product = COALESCE(todos.issue_product, '')
+               AND project_versions.environment = COALESCE(todos.environment, '')
               WHERE todo_project_links.todo_id = todos.id
             )
               AND COALESCE(todos.ticket_version, '') = ''
               AND COALESCE(
                 (
-                  SELECT NULLIF(
-                    json_extract(
-                      COALESCE(todo_project_links.project_snapshot_json, '{}'),
-                      '$.product_version'
-                    ),
-                    ''
-                  )
+                  SELECT NULLIF(project_versions.version, '')
                   FROM todo_project_links
+                  JOIN project_versions
+                    ON project_versions.project_id = todo_project_links.project_id
+                   AND project_versions.issue_product = COALESCE(todos.issue_product, '')
+                   AND project_versions.environment = COALESCE(todos.environment, '')
                   WHERE todo_project_links.todo_id = todos.id
+                  LIMIT 1
                 ),
                 ''
               ) <> ''
@@ -621,9 +883,9 @@ class SQLiteProjectRepository:
                     INSERT INTO projects(
                       id, project_name, customer_name, task_order_no,
                       follow_up_started_at, support_ended_at, product_line,
-                      product_version, project_manager, project_level,
+                      project_manager, project_level,
                       created_at, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                       project_name=excluded.project_name,
                       customer_name=excluded.customer_name,
@@ -631,7 +893,6 @@ class SQLiteProjectRepository:
                       follow_up_started_at=excluded.follow_up_started_at,
                       support_ended_at=excluded.support_ended_at,
                       product_line=excluded.product_line,
-                      product_version=excluded.product_version,
                       project_manager=excluded.project_manager,
                       project_level=excluded.project_level,
                       created_at=excluded.created_at,
@@ -645,7 +906,6 @@ class SQLiteProjectRepository:
                         sanitize_text(project.follow_up_started_at),
                         sanitize_text(project.support_ended_at),
                         sanitize_text(project.product_line),
-                        sanitize_text(project.product_version),
                         sanitize_text(project.project_manager),
                         sanitize_text(project.project_level) or "normal",
                         created_at,
@@ -675,7 +935,7 @@ class SQLiteProjectRepository:
                 SELECT
                   id, project_name, customer_name, task_order_no,
                   follow_up_started_at, support_ended_at, product_line,
-                  product_version, project_manager, project_level,
+                  project_manager, project_level,
                   created_at, updated_at
                 FROM projects
                 ORDER BY updated_at DESC, created_at DESC, id DESC
@@ -711,7 +971,6 @@ class SQLiteProjectRepository:
                     project.customer_name,
                     project.task_order_no,
                     project.product_line,
-                    project.product_version,
                     project.project_manager,
                     *project.aliases,
                 ]
@@ -759,6 +1018,29 @@ class SQLiteProjectRepository:
             return ""
         return sanitize_text(row["issue_product"])
 
+    def latest_environment_for_project(self, project_id: str) -> str:
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
+            return ""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT todos.environment
+                FROM todos
+                JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todo_project_links.project_id = ?
+                  AND todo_project_links.match_status IN ('matched', 'manual', 'expired')
+                  AND TRIM(todos.environment) <> ''
+                ORDER BY todos.created_at DESC, todos.updated_at DESC, todos.id DESC
+                LIMIT 1
+                """,
+                (normalized_project_id,),
+            ).fetchone()
+        if row is None:
+            return ""
+        environment = sanitize_text(row["environment"])
+        return "" if is_unknown_text(environment) else environment
+
     def get_project_by_task_order_no(self, task_order_no: str) -> ProjectRecord | None:
         normalized_task_order = sanitize_text(task_order_no)
         if not normalized_task_order:
@@ -769,7 +1051,7 @@ class SQLiteProjectRepository:
                 SELECT
                   id, project_name, customer_name, task_order_no,
                   follow_up_started_at, support_ended_at, product_line,
-                  product_version, project_manager, project_level,
+                  project_manager, project_level,
                   created_at, updated_at
                 FROM projects
                 WHERE task_order_no = ?
@@ -845,7 +1127,7 @@ class SQLiteProjectRepository:
                 SELECT
                   id, project_name, customer_name, task_order_no,
                   follow_up_started_at, support_ended_at, product_line,
-                  product_version, project_manager, project_level,
+                  project_manager, project_level,
                   created_at, updated_at
                 FROM projects
                 WHERE id = ?
@@ -894,7 +1176,6 @@ class SQLiteProjectRepository:
                   projects.follow_up_started_at,
                   projects.support_ended_at,
                   projects.product_line,
-                  projects.product_version,
                   projects.project_manager,
                   projects.project_level,
                   project_group_aliases.alias_name
@@ -929,7 +1210,6 @@ class SQLiteProjectRepository:
                     "follow_up_started_at": match["follow_up_started_at"],
                     "support_ended_at": match["support_ended_at"],
                     "product_line": match["product_line"],
-                    "product_version": match["product_version"],
                     "project_manager": match["project_manager"],
                     "project_level": match["project_level"],
                 }
@@ -960,7 +1240,6 @@ class SQLiteProjectRepository:
                 "follow_up_started_at": expired["follow_up_started_at"],
                 "support_ended_at": expired["support_ended_at"],
                 "product_line": expired["product_line"],
-                "product_version": expired["product_version"],
                 "project_manager": expired["project_manager"],
                 "project_level": expired["project_level"],
             }
@@ -998,7 +1277,6 @@ class SQLiteProjectRepository:
                   projects.support_ended_at,
                   projects.follow_up_started_at,
                   projects.product_line,
-                  projects.product_version,
                   projects.project_manager,
                   projects.project_level,
                   project_group_aliases.alias_name
@@ -1023,7 +1301,6 @@ class SQLiteProjectRepository:
                     "follow_up_started_at": row["follow_up_started_at"],
                     "support_ended_at": row["support_ended_at"],
                     "product_line": row["product_line"],
-                    "product_version": row["product_version"],
                     "project_manager": row["project_manager"],
                     "project_level": row["project_level"],
                 }
@@ -1126,6 +1403,94 @@ class SQLiteProjectRepository:
             }
         )
 
+    def list_project_versions(self, project_id: str) -> list[ProjectVersionRecord]:
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, issue_product, environment, version, created_at, updated_at
+                FROM project_versions
+                WHERE project_id = ?
+                ORDER BY updated_at DESC, created_at DESC, id DESC
+                """,
+                (normalized_project_id,),
+            ).fetchall()
+        return [_build_project_version_record(row) for row in rows]
+
+    def get_project_version(
+        self,
+        project_id: str,
+        issue_product: str,
+        environment: str,
+    ) -> ProjectVersionRecord | None:
+        normalized_project_id = sanitize_text(project_id)
+        normalized_issue_product = sanitize_text(issue_product)
+        normalized_environment = sanitize_text(environment)
+        if not normalized_project_id or not normalized_issue_product or not normalized_environment:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, issue_product, environment, version, created_at, updated_at
+                FROM project_versions
+                WHERE project_id = ? AND issue_product = ? AND environment = ?
+                LIMIT 1
+                """,
+                (normalized_project_id, normalized_issue_product, normalized_environment),
+            ).fetchone()
+        if row is None:
+            return None
+        return _build_project_version_record(row)
+
+    def upsert_project_version(
+        self,
+        project_id: str,
+        issue_product: str,
+        environment: str,
+        version: str,
+    ) -> ProjectVersionRecord | None:
+        normalized_project_id = sanitize_text(project_id)
+        normalized_issue_product = sanitize_text(issue_product)
+        normalized_environment = sanitize_text(environment)
+        normalized_version = sanitize_text(version)
+        if not normalized_project_id or not normalized_issue_product or not normalized_environment or not normalized_version:
+            return None
+        stamp = now_iso()
+        with self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT id, created_at
+                FROM project_versions
+                WHERE project_id = ? AND issue_product = ? AND environment = ?
+                LIMIT 1
+                """,
+                (normalized_project_id, normalized_issue_product, normalized_environment),
+            ).fetchone()
+            record_id = str(existing["id"]) if existing is not None else str(uuid.uuid4())
+            created_at = str(existing["created_at"]) if existing is not None else stamp
+            connection.execute(
+                """
+                INSERT INTO project_versions(
+                  id, project_id, issue_product, environment, version, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, issue_product, environment) DO UPDATE SET
+                  version=excluded.version,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    record_id,
+                    normalized_project_id,
+                    normalized_issue_product,
+                    normalized_environment,
+                    normalized_version,
+                    created_at,
+                    stamp,
+                ),
+            )
+        return self.get_project_version(normalized_project_id, normalized_issue_product, normalized_environment)
+
     def bind_todo_to_project(self, todo_id: str, match_result: ProjectMatchResult) -> TodoProjectLink:
         stamp = now_iso()
         project_id = sanitize_text(match_result.project_id) if match_result.status in {"matched", "manual"} else ""
@@ -1181,6 +1546,7 @@ class SQLiteTodoRepository:
         )
         self._migrator.migrate_json_to_sqlite()
         self._project_repository = SQLiteProjectRepository(self._db_path)
+        self._repair_missing_project_link_ids()
 
     @property
     def path(self) -> str:
@@ -1206,6 +1572,7 @@ class SQLiteTodoRepository:
             """
             SELECT environment, product_line, product_module,
                    customer_environment_code, customer_environment_value, issue_product
+                   , ticket_version
             FROM todos
             WHERE id = ?
             """,
@@ -1213,20 +1580,44 @@ class SQLiteTodoRepository:
         ).fetchone()
         if current_row is None:
             return
-        previous_row = connection.execute(
-            """
-            SELECT todos.environment, todos.product_line, todos.product_module,
-                   todos.customer_environment_code, todos.customer_environment_value, todos.issue_product
-            FROM todos
-            JOIN todo_project_links ON todo_project_links.todo_id = todos.id
-            WHERE todo_project_links.project_id = ?
-              AND todo_project_links.todo_id <> ?
-              AND todo_project_links.match_status IN ('matched', 'manual')
-            ORDER BY todos.created_at DESC, todos.updated_at DESC, todos.id DESC
-            LIMIT 1
-            """,
-            (normalized_project_id, normalized_todo_id),
-        ).fetchone()
+        previous_environment = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="environment",
+            include_unknown=False,
+        )
+        previous_product_line = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="product_line",
+            include_unknown=False,
+        )
+        previous_product_module = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="product_module",
+        )
+        previous_customer_environment_code = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="customer_environment_code",
+        )
+        previous_customer_environment_value = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="customer_environment_value",
+        )
+        previous_issue_product = self._latest_project_field_value(
+            connection,
+            project_id=normalized_project_id,
+            todo_id=normalized_todo_id,
+            field_name="issue_product",
+        )
 
         current_environment = sanitize_text(current_row["environment"])
         current_product_line = sanitize_text(current_row["product_line"])
@@ -1234,17 +1625,7 @@ class SQLiteTodoRepository:
         current_customer_environment_code = sanitize_text(current_row["customer_environment_code"])
         current_customer_environment_value = sanitize_text(current_row["customer_environment_value"])
         current_issue_product = sanitize_text(current_row["issue_product"])
-
-        previous_environment = sanitize_text(previous_row["environment"]) if previous_row is not None else ""
-        previous_product_line = sanitize_text(previous_row["product_line"]) if previous_row is not None else ""
-        previous_product_module = sanitize_text(previous_row["product_module"]) if previous_row is not None else ""
-        previous_customer_environment_code = (
-            sanitize_text(previous_row["customer_environment_code"]) if previous_row is not None else ""
-        )
-        previous_customer_environment_value = (
-            sanitize_text(previous_row["customer_environment_value"]) if previous_row is not None else ""
-        )
-        previous_issue_product = sanitize_text(previous_row["issue_product"]) if previous_row is not None else ""
+        current_ticket_version = sanitize_text(current_row["ticket_version"]) if "ticket_version" in current_row.keys() else ""
 
         updated_environment = previous_environment if is_unknown_text(current_environment) else current_environment
         updated_product_line = previous_product_line if is_unknown_text(current_product_line) else current_product_line
@@ -1252,6 +1633,12 @@ class SQLiteTodoRepository:
         updated_customer_environment_code = current_customer_environment_code or previous_customer_environment_code
         updated_customer_environment_value = current_customer_environment_value or previous_customer_environment_value
         updated_issue_product = current_issue_product or previous_issue_product
+        project_version = self._project_repository.get_project_version(
+            normalized_project_id,
+            updated_issue_product,
+            updated_environment,
+        )
+        updated_ticket_version = current_ticket_version or (project_version.version if project_version is not None else "")
 
         if (
             updated_environment == current_environment
@@ -1260,6 +1647,7 @@ class SQLiteTodoRepository:
             and updated_customer_environment_code == current_customer_environment_code
             and updated_customer_environment_value == current_customer_environment_value
             and updated_issue_product == current_issue_product
+            and updated_ticket_version == current_ticket_version
         ):
             return
 
@@ -1268,6 +1656,7 @@ class SQLiteTodoRepository:
             UPDATE todos
             SET environment = ?, product_line = ?, product_module = ?,
                 customer_environment_code = ?, customer_environment_value = ?, issue_product = ?,
+                ticket_version = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -1278,10 +1667,289 @@ class SQLiteTodoRepository:
                 updated_customer_environment_code,
                 updated_customer_environment_value,
                 updated_issue_product,
+                updated_ticket_version,
                 now_iso(),
                 normalized_todo_id,
             ),
         )
+
+    def _latest_project_field_value(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        todo_id: str,
+        field_name: str,
+        include_unknown: bool = True,
+    ) -> str:
+        normalized_project_id = sanitize_text(project_id)
+        normalized_todo_id = sanitize_text(todo_id)
+        normalized_field_name = sanitize_text(field_name)
+        allowed_fields = {
+            "environment",
+            "product_line",
+            "product_module",
+            "customer_environment_code",
+            "customer_environment_value",
+            "issue_product",
+        }
+        if not normalized_project_id or not normalized_todo_id or normalized_field_name not in allowed_fields:
+            return ""
+        row = connection.execute(
+            f"""
+            SELECT todos.{normalized_field_name} AS value
+            FROM todos
+            JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+            WHERE todo_project_links.project_id = ?
+              AND todo_project_links.todo_id <> ?
+              AND todo_project_links.match_status IN ('matched', 'manual')
+              AND TRIM(COALESCE(todos.{normalized_field_name}, '')) <> ''
+            ORDER BY COALESCE(todos.updated_at, todos.created_at) DESC, todos.created_at DESC, todos.id DESC
+            """,
+            (normalized_project_id, normalized_todo_id),
+        ).fetchall()
+        for item in row:
+            value = sanitize_text(item["value"])
+            if not value:
+                continue
+            if not include_unknown and is_unknown_text(value):
+                continue
+            return value
+        return ""
+
+    def _upsert_project_version_from_todo(
+        self,
+        todo_id: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        normalized_todo_id = sanitize_text(todo_id)
+        if not normalized_todo_id:
+            return
+        owns_connection = connection is None
+        active_connection = connection or self._connect()
+        try:
+            project_link = self._repair_missing_project_link_project_id(
+                normalized_todo_id,
+                connection=active_connection,
+            )
+            row = active_connection.execute(
+                """
+                SELECT
+                  todos.environment,
+                  todos.issue_product,
+                  todos.ticket_version,
+                  todo_project_links.project_id,
+                  todo_project_links.match_status
+                FROM todos
+                LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todos.id = ?
+                LIMIT 1
+                """,
+                (normalized_todo_id,),
+            ).fetchone()
+            if row is None:
+                return
+            project_id = sanitize_text(project_link.project_id if project_link is not None else row["project_id"])
+            match_status = sanitize_text(project_link.match_status if project_link is not None else row["match_status"])
+            environment = sanitize_text(row["environment"])
+            issue_product = sanitize_text(row["issue_product"])
+            ticket_version = sanitize_text(row["ticket_version"])
+            if match_status not in {"matched", "manual"}:
+                return
+            self._project_repository.upsert_project_version(project_id, issue_product, environment, ticket_version)
+        finally:
+            if owns_connection:
+                active_connection.close()
+
+    def _refresh_ticket_version_from_project_version(
+        self,
+        todo_id: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        normalized_todo_id = sanitize_text(todo_id)
+        if not normalized_todo_id:
+            return
+        owns_connection = connection is None
+        active_connection = connection or self._connect()
+        try:
+            project_link = self._repair_missing_project_link_project_id(
+                normalized_todo_id,
+                connection=active_connection,
+            )
+            row = active_connection.execute(
+                """
+                SELECT
+                  todos.ticket_version,
+                  todos.environment,
+                  todos.issue_product,
+                  todo_project_links.project_id,
+                  todo_project_links.match_status
+                FROM todos
+                LEFT JOIN todo_project_links ON todo_project_links.todo_id = todos.id
+                WHERE todos.id = ?
+                LIMIT 1
+                """,
+                (normalized_todo_id,),
+            ).fetchone()
+            if row is None:
+                return
+            current_ticket_version = sanitize_text(row["ticket_version"])
+            if current_ticket_version:
+                return
+            project_id = sanitize_text(project_link.project_id if project_link is not None else row["project_id"])
+            match_status = sanitize_text(project_link.match_status if project_link is not None else row["match_status"])
+            if match_status not in {"matched", "manual"}:
+                return
+            environment = sanitize_text(row["environment"])
+            issue_product = sanitize_text(row["issue_product"])
+            if not environment or not issue_product or not project_id:
+                return
+            project_version = self._project_repository.get_project_version(project_id, issue_product, environment)
+            version = sanitize_text(project_version.version) if project_version is not None else ""
+            if not version:
+                return
+            active_connection.execute(
+                "UPDATE todos SET ticket_version = ?, updated_at = ? WHERE id = ?",
+                (version, now_iso(), normalized_todo_id),
+            )
+        finally:
+            if owns_connection:
+                active_connection.close()
+
+    def _resolve_project_for_broken_link(
+        self,
+        link: TodoProjectLink,
+        *,
+        group_name: str = "",
+    ) -> ProjectRecord | None:
+        snapshot = dict(link.project_snapshot or {})
+        snapshot_project_id = sanitize_text(snapshot.get("project_id"))
+        if snapshot_project_id:
+            project = self._project_repository.get_project_by_id(snapshot_project_id)
+            if project is not None:
+                return project
+        snapshot_task_order_no = sanitize_text(snapshot.get("task_order_no"))
+        if snapshot_task_order_no:
+            project = self._project_repository.get_project_by_task_order_no(snapshot_task_order_no)
+            if project is not None:
+                return project
+        candidate_group_name = sanitize_text(link.matched_group_name) or sanitize_text(group_name)
+        if not candidate_group_name:
+            return None
+        match_result = self._project_repository.match_project_by_group_name(candidate_group_name)
+        if sanitize_text(match_result.status) not in {"matched", "manual"}:
+            return None
+        return self._project_repository.get_project_by_id(match_result.project_id)
+
+    def _repair_missing_project_link_project_id(
+        self,
+        todo_id: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> TodoProjectLink | None:
+        normalized_todo_id = sanitize_text(todo_id)
+        if not normalized_todo_id:
+            return None
+        owns_connection = connection is None
+        active_connection = connection or self._connect()
+        try:
+            row = active_connection.execute(
+                """
+                SELECT
+                  todo_project_links.todo_id,
+                  todo_project_links.project_id,
+                  todo_project_links.match_status,
+                  todo_project_links.match_reason,
+                  todo_project_links.matched_group_name,
+                  todo_project_links.matched_alias,
+                  todo_project_links.project_snapshot_json,
+                  todo_project_links.matched_at,
+                  todo_project_links.updated_at,
+                  todos.group_name
+                FROM todo_project_links
+                JOIN todos ON todos.id = todo_project_links.todo_id
+                WHERE todo_project_links.todo_id = ?
+                LIMIT 1
+                """,
+                (normalized_todo_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            link = build_project_link(
+                {
+                    "todo_id": row["todo_id"],
+                    "project_id": row["project_id"] or "",
+                    "match_status": row["match_status"] or "",
+                    "match_reason": row["match_reason"] or "",
+                    "matched_group_name": row["matched_group_name"] or "",
+                    "matched_alias": row["matched_alias"] or "",
+                    "project_snapshot": parse_json_object(row["project_snapshot_json"]),
+                    "matched_at": row["matched_at"] or "",
+                    "updated_at": row["updated_at"] or "",
+                }
+            )
+            if link.project_id or link.match_status not in {"matched", "manual"}:
+                return link
+            project = self._resolve_project_for_broken_link(
+                link,
+                group_name=str(row["group_name"] or ""),
+            )
+            if project is None:
+                return link
+            repaired_snapshot = project.to_snapshot()
+            repaired_link = TodoProjectLink(
+                todo_id=normalized_todo_id,
+                project_id=project.id,
+                match_status=link.match_status,
+                match_reason=link.match_reason or "repair_missing_project_id",
+                matched_group_name=link.matched_group_name or sanitize_text(row["group_name"]),
+                matched_alias=link.matched_alias,
+                project_snapshot=repaired_snapshot,
+                matched_at=link.matched_at or now_iso(),
+                updated_at=now_iso(),
+            )
+            active_connection.execute(
+                """
+                UPDATE todo_project_links
+                SET project_id = ?, match_status = ?, match_reason = ?,
+                    matched_group_name = ?, matched_alias = ?, project_snapshot_json = ?,
+                    matched_at = ?, updated_at = ?
+                WHERE todo_id = ?
+                """,
+                (
+                    repaired_link.project_id,
+                    repaired_link.match_status,
+                    repaired_link.match_reason,
+                    repaired_link.matched_group_name,
+                    repaired_link.matched_alias,
+                    json.dumps(repaired_link.project_snapshot, ensure_ascii=False),
+                    repaired_link.matched_at,
+                    repaired_link.updated_at,
+                    normalized_todo_id,
+                ),
+            )
+            return repaired_link
+        finally:
+            if owns_connection:
+                active_connection.close()
+
+    def _repair_missing_project_link_ids(self) -> None:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT todo_id
+                FROM todo_project_links
+                WHERE COALESCE(TRIM(project_id), '') = ''
+                  AND match_status IN ('matched', 'manual')
+                """
+            ).fetchall()
+            for row in rows:
+                self._repair_missing_project_link_project_id(
+                    str(row["todo_id"] or ""),
+                    connection=connection,
+                )
 
     def list_todos(self, *, query: str = "", status: str = TodoStatus.OPEN) -> list[TodoItem]:
         normalized_query = sanitize_text(query).lower()
@@ -1411,6 +2079,31 @@ class SQLiteTodoRepository:
             ).fetchone()
             if row is None:
                 return None
+            project_link = self._repair_missing_project_link_project_id(
+                sanitize_text(todo_id),
+                connection=connection,
+            )
+            project_id = sanitize_text(project_link.project_id if project_link is not None else "")
+            match_status = sanitize_text(project_link.match_status if project_link is not None else "")
+            if project_id and match_status in {"matched", "manual"}:
+                self._apply_latest_project_field_defaults(connection, sanitize_text(todo_id), project_id)
+                row = connection.execute(
+                    """
+                    SELECT id, title, current_summary, group_name, environment,
+                           product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
+                           ach_no, ach_filled_at, ticket_version,
+                           feature_point, feature_point_source,
+                           root_cause_desc, root_cause_desc_source,
+                           root_cause, root_cause_source,
+                           conclusion_content, conclusion_updated_at,
+                           status, created_at, completed_at, updated_at
+                    FROM todos
+                    WHERE id = ?
+                    """,
+                    (sanitize_text(todo_id),),
+                ).fetchone()
+                if row is None:
+                    return None
             return self._build_todo_from_row(connection, row)
 
     def create_todo_from_analysis(self, snapshot: TicketSnapshot, scenario: str) -> TodoItem:
@@ -1480,6 +2173,7 @@ class SQLiteTodoRepository:
             for event in timeline:
                 self._insert_timeline_event(connection, todo_id, event)
         self._refresh_project_link(todo_id, snapshot.fields.group_name, snapshot.project_link)
+        self._upsert_project_version_from_todo(todo_id)
         return self.get_todo(todo_id) or TodoItem(id=todo_id)
 
     def append_analysis_to_todo(
@@ -1581,6 +2275,7 @@ class SQLiteTodoRepository:
                     ),
                 )
         self._refresh_project_link(sanitized_id, merged_fields.group_name, snapshot.project_link)
+        self._upsert_project_version_from_todo(sanitized_id)
         return self.get_todo(sanitized_id)
 
     def complete_todo(self, todo_id: str) -> bool:
@@ -1685,11 +2380,24 @@ class SQLiteTodoRepository:
                     updated_ach_filled_at = ""
                 elif not sanitize_text(current_ach_no):
                     updated_ach_filled_at = now_iso()
-            updated_ticket_version = (
+            requested_ticket_version = (
                 sanitize_text(summary_fields.ticket_version)
                 if summary_fields is not None
                 else str(row["ticket_version"])
             )
+            updated_ticket_version = requested_ticket_version
+            if summary_fields is not None and not requested_ticket_version:
+                project_link = self._project_repository.get_project_link(sanitized_id)
+                project_id = sanitize_text(project_link.project_id if project_link is not None else "")
+                match_status = sanitize_text(project_link.match_status if project_link is not None else "")
+                if project_id and match_status in {"matched", "manual"} and updated_environment and updated_issue_product:
+                    project_version = self._project_repository.get_project_version(
+                        project_id,
+                        updated_issue_product,
+                        updated_environment,
+                    )
+                    if project_version is not None:
+                        updated_ticket_version = sanitize_text(project_version.version)
             updated_feature_point = (
                 sanitize_text(summary_fields.feature_point)
                 if summary_fields is not None
@@ -1790,6 +2498,8 @@ class SQLiteTodoRepository:
                     self._insert_conclusion_attachment(connection, sanitized_id, attachment)
         if summary_fields is not None and updated_group_name != str(row["group_name"]):
             self._refresh_project_link(sanitized_id, updated_group_name)
+        if summary_fields is not None:
+            self._upsert_project_version_from_todo(sanitized_id)
         return self.get_todo(sanitized_id)
 
     def unlink_todo_project(self, todo_id: str) -> TodoItem | None:
@@ -1819,6 +2529,7 @@ class SQLiteTodoRepository:
             return None
         with self._connect() as connection:
             _upsert_todo(connection, todo)
+            self._repair_missing_project_link_project_id(todo.id, connection=connection)
         return self.get_todo(todo.id)
 
     def _build_todo_from_row(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TodoItem:
@@ -2512,13 +3223,13 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
           product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
-          ach_no, ach_filled_at, ticket_version,
+          issue_product, ach_no, ach_filled_at, ticket_version,
           feature_point, feature_point_source,
           root_cause_desc, root_cause_desc_source,
           root_cause, root_cause_source,
           conclusion_content, conclusion_updated_at,
           status, created_at, completed_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
@@ -2529,6 +3240,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           ticket_type=excluded.ticket_type,
           customer_environment_code=excluded.customer_environment_code,
           customer_environment_value=excluded.customer_environment_value,
+          issue_product=excluded.issue_product,
           ach_no=excluded.ach_no,
           ach_filled_at=excluded.ach_filled_at,
           ticket_version=excluded.ticket_version,
@@ -2555,6 +3267,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.ticket_type),
             sanitize_text(todo.summary_fields.customer_environment_code),
             sanitize_text(todo.summary_fields.customer_environment_value),
+            sanitize_text(todo.summary_fields.issue_product),
             sanitize_text(todo.summary_fields.ach_no),
             sanitize_text(todo.summary_fields.ach_filled_at),
             sanitize_text(todo.summary_fields.ticket_version),

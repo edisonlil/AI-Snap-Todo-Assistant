@@ -16,7 +16,7 @@ from aica.config import ConfigManager, ServerConfig  # noqa: E402
 from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentBundle, ProjectEnvironmentRecord  # noqa: E402
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.otp_secret_extractor import OtpSecretExtractResult  # noqa: E402
-from aica.storage.contracts import ProjectRecord  # noqa: E402
+from aica.storage.contracts import ProjectRecord, ProjectVersionRecord  # noqa: E402
 from aica.todo.models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
@@ -140,6 +140,7 @@ class _FakeTodoStore:
 class _FakeProjectRepository:
     def __init__(self) -> None:
         self.projects: dict[str, ProjectRecord] = {}
+        self.project_versions: dict[str, list[ProjectVersionRecord]] = {}
 
     def list_projects(self, query: str = "", *, include_expired: bool = True) -> list[ProjectRecord]:
         normalized_query = str(query or "").strip().casefold()
@@ -160,12 +161,18 @@ class _FakeProjectRepository:
             None,
         )
 
+    def get_project_by_id(self, project_id: str) -> ProjectRecord | None:
+        return self.projects.get(project_id)
+
     def upsert_project(self, project: ProjectRecord) -> ProjectRecord:
         self.projects[project.id] = project
         return project
 
     def delete_project(self, project_id: str) -> bool:
         return self.projects.pop(project_id, None) is not None
+
+    def list_project_versions(self, project_id: str) -> list[ProjectVersionRecord]:
+        return list(self.project_versions.get(project_id, []))
 
 
 class _FakeEnvironmentRepository:
@@ -914,7 +921,7 @@ def test_save_project_pushes_new_aliases_to_server_async(monkeypatch: pytest.Mon
     assert worker.deleted is True
 
 
-def test_save_project_pushes_product_version_update_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_project_pushes_project_update_to_server_async(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()
     bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
@@ -954,14 +961,25 @@ def test_save_project_pushes_product_version_update_to_server_async(monkeypatch:
 
     monkeypatch.setattr(control_panel, "ProjectUpdateSyncWorker", _FakeUpdateWorker)
     monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+    bridge._project_repository.project_versions["project-1"] = [  # noqa: SLF001
+        ProjectVersionRecord(
+            id="version-1",
+            project_id="project-1",
+            issue_product="文档中台",
+            environment="测试环境",
+            version="003",
+            created_at="2026-07-01T00:00:00",
+            updated_at="2026-07-01T00:00:00",
+        )
+    ]
 
     bridge.saveProject(
         {
+            "id": "project-1",
             "projectName": "Demo Project",
             "customerName": "Demo Customer",
             "taskOrderNo": "TASK-001",
             "productLine": "Product Line",
-            "productVersion": "V2.0",
             "projectManager": "Alice",
             "projectLevel": "important",
             "followUpStartedAt": "2026-05-23T00:00:00",
@@ -974,7 +992,20 @@ def test_save_project_pushes_product_version_update_to_server_async(monkeypatch:
     worker = created_update_workers[0]
     assert worker.payload == {
         "task_order_no": "TASK-001",
-        "product_version": "V2.0",
+        "project_name": "Demo Project",
+        "customer_name": "Demo Customer",
+        "product_line": "Product Line",
+        "project_manager": "Alice",
+        "project_level": "important",
+        "follow_up_started_at": "2026-05-23T00:00:00",
+        "support_ended_at": "2026-12-31T23:59:59",
+        "versions": [
+            {
+                "product_line": "文档中台",
+                "environment": "测试环境",
+                "version": "003",
+            }
+        ],
     }
     assert worker.deleted is True
 
@@ -1020,6 +1051,69 @@ def test_save_project_does_not_push_unchanged_aliases(monkeypatch: pytest.Monkey
     assert created_workers == []
 
 
+def test_save_project_does_not_push_project_update_when_only_aliases_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
+    existing = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="TASK-001",
+        aliases=("old-group",),
+        product_line="Product Line",
+        project_manager="Alice",
+        project_level="important",
+        follow_up_started_at="2026-05-23T00:00:00",
+        support_ended_at="2026-12-31T23:59:59",
+    )
+    bridge._project_repository.upsert_project(existing)
+    bridge._refresh_project_payloads()
+    created_update_workers: list[object] = []
+
+    class _FakeUpdateWorker:
+        def __init__(self, **_kwargs) -> None:
+            created_update_workers.append(self)
+
+    class _FakeChatGroupsWorker:
+        def __init__(self, **_kwargs) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+
+        def start(self) -> None:
+            return None
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "ProjectUpdateSyncWorker", _FakeUpdateWorker)
+    monkeypatch.setattr(control_panel, "ProjectChatGroupsSyncWorker", _FakeChatGroupsWorker)
+
+    bridge.saveProject(
+        {
+            "id": "project-1",
+            "projectName": "Demo Project",
+            "customerName": "Demo Customer",
+            "taskOrderNo": "TASK-001",
+            "productLine": "Product Line",
+            "projectManager": "Alice",
+            "projectLevel": "important",
+            "followUpStartedAt": "2026-05-23T00:00:00",
+            "supportEndedAt": "2026-12-31T23:59:59",
+            "aliases": ["old-group", "new-group"],
+        }
+    )
+
+    assert created_update_workers == []
+
+
 def test_save_project_emits_project_saved(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
@@ -1032,7 +1126,6 @@ def test_save_project_emits_project_saved(monkeypatch: pytest.MonkeyPatch) -> No
             "customerName": "Demo Customer",
             "taskOrderNo": "TASK-001",
             "productLine": "私网文档中心;zhongt",
-            "productVersion": "V2.0",
             "aliases": ["new-group"],
         }
     )
@@ -1067,7 +1160,6 @@ def test_save_project_does_not_start_server_workers_when_server_disabled(monkeyp
             "customerName": "Demo Customer",
             "taskOrderNo": "TASK-001",
             "productLine": "Product Line",
-            "productVersion": "V2.0",
             "aliases": ["new-group"],
         }
     )
@@ -1076,6 +1168,167 @@ def test_save_project_does_not_start_server_workers_when_server_disabled(monkeyp
     assert bridge.statusMessage.startswith("已保存项目 Demo Project")
     assert created_update_workers == []
     assert created_chat_group_workers == []
+
+
+def test_project_update_payload_includes_changed_project_fields() -> None:
+    existing = ProjectRecord(
+        id="project-1",
+        project_name="Old Project",
+        customer_name="Old Customer",
+        task_order_no="TASK-001",
+        product_line="Old Line",
+        project_manager="Old Manager",
+        project_level="normal",
+        follow_up_started_at="2026-05-01T00:00:00",
+        support_ended_at="2026-12-01T23:59:59",
+    )
+    updated = ProjectRecord(
+        id="project-1",
+        project_name="New Project",
+        customer_name="Old Customer",
+        task_order_no="TASK-001",
+        product_line="New Line",
+        project_manager="Old Manager",
+        project_level="important",
+        follow_up_started_at="2026-05-01T00:00:00",
+        support_ended_at="2026-12-31T23:59:59",
+    )
+
+    payload = control_panel._project_update_payload(updated, existing)  # noqa: SLF001
+
+    assert payload == {
+        "task_order_no": "TASK-001",
+        "project_name": "New Project",
+        "product_line": "New Line",
+        "project_level": "important",
+        "support_ended_at": "2026-12-31T23:59:59",
+    }
+
+
+def test_project_update_payload_includes_versions() -> None:
+    project = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="TASK-001",
+    )
+    project_versions = [
+        ProjectVersionRecord(
+            id="version-1",
+            project_id="project-1",
+            issue_product="文档中台",
+            environment="测试环境",
+            version="003",
+        ),
+        ProjectVersionRecord(
+            id="version-2",
+            project_id="project-1",
+            issue_product="WPS Office PC端",
+            environment="生产环境",
+            version="Xxxx",
+        ),
+    ]
+
+    payload = control_panel._project_update_payload(project, project, project_versions=project_versions)  # noqa: SLF001
+
+    assert payload == {
+        "task_order_no": "TASK-001",
+        "versions": [
+            {
+                "product_line": "文档中台",
+                "environment": "测试环境",
+                "version": "003",
+            },
+            {
+                "product_line": "WPS Office PC端",
+                "environment": "生产环境",
+                "version": "Xxxx",
+            },
+        ],
+    }
+
+
+def test_save_selected_ticket_version_pushes_project_versions_to_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+        },
+    )
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge._config.server = ServerConfig(
+        enabled=True,
+        base_url="https://server.example.com",
+        api_key="server-key",
+        timeout_seconds=30,
+    )
+    bridge._config_manager.save(bridge._config)
+    project = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="WO-001",
+        product_line="PC Office",
+        aliases=("test-group",),
+    )
+    bridge._project_repository.upsert_project(project)  # noqa: SLF001
+    bridge._refresh_project_payloads()  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    original_update_todo = bridge._todo_store.update_todo  # noqa: SLF001
+    created_update_workers: list[object] = []
+
+    class _FakeUpdateWorker:
+        def __init__(self, *, config_manager, payload, parent=None) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.payload = dict(payload)
+            self.deleted = False
+            created_update_workers.append(self)
+
+        def start(self) -> None:
+            self.finished.emit(self.payload["task_order_no"])
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "ProjectUpdateSyncWorker", _FakeUpdateWorker)
+
+    def _update_todo_with_project_versions(todo_id: str, *, summary_fields: TicketSummaryFields):  # noqa: ANN001
+        updated = original_update_todo(todo_id, summary_fields=summary_fields)
+        bridge._project_repository.project_versions["project-1"] = [  # noqa: SLF001
+            ProjectVersionRecord(
+                id="version-1",
+                project_id="project-1",
+                issue_product="产品A/模块B/功能C",
+                environment="prod",
+                version=str(summary_fields.ticket_version or "").strip(),
+                created_at="2026-07-01T00:00:00",
+                updated_at="2026-07-01T00:00:00",
+            )
+        ]
+        return updated
+
+    bridge._todo_store.update_todo = _update_todo_with_project_versions  # type: ignore[method-assign]  # noqa: SLF001
+
+    bridge.saveSelectedTicketField("ticket_version", "release_2026_07")
+
+    assert len(created_update_workers) == 1
+    assert created_update_workers[0].payload == {
+        "task_order_no": "WO-001",
+        "versions": [
+            {
+                "product_line": "产品A/模块B/功能C",
+                "environment": "prod",
+                "version": "release_2026_07",
+            }
+        ],
+    }
 
 
 def test_reopen_selected_ticket_updates_detail_and_respects_done_filter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1214,6 +1467,57 @@ def test_save_selected_ticket_issue_product_updates_summary_field(monkeypatch: p
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
 
 
+def test_save_selected_ticket_version_refreshes_project_versions_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+        },
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+    project = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="WO-001",
+        product_line="PC Office",
+        aliases=("test-group",),
+    )
+    bridge._project_repository.upsert_project(project)  # noqa: SLF001
+    bridge._refresh_project_payloads()  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    original_update_todo = bridge._todo_store.update_todo  # noqa: SLF001
+
+    def _update_todo_with_project_versions(todo_id: str, *, summary_fields: TicketSummaryFields):  # noqa: ANN001
+        updated = original_update_todo(todo_id, summary_fields=summary_fields)
+        bridge._project_repository.project_versions["project-1"] = [  # noqa: SLF001
+            ProjectVersionRecord(
+                id="version-1",
+                project_id="project-1",
+                issue_product="产品A/模块B/功能C",
+                environment="prod",
+                version=str(summary_fields.ticket_version or "").strip(),
+                created_at="2026-07-01T00:00:00",
+                updated_at="2026-07-01T00:00:00",
+            )
+        ]
+        return updated
+
+    bridge._todo_store.update_todo = _update_todo_with_project_versions  # type: ignore[method-assign]  # noqa: SLF001
+
+    bridge.saveSelectedTicketField("ticket_version", "release_2026_07")
+
+    matching_project = next(item for item in bridge.projects if item["id"] == "project-1")
+    assert matching_project["projectVersions"][0]["issueProduct"] == "产品A/模块B/功能C"
+    assert matching_project["projectVersions"][0]["environment"] == "prod"
+    assert matching_project["projectVersions"][0]["version"] == "release_2026_07"
+
+
 def test_selected_ticket_exposes_product_line_and_module_options(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
@@ -1241,6 +1545,77 @@ def test_selected_ticket_hides_unknown_environment_and_product_line(monkeypatch:
 
     assert bridge.selectedTicket["environment"] == ""
     assert bridge.selectedTicket["productLine"] == ""
+
+
+def test_save_selected_ticket_environment_updates_summary_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("environment", "pre")
+
+    assert bridge.selectedTicket["environment"] == "pre"
+    assert bridge._todo_store.get_todo(todo.id).summary_fields.environment == "pre"  # noqa: SLF001
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_save_selected_ticket_environment_backfills_ticket_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+        },
+    )
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    project = ProjectRecord(
+        id="project-1",
+        project_name="Demo Project",
+        customer_name="Demo Customer",
+        task_order_no="WO-001",
+        product_line="PC Office",
+        aliases=("test-group",),
+    )
+    bridge._project_repository.upsert_project(project)  # noqa: SLF001
+    bridge._project_repository.project_versions["project-1"] = [  # noqa: SLF001
+        ProjectVersionRecord(
+            id="version-1",
+            project_id="project-1",
+            issue_product="产品A/模块B/功能C",
+            environment="正式环境",
+            version="release_dc_v7.0.2504b.20250424",
+            created_at="2026-07-01T00:00:00",
+            updated_at="2026-07-01T00:00:00",
+        )
+    ]
+    bridge._refresh_project_payloads()  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+
+    original_update_todo = bridge._todo_store.update_todo  # noqa: SLF001
+
+    def _update_todo_with_backfill(todo_id: str, *, summary_fields: TicketSummaryFields):  # noqa: ANN001
+        updated = original_update_todo(todo_id, summary_fields=summary_fields)
+        updated.summary_fields = TicketSummaryFields.from_dict(
+            {
+                **updated.summary_fields.to_dict(),
+                "ticket_version": "release_dc_v7.0.2504b.20250424",
+            }
+        )
+        bridge._todo_store._todo = updated  # type: ignore[attr-defined]  # noqa: SLF001
+        return updated
+
+    bridge._todo_store.update_todo = _update_todo_with_backfill  # type: ignore[method-assign]  # noqa: SLF001
+
+    bridge.saveSelectedTicketField("environment", "正式环境")
+
+    assert bridge.selectedTicket["environment"] == "正式环境"
+    assert bridge.selectedTicket["ticketVersion"] == "release_dc_v7.0.2504b.20250424"
 
 
 def test_save_selected_ticket_product_line_clears_invalid_module(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1399,7 +1774,7 @@ def test_unlink_selected_ticket_project_without_selection_is_noop(monkeypatch: p
 
 def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
-    todo.summary_fields.product_line = ""
+    todo.summary_fields.issue_product = ""
     publisher = _EventPublisher()
     bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
     bridge.openTicketDetail(todo.id)
@@ -1412,6 +1787,7 @@ def test_refresh_selected_ticket_feature_point_pushes_error_notification(monkeyp
 def test_refresh_selected_ticket_feature_point_uses_server_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.summary_fields.product_line = "协作产品线"
+    todo.summary_fields.issue_product = "产品A/模块B/功能C"
     todo.summary_fields.feature_point = "旧功能点"
     todo.current_summary = "用户反馈保存失败"
     session = _FeaturePointWorkflowSession()
@@ -1437,7 +1813,7 @@ def test_refresh_selected_ticket_feature_point_uses_server_workflow(monkeypatch:
     assert session.calls[0]["url"] == "https://server.example.com/api/runtime/apps/workflow-mphzwo1h/run"
     assert session.calls[0]["json"] == {
         "variables": {
-            "product_line": "协作产品线",
+            "product_line": "产品A/模块B/功能C",
             "desc": "用户反馈保存失败",
         }
     }
@@ -1448,6 +1824,7 @@ def test_refresh_selected_ticket_feature_point_uses_server_workflow(monkeypatch:
 def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     todo.summary_fields.product_line = "协作产品线"
+    todo.summary_fields.issue_product = "产品A/模块B/功能C"
     todo.summary_fields.feature_point = "旧功能点"
     todo.current_summary = "用户反馈保存失败"
     publisher = _EventPublisher()
@@ -1462,7 +1839,7 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
             config_manager,
             todo_id,
             request_id,
-            product_line,
+            issue_product,
             problem_desc,
             parent=None,
         ) -> None:
@@ -1470,7 +1847,7 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
-            self.product_line = product_line
+            self.issue_product = issue_product
             self.problem_desc = problem_desc
             self.started = False
             self.deleted = False
@@ -1491,7 +1868,7 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
     assert worker.started is True
     assert bridge.statusMessage == "功能点正在刷新..."
     assert bridge.selectedTicket["featurePoint"] == "旧功能点"
-    assert worker.product_line == "协作产品线"
+    assert worker.issue_product == "产品A/模块B/功能C"
     assert worker.problem_desc == "用户反馈保存失败"
 
     worker.finished.emit(worker.todo_id, worker.request_id, "异步功能点")

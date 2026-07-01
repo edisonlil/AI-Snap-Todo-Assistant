@@ -59,7 +59,6 @@ def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
             project_snapshot={
                 "project_name": "广州项目",
                 "task_order_no": "PJ-001",
-                "product_version": "release_1",
                 "project_manager": "Alice",
             },
         ),
@@ -110,7 +109,7 @@ def test_build_work_order_payload_maps_todo_snapshot() -> None:
         "full_name": "文档中台-上传-失败",
         "linked": True,
     }
-    assert payload["product_version"] == "release_1"
+    assert payload["product_version"] == "v1"
     assert payload["root_cause_description"] == "上游服务超时"
     assert payload["attachments"] == [
         {
@@ -467,6 +466,7 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
             "description": "问题描述",
             "status": "in_progress",
             "project_hit_status": "matched",
+            "project_local_id": "project-local-1",
             "project_task_order_no": "PJ-24080225",
             "project_snapshot": "某客户文档中台项目",
             "group_name": "客户支持群",
@@ -508,6 +508,8 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
     assert todo.summary_fields.ach_no == "ACH-002"
     assert todo.summary_fields.feature_point == "文档中台-上传-失败"
     assert todo.project_link.match_status == "matched"
+    assert todo.project_link.project_id == "project-local-1"
+    assert todo.project_link.project_snapshot["project_id"] == "project-local-1"
     assert todo.project_link.project_snapshot["task_order_no"] == "PJ-24080225"
     assert todo.timeline[0].attachments[0].file_object_id == "123"
     assert todo.timeline[0].attachments[0].path == "https://example.com/install-log.txt"

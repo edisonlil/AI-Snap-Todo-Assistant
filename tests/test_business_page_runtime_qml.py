@@ -39,6 +39,51 @@ def test_project_detail_form_uses_stable_grid_layout() -> None:
     assert "Layout.preferredWidth: 86" in detail_source
 
 
+def test_project_detail_actions_live_in_detail_header_toolbar() -> None:
+    qml_text = _qml("ProjectsSection.qml")
+    detail_source = qml_text[qml_text.index("DetailRuntime {") :]
+
+    assert "actionContent: RowLayout {" in detail_source
+    assert 'label: "删除项目"' in detail_source
+    assert 'label: "保存项目"' in detail_source
+    assert detail_source.index("actionContent: RowLayout {") < detail_source.index("bodyContent: ColumnLayout {")
+    body_source = detail_source[detail_source.index("bodyContent: ColumnLayout {") :]
+    assert body_source.count('label: "重置"') == 0
+    assert body_source.count('label: "删除项目"') == 0
+    assert body_source.count('label: "保存项目"') == 0
+
+
+def test_project_detail_uses_sub_tabs_for_versions_and_aliases() -> None:
+    qml_text = _qml("ProjectsSection.qml")
+    detail_source = qml_text[qml_text.index("DetailRuntime {") :]
+
+    assert 'property string detailSubTab: "aliases"' in qml_text
+    assert 'label: "版本信息"' in detail_source
+    assert 'label: "关联群聊"' in detail_source
+    assert 'text: modelData.label + " (" + modelData.count + ")"' in detail_source
+    assert 'visible: projectSection.detailSubTab === modelData.key' in detail_source
+    assert 'onClicked: projectSection.detailSubTab = modelData.key' in detail_source
+    assert 'visible: projectSection.detailSubTab === "versions"' in detail_source
+    assert 'visible: projectSection.detailSubTab === "aliases"' in detail_source
+    assert 'projectSection.detailSubTab = theme.projectDraft.id.length > 0 ? "versions" : "aliases"' in qml_text
+    assert "height: 2" in detail_source
+
+
+def test_project_versions_render_as_table_like_list() -> None:
+    qml_text = _qml("ProjectsSection.qml")
+    detail_source = qml_text[qml_text.index("DetailRuntime {") :]
+
+    assert "id: projectVersionTable" in detail_source
+    assert "id: projectVersionTableHorizontalFlickable" in detail_source
+    assert "id: projectVersionTableView" in detail_source
+    assert 'text: "版本列表"' not in detail_source
+    assert 'text: "问题所属产品"' in detail_source
+    assert 'text: "环境"' in detail_source
+    assert 'text: "版本"' in detail_source
+    assert 'text: "更新时间"' in detail_source
+    assert 'model: theme.projectDraft.projectVersions || []' in detail_source
+
+
 def test_business_runtime_surfaces_use_compact_filled_cards() -> None:
     page_runtime = _qml("PageRuntime.qml")
     detail_runtime = _qml("DetailRuntime.qml")
@@ -108,6 +153,8 @@ def test_ticket_list_uses_page_runtime_and_detail_uses_detail_runtime() -> None:
     assert "ticketSection.cancelDeleteSelectedTicket()" in detail_source
     assert "ticketSection.cancelUnlinkSelectedTicketProject()" in detail_source
     assert "controlPanelBridge.backToTicketList()" in detail_source
+    assert 'label: "工单类型"' not in detail_source
+    assert 'label: controlPanelBridge.selectedTicket.ticketType || "未填写工单类型"' in detail_source
 
 
 def test_control_panel_settings_pages_keep_native_layouts() -> None:
@@ -131,3 +178,12 @@ def test_control_panel_uses_macos_self_drawn_traffic_lights() -> None:
     assert "visible: !root.isMacos" in qml_text
     assert "font.pixelSize: 23" in qml_text
     assert "elide: Text.ElideRight" in qml_text
+
+
+def test_control_panel_refreshes_current_project_draft_versions_on_data_change() -> None:
+    qml_text = _qml("ControlPanel.qml")
+
+    assert "function syncCurrentProjectDraftVersions()" in qml_text
+    assert 'if (projectViewMode !== "detail" || !projectDraft.id.length)' in qml_text
+    assert "next.projectVersions = refreshed.projectVersions || []" in qml_text
+    assert "root.syncCurrentProjectDraftVersions()" in qml_text

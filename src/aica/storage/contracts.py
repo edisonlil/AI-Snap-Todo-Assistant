@@ -29,7 +29,6 @@ class ProjectRecord:
     follow_up_started_at: str = ""
     support_ended_at: str = ""
     product_line: str = ""
-    product_version: str = ""
     project_manager: str = ""
     project_level: str = "normal"
     aliases: tuple[str, ...] = ()
@@ -45,10 +44,20 @@ class ProjectRecord:
             "follow_up_started_at": self.follow_up_started_at,
             "support_ended_at": self.support_ended_at,
             "product_line": self.product_line,
-            "product_version": self.product_version,
             "project_manager": self.project_manager,
             "project_level": self.project_level,
         }
+
+
+@dataclass(frozen=True)
+class ProjectVersionRecord:
+    id: str
+    project_id: str
+    issue_product: str
+    environment: str
+    version: str
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
 
 
 @dataclass(frozen=True)
@@ -181,6 +190,9 @@ class ProjectRepository(Protocol):
     def latest_issue_product_for_project(self, project_id: str) -> str:
         """Return the latest selected issue_product for a project."""
 
+    def latest_environment_for_project(self, project_id: str) -> str:
+        """Return the latest selected environment for a project."""
+
     def get_project_link(self, todo_id: str) -> "TodoProjectLink | None":
         """Fetch the current project link for a Todo."""
 
@@ -189,6 +201,26 @@ class ProjectRepository(Protocol):
 
     def get_project_by_id(self, project_id: str) -> "ProjectRecord | None":
         """Fetch a project by id."""
+
+    def list_project_versions(self, project_id: str) -> list[ProjectVersionRecord]:
+        """List version records under a project."""
+
+    def get_project_version(
+        self,
+        project_id: str,
+        issue_product: str,
+        environment: str,
+    ) -> ProjectVersionRecord | None:
+        """Fetch one project version by issue product and environment."""
+
+    def upsert_project_version(
+        self,
+        project_id: str,
+        issue_product: str,
+        environment: str,
+        version: str,
+    ) -> ProjectVersionRecord | None:
+        """Create or update one project version row."""
 
 
 class BindingRepository(Protocol):

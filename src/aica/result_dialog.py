@@ -218,11 +218,13 @@ class _ResultDialogBridge(QObject):
         analysis_stats: AnalysisRunStats | None = None,
         project_candidate_provider=None,
         latest_issue_product_provider=None,
+        latest_environment_provider=None,
         project_match_provider=None,
     ) -> None:
         super().__init__()
         self._project_candidate_provider = project_candidate_provider
         self._latest_issue_product_provider = latest_issue_product_provider
+        self._latest_environment_provider = latest_environment_provider
         self._project_match_provider = project_match_provider
         self._scenario = scenario
         self._model = model
@@ -231,6 +233,7 @@ class _ResultDialogBridge(QObject):
         self._title = sanitize_text(result.title)
         self._group_name = _clean_text(result.fields.group_name)
         self._environment = _clean_text(result.fields.environment)
+        self._environment_manual = not is_unknown_text(result.fields.environment)
         self._product_line = sanitize_text(result.fields.product_line)
         self._issue_product = sanitize_text(result.fields.issue_product)
         self._issue_product_manual = bool(self._issue_product.strip())
@@ -321,9 +324,11 @@ class _ResultDialogBridge(QObject):
         elif name == "group_name":
             self._group_name = text
             self._refresh_project_candidates()
+            self._apply_matched_project_environment_default()
             self._apply_matched_project_issue_product_default()
         elif name == "environment":
             self._environment = text
+            self._environment_manual = not is_unknown_text(text)
         elif name == "issue_product":
             self._issue_product = text
             self._issue_product_manual = bool(text.strip())
@@ -407,8 +412,26 @@ class _ResultDialogBridge(QObject):
             preferred_group_name = sanitize_text(matched.get("projectName") or matched.get("project_name"))
         if preferred_group_name:
             self._group_name = preferred_group_name
+        self._apply_environment_default(str(matched.get("projectId") or ""))
         self._apply_issue_product_default(str(matched.get("projectId") or ""))
         self.dataChanged.emit()
+
+    def _apply_environment_default(self, project_id: str) -> None:
+        if self._environment_manual and sanitize_text(self._environment).strip():
+            return
+        provider = self._latest_environment_provider
+        if not callable(provider):
+            return
+        normalized_project_id = sanitize_text(project_id)
+        if not normalized_project_id:
+            return
+        try:
+            latest_environment = sanitize_text(provider(normalized_project_id))
+        except Exception:
+            latest_environment = ""
+        if latest_environment and not is_unknown_text(latest_environment):
+            self._environment = latest_environment
+            self._environment_manual = False
 
     def _apply_issue_product_default(self, project_id: str) -> None:
         if self._issue_product_manual and self._issue_product.strip():
@@ -426,6 +449,11 @@ class _ResultDialogBridge(QObject):
         if latest_issue_product:
             self._issue_product = latest_issue_product
             self._issue_product_manual = False
+
+    def _apply_matched_project_environment_default(self) -> None:
+        project_id = self._resolve_issue_product_default_project_id()
+        if project_id:
+            self._apply_environment_default(project_id)
 
     def _apply_matched_project_issue_product_default(self) -> None:
         project_id = self._resolve_issue_product_default_project_id()
@@ -495,6 +523,7 @@ class ResultDialog(QDialog):
         save_callback: Optional[Callable] = None,
         project_candidate_provider=None,
         latest_issue_product_provider=None,
+        latest_environment_provider=None,
         project_match_provider=None,
         parent=None,
         theme_controller: ThemeController | None = None,
@@ -515,6 +544,11 @@ class ResultDialog(QDialog):
             if callable(latest_issue_product_provider)
             else self._product_line_repository.latest_issue_product_for_project
         )
+        self._latest_environment_provider = (
+            latest_environment_provider
+            if callable(latest_environment_provider)
+            else self._product_line_repository.latest_environment_for_project
+        )
         self._project_match_provider = (
             project_match_provider
             if callable(project_match_provider)
@@ -531,6 +565,7 @@ class ResultDialog(QDialog):
             if callable(project_candidate_provider)
             else getattr(self._product_line_repository, "search_project_candidates_by_group_name", None),
             latest_issue_product_provider=self._latest_issue_product_provider,
+            latest_environment_provider=self._latest_environment_provider,
             project_match_provider=self._project_match_provider,
         )
 

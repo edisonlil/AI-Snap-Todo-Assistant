@@ -191,7 +191,7 @@ def build_work_order_payload(event: TodoDomainEvent) -> dict[str, object]:
     project_status = _project_hit_status(project_link.get("match_status"))
     feature_point = _first_meaningful(fields.get("feature_point"))
     group_name = _first_meaningful(fields.get("group_name"))
-    product_version = _first_meaningful(project_snapshot.get("product_version"), fields.get("ticket_version"))
+    product_version = _first_meaningful(fields.get("ticket_version"))
 
     payload: dict[str, object] = {
         "source_system": SOURCE_SYSTEM,
@@ -516,9 +516,11 @@ def todo_from_server_work_order(item: dict[str, Any]) -> TodoItem:
     created_at = _clean(item.get("external_filled_at") or item.get("create_time")) or now_iso()
     updated_at = _clean(item.get("update_time")) or created_at
     status = TodoStatus.DONE if _clean(item.get("status")).lower() in {"completed", "done"} else TodoStatus.OPEN
+    project_snapshot_local_id = _clean(item.get("project_local_id") or item.get("local_project_id"))
     project_snapshot = {
         key: value
         for key, value in {
+            "project_id": project_snapshot_local_id,
             "server_project_id": _clean(item.get("project_id")),
             "project_name": _clean(item.get("project_snapshot")),
             "task_order_no": _clean(item.get("project_task_order_no")),
@@ -530,7 +532,7 @@ def todo_from_server_work_order(item: dict[str, Any]) -> TodoItem:
     }
     project_link = TodoProjectLink(
         todo_id=todo_id,
-        project_id="",
+        project_id=project_snapshot_local_id,
         match_status=_project_hit_status(item.get("project_hit_status")),
         project_snapshot=project_snapshot,
         matched_at=updated_at,

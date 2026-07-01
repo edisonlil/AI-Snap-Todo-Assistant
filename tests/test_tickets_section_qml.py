@@ -79,6 +79,13 @@ def test_tickets_section_includes_customer_environment_dropdown() -> None:
     assert "customerEnvironmentValue" in qml_text
 
 
+def test_tickets_section_reads_environment_field_value_for_edit_state() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+
+    assert 'if (fieldName === "environment") {' in qml_text
+    assert 'return controlPanelBridge.selectedTicket.environment || ""' in qml_text
+
+
 def test_tickets_section_retries_customer_environment_edit_after_dictionary_load() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -111,6 +118,15 @@ def test_tickets_section_includes_local_product_line_and_module_dropdowns() -> N
     assert "productModuleOptionsForCurrentLine" in qml_text
     assert 'commitTicketFieldEdit("productLine", "product_line")' in qml_text
     assert 'commitTicketFieldEdit("productModule", "product_module")' in qml_text
+
+
+def test_ticket_detail_places_environment_next_to_customer_environment() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+    detail_source = qml_text[qml_text.index('label: "群名"') :]
+
+    assert detail_source.index('label: "客户环境"') < detail_source.index('label: "环境"')
+    assert detail_source.index('label: "环境"') < detail_source.index('label: "问题所属产品"')
 
 
 def test_tickets_section_retries_issue_product_edit_after_dictionary_load() -> None:

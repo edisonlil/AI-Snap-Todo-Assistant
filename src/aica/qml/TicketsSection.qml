@@ -200,6 +200,9 @@ ColumnLayout {
         if (fieldName === "achNo") {
             return controlPanelBridge.selectedTicket.achNo || ""
         }
+        if (fieldName === "environment") {
+            return controlPanelBridge.selectedTicket.environment || ""
+        }
         if (fieldName === "productLine") {
             return controlPanelBridge.selectedTicket.productLine || ""
         }
@@ -1532,6 +1535,7 @@ ColumnLayout {
                                     label: controlPanelBridge.selectedTicket.ticketType || "未填写工单类型"
                                     tone: "default"
                                 }
+
                             }
 
                             SelectableText {
@@ -1845,20 +1849,71 @@ ColumnLayout {
                                             placeholderText: "未填写"
                                         }
 
-                                        DetailField {
+                                        SingleSelectCascadeField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            label: "环境"
-                                            value: controlPanelBridge.selectedTicket.environment
+                                            label: "客户环境"
+                                            value: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
+                                            selectedCode: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
                                             placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.customerEnvironmentEditable && ticketSection.isFieldEditing("customerEnvironment")
+                                            saving: ticketSection.isFieldSaving("customerEnvironment")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            options: controlPanelBridge.selectedTicket.customerEnvironmentOptions || []
+                                            onClicked: ticketSection.requestCustomerEnvironmentEdit()
+                                            onAccepted: function(code, value) {
+                                                ticketSection.setFieldState("customerEnvironment", { draft: value, original: currentTicketFieldValue("customerEnvironment"), saving: true, editing: false })
+                                                Qt.callLater(function() {
+                                                    if (!ticketSection.isFieldSaving("customerEnvironment")) {
+                                                        return
+                                                    }
+                                                    controlPanelBridge.saveSelectedTicketField("customer_environment", value)
+                                                })
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("customerEnvironment")
                                         }
 
                                         DetailField {
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
-                                            label: "工单类型"
-                                            value: controlPanelBridge.selectedTicket.ticketType
+                                            label: "环境"
+                                            value: ticketSection.isFieldEditing("environment") ? ticketSection.getFieldDraft("environment") : (controlPanelBridge.selectedTicket.environment || "")
                                             placeholderText: "未填写"
+                                            editable: true
+                                            editing: ticketSection.isFieldEditing("environment")
+                                            saving: ticketSection.isFieldSaving("environment")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            draftValue: ticketSection.getFieldDraft("environment")
+                                            onClicked: ticketSection.beginTicketFieldEdit("environment")
+                                            onDraftChanged: function(value) {
+                                                ticketSection.setFieldState("environment", { draft: value })
+                                            }
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("environment", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("environment", "environment")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("environment")
+                                        }
+
+                                        RootCauseCascadeField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "问题所属产品"
+                                            value: ticketSection.isFieldEditing("issueProduct") ? ticketSection.getFieldDraft("issueProduct") : controlPanelBridge.selectedTicket.issueProduct
+                                            placeholderText: "未填写"
+                                            editing: !!controlPanelBridge.selectedTicket.issueProductEditable && ticketSection.isFieldEditing("issueProduct")
+                                            saving: ticketSection.isFieldSaving("issueProduct")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            parsePathFn: ticketSection.parseIssueProductPath
+                                            level1OptionsFn: ticketSection.issueProductLevel1Options
+                                            level2OptionsFn: ticketSection.issueProductLevel2Options
+                                            level3OptionsFn: ticketSection.issueProductLevel3Options
+                                            onClicked: ticketSection.requestIssueProductEdit()
+                                            onAccepted: function(value) {
+                                                ticketSection.setFieldState("issueProduct", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("issueProduct", "issue_product")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("issueProduct")
                                         }
 
                                         SingleSelectCascadeField {
@@ -1897,51 +1952,6 @@ ColumnLayout {
                                                 ticketSection.commitTicketFieldEdit("productModule", "product_module")
                                             }
                                             onCanceled: ticketSection.cancelTicketFieldEdit("productModule")
-                                        }
-
-                                        SingleSelectCascadeField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            label: "客户环境"
-                                            value: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
-                                            selectedCode: controlPanelBridge.selectedTicket.customerEnvironmentValue || ""
-                                            placeholderText: "未填写"
-                                            editing: !!controlPanelBridge.selectedTicket.customerEnvironmentEditable && ticketSection.isFieldEditing("customerEnvironment")
-                                            saving: ticketSection.isFieldSaving("customerEnvironment")
-                                            compact: ticketSection.detailGridColumns === 1
-                                            options: controlPanelBridge.selectedTicket.customerEnvironmentOptions || []
-                                            onClicked: ticketSection.requestCustomerEnvironmentEdit()
-                                            onAccepted: function(code, value) {
-                                                ticketSection.setFieldState("customerEnvironment", { draft: value, original: currentTicketFieldValue("customerEnvironment"), saving: true, editing: false })
-                                                Qt.callLater(function() {
-                                                    if (!ticketSection.isFieldSaving("customerEnvironment")) {
-                                                        return
-                                                    }
-                                                    controlPanelBridge.saveSelectedTicketField("customer_environment", value)
-                                                })
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit("customerEnvironment")
-                                        }
-
-                                        RootCauseCascadeField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            label: "问题所属产品"
-                                            value: ticketSection.isFieldEditing("issueProduct") ? ticketSection.getFieldDraft("issueProduct") : controlPanelBridge.selectedTicket.issueProduct
-                                            placeholderText: "未填写"
-                                            editing: !!controlPanelBridge.selectedTicket.issueProductEditable && ticketSection.isFieldEditing("issueProduct")
-                                            saving: ticketSection.isFieldSaving("issueProduct")
-                                            compact: ticketSection.detailGridColumns === 1
-                                            parsePathFn: ticketSection.parseIssueProductPath
-                                            level1OptionsFn: ticketSection.issueProductLevel1Options
-                                            level2OptionsFn: ticketSection.issueProductLevel2Options
-                                            level3OptionsFn: ticketSection.issueProductLevel3Options
-                                            onClicked: ticketSection.requestIssueProductEdit()
-                                            onAccepted: function(value) {
-                                                ticketSection.setFieldState("issueProduct", { draft: value })
-                                                ticketSection.commitTicketFieldEdit("issueProduct", "issue_product")
-                                            }
-                                            onCanceled: ticketSection.cancelTicketFieldEdit("issueProduct")
                                         }
 
                                         DetailField {
@@ -2062,18 +2072,6 @@ ColumnLayout {
                                             label: "最近更新"
                                             value: controlPanelBridge.selectedTicket.updatedAtLabel
                                             placeholderText: "未知"
-                                        }
-
-                                        DetailField {
-                                            theme: ticketSection.theme
-                                            Layout.fillWidth: true
-                                            Layout.columnSpan: ticketSection.detailGridColumns
-                                            visible: (controlPanelBridge.selectedTicket.projectSnapshotVersion || "").length > 0
-                                                && (controlPanelBridge.selectedTicket.projectSnapshotVersion || "") !== (controlPanelBridge.selectedTicket.ticketVersion || "")
-                                            label: "关联项目快照版本"
-                                            value: controlPanelBridge.selectedTicket.projectSnapshotVersion
-                                            placeholderText: "未填写"
-                                            multiline: true
                                         }
                                     }
                                 }

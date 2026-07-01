@@ -20,12 +20,12 @@ class FeaturePointResult:
 
 
 class FeaturePointProvider(Protocol):
-    def resolve(self, *, product_line: str, problem_desc: str) -> FeaturePointResult:
+    def resolve(self, *, issue_product: str, problem_desc: str) -> FeaturePointResult:
         """Return a normalized feature point result for the given ticket context."""
 
 
 class NullFeaturePointProvider:
-    def resolve(self, *, product_line: str, problem_desc: str) -> FeaturePointResult:
+    def resolve(self, *, issue_product: str, problem_desc: str) -> FeaturePointResult:
         return FeaturePointResult()
 
 
@@ -33,10 +33,10 @@ class ChattodoFeaturePointProvider:
     def __init__(self, config: ServerConfig) -> None:
         self._config = config
 
-    def resolve(self, *, product_line: str, problem_desc: str) -> FeaturePointResult:
+    def resolve(self, *, issue_product: str, problem_desc: str) -> FeaturePointResult:
         try:
             value = ChattodoServerClient.from_config(self._config).match_feature_point(
-                product_line=product_line,
+                product_line=issue_product,
                 desc=problem_desc,
             )
         except ChattodoServerError as exc:
@@ -147,7 +147,7 @@ class TicketEnrichmentService:
             current_problem_desc=current_problem_desc,
         ):
             result = self._feature_point_provider.resolve(
-                product_line=fields.product_line,
+                issue_product=fields.issue_product,
                 problem_desc=current_problem_desc,
             )
             if result.value:
@@ -212,7 +212,7 @@ class TicketEnrichmentService:
         previous_problem_desc: str,
         current_problem_desc: str,
     ) -> bool:
-        if not current_fields.product_line.strip() or not current_problem_desc.strip():
+        if not current_fields.issue_product.strip() or not current_problem_desc.strip():
             return False
         if not current_fields.feature_point.strip():
             return True
@@ -334,5 +334,4 @@ def summarize_enrichment_errors(errors: list[str]) -> str:
         seen.add(normalized)
         messages.append(normalized)
     return "；".join(messages)
-
 

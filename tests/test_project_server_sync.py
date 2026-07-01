@@ -40,7 +40,7 @@ class _FakeTodoStore:
         return 3
 
 
-def test_sync_projects_from_server_updates_existing_but_preserves_product_version() -> None:
+def test_sync_projects_from_server_updates_existing_without_product_version() -> None:
     existing = ProjectRecord(
         id="local-project",
         project_name="old project",
@@ -49,7 +49,6 @@ def test_sync_projects_from_server_updates_existing_but_preserves_product_versio
         follow_up_started_at="2026-01-01T09:00:00",
         support_ended_at="2026-12-31T23:59:59",
         product_line="old product",
-        product_version="old version",
         project_manager="old manager",
         project_level="important",
         aliases=("local-group", "shared-group"),
@@ -65,7 +64,6 @@ def test_sync_projects_from_server_updates_existing_but_preserves_product_versio
                 "project_name": "new project",
                 "customer_name": "new customer",
                 "product_line": "new product",
-                "product_version": "v2",
                 "project_manager": "Alice",
                 "follow_up_started_at": "2026-02-01T09:00:00",
                 "support_ended_at": "2027-12-31T23:59:59",
@@ -79,7 +77,6 @@ def test_sync_projects_from_server_updates_existing_but_preserves_product_versio
                 "projectName": "created project",
                 "customerName": "created customer",
                 "productLine": "product b",
-                "productVersion": "v1",
                 "projectManager": "Bob",
                 "followUpStartedAt": "2026-03-01T09:00:00",
                 "supportEndedAt": "2028-12-31T23:59:59",
@@ -106,7 +103,6 @@ def test_sync_projects_from_server_updates_existing_but_preserves_product_versio
     assert updated.project_name == "new project"
     assert updated.customer_name == "new customer"
     assert updated.product_line == "new product"
-    assert updated.product_version == "old version"
     assert updated.project_manager == "Alice"
     assert updated.follow_up_started_at == "2026-02-01T09:00:00"
     assert updated.support_ended_at == "2027-12-31T23:59:59"
