@@ -94,6 +94,38 @@ class ChattodoServerClient:
             raise ChattodoServerError("服务端返回格式错误：缺少 data。")
         return dict(data)
 
+    def fetch_function_point_options(
+        self,
+        *,
+        q: str = "",
+        page: int = 1,
+        page_size: int = 20,
+        active_only: bool = True,
+    ) -> list[dict[str, str]]:
+        payload = self._request_json(
+            "GET",
+            "/api/open/v1/workbench/function-points/options",
+            params={
+                "q": sanitize_text(q).strip(),
+                "page": max(1, int(page or 1)),
+                "page_size": min(100, max(1, int(page_size or 20))),
+                "active_only": bool(active_only),
+            },
+            headers={"Accept": "application/json"},
+        )
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ChattodoServerError("服务端返回格式错误：缺少 data。")
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise ChattodoServerError("服务端返回格式错误：缺少 data.items。")
+        normalized_items: list[dict[str, str]] = []
+        for item in items:
+            normalized_item = self._normalize_function_point_option_item(item)
+            if normalized_item is not None:
+                normalized_items.append(normalized_item)
+        return normalized_items
+
     def fetch_dictionary_options(self, type_code: str) -> list[dict[str, Any]]:
         normalized_type_code = sanitize_text(type_code).strip()
         if not normalized_type_code:
@@ -710,6 +742,18 @@ class ChattodoServerClient:
             "code": text,
             "sort_order": None,
             "item": item,
+        }
+
+    @staticmethod
+    def _normalize_function_point_option_item(item: object) -> dict[str, str] | None:
+        if not isinstance(item, dict):
+            return None
+        full_name = sanitize_text(item.get("full_name")).strip()
+        if not full_name:
+            return None
+        return {
+            "value": full_name,
+            "text": full_name,
         }
 
     @staticmethod

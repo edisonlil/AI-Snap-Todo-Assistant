@@ -29,7 +29,7 @@ from aica.todo.conclusion_timeline import sync_conclusion_timeline
 from aica.analysis.intent import SCENE_PROBLEM_CONCLUSION
 
 
-SCHEMA_VERSION = "18"
+SCHEMA_VERSION = "19"
 _INITIALIZED_DATABASES: set[str] = set()
 
 
@@ -265,6 +265,7 @@ class SQLiteStorageMigrator:
             "sort_order": "INTEGER NOT NULL DEFAULT 0",
             "product_line": "TEXT NOT NULL DEFAULT ''",
             "product_module": "TEXT NOT NULL DEFAULT ''",
+            "reproduction_probability": "TEXT NOT NULL DEFAULT '未知'",
             "ach_no": "TEXT NOT NULL DEFAULT ''",
             "ach_filled_at": "TEXT NOT NULL DEFAULT ''",
             "customer_environment_code": "TEXT NOT NULL DEFAULT ''",
@@ -1960,7 +1961,7 @@ class SQLiteTodoRepository:
         sql = """
             SELECT DISTINCT
               todos.id, todos.title, todos.current_summary, todos.group_name, todos.environment,
-              todos.ticket_type, todos.customer_environment_code, todos.customer_environment_value,
+              todos.ticket_type, todos.reproduction_probability, todos.customer_environment_code, todos.customer_environment_value,
               todos.ach_no, todos.ach_filled_at, todos.ticket_version,
               todos.feature_point, todos.feature_point_source,
               todos.root_cause_desc, todos.root_cause_desc_source,
@@ -1990,6 +1991,7 @@ class SQLiteTodoRepository:
                 OR LOWER(todos.group_name) LIKE ?
                 OR LOWER(todos.environment) LIKE ?
                 OR LOWER(todos.ticket_type) LIKE ?
+                OR LOWER(todos.reproduction_probability) LIKE ?
                 OR LOWER(todos.customer_environment_value) LIKE ?
                 OR LOWER(todos.ach_no) LIKE ?
                 OR LOWER(todos.ticket_version) LIKE ?
@@ -2002,7 +2004,7 @@ class SQLiteTodoRepository:
               )
             """
             pattern = f"%{normalized_query}%"
-            params.extend([pattern] * 14)
+            params.extend([pattern] * 15)
         sql += " ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC"
 
         with self._connect() as connection:
@@ -2065,7 +2067,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
+                       product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -2090,7 +2092,7 @@ class SQLiteTodoRepository:
                 row = connection.execute(
                     """
                     SELECT id, title, current_summary, group_name, environment,
-                           product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
+                           product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value, issue_product,
                            ach_no, ach_filled_at, ticket_version,
                            feature_point, feature_point_source,
                            root_cause_desc, root_cause_desc_source,
@@ -2131,7 +2133,7 @@ class SQLiteTodoRepository:
                 """
                 INSERT INTO todos(
                   id, title, current_summary, group_name,
-                  environment, product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
+                  environment, product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value,
                   issue_product,
                   ach_no, ach_filled_at, ticket_version,
                   feature_point, feature_point_source,
@@ -2139,7 +2141,7 @@ class SQLiteTodoRepository:
                   root_cause, root_cause_source,
                   conclusion_content, conclusion_updated_at,
                   status, created_at, completed_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -2150,6 +2152,7 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.product_line),
                     sanitize_text(snapshot.fields.product_module),
                     sanitize_text(snapshot.fields.ticket_type),
+                    sanitize_text(snapshot.fields.reproduction_probability),
                     sanitize_text(snapshot.fields.customer_environment_code),
                     sanitize_text(snapshot.fields.customer_environment_value),
                     sanitize_text(snapshot.fields.issue_product),
@@ -2187,7 +2190,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
+                       product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -2210,7 +2213,7 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
+                SET group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, reproduction_probability = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -2223,6 +2226,7 @@ class SQLiteTodoRepository:
                     sanitize_text(merged_fields.product_line),
                     sanitize_text(merged_fields.product_module),
                     sanitize_text(merged_fields.ticket_type),
+                    sanitize_text(merged_fields.reproduction_probability),
                     sanitize_text(merged_fields.customer_environment_code),
                     sanitize_text(merged_fields.customer_environment_value),
                     sanitize_text(merged_fields.issue_product),
@@ -2320,7 +2324,7 @@ class SQLiteTodoRepository:
             row = connection.execute(
                 """
                 SELECT id, title, current_summary, group_name, environment,
-                       product_line, product_module, ticket_type, customer_environment_code, customer_environment_value, issue_product,
+                       product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value, issue_product,
                        ach_no, ach_filled_at, ticket_version,
                        feature_point, feature_point_source,
                        root_cause_desc, root_cause_desc_source,
@@ -2349,6 +2353,11 @@ class SQLiteTodoRepository:
                 else str(row["product_module"])
             )
             updated_ticket_type = sanitize_text(summary_fields.ticket_type) if summary_fields is not None else str(row["ticket_type"])
+            updated_reproduction_probability = (
+                sanitize_text(summary_fields.reproduction_probability)
+                if summary_fields is not None
+                else str(row["reproduction_probability"])
+            )
             updated_customer_environment_code = (
                 sanitize_text(summary_fields.customer_environment_code)
                 if summary_fields is not None
@@ -2441,7 +2450,7 @@ class SQLiteTodoRepository:
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, current_summary = ?, group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
+                SET title = ?, current_summary = ?, group_name = ?, environment = ?, product_line = ?, product_module = ?, ticket_type = ?, reproduction_probability = ?, customer_environment_code = ?, customer_environment_value = ?, issue_product = ?, ach_no = ?, ach_filled_at = ?, ticket_version = ?,
                     feature_point = ?, feature_point_source = ?,
                     root_cause_desc = ?, root_cause_desc_source = ?,
                     root_cause = ?, root_cause_source = ?,
@@ -2457,6 +2466,7 @@ class SQLiteTodoRepository:
                     updated_product_line,
                     updated_product_module,
                     updated_ticket_type,
+                    updated_reproduction_probability,
                     updated_customer_environment_code,
                     updated_customer_environment_value,
                     updated_issue_product,
@@ -2604,7 +2614,7 @@ class SQLiteTodoRepository:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
+                   product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value,
                    ach_no, ach_filled_at, ticket_version,
                    feature_point, feature_point_source,
                    root_cause_desc, root_cause_desc_source,
@@ -3222,14 +3232,14 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
         """
         INSERT INTO todos(
           id, title, current_summary, group_name, environment,
-          product_line, product_module, ticket_type, customer_environment_code, customer_environment_value,
+          product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value,
           issue_product, ach_no, ach_filled_at, ticket_version,
           feature_point, feature_point_source,
           root_cause_desc, root_cause_desc_source,
           root_cause, root_cause_source,
           conclusion_content, conclusion_updated_at,
           status, created_at, completed_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           current_summary=excluded.current_summary,
@@ -3238,6 +3248,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
           product_line=excluded.product_line,
           product_module=excluded.product_module,
           ticket_type=excluded.ticket_type,
+          reproduction_probability=excluded.reproduction_probability,
           customer_environment_code=excluded.customer_environment_code,
           customer_environment_value=excluded.customer_environment_value,
           issue_product=excluded.issue_product,
@@ -3265,6 +3276,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.product_line),
             sanitize_text(todo.summary_fields.product_module),
             sanitize_text(todo.summary_fields.ticket_type),
+            sanitize_text(todo.summary_fields.reproduction_probability),
             sanitize_text(todo.summary_fields.customer_environment_code),
             sanitize_text(todo.summary_fields.customer_environment_value),
             sanitize_text(todo.summary_fields.issue_product),

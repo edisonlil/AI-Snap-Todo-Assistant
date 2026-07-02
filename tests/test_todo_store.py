@@ -36,6 +36,7 @@ def _build_snapshot(title: str) -> TicketSnapshot:
             group_name="test-group",
             environment="prod",
             ticket_type="investigation",
+            reproduction_probability="偶现",
             customer_environment_code="env-prod",
             customer_environment_value="生产环境",
         ),
@@ -151,12 +152,12 @@ def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
             (todo.id,),
         ).fetchall()
         todo_row = connection.execute(
-            "SELECT product_line, product_module, ticket_version, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
+            "SELECT product_line, product_module, ticket_version, reproduction_probability, customer_environment_code, customer_environment_value FROM todos WHERE id = ?",
             (todo.id,),
         ).fetchone()
 
     assert link_rows == []
-    assert todo_row == ("", "", "", "env-prod", "生产环境")
+    assert todo_row == ("", "", "", "偶现", "env-prod", "生产环境")
 
 
 def test_linked_todo_keeps_snapshot_selected_product_line_option() -> None:
@@ -830,6 +831,7 @@ def test_schema_migration_adds_completed_at_column() -> None:
     assert "customer_environment_code" in columns
     assert "customer_environment_value" in columns
     assert "product_module" in columns
+    assert "reproduction_probability" in columns
 
 
 def test_schema_migration_creates_error_codes_table_and_updates_version() -> None:
@@ -850,8 +852,8 @@ def test_schema_migration_creates_error_codes_table_and_updates_version() -> Non
             "SELECT value FROM schema_meta WHERE key='schema_version'"
         ).fetchone()[0]
 
-    assert SCHEMA_VERSION == "18"
-    assert version == "18"
+    assert SCHEMA_VERSION == "19"
+    assert version == "19"
     assert "error_codes" in tables
     assert "idx_error_codes_category" in indexes
     assert "idx_error_codes_last_seen" in indexes

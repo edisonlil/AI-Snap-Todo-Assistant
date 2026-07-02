@@ -143,6 +143,13 @@ def _normalize_field_source(value: Any) -> str:
     return ""
 
 
+def _normalize_reproduction_probability(value: Any) -> str:
+    normalized = sanitize_text(value)
+    if normalized in {UNKNOWN_TEXT, "必现", "偶现"}:
+        return normalized
+    return UNKNOWN_TEXT
+
+
 def is_unknown_text(value: Any) -> bool:
     return not str(value or "").strip() or str(value).strip() == UNKNOWN_TEXT
 
@@ -265,6 +272,7 @@ class TicketSummaryFields:
     product_line: str = UNKNOWN_TEXT
     product_module: str = ""
     ticket_type: str = UNKNOWN_TEXT
+    reproduction_probability: str = UNKNOWN_TEXT
     customer_environment_code: str = ""
     customer_environment_value: str = ""
     issue_product: str = ""
@@ -284,6 +292,7 @@ class TicketSummaryFields:
         self.product_line = resolve_product_line(raw_value=self.product_line)
         self.product_module = _clean_free_text(self.product_module)
         self.ticket_type = normalize_ticket_type(self.ticket_type)
+        self.reproduction_probability = _normalize_reproduction_probability(self.reproduction_probability)
         self.customer_environment_code = _clean_free_text(self.customer_environment_code)
         self.customer_environment_value = _clean_free_text(self.customer_environment_value)
         self.issue_product = _clean_free_text(self.issue_product)
@@ -314,6 +323,7 @@ class TicketSummaryFields:
             product_line=payload.get("product_line"),
             product_module=payload.get("product_module"),
             ticket_type=payload.get("ticket_type"),
+            reproduction_probability=payload.get("reproduction_probability"),
             customer_environment_code=payload.get("customer_environment_code"),
             customer_environment_value=normalized_customer_environment,
             issue_product=payload.get("issue_product"),
@@ -424,6 +434,7 @@ def merge_summary_fields_for_append(
         product_line=_merge_value(existing.product_line, incoming.product_line),
         product_module=_merge_value(existing.product_module, incoming.product_module),
         ticket_type=_merge_value(existing.ticket_type, incoming.ticket_type),
+        reproduction_probability=_merge_value(existing.reproduction_probability, incoming.reproduction_probability),
         customer_environment_code=_merge_value(
             existing.customer_environment_code,
             incoming.customer_environment_code,
@@ -462,6 +473,7 @@ class TicketSnapshot:
             "product_line": self.fields.product_line,
             "product_module": self.fields.product_module,
             "ticket_type": self.fields.ticket_type,
+            "reproduction_probability": self.fields.reproduction_probability,
             "customer_environment": self.fields.customer_environment_value,
             "customer_environment_code": self.fields.customer_environment_code,
             "customer_environment_value": self.fields.customer_environment_value,
@@ -514,6 +526,7 @@ class TicketSnapshot:
                     payload.get("ticket_type"),
                     summary_text=ticket_context,
                 ),
+                "reproduction_probability": payload.get("reproduction_probability"),
                 "customer_environment": payload.get("customer_environment"),
                 "customer_environment_code": payload.get("customer_environment_code"),
                 "customer_environment_value": payload.get("customer_environment_value"),
@@ -574,6 +587,7 @@ class TicketSnapshot:
             f"产品线: {strip_invalid_surrogates(self.fields.product_line)}\n"
             f"产品模块/组件: {strip_invalid_surrogates(self.fields.product_module)}\n"
             f"工单类型: {strip_invalid_surrogates(self.fields.ticket_type)}\n"
+            f"问题重现概率: {strip_invalid_surrogates(self.fields.reproduction_probability)}\n"
             f"ACH单号: {strip_invalid_surrogates(self.fields.ach_no)}\n"
             f"ACH填写时间: {strip_invalid_surrogates(self.fields.ach_filled_at)}\n"
             f"工单版本: {strip_invalid_surrogates(self.fields.ticket_version)}\n"

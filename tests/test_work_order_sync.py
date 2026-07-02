@@ -44,6 +44,7 @@ def _todo(*, status: str = TodoStatus.OPEN) -> TodoItem:
             product_module="文档中台",
             issue_product="客户环境",
             ticket_type="排查类",
+            reproduction_probability="偶现",
             customer_environment_code="env-prod",
             customer_environment_value="生产环境",
             ach_no="ACH-001",
@@ -97,6 +98,7 @@ def test_build_work_order_payload_maps_todo_snapshot() -> None:
     assert payload["status"] == "in_progress"
     assert payload["project_hit_status"] == "matched"
     assert payload["customer_environment"] == "生产环境"
+    assert payload["reproduction_probability"] == "偶现"
     assert payload["product_module"] == "文档中台"
     assert payload["issue_product"] == "客户环境"
     assert payload["project"] == {
@@ -472,6 +474,7 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
             "group_name": "客户支持群",
             "environment": "生产环境",
             "work_order_type": "排查类",
+            "reproduction_probability": "必现",
             "customer_environment": "预发环境",
             "product_line": "私网文档中台",
             "product_module": "文档中台",
@@ -502,6 +505,7 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
 
     assert todo.id == "WO-002"
     assert todo.status == TodoStatus.OPEN
+    assert todo.summary_fields.reproduction_probability == "必现"
     assert todo.summary_fields.customer_environment_value == "预发环境"
     assert todo.summary_fields.product_module == "文档中台"
     assert todo.summary_fields.issue_product == "客户环境"

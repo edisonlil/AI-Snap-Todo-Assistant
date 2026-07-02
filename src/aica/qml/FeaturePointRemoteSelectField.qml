@@ -7,13 +7,19 @@ Rectangle {
     required property var theme
     property string label: ""
     property string value: ""
-    property string selectedCode: ""
     property string placeholderText: "未填写"
+    property bool editable: false
     property bool editing: false
     property bool saving: false
+    property bool loading: false
     property bool compact: false
     property var options: []
+    property string errorText: ""
     property string filterText: ""
+    property bool actionVisible: false
+    property bool actionBusy: false
+    property string actionIconSource: ""
+    property bool committingSelection: false
 
     readonly property color titleInk: resolveThemeColor("titleInk", "#18202E")
     readonly property color labelInk: resolveThemeColor("labelInk", "#7C8795")
@@ -25,135 +31,21 @@ Rectangle {
     readonly property color fieldBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))
     readonly property color fieldLine: resolveThemeColor("formFieldBorder", resolveThemeColor("fieldLine", resolveThemeColor("panelLine", "#E5E7EB")))
     readonly property color fieldFocusLine: resolveThemeColor("formFieldFocusBorder", resolveThemeColor("accent", "#2A313F"))
-    readonly property color inputBg: resolveThemeColor("panelBg", resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF")))
     readonly property color popupBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))
     readonly property string uiFont: theme && theme.uiFont ? theme.uiFont : "Microsoft YaHei UI"
     readonly property int formInlineEditHeight: theme && theme.formInlineEditHeight ? theme.formInlineEditHeight : 32
     readonly property int formPopupRadius: theme && theme.formPopupRadius ? theme.formPopupRadius : 8
     readonly property int formPopupItemRadius: theme && theme.formPopupItemRadius ? theme.formPopupItemRadius : 6
     readonly property int formPopupItemHeight: theme && theme.formPopupItemHeight ? theme.formPopupItemHeight : 30
-    readonly property string selectedText: optionTextByCode(selectedCode) || value
 
     signal clicked
-    signal accepted(string code, string value)
+    signal accepted(string value)
     signal canceled
+    signal actionTriggered
+    signal searchRequested(string query)
 
     function resolveThemeColor(name, fallback) {
         return theme && theme[name] !== undefined ? theme[name] : fallback
-    }
-
-    function optionTextByCode(code) {
-        var normalized = String(code || "")
-        for (var index = 0; index < options.length; index += 1) {
-            var option = options[index]
-            if (String(option.code || "") === normalized || String(option.value || "") === normalized) {
-                return String(option.text || option.value || "")
-            }
-        }
-        return ""
-    }
-
-    function fuzzyMatch(text, query) {
-        var source = String(text || "").toLowerCase()
-        var keyword = String(query || "").toLowerCase().trim()
-        if (!keyword.length) {
-            return true
-        }
-        if (source.indexOf(keyword) >= 0) {
-            return true
-        }
-        var sourceIndex = 0
-        for (var queryIndex = 0; queryIndex < keyword.length; queryIndex += 1) {
-            var charIndex = source.indexOf(keyword[queryIndex], sourceIndex)
-            if (charIndex < 0) {
-                return false
-            }
-            sourceIndex = charIndex + 1
-        }
-        return true
-    }
-
-    function filteredOptions() {
-        var keyword = String(filterText || "").trim()
-        var result = []
-        for (var index = 0; index < options.length; index += 1) {
-            var option = options[index]
-            var code = String(option.code || "")
-            var valueText = String(option.value || "")
-            var labelText = String(option.text || option.value || "")
-            if (
-                !keyword.length
-                || fuzzyMatch(labelText, keyword)
-                || fuzzyMatch(valueText, keyword)
-                || fuzzyMatch(code, keyword)
-            ) {
-                result.push(option)
-            }
-        }
-        return result
-    }
-
-    function filteredCurrentIndex() {
-        var normalized = String(selectedCode || "")
-        var source = filteredOptions()
-        for (var index = 0; index < source.length; index += 1) {
-            var option = source[index]
-            if (String(option.code || "") === normalized || String(option.value || "") === normalized) {
-                return index
-            }
-        }
-        return source.length > 0 ? 0 : -1
-    }
-
-    function syncPopupSelection() {
-        optionList.currentIndex = filteredCurrentIndex()
-        if (optionList.currentIndex >= 0) {
-            optionList.positionViewAtIndex(optionList.currentIndex, ListView.Contain)
-        }
-    }
-
-    function commitOption(option) {
-        if (!option) {
-            return
-        }
-        popup.close()
-        rootField.accepted(String(option.code || ""), String(option.value || option.text || ""))
-    }
-
-    function commitHighlightedOrFirst() {
-        var source = filteredOptions()
-        if (!source.length) {
-            return
-        }
-        var index = optionList.currentIndex
-        if (index < 0 || index >= source.length) {
-            index = 0
-        }
-        commitOption(source[index])
-    }
-
-    function moveHighlight(step) {
-        var source = filteredOptions()
-        if (!source.length) {
-            optionList.currentIndex = -1
-            return
-        }
-        if (optionList.currentIndex < 0) {
-            optionList.currentIndex = step > 0 ? 0 : source.length - 1
-        } else {
-            optionList.currentIndex = (optionList.currentIndex + step + source.length) % source.length
-        }
-        optionList.positionViewAtIndex(optionList.currentIndex, ListView.Contain)
-    }
-
-    function currentOptionIndex() {
-        var normalized = String(selectedCode || "")
-        for (var index = 0; index < options.length; index += 1) {
-            if (String(options[index].code || "") === normalized) {
-                return index
-            }
-        }
-        return -1
     }
 
     function popupAnchorPoint() {
@@ -163,19 +55,31 @@ Rectangle {
         return editorColumn.mapToItem(rootField, 0, editorColumn.height + 8)
     }
 
+    function commitOption(option) {
+        if (!option) {
+            return
+        }
+        committingSelection = true
+        popup.close()
+        rootField.accepted(String(option.value || ""))
+    }
+
     onEditingChanged: {
         if (!editing) {
+            committingSelection = false
             filterText = ""
+            searchDebounce.stop()
             popup.close()
             return
         }
         Qt.callLater(function() {
-            if (rootField.editing) {
-                filterText = ""
-                popup.open()
-                searchInput.forceActiveFocus()
-                searchInput.selectAll()
+            if (!rootField.editing) {
+                return
             }
+            filterText = ""
+            popup.open()
+            searchDebounce.restart()
+            searchInput.forceActiveFocus()
         })
     }
 
@@ -183,6 +87,13 @@ Rectangle {
     color: "transparent"
     border.width: 0
     implicitHeight: fieldColumn.implicitHeight + 14
+
+    Timer {
+        id: searchDebounce
+        interval: 250
+        repeat: false
+        onTriggered: rootField.searchRequested(rootField.filterText)
+    }
 
     ColumnLayout {
         id: fieldColumn
@@ -216,8 +127,8 @@ Rectangle {
                 spacing: 8
 
                 BusyIndicator {
-                    visible: rootField.saving
-                    running: rootField.saving
+                    visible: rootField.saving || rootField.actionBusy
+                    running: rootField.saving || rootField.actionBusy
                     Layout.preferredWidth: 16
                     Layout.preferredHeight: 16
                 }
@@ -229,36 +140,78 @@ Rectangle {
                     Text {
                         id: valueText
                         anchors.left: parent.left
-                        anchors.right: valueAction.left
+                        anchors.right: actionRow.left
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.rightMargin: 10
-                        text: rootField.selectedText.length > 0 ? rootField.selectedText : rootField.placeholderText
-                        color: rootField.selectedText.length > 0 ? rootField.titleInk : rootField.labelInk
+                        anchors.rightMargin: actionRow.width > 0 ? 10 : 0
+                        text: rootField.value.length > 0 ? rootField.value : rootField.placeholderText
+                        color: rootField.value.length > 0 ? rootField.titleInk : rootField.labelInk
                         font.family: rootField.uiFont
                         font.pixelSize: rootField.compact ? 12 : 13
-                        font.weight: rootField.selectedText.length > 0 ? 500 : 400
+                        font.weight: rootField.value.length > 0 ? 500 : 400
                         elide: Text.ElideRight
-                    }
-
-                    Text {
-                        id: valueAction
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: hoverArea.containsMouse && !rootField.saving
-                        text: "\u270e"
-                        color: rootField.accent
-                        font.family: rootField.uiFont
-                        font.pixelSize: 11
-                        opacity: 0.75
                     }
 
                     MouseArea {
                         id: hoverArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        cursorShape: !rootField.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        enabled: !rootField.saving
+                        enabled: rootField.editable && !rootField.saving && !rootField.actionBusy
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: rootField.clicked()
+                    }
+
+                    Row {
+                        id: actionRow
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+                        visible: rootField.actionVisible || (rootField.editable && hoverArea.containsMouse && !rootField.saving && !rootField.actionBusy)
+                        width: visible ? implicitWidth : 0
+
+                        Rectangle {
+                            visible: rootField.actionVisible
+                            implicitWidth: rootField.compact ? 18 : 20
+                            implicitHeight: implicitWidth
+                            radius: implicitWidth / 2
+                            color: actionHover.containsMouse ? rootField.hoverBg : "#FFFFFF"
+                            border.width: 1
+                            border.color: rootField.fieldLine
+
+                            BusyIndicator {
+                                anchors.centerIn: parent
+                                width: 12
+                                height: 12
+                                visible: rootField.actionBusy
+                                running: rootField.actionBusy
+                            }
+
+                            Image {
+                                anchors.centerIn: parent
+                                width: 12
+                                height: 12
+                                visible: !rootField.actionBusy
+                                source: rootField.actionIconSource
+                                fillMode: Image.PreserveAspectFit
+                            }
+
+                            MouseArea {
+                                id: actionHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: !rootField.actionBusy
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: rootField.actionTriggered()
+                            }
+                        }
+
+                        Text {
+                            visible: rootField.editable && hoverArea.containsMouse && !rootField.actionBusy && !rootField.saving
+                            text: "\u270e"
+                            color: rootField.accent
+                            font.family: rootField.uiFont
+                            font.pixelSize: 11
+                            opacity: 0.75
+                        }
                     }
                 }
             }
@@ -271,7 +224,6 @@ Rectangle {
                 spacing: 6
 
                 Control {
-                    id: trigger
                     Layout.fillWidth: true
                     Layout.preferredHeight: rootField.formInlineEditHeight
                     leftPadding: 0
@@ -289,8 +241,8 @@ Rectangle {
                         anchors.right: arrow.left
                         anchors.rightMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
-                        text: rootField.selectedText
-                        color: rootField.titleInk
+                        text: rootField.value.length > 0 ? rootField.value : rootField.placeholderText
+                        color: rootField.value.length > 0 ? rootField.titleInk : rootField.labelInk
                         font.family: rootField.uiFont
                         font.pixelSize: rootField.compact ? 11 : 12
                         elide: Text.ElideRight
@@ -348,6 +300,7 @@ Rectangle {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                rootField.committingSelection = true
                                 popup.close()
                                 rootField.canceled()
                             }
@@ -360,7 +313,7 @@ Rectangle {
                     parent: rootField
                     x: rootField.popupAnchorPoint().x
                     y: rootField.popupAnchorPoint().y
-                    width: Math.max(320, Math.min(rootField.width - 12, 420))
+                    width: Math.max(320, Math.min(rootField.width - 12, 460))
                     modal: false
                     focus: true
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -378,7 +331,7 @@ Rectangle {
                         border.width: 1
                         border.color: rootField.fieldLine
                         radius: rootField.formPopupItemRadius
-                        implicitHeight: Math.min(popupColumn.implicitHeight + 8, 260)
+                        implicitHeight: Math.min(popupColumn.implicitHeight + 8, 280)
 
                         ColumnLayout {
                             id: popupColumn
@@ -390,7 +343,7 @@ Rectangle {
                                 id: searchInput
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: rootField.formInlineEditHeight
-                                placeholderText: "输入关键字筛选"
+                                placeholderText: "输入关键字搜索功能点"
                                 text: rootField.filterText
                                 color: rootField.titleInk
                                 font.family: rootField.uiFont
@@ -399,21 +352,38 @@ Rectangle {
 
                                 background: Rectangle {
                                     radius: rootField.formPopupItemRadius
-                                    color: rootField.popupBg
+                                    color: rootField.panelBg
                                     border.width: 1
                                     border.color: rootField.fieldLine
                                 }
 
                                 onTextEdited: {
                                     rootField.filterText = text
-                                    rootField.syncPopupSelection()
+                                    searchDebounce.restart()
                                 }
-                                onAccepted: rootField.commitHighlightedOrFirst()
-                                Keys.onDownPressed: rootField.moveHighlight(1)
-                                Keys.onUpPressed: rootField.moveHighlight(-1)
                                 Keys.onEscapePressed: {
+                                    rootField.committingSelection = true
                                     popup.close()
                                     rootField.canceled()
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: rootField.loading
+                                spacing: 8
+
+                                BusyIndicator {
+                                    running: true
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
+                                }
+
+                                Text {
+                                    text: "正在搜索功能点..."
+                                    color: rootField.labelInk
+                                    font.family: rootField.uiFont
+                                    font.pixelSize: 11
                                 }
                             }
 
@@ -421,8 +391,9 @@ Rectangle {
                                 id: optionList
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Math.min(contentHeight, 212)
+                                visible: options.length > 0
                                 clip: true
-                                model: rootField.filteredOptions()
+                                model: rootField.options
                                 spacing: 2
 
                                 delegate: Rectangle {
@@ -430,12 +401,11 @@ Rectangle {
                                     width: ListView.view.width
                                     height: rootField.formPopupItemHeight
                                     radius: rootField.formPopupItemRadius
-                                    color: itemMouseArea.containsMouse
-                                           ? rootField.hoverBg
-                                           : (String(modelData.code || "") === String(rootField.selectedCode || "")
-                                              || String(modelData.value || "") === String(rootField.selectedCode || "")
-                                              ? rootField.accentTint
-                                              : "transparent")
+                                    color: String(modelData.value || "") === String(rootField.value || "")
+                                           ? rootField.accentTint
+                                           : itemMouseArea.containsMouse
+                                             ? rootField.hoverBg
+                                             : "transparent"
 
                                     Text {
                                         anchors.left: parent.left
@@ -444,16 +414,12 @@ Rectangle {
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: modelData.text || modelData.value || ""
-                                        color: String(modelData.code || "") === String(rootField.selectedCode || "")
-                                               || String(modelData.value || "") === String(rootField.selectedCode || "")
+                                        color: String(modelData.value || "") === String(rootField.value || "")
                                                ? rootField.accent
                                                : rootField.titleInk
                                         font.family: rootField.uiFont
                                         font.pixelSize: rootField.compact ? 11 : 12
-                                        font.weight: String(modelData.code || "") === String(rootField.selectedCode || "")
-                                                     || String(modelData.value || "") === String(rootField.selectedCode || "")
-                                                     ? 600
-                                                     : 400
+                                        font.weight: String(modelData.value || "") === String(rootField.value || "") ? 600 : 400
                                         elide: Text.ElideRight
                                     }
 
@@ -469,7 +435,17 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                visible: optionList.count === 0
+                                visible: rootField.errorText.length > 0
+                                text: rootField.errorText
+                                color: "#B42318"
+                                font.family: rootField.uiFont
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: !rootField.loading && rootField.errorText.length === 0 && rootField.options.length === 0
                                 text: "未找到匹配项"
                                 color: rootField.labelInk
                                 font.family: rootField.uiFont
@@ -482,10 +458,16 @@ Rectangle {
                     }
 
                     onOpened: {
-                        rootField.syncPopupSelection()
                         Qt.callLater(function() {
                             searchInput.forceActiveFocus()
                         })
+                    }
+
+                    onClosed: {
+                        if (rootField.editing && !rootField.committingSelection) {
+                            rootField.canceled()
+                        }
+                        rootField.committingSelection = false
                     }
                 }
             }

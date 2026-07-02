@@ -102,6 +102,10 @@ def test_theme_tokens_include_base_presets_and_scaled_values() -> None:
     assert tokens["panelAltBg"] == "#F2F3F5"
     assert tokens["fieldBg"] == "#F2F3F5"
     assert tokens["timelineBg"] == "#F2F3F5"
+    assert tokens["inputBg"] != "#FFFFFF"
+    assert tokens["formFieldBg"] == tokens["inputBg"]
+    assert tokens["formPopupBg"] != "#FFFFFF"
+    assert tokens["buttonDefaultBg"] == tokens["inputBg"]
     assert tokens["accent"] == "#1677FF"
     assert tokens["accentSoft"] != tokens["accent"]
     assert tokens["hoverBg"] != "#F3F4F6"
@@ -134,6 +138,7 @@ def test_theme_tokens_include_form_defaults() -> None:
     assert tokens["formFieldPaddingV"] == 8
     assert tokens["formFieldFontSize"] == 12
     assert tokens["formFieldBg"] == tokens["inputBg"]
+    assert tokens["formPopupBg"] == "#FFFFFF"
     assert tokens["formFieldBorder"] == tokens["componentLine"]
     assert tokens["formFieldFocusBorder"] == tokens["accent"]
     assert tokens["formPopupRadius"] == 12

@@ -165,6 +165,8 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
     pressed = _mix(base, "#DDE2EA", 0.64)
     accent_soft = _mix(base, accent, 0.1)
     accent_tint = _mix(base, accent, 0.16)
+    input_bg = "#FFFFFF" if base == "#FFFFFF" else _mix(base, "#FFFFFF", 0.32)
+    form_popup_bg = "#FFFFFF" if base == "#FFFFFF" else _mix(panel_alt, "#FFFFFF", 0.24)
     component_line = "transparent" if theme.component_style == "flat" else line_color
     component_fill = panel_alt if theme.component_style == "soft" else base
     fallback_component_height = _scale_int(36, density_scale)
@@ -189,7 +191,7 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
         "panelBg": base,
         "panelAltBg": panel_alt,
         "navIdle": panel_alt,
-        "inputBg": "#FFFFFF",
+        "inputBg": input_bg,
         "fieldBg": panel_alt,
         "timelineBg": panel_alt,
         "panelLine": component_line,
@@ -209,7 +211,7 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
         "buttonPrimaryBgHover": button_primary_bg_hover,
         "buttonPrimaryBgPressed": button_primary_bg_pressed,
         "buttonPrimaryInk": "#FFFFFF",
-        "buttonDefaultBg": "#FFFFFF",
+        "buttonDefaultBg": input_bg,
         "buttonDefaultBgHover": hover,
         "buttonDefaultBgPressed": pressed,
         "buttonDefaultInk": "#4A5565",
@@ -235,14 +237,14 @@ def build_theme_tokens(config: ThemeConfig | object | None = None) -> ThemeToken
         "formFieldCompactPaddingH": _scale_int(8, density_scale),
         "formFieldFontSize": font_body,
         "formFieldCompactFontSize": font_body + 1,
-        "formFieldBg": "#FFFFFF",
+        "formFieldBg": input_bg,
         "formFieldBorder": component_line,
         "formFieldFocusBorder": accent,
         "formFieldPlaceholderInk": "#7C8795",
         "formPopupRadius": _scale_int(12, theme.radius_scale),
         "formPopupItemRadius": _scale_int(8, theme.radius_scale),
         "formPopupItemHeight": form_popup_item_height,
-        "formPopupBg": "#FFFFFF",
+        "formPopupBg": form_popup_bg,
         "formPopupHoverBg": hover,
         "formInlineEditHeight": form_field_compact_height,
         "formChipHeight": form_chip_height,

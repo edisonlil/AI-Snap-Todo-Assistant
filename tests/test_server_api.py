@@ -127,6 +127,112 @@ def test_fetch_identity_me_sends_expected_request() -> None:
     assert session.calls[0]["timeout"] == 45
 
 
+def test_fetch_function_point_options_sends_expected_request() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {
+                            "label": "文档中台-运维平台-页面跑版-兼容问题",
+                            "value": 1096,
+                            "id": 1096,
+                            "full_name": "文档中台-运维平台-页面跑版-兼容问题",
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_function_point_options(q="页面跑版", page=2, page_size=50, active_only=False)
+
+    assert items == [
+        {
+            "value": "文档中台-运维平台-页面跑版-兼容问题",
+            "text": "文档中台-运维平台-页面跑版-兼容问题",
+        }
+    ]
+    assert session.calls[0]["method"] == "GET"
+    assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/function-points/options"
+    assert session.calls[0]["params"] == {
+        "q": "页面跑版",
+        "page": 2,
+        "page_size": 50,
+        "active_only": False,
+    }
+    assert session.calls[0]["headers"] == {"X-API-Key": "server-key", "Accept": "application/json"}
+    assert session.calls[0]["timeout"] == 45
+
+
+def test_fetch_function_point_options_filters_items_without_full_name() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": [
+                        {"full_name": "有效功能点"},
+                        {"label": "缺少 full_name"},
+                        "invalid",
+                    ]
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    items = client.fetch_function_point_options()
+
+    assert items == [{"value": "有效功能点", "text": "有效功能点"}]
+
+
+def test_fetch_function_point_options_validates_response_shape() -> None:
+    session = _FakeSession(
+        _FakeResponse(
+            200,
+            {
+                "success": True,
+                "data": {
+                    "items": "not-a-list",
+                },
+            },
+        )
+    )
+    client = ChattodoServerClient.from_config(
+        ServerConfig(
+            enabled=True,
+            base_url="https://server.example.com/",
+            api_key="server-key",
+            timeout_seconds=45,
+        ),
+        session=session,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ChattodoServerError, match="缺少 data.items"):
+        client.fetch_function_point_options()
+
+
 def test_fetch_dictionary_options_sends_expected_request() -> None:
     session = _FakeSession(
         _FakeResponse(

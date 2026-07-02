@@ -46,6 +46,11 @@ ColumnLayout {
         { value: "\u54a8\u8be2\u7c7b", text: "\u54a8\u8be2\u7c7b" },
         { value: "\u64cd\u4f5c\u7c7b", text: "\u64cd\u4f5c\u7c7b" }
     ]
+    property var reproductionProbabilityOptions: [
+        { value: "\u672a\u77e5", text: "\u672a\u77e5" },
+        { value: "\u5fc5\u73b0", text: "\u5fc5\u73b0" },
+        { value: "\u5076\u73b0", text: "\u5076\u73b0" }
+    ]
     property var pageSizeOptions: [
         { value: 10, text: "10 / \u9875" },
         { value: 20, text: "20 / \u9875" },
@@ -208,6 +213,9 @@ ColumnLayout {
         }
         if (fieldName === "productModule") {
             return controlPanelBridge.selectedTicket.productModule || ""
+        }
+        if (fieldName === "reproductionProbability") {
+            return controlPanelBridge.selectedTicket.reproductionProbability || ""
         }
         if (fieldName === "ticketVersion") {
             return controlPanelBridge.selectedTicket.ticketVersion || ""
@@ -1975,30 +1983,50 @@ ColumnLayout {
                                             }
                                             onCanceled: ticketSection.cancelTicketFieldEdit("ticketVersion")
                                         }
-                                        DetailField {
-                                            // Force component recreation when ticket changes by using ticket ID as part of object identity
+
+                                        SingleSelectCascadeField {
+                                            theme: ticketSection.theme
+                                            Layout.fillWidth: true
+                                            label: "问题重现概率"
+                                            value: ticketSection.isFieldEditing("reproductionProbability") ? ticketSection.getFieldDraft("reproductionProbability") : (controlPanelBridge.selectedTicket.reproductionProbability || "")
+                                            selectedCode: ticketSection.isFieldEditing("reproductionProbability") ? ticketSection.getFieldDraft("reproductionProbability") : (controlPanelBridge.selectedTicket.reproductionProbability || "")
+                                            placeholderText: "未填写"
+                                            editing: ticketSection.isFieldEditing("reproductionProbability")
+                                            saving: ticketSection.isFieldSaving("reproductionProbability")
+                                            compact: ticketSection.detailGridColumns === 1
+                                            options: ticketSection.reproductionProbabilityOptions
+                                            onClicked: ticketSection.beginTicketFieldEdit("reproductionProbability")
+                                            onAccepted: function(code, value) {
+                                                ticketSection.setFieldState("reproductionProbability", { draft: value })
+                                                ticketSection.commitTicketFieldEdit("reproductionProbability", "reproduction_probability")
+                                            }
+                                            onCanceled: ticketSection.cancelTicketFieldEdit("reproductionProbability")
+                                        }
+                                        FeaturePointRemoteSelectField {
                                             id: featurePointField
                                             property string ticketId: controlPanelBridge.selectedTicket.id
-                                            
+
                                             theme: ticketSection.theme
                                             Layout.fillWidth: true
                                             label: "\u529f\u80fd\u70b9"
                                             value: ticketSection.isFieldEditing("featurePoint") ? ticketSection.getFieldDraft("featurePoint") : controlPanelBridge.selectedTicket.featurePoint
                                             placeholderText: "\u672a\u751f\u6210"
-                                            editable: true
-                                            editing: ticketSection.isFieldEditing("featurePoint")
+                                            editable: !!controlPanelBridge.selectedTicket.featurePointEditable
+                                            editing: !!controlPanelBridge.selectedTicket.featurePointEditable && ticketSection.isFieldEditing("featurePoint")
                                             saving: ticketSection.isFieldSaving("featurePoint")
+                                            loading: !!controlPanelBridge.selectedTicket.featurePointLoading
+                                            errorText: controlPanelBridge.selectedTicket.featurePointError || ""
                                             compact: ticketSection.detailGridColumns === 1
+                                            options: controlPanelBridge.selectedTicket.featurePointOptions || []
                                             actionVisible: true
                                             actionBusy: ticketSection.activeActionField === "featurePoint"
                                             actionIconSource: controlPanelBridge.refreshFeaturePointIconSource
-                                            draftValue: ticketSection.getFieldDraft("featurePoint")
-                                            
+
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")
-                                            onActionTriggered: ticketSection.refreshFeaturePointField()
-                                            onDraftChanged: function(value) {
-                                                ticketSection.setFieldState("featurePoint", { draft: value })
+                                            onSearchRequested: function(query) {
+                                                controlPanelBridge.searchSelectedTicketFeaturePointOptions(query)
                                             }
+                                            onActionTriggered: ticketSection.refreshFeaturePointField()
                                             onAccepted: function(value) {
                                                 ticketSection.setFieldState("featurePoint", { draft: value })
                                                 ticketSection.commitTicketFieldEdit("featurePoint", "feature_point")

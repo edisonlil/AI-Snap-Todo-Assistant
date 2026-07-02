@@ -963,6 +963,19 @@ def _normalize_local_option(item: object) -> dict[str, object] | None:
     }
 
 
+def _normalize_feature_point_option(item: object) -> dict[str, object] | None:
+    if not isinstance(item, dict):
+        return None
+    value = str(item.get("value") or "").strip()
+    text = str(item.get("text") or value).strip()
+    if not value or not text:
+        return None
+    return {
+        "value": value,
+        "text": text,
+    }
+
+
 class ProjectServerSyncWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
@@ -1224,6 +1237,37 @@ class IssueProductOptionsWorker(QThread):
             self.finished.emit(items)
 
 
+class FeaturePointOptionsWorker(QThread):
+    finished = pyqtSignal(str, str, object)
+    error = pyqtSignal(str, str, str)
+
+    def __init__(
+        self,
+        *,
+        config_manager: ConfigManager,
+        todo_id: str,
+        request_id: str,
+        query: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._config_manager = config_manager
+        self._todo_id = str(todo_id or "").strip()
+        self._request_id = str(request_id or "").strip()
+        self._query = str(query or "").strip()
+
+    def run(self) -> None:
+        try:
+            client = ChattodoServerClient.from_config(self._config_manager.load().server)
+            items = client.fetch_function_point_options(q=self._query, page=1, page_size=20, active_only=True)
+        except (ChattodoServerError, ValueError) as exc:
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(self._todo_id, self._request_id, str(exc))
+        else:
+            self.finished.emit(self._todo_id, self._request_id, items)
+
+
 class _ControlPanelBridge(QObject):
     dataChanged = pyqtSignal()
     currentSectionChanged = pyqtSignal()
@@ -1311,6 +1355,12 @@ class _ControlPanelBridge(QObject):
         self._issue_product_loading = False
         self._issue_product_error = ""
         self._issue_product_worker: IssueProductOptionsWorker | None = None
+        self._feature_point_options: list[dict[str, object]] = []
+        self._feature_point_loading = False
+        self._feature_point_error = ""
+        self._feature_point_query = ""
+        self._feature_point_option_workers: list[FeaturePointOptionsWorker] = []
+        self._pending_feature_point_option_requests: dict[str, str] = {}
         self._product_line_options: list[dict[str, object]] = [
             item for item in (_normalize_local_option(option) for option in product_line_options()) if item is not None
         ]
@@ -2090,6 +2140,7 @@ class _ControlPanelBridge(QObject):
             "environment": "" if is_unknown_text(todo.summary_fields.environment) else str(todo.summary_fields.environment or "").strip(),
             "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
+            "reproductionProbability": str(todo.summary_fields.reproduction_probability or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
             "achFilledAt": str(todo.summary_fields.ach_filled_at or "").strip(),
             "achFilledAtLabel": _format_display_timestamp(todo.summary_fields.ach_filled_at),
@@ -2148,6 +2199,10 @@ class _ControlPanelBridge(QObject):
             "currentSummary": str(todo.current_summary or "").strip(),
             "conclusionContent": str(todo.conclusion.content or "").strip(),
             "featurePoint": str(todo.summary_fields.feature_point or "").strip(),
+            "featurePointOptions": self._selected_ticket_feature_point_options(str(todo.summary_fields.feature_point or "").strip()),
+            "featurePointEditable": _is_server_config_ready(self._config.server),
+            "featurePointLoading": self._feature_point_loading,
+            "featurePointError": self._feature_point_error,
             "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
             "rootCause": str(todo.summary_fields.root_cause or "").strip(),
             "achNo": str(todo.summary_fields.ach_no or "").strip(),
@@ -2185,11 +2240,16 @@ class _ControlPanelBridge(QObject):
             "currentSummary": "",
             "conclusionContent": "",
             "featurePoint": "",
+            "featurePointOptions": [],
+            "featurePointEditable": False,
+            "featurePointLoading": False,
+            "featurePointError": "",
             "rootCauseDesc": "",
             "rootCause": "",
             "groupName": "",
             "environment": "",
             "ticketType": "",
+            "reproductionProbability": "",
             "achNo": "",
             "achFilledAt": "",
             "achFilledAtLabel": "",
@@ -2286,6 +2346,27 @@ class _ControlPanelBridge(QObject):
             deduplicated.append(item)
         return _sort_customer_environment_options(deduplicated)
 
+    def _selected_ticket_feature_point_options(self, feature_point: str) -> list[dict[str, object]]:
+        options = [dict(item) for item in self._feature_point_options]
+        normalized_value = str(feature_point or "").strip()
+        if normalized_value and not any(str(item.get("value") or "").strip() == normalized_value for item in options):
+            options.insert(
+                0,
+                {
+                    "value": normalized_value,
+                    "text": normalized_value,
+                },
+            )
+        deduplicated: list[dict[str, object]] = []
+        seen_values: set[str] = set()
+        for item in options:
+            value = str(item.get("value") or "").strip()
+            if not value or value in seen_values:
+                continue
+            seen_values.add(value)
+            deduplicated.append(item)
+        return deduplicated
+
     def _selected_ticket_product_line_options(self, product_line: str) -> list[dict[str, object]]:
         options = [dict(item) for item in self._product_line_options]
         normalized_value = str(product_line or "").strip()
@@ -2380,14 +2461,23 @@ class _ControlPanelBridge(QObject):
     def _refresh_selected_ticket_payload(self) -> None:
         self._ensure_tickets_loaded()
         if not self._selected_ticket_id:
+            self._reset_feature_point_option_state()
             self._selected_ticket = self._empty_ticket_detail_payload()
             return
         todo = self._todo_store.get_todo(self._selected_ticket_id)
         if todo is None:
+            self._reset_feature_point_option_state()
             self._selected_ticket_id = ""
             self._selected_ticket = self._empty_ticket_detail_payload()
             return
         self._selected_ticket = self._build_ticket_detail_payload(todo)
+
+    def _reset_feature_point_option_state(self) -> None:
+        self._feature_point_options = []
+        self._feature_point_loading = False
+        self._feature_point_error = ""
+        self._feature_point_query = ""
+        self._pending_feature_point_option_requests = {}
 
     def _missing_ach_candidates(self, todo_ids: list[str] | None = None) -> list[str]:
         requested_ids = {str(todo_id or "").strip() for todo_id in list(todo_ids or []) if str(todo_id or "").strip()}
@@ -3663,6 +3753,7 @@ class _ControlPanelBridge(QObject):
             self._emit_data_changed()
             return
         self._clear_messages()
+        self._reset_feature_point_option_state()
         self._selected_ticket_id = normalized_id
         self._selected_ticket = self._build_ticket_detail_payload(todo)
         self._emit_data_changed()
@@ -3672,6 +3763,7 @@ class _ControlPanelBridge(QObject):
     def backToTicketList(self) -> None:
         if not self._selected_ticket_id:
             return
+        self._reset_feature_point_option_state()
         self._selected_ticket_id = ""
         self._selected_ticket = self._empty_ticket_detail_payload()
         self._clear_messages()
@@ -3847,6 +3939,11 @@ class _ControlPanelBridge(QObject):
             self._issue_product_worker = None
         _delete_finished_thread(worker)
 
+    def _cleanup_feature_point_option_worker(self, worker: FeaturePointOptionsWorker) -> None:
+        if worker in self._feature_point_option_workers:
+            self._feature_point_option_workers.remove(worker)
+        _delete_finished_thread(worker)
+
     def _handle_customer_environment_options_finished(self, items: object) -> None:
         normalized_items: list[dict[str, object]] = []
         for item in list(items or []):
@@ -3883,6 +3980,32 @@ class _ControlPanelBridge(QObject):
         self._refresh_selected_ticket_payload()
         self._emit_data_changed()
 
+    def _handle_feature_point_options_finished(self, todo_id: str, request_id: str, items: object) -> None:
+        normalized_todo_id = str(todo_id or "").strip()
+        if self._pending_feature_point_option_requests.get(normalized_todo_id) != str(request_id or "").strip():
+            return
+        self._pending_feature_point_option_requests.pop(normalized_todo_id, None)
+        normalized_items: list[dict[str, object]] = []
+        for item in list(items or []):
+            normalized_item = _normalize_feature_point_option(item)
+            if normalized_item is not None:
+                normalized_items.append(normalized_item)
+        self._feature_point_options = normalized_items
+        self._feature_point_loading = False
+        self._feature_point_error = ""
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
+    def _handle_feature_point_options_error(self, todo_id: str, request_id: str, message: str) -> None:
+        normalized_todo_id = str(todo_id or "").strip()
+        if self._pending_feature_point_option_requests.get(normalized_todo_id) != str(request_id or "").strip():
+            return
+        self._pending_feature_point_option_requests.pop(normalized_todo_id, None)
+        self._feature_point_loading = False
+        self._feature_point_error = str(message or "").strip() or "功能点选项加载失败。"
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+
     @pyqtSlot()
     def refreshCustomerEnvironmentOptions(self) -> None:
         if self._customer_environment_loading:
@@ -3913,6 +4036,45 @@ class _ControlPanelBridge(QObject):
         self._emit_data_changed()
         worker.start()
 
+    @pyqtSlot(str)
+    def searchSelectedTicketFeaturePointOptions(self, query: str) -> None:
+        if not self._selected_ticket_id:
+            return
+        normalized_query = str(query or "").strip()
+        if not _is_server_config_ready(self._config.server):
+            self._feature_point_loading = False
+            self._feature_point_error = "服务端未配置，无法搜索功能点。"
+            self._refresh_selected_ticket_payload()
+            self._emit_data_changed()
+            return
+        if self._feature_point_loading and self._feature_point_query == normalized_query:
+            return
+        if not self._feature_point_loading and self._feature_point_query == normalized_query and self._feature_point_options:
+            return
+        self._feature_point_query = normalized_query
+        self._feature_point_loading = True
+        self._feature_point_error = ""
+        request_id = str(uuid.uuid4())
+        worker = FeaturePointOptionsWorker(
+            config_manager=self._config_manager,
+            todo_id=self._selected_ticket_id,
+            request_id=request_id,
+            query=normalized_query,
+        )
+        self._pending_feature_point_option_requests[self._selected_ticket_id] = request_id
+        self._feature_point_option_workers.append(worker)
+        worker.finished.connect(self._handle_feature_point_options_finished)
+        worker.error.connect(self._handle_feature_point_options_error)
+        worker.finished.connect(
+            lambda _todo_id, _request_id, _items, current=worker: self._cleanup_feature_point_option_worker(current)
+        )
+        worker.error.connect(
+            lambda _todo_id, _request_id, _message, current=worker: self._cleanup_feature_point_option_worker(current)
+        )
+        self._refresh_selected_ticket_payload()
+        self._emit_data_changed()
+        worker.start()
+
     @pyqtSlot(str, str)
     def saveSelectedTicketField(self, field_name: str, value: str) -> None:
         if not self._selected_ticket_id:
@@ -3922,6 +4084,7 @@ class _ControlPanelBridge(QObject):
             "environment",
             "product_line",
             "product_module",
+            "reproduction_probability",
             "ticket_version",
             "feature_point",
             "root_cause",
@@ -3976,6 +4139,9 @@ class _ControlPanelBridge(QObject):
                 environment=environment,
                 product_line=product_line,
                 product_module=product_module,
+                reproduction_probability=(
+                    next_value if normalized_field == "reproduction_probability" else todo.summary_fields.reproduction_probability
+                ),
                 customer_environment_value=customer_environment_value,
                 issue_product=issue_product,
                 ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
@@ -4003,6 +4169,7 @@ class _ControlPanelBridge(QObject):
             "environment": "环境",
             "product_line": "产品线",
             "product_module": "产品模块/组件",
+            "reproduction_probability": "问题重现概率",
             "customer_environment": "客户环境",
             "issue_product": "问题所属产品",
             "ticket_version": "\u7248\u672c\u53f7",

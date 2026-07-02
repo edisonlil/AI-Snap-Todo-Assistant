@@ -289,6 +289,7 @@ def _build_todo() -> TodoItem:
             product_line="PC Office",
             product_module="PC Office-文字",
             ticket_type="investigation",
+            reproduction_probability="偶现",
             customer_environment_code="env-prod",
             customer_environment_value="生产环境",
             issue_product="产品A/模块B/功能C",
@@ -1421,6 +1422,30 @@ def test_selected_ticket_exposes_customer_environment_value_and_options(monkeypa
     assert bridge.selectedTicket["customerEnvironmentOptions"][0]["text"] == "生产环境"
 
 
+def test_selected_ticket_exposes_reproduction_probability(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["reproductionProbability"] == "偶现"
+
+
+def test_selected_ticket_reproduction_probability_defaults_to_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields.from_dict(
+        {
+            **todo.summary_fields.to_dict(),
+            "reproduction_probability": "",
+        }
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["reproductionProbability"] == "未知"
+
+
 def test_save_selected_ticket_customer_environment_maps_code_to_value(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()
@@ -1434,6 +1459,18 @@ def test_save_selected_ticket_customer_environment_maps_code_to_value(monkeypatc
     bridge.saveSelectedTicketField("customer_environment", "预发环境")
 
     assert bridge.selectedTicket["customerEnvironmentValue"] == "预发环境"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_save_selected_ticket_reproduction_probability_updates_summary_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("reproduction_probability", "必现")
+
+    assert bridge.selectedTicket["reproductionProbability"] == "必现"
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
 
 
@@ -1464,6 +1501,35 @@ def test_save_selected_ticket_issue_product_updates_summary_field(monkeypatch: p
     bridge.saveSelectedTicketField("issue_product", "产品X/模块Y/功能Z")
 
     assert bridge.selectedTicket["issueProduct"] == "产品X/模块Y/功能Z"
+    assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_selected_ticket_exposes_feature_point_search_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    bridge._feature_point_options = [{"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}]  # noqa: SLF001
+    bridge._feature_point_loading = True  # noqa: SLF001
+    bridge._feature_point_error = "功能点选项加载失败。"  # noqa: SLF001
+    bridge._refresh_selected_ticket_payload()  # noqa: SLF001
+
+    assert bridge.selectedTicket["featurePointOptions"] == [
+        {"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}
+    ]
+    assert bridge.selectedTicket["featurePointLoading"] is True
+    assert bridge.selectedTicket["featurePointError"] == "功能点选项加载失败。"
+
+
+def test_save_selected_ticket_feature_point_updates_summary_field_as_manual(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    publisher = _EventPublisher()
+    bridge = _build_bridge(monkeypatch, todo, event_publisher=publisher)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("feature_point", "文档中台-运维平台-页面跑版-兼容问题")
+
+    assert bridge.selectedTicket["featurePoint"] == "文档中台-运维平台-页面跑版-兼容问题"
+    assert bridge._todo_store.get_todo(todo.id).summary_fields.feature_point_source == "manual"  # noqa: SLF001
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
 
 
@@ -1879,6 +1945,131 @@ def test_refresh_selected_ticket_feature_point_waits_for_async_worker(monkeypatc
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
     assert publisher.events[0].todo_snapshot["summary_fields"]["feature_point"] == "异步功能点"
     assert worker.deleted is True
+
+
+def test_search_selected_ticket_feature_point_options_waits_for_async_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(  # noqa: SLF001
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointOptionsWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            query,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.query = query
+            self.started = False
+            self.deleted = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def deleteLater(self) -> None:
+            self.deleted = True
+
+    monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
+
+    bridge.searchSelectedTicketFeaturePointOptions("页面跑版")
+
+    assert len(created_workers) == 1
+    worker = created_workers[0]
+    assert worker.started is True
+    assert worker.query == "页面跑版"
+    assert bridge.selectedTicket["featurePointLoading"] is True
+    assert bridge.selectedTicket["featurePointOptions"] == []
+
+    worker.finished.emit(
+        worker.todo_id,
+        worker.request_id,
+        [{"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}],
+    )
+
+    assert bridge.selectedTicket["featurePointLoading"] is False
+    assert bridge.selectedTicket["featurePointError"] == ""
+    assert bridge.selectedTicket["featurePointOptions"] == [
+        {"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}
+    ]
+    assert worker.deleted is True
+
+
+def test_search_selected_ticket_feature_point_options_discards_stale_worker_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(  # noqa: SLF001
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointOptionsWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            query,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.query = query
+            created_workers.append(self)
+
+        def start(self) -> None:
+            return None
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
+
+    bridge.searchSelectedTicketFeaturePointOptions("页面")
+    bridge.searchSelectedTicketFeaturePointOptions("跑版")
+
+    assert len(created_workers) == 2
+
+    created_workers[0].finished.emit(
+        created_workers[0].todo_id,
+        created_workers[0].request_id,
+        [{"value": "旧结果", "text": "旧结果"}],
+    )
+
+    assert bridge.selectedTicket["featurePointOptions"] == []
+    assert bridge.selectedTicket["featurePointLoading"] is True
+
+    created_workers[1].finished.emit(
+        created_workers[1].todo_id,
+        created_workers[1].request_id,
+        [{"value": "新结果", "text": "新结果"}],
+    )
+
+    assert bridge.selectedTicket["featurePointOptions"] == [{"value": "新结果", "text": "新结果"}]
+    assert bridge.selectedTicket["featurePointLoading"] is False
 
 
 def test_legacy_environment_sections_map_to_unified_section(monkeypatch: pytest.MonkeyPatch) -> None:

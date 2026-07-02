@@ -29,10 +29,13 @@ Rectangle {
     readonly property color accent: resolveThemeColor("accent", "#2A313F")
     readonly property color accentTint: resolveThemeColor("accentTint", "#ECEFF3")
     readonly property color hoverBg: resolveThemeColor("hoverBg", "#F3F4F6")
-    readonly property color fieldBg: resolveThemeColor("fieldBg", "#F5F5F5")
+    readonly property color panelBg: resolveThemeColor("panelBg", "#FFFFFF")
+    readonly property color panelAltBg: resolveThemeColor("panelAltBg", "#F5F5F5")
+    readonly property color fieldBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))
     readonly property color fieldLine: resolveThemeColor("formFieldBorder", resolveThemeColor("fieldLine", resolveThemeColor("panelLine", "#E5E7EB")))
     readonly property color fieldFocusLine: resolveThemeColor("formFieldFocusBorder", resolveThemeColor("accent", "#2A313F"))
-    readonly property color inputBg: resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF"))
+    readonly property color inputBg: resolveThemeColor("panelBg", resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF")))
+    readonly property color popupBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))
     readonly property string uiFont: theme && theme.uiFont ? theme.uiFont : "Microsoft YaHei UI"
     readonly property int formInlineEditHeight: theme && theme.formInlineEditHeight ? theme.formInlineEditHeight : 32
     readonly property int formPopupRadius: theme && theme.formPopupRadius ? theme.formPopupRadius : 8
@@ -444,7 +447,7 @@ Rectangle {
 
                     background: Rectangle {
                         radius: rootField.formPopupRadius
-                        color: rootField.inputBg
+                        color: rootField.popupBg
                         border.width: 1
                         border.color: rootField.fieldLine
                     }
@@ -470,7 +473,7 @@ Rectangle {
 
                                 background: Rectangle {
                                     radius: rootField.formPopupItemRadius
-                                    color: rootField.inputBg
+                                    color: rootField.popupBg
                                     border.width: 1
                                     border.color: rootField.fieldLine
                                 }

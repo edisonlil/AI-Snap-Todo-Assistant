@@ -86,6 +86,16 @@ def test_tickets_section_reads_environment_field_value_for_edit_state() -> None:
     assert 'return controlPanelBridge.selectedTicket.environment || ""' in qml_text
 
 
+def test_tickets_section_includes_reproduction_probability_dropdown() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+
+    assert "property var reproductionProbabilityOptions" in qml_text
+    assert 'label: "问题重现概率"' in qml_text
+    assert '{ value: "\\u672a\\u77e5", text: "\\u672a\\u77e5" }' in qml_text
+    assert 'if (fieldName === "reproductionProbability") {' in qml_text
+    assert 'commitTicketFieldEdit("reproductionProbability", "reproduction_probability")' in qml_text
+
+
 def test_tickets_section_retries_customer_environment_edit_after_dictionary_load() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -120,6 +130,19 @@ def test_tickets_section_includes_local_product_line_and_module_dropdowns() -> N
     assert 'commitTicketFieldEdit("productModule", "product_module")' in qml_text
 
 
+def test_tickets_section_uses_remote_feature_point_select_field() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "FeaturePointRemoteSelectField {" in qml_text
+    assert 'label: "\\u529f\\u80fd\\u70b9"' in qml_text
+    assert "featurePointOptions" in qml_text
+    assert "featurePointLoading" in qml_text
+    assert "featurePointError" in qml_text
+    assert "searchSelectedTicketFeaturePointOptions(query)" in qml_text
+    assert 'commitTicketFieldEdit("featurePoint", "feature_point")' in qml_text
+
+
 def test_ticket_detail_places_environment_next_to_customer_environment() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -127,6 +150,9 @@ def test_ticket_detail_places_environment_next_to_customer_environment() -> None
 
     assert detail_source.index('label: "客户环境"') < detail_source.index('label: "环境"')
     assert detail_source.index('label: "环境"') < detail_source.index('label: "问题所属产品"')
+    assert detail_source.index('label: "问题所属产品"') < detail_source.index('label: "产品线"')
+    assert detail_source.index('label: "产品模块/组件"') < detail_source.index('label: "\\u7248\\u672c\\u53f7"')
+    assert detail_source.index('label: "\\u7248\\u672c\\u53f7"') < detail_source.index('label: "问题重现概率"')
 
 
 def test_tickets_section_retries_issue_product_edit_after_dictionary_load() -> None:
@@ -169,6 +195,12 @@ def test_ticket_detail_dropdowns_support_typed_filtering() -> None:
     assert 'placeholderText: "输入关键字筛选"' in single_select_qml
     assert "searchInput.forceActiveFocus()" in single_select_qml
     assert "model: rootField.filteredOptions()" in single_select_qml
+    assert 'readonly property color panelBg: resolveThemeColor("panelBg", "#FFFFFF")' in single_select_qml
+    assert 'readonly property color panelAltBg: resolveThemeColor("panelAltBg", "#F5F5F5")' in single_select_qml
+    assert 'readonly property color fieldBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))' in single_select_qml
+    assert 'readonly property color inputBg: resolveThemeColor("panelBg", resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF")))' in single_select_qml
+    assert 'readonly property color popupBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))' in single_select_qml
+    assert "color: rootField.popupBg" in single_select_qml
 
     assert "property string filterText" in root_cause_qml
     assert "function searchablePaths()" in root_cause_qml
@@ -176,3 +208,23 @@ def test_ticket_detail_dropdowns_support_typed_filtering() -> None:
     assert 'placeholderText: "输入关键字筛选"' in root_cause_qml
     assert "visible: rootField.filterText.trim().length > 0" in root_cause_qml
     assert "model: rootField.filteredSearchPaths()" in root_cause_qml
+    assert 'readonly property color panelBg: resolveThemeColor("panelBg", "#FFFFFF")' in root_cause_qml
+    assert 'readonly property color panelAltBg: resolveThemeColor("panelAltBg", "#F5F5F5")' in root_cause_qml
+    assert 'readonly property color fieldBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))' in root_cause_qml
+    assert 'readonly property color inputBg: resolveThemeColor("panelBg", resolveThemeColor("formFieldBg", resolveThemeColor("inputBg", "#FFFFFF")))' in root_cause_qml
+    assert 'readonly property color popupBg: resolveThemeColor("panelAltBg", resolveThemeColor("fieldBg", "#F5F5F5"))' in root_cause_qml
+    assert "color: rootField.popupBg" in root_cause_qml
+
+
+def test_feature_point_remote_select_field_supports_debounced_search_and_selection() -> None:
+    feature_point_qml = (
+        Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "FeaturePointRemoteSelectField.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "signal searchRequested(string query)" in feature_point_qml
+    assert "Timer {" in feature_point_qml
+    assert "searchDebounce.restart()" in feature_point_qml
+    assert 'placeholderText: "输入关键字搜索功能点"' in feature_point_qml
+    assert "rootField.searchRequested(rootField.filterText)" in feature_point_qml
+    assert 'rootField.accepted(String(option.value || ""))' in feature_point_qml
+    assert 'text: "正在搜索功能点..."' in feature_point_qml

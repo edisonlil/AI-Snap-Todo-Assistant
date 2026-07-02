@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS todos (
   product_line TEXT NOT NULL DEFAULT '',
   product_module TEXT NOT NULL DEFAULT '',
   ticket_type TEXT NOT NULL DEFAULT '',
+  reproduction_probability TEXT NOT NULL DEFAULT '未知',
   customer_environment_code TEXT NOT NULL DEFAULT '',
   customer_environment_value TEXT NOT NULL DEFAULT '',
   issue_product TEXT NOT NULL DEFAULT '',
