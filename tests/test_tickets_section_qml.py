@@ -154,3 +154,25 @@ def test_dropdown_popups_anchor_below_editor_actions() -> None:
     assert "return cascadeEditor.mapToItem(rootField, 0, cascadeEditor.height + 8)" in root_cause_qml
     assert "y: rootField.popupAnchorPoint().y" in single_select_qml
     assert "y: rootField.popupAnchorPoint().y" in root_cause_qml
+
+
+def test_ticket_detail_dropdowns_support_typed_filtering() -> None:
+    single_select_qml = (
+        Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "SingleSelectCascadeField.qml"
+    ).read_text(encoding="utf-8")
+    root_cause_qml = (
+        Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "RootCauseCascadeField.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "property string filterText" in single_select_qml
+    assert "function filteredOptions()" in single_select_qml
+    assert 'placeholderText: "输入关键字筛选"' in single_select_qml
+    assert "searchInput.forceActiveFocus()" in single_select_qml
+    assert "model: rootField.filteredOptions()" in single_select_qml
+
+    assert "property string filterText" in root_cause_qml
+    assert "function searchablePaths()" in root_cause_qml
+    assert "function filteredSearchPaths()" in root_cause_qml
+    assert 'placeholderText: "输入关键字筛选"' in root_cause_qml
+    assert "visible: rootField.filterText.trim().length > 0" in root_cause_qml
+    assert "model: rootField.filteredSearchPaths()" in root_cause_qml

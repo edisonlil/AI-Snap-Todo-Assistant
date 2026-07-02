@@ -13,6 +13,7 @@ Rectangle {
     property bool saving: false
     property bool compact: false
     property var options: []
+    property string filterText: ""
 
     readonly property color titleInk: resolveThemeColor("titleInk", "#18202E")
     readonly property color labelInk: resolveThemeColor("labelInk", "#7C8795")
@@ -42,11 +43,104 @@ Rectangle {
         var normalized = String(code || "")
         for (var index = 0; index < options.length; index += 1) {
             var option = options[index]
-            if (String(option.code || "") === normalized) {
+            if (String(option.code || "") === normalized || String(option.value || "") === normalized) {
                 return String(option.text || option.value || "")
             }
         }
         return ""
+    }
+
+    function fuzzyMatch(text, query) {
+        var source = String(text || "").toLowerCase()
+        var keyword = String(query || "").toLowerCase().trim()
+        if (!keyword.length) {
+            return true
+        }
+        if (source.indexOf(keyword) >= 0) {
+            return true
+        }
+        var sourceIndex = 0
+        for (var queryIndex = 0; queryIndex < keyword.length; queryIndex += 1) {
+            var charIndex = source.indexOf(keyword[queryIndex], sourceIndex)
+            if (charIndex < 0) {
+                return false
+            }
+            sourceIndex = charIndex + 1
+        }
+        return true
+    }
+
+    function filteredOptions() {
+        var keyword = String(filterText || "").trim()
+        var result = []
+        for (var index = 0; index < options.length; index += 1) {
+            var option = options[index]
+            var code = String(option.code || "")
+            var valueText = String(option.value || "")
+            var labelText = String(option.text || option.value || "")
+            if (
+                !keyword.length
+                || fuzzyMatch(labelText, keyword)
+                || fuzzyMatch(valueText, keyword)
+                || fuzzyMatch(code, keyword)
+            ) {
+                result.push(option)
+            }
+        }
+        return result
+    }
+
+    function filteredCurrentIndex() {
+        var normalized = String(selectedCode || "")
+        var source = filteredOptions()
+        for (var index = 0; index < source.length; index += 1) {
+            var option = source[index]
+            if (String(option.code || "") === normalized || String(option.value || "") === normalized) {
+                return index
+            }
+        }
+        return source.length > 0 ? 0 : -1
+    }
+
+    function syncPopupSelection() {
+        optionList.currentIndex = filteredCurrentIndex()
+        if (optionList.currentIndex >= 0) {
+            optionList.positionViewAtIndex(optionList.currentIndex, ListView.Contain)
+        }
+    }
+
+    function commitOption(option) {
+        if (!option) {
+            return
+        }
+        popup.close()
+        rootField.accepted(String(option.code || ""), String(option.value || option.text || ""))
+    }
+
+    function commitHighlightedOrFirst() {
+        var source = filteredOptions()
+        if (!source.length) {
+            return
+        }
+        var index = optionList.currentIndex
+        if (index < 0 || index >= source.length) {
+            index = 0
+        }
+        commitOption(source[index])
+    }
+
+    function moveHighlight(step) {
+        var source = filteredOptions()
+        if (!source.length) {
+            optionList.currentIndex = -1
+            return
+        }
+        if (optionList.currentIndex < 0) {
+            optionList.currentIndex = step > 0 ? 0 : source.length - 1
+        } else {
+            optionList.currentIndex = (optionList.currentIndex + step + source.length) % source.length
+        }
+        optionList.positionViewAtIndex(optionList.currentIndex, ListView.Contain)
     }
 
     function currentOptionIndex() {
@@ -68,12 +162,16 @@ Rectangle {
 
     onEditingChanged: {
         if (!editing) {
+            filterText = ""
             popup.close()
             return
         }
         Qt.callLater(function() {
             if (rootField.editing) {
+                filterText = ""
                 popup.open()
+                searchInput.forceActiveFocus()
+                searchInput.selectAll()
             }
         })
     }
@@ -277,52 +375,114 @@ Rectangle {
                         border.width: 1
                         border.color: rootField.fieldLine
                         radius: rootField.formPopupItemRadius
-                        implicitHeight: Math.min(optionList.contentHeight + 8, 220)
+                        implicitHeight: Math.min(popupColumn.implicitHeight + 8, 260)
 
-                        ListView {
-                            id: optionList
+                        ColumnLayout {
+                            id: popupColumn
                             anchors.fill: parent
                             anchors.margins: 4
-                            clip: true
-                            model: rootField.options
-                            spacing: 2
-                            currentIndex: rootField.currentOptionIndex()
+                            spacing: 4
 
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: ListView.view.width
-                                height: rootField.formPopupItemHeight
-                                radius: rootField.formPopupItemRadius
-                                color: itemMouseArea.containsMouse
-                                       ? rootField.hoverBg
-                                       : (String(modelData.code || "") === String(rootField.selectedCode || "") ? rootField.accentTint : "transparent")
+                            TextField {
+                                id: searchInput
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: rootField.formInlineEditHeight
+                                placeholderText: "输入关键字筛选"
+                                text: rootField.filterText
+                                color: rootField.titleInk
+                                font.family: rootField.uiFont
+                                font.pixelSize: rootField.compact ? 11 : 12
+                                selectByMouse: true
 
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 10
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.text || modelData.value || ""
-                                    color: String(modelData.code || "") === String(rootField.selectedCode || "") ? rootField.accent : rootField.titleInk
-                                    font.family: rootField.uiFont
-                                    font.pixelSize: rootField.compact ? 11 : 12
-                                    font.weight: String(modelData.code || "") === String(rootField.selectedCode || "") ? 600 : 400
-                                    elide: Text.ElideRight
+                                background: Rectangle {
+                                    radius: rootField.formPopupItemRadius
+                                    color: rootField.inputBg
+                                    border.width: 1
+                                    border.color: rootField.fieldLine
                                 }
 
-                                MouseArea {
-                                    id: itemMouseArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        popup.close()
-                                        rootField.accepted(String(modelData.code || ""), String(modelData.value || ""))
+                                onTextEdited: {
+                                    rootField.filterText = text
+                                    rootField.syncPopupSelection()
+                                }
+                                onAccepted: rootField.commitHighlightedOrFirst()
+                                Keys.onDownPressed: rootField.moveHighlight(1)
+                                Keys.onUpPressed: rootField.moveHighlight(-1)
+                                Keys.onEscapePressed: {
+                                    popup.close()
+                                    rootField.canceled()
+                                }
+                            }
+
+                            ListView {
+                                id: optionList
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Math.min(contentHeight, 212)
+                                clip: true
+                                model: rootField.filteredOptions()
+                                spacing: 2
+
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: ListView.view.width
+                                    height: rootField.formPopupItemHeight
+                                    radius: rootField.formPopupItemRadius
+                                    color: itemMouseArea.containsMouse
+                                           ? rootField.hoverBg
+                                           : (String(modelData.code || "") === String(rootField.selectedCode || "")
+                                              || String(modelData.value || "") === String(rootField.selectedCode || "")
+                                              ? rootField.accentTint
+                                              : "transparent")
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: modelData.text || modelData.value || ""
+                                        color: String(modelData.code || "") === String(rootField.selectedCode || "")
+                                               || String(modelData.value || "") === String(rootField.selectedCode || "")
+                                               ? rootField.accent
+                                               : rootField.titleInk
+                                        font.family: rootField.uiFont
+                                        font.pixelSize: rootField.compact ? 11 : 12
+                                        font.weight: String(modelData.code || "") === String(rootField.selectedCode || "")
+                                                     || String(modelData.value || "") === String(rootField.selectedCode || "")
+                                                     ? 600
+                                                     : 400
+                                        elide: Text.ElideRight
+                                    }
+
+                                    MouseArea {
+                                        id: itemMouseArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: rootField.commitOption(modelData)
                                     }
                                 }
                             }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: optionList.count === 0
+                                text: "未找到匹配项"
+                                color: rootField.labelInk
+                                font.family: rootField.uiFont
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                                topPadding: 8
+                                bottomPadding: 8
+                            }
                         }
+                    }
+
+                    onOpened: {
+                        rootField.syncPopupSelection()
+                        Qt.callLater(function() {
+                            searchInput.forceActiveFocus()
+                        })
                     }
                 }
             }

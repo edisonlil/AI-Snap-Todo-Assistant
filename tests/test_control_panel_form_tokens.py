@@ -123,3 +123,16 @@ def test_control_panel_spin_box_is_custom_drawn() -> None:
     assert "signal valueModified" in spin_box
     assert "TextInput {" in spin_box
     assert "MouseArea {" in spin_box
+
+
+def test_control_panel_settings_combo_supports_typed_fuzzy_filtering() -> None:
+    combo = _qml("ControlPanelSettingsCombo.qml")
+
+    assert "editable: true" in combo
+    assert "property string filterText" in combo
+    assert "function fuzzyMatch(text, query)" in combo
+    assert "function filteredOptions()" in combo
+    assert "TextField {" in combo
+    assert "model: combo.popup.visible ? combo.filteredOptions() : null" in combo
+    assert "text: modelData.label" in combo
+    assert "onTextEdited: {" in combo

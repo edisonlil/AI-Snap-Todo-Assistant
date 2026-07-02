@@ -21,6 +21,7 @@ Rectangle {
     property var level1OptionsFn
     property var level2OptionsFn
     property var level3OptionsFn
+    property string filterText: ""
 
     readonly property color titleInk: resolveThemeColor("titleInk", "#18202E")
     readonly property color labelInk: resolveThemeColor("labelInk", "#7C8795")
@@ -68,6 +69,128 @@ Rectangle {
         return level1 + "/" + level2 + "/" + level3
     }
 
+    function optionLabel(option) {
+        return String(option && (option.text || option.value) || "")
+    }
+
+    function optionValue(option) {
+        return String(option && option.value || "")
+    }
+
+    function fuzzyMatch(text, query) {
+        var source = String(text || "").toLowerCase()
+        var keyword = String(query || "").toLowerCase().trim()
+        if (!keyword.length) {
+            return true
+        }
+        if (source.indexOf(keyword) >= 0) {
+            return true
+        }
+        var sourceIndex = 0
+        for (var queryIndex = 0; queryIndex < keyword.length; queryIndex += 1) {
+            var charIndex = source.indexOf(keyword[queryIndex], sourceIndex)
+            if (charIndex < 0) {
+                return false
+            }
+            sourceIndex = charIndex + 1
+        }
+        return true
+    }
+
+    function searchablePaths() {
+        var results = []
+        var topOptions = level1OptionsFn ? level1OptionsFn() : level1Options
+        for (var level1Index = 0; level1Index < topOptions.length; level1Index += 1) {
+            var item1 = topOptions[level1Index]
+            var value1 = optionValue(item1)
+            var text1 = optionLabel(item1)
+            var secondOptions = level2OptionsFn ? level2OptionsFn(value1) : []
+            if (!secondOptions.length) {
+                results.push({
+                    level1: value1,
+                    level2: "",
+                    level3: "",
+                    value: value1,
+                    displayText: text1,
+                })
+                continue
+            }
+            for (var level2Index = 0; level2Index < secondOptions.length; level2Index += 1) {
+                var item2 = secondOptions[level2Index]
+                var value2 = optionValue(item2)
+                var text2 = optionLabel(item2)
+                var thirdOptions = level3OptionsFn ? level3OptionsFn(value1, value2) : []
+                if (!thirdOptions.length) {
+                    results.push({
+                        level1: value1,
+                        level2: value2,
+                        level3: "",
+                        value: value1 + "/" + value2,
+                        displayText: text1 + " / " + text2,
+                    })
+                    continue
+                }
+                for (var level3Index = 0; level3Index < thirdOptions.length; level3Index += 1) {
+                    var item3 = thirdOptions[level3Index]
+                    var value3 = optionValue(item3)
+                    var text3 = optionLabel(item3)
+                    results.push({
+                        level1: value1,
+                        level2: value2,
+                        level3: value3,
+                        value: value1 + "/" + value2 + "/" + value3,
+                        displayText: text1 + " / " + text2 + " / " + text3,
+                    })
+                }
+            }
+        }
+        return results
+    }
+
+    function filteredSearchPaths() {
+        var keyword = String(filterText || "").trim()
+        if (!keyword.length) {
+            return []
+        }
+        var source = searchablePaths()
+        var result = []
+        for (var index = 0; index < source.length; index += 1) {
+            var item = source[index]
+            if (fuzzyMatch(item.displayText, keyword) || fuzzyMatch(item.value, keyword)) {
+                result.push(item)
+            }
+        }
+        return result
+    }
+
+    function applySearchPath(path) {
+        if (!path) {
+            return
+        }
+        level1Options = level1OptionsFn ? level1OptionsFn() : []
+        level1 = ensureSelection(level1Options, path.level1)
+        level2Options = level2OptionsFn ? level2OptionsFn(level1) : []
+        level2 = ensureSelection(level2Options, path.level2)
+        level3Options = level3OptionsFn ? level3OptionsFn(level1, level2) : []
+        level3 = ensureSelection(level3Options, path.level3)
+    }
+
+    function acceptSearchPath(path) {
+        applySearchPath(path)
+        filterText = ""
+        searchInput.text = ""
+        cascadePopup.close()
+        rootField.accepted(rootField.composeValue())
+    }
+
+    function commitFirstSearchMatch() {
+        var source = filteredSearchPaths()
+        if (!source.length) {
+            return
+        }
+        acceptSearchPath(source[0])
+    }
+
     function ensureSelection(options, preferred) {
         var next = String(preferred || "")
         if (!options || options.length === 0) {
@@ -100,7 +223,17 @@ Rectangle {
 
     onEditingChanged: {
         if (editing) {
+            filterText = ""
             syncCascadeFromValue(value)
+            Qt.callLater(function() {
+                if (rootField.editing) {
+                    cascadePopup.open()
+                    searchInput.forceActiveFocus()
+                }
+            })
+        } else {
+            filterText = ""
+            cascadePopup.close()
         }
     }
 
@@ -316,170 +449,271 @@ Rectangle {
                         border.color: rootField.fieldLine
                     }
 
-                    contentItem: RowLayout {
-                        spacing: 6
+                    contentItem: Rectangle {
+                        color: "transparent"
+                        implicitHeight: searchColumn.implicitHeight
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 180
-                            implicitHeight: 220
-                            radius: rootField.formPopupItemRadius
-                            color: rootField.fieldBg
-                            border.width: 1
-                            border.color: rootField.fieldLine
+                        ColumnLayout {
+                            id: searchColumn
+                            anchors.fill: parent
+                            spacing: 6
 
-                            ListView {
-                                anchors.fill: parent
-                                anchors.margins: 4
-                                clip: true
-                                model: rootField.level1Options
-                                spacing: 2
+                            TextField {
+                                id: searchInput
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: rootField.formInlineEditHeight
+                                placeholderText: "输入关键字筛选"
+                                color: rootField.titleInk
+                                font.family: rootField.uiFont
+                                font.pixelSize: rootField.compact ? 11 : 12
+                                selectByMouse: true
 
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    width: ListView.view.width
-                                    height: rootField.formPopupItemHeight
+                                background: Rectangle {
                                     radius: rootField.formPopupItemRadius
-                                    color: itemMouseArea.containsMouse
-                                           ? rootField.hoverBg
-                                           : (modelData.value === rootField.level1 ? rootField.accentTint : "transparent")
+                                    color: rootField.inputBg
+                                    border.width: 1
+                                    border.color: rootField.fieldLine
+                                }
 
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: modelData.text
-                                        color: modelData.value === rootField.level1 ? rootField.accent : rootField.titleInk
-                                        font.family: rootField.uiFont
-                                        font.pixelSize: rootField.compact ? 11 : 12
-                                        font.weight: modelData.value === rootField.level1 ? 600 : 400
-                                        elide: Text.ElideRight
+                                onTextEdited: rootField.filterText = text
+                                onAccepted: rootField.commitFirstSearchMatch()
+                                Keys.onEscapePressed: {
+                                    cascadePopup.close()
+                                    rootField.canceled()
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: rootField.filterText.trim().length > 0
+                                implicitHeight: Math.min(searchResultList.contentHeight + 8, 220)
+                                radius: rootField.formPopupItemRadius
+                                color: rootField.fieldBg
+                                border.width: 1
+                                border.color: rootField.fieldLine
+
+                                ListView {
+                                    id: searchResultList
+                                    anchors.fill: parent
+                                    anchors.margins: 4
+                                    clip: true
+                                    model: rootField.filteredSearchPaths()
+                                    spacing: 2
+
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: ListView.view.width
+                                        height: rootField.formPopupItemHeight
+                                        radius: rootField.formPopupItemRadius
+                                        color: searchItemMouseArea.containsMouse ? rootField.hoverBg : "transparent"
+
+                                        Text {
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.leftMargin: 10
+                                            anchors.rightMargin: 10
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: modelData.displayText
+                                            color: rootField.titleInk
+                                            font.family: rootField.uiFont
+                                            font.pixelSize: rootField.compact ? 11 : 12
+                                            elide: Text.ElideRight
+                                        }
+
+                                        MouseArea {
+                                            id: searchItemMouseArea
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: rootField.acceptSearchPath(modelData)
+                                        }
                                     }
+                                }
 
-                                    MouseArea {
-                                        id: itemMouseArea
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: searchResultList.count === 0
+                                    text: "未找到匹配项"
+                                    color: rootField.labelInk
+                                    font.family: rootField.uiFont
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: rootField.filterText.trim().length === 0
+                                spacing: 6
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 180
+                                    implicitHeight: 220
+                                    radius: rootField.formPopupItemRadius
+                                    color: rootField.fieldBg
+                                    border.width: 1
+                                    border.color: rootField.fieldLine
+
+                                    ListView {
                                         anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            rootField.level1 = modelData.value
-                                            rootField.level2Options = level2OptionsFn ? level2OptionsFn(rootField.level1) : []
-                                            rootField.level2 = rootField.ensureSelection(rootField.level2Options, "")
-                                            rootField.level3Options = level3OptionsFn ? level3OptionsFn(rootField.level1, rootField.level2) : []
-                                            rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
+                                        anchors.margins: 4
+                                        clip: true
+                                        model: rootField.level1Options
+                                        spacing: 2
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: ListView.view.width
+                                            height: rootField.formPopupItemHeight
+                                            radius: rootField.formPopupItemRadius
+                                            color: itemMouseArea.containsMouse
+                                                   ? rootField.hoverBg
+                                                   : (modelData.value === rootField.level1 ? rootField.accentTint : "transparent")
+
+                                            Text {
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.leftMargin: 10
+                                                anchors.rightMargin: 10
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: modelData.text
+                                                color: modelData.value === rootField.level1 ? rootField.accent : rootField.titleInk
+                                                font.family: rootField.uiFont
+                                                font.pixelSize: rootField.compact ? 11 : 12
+                                                font.weight: modelData.value === rootField.level1 ? 600 : 400
+                                                elide: Text.ElideRight
+                                            }
+
+                                            MouseArea {
+                                                id: itemMouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    rootField.level1 = modelData.value
+                                                    rootField.level2Options = level2OptionsFn ? level2OptionsFn(rootField.level1) : []
+                                                    rootField.level2 = rootField.ensureSelection(rootField.level2Options, "")
+                                                    rootField.level3Options = level3OptionsFn ? level3OptionsFn(rootField.level1, rootField.level2) : []
+                                                    rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: rootField.level2Options.length > 0
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 180
+                                    implicitHeight: 220
+                                    radius: rootField.formPopupItemRadius
+                                    color: rootField.fieldBg
+                                    border.width: 1
+                                    border.color: rootField.fieldLine
+
+                                    ListView {
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        clip: true
+                                        model: rootField.level2Options
+                                        spacing: 2
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: ListView.view.width
+                                            height: rootField.formPopupItemHeight
+                                            radius: rootField.formPopupItemRadius
+                                            color: itemMouseArea.containsMouse
+                                                   ? rootField.hoverBg
+                                                   : (modelData.value === rootField.level2 ? rootField.accentTint : "transparent")
+
+                                            Text {
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.leftMargin: 10
+                                                anchors.rightMargin: 10
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: modelData.text
+                                                color: modelData.value === rootField.level2 ? rootField.accent : rootField.titleInk
+                                                font.family: rootField.uiFont
+                                                font.pixelSize: rootField.compact ? 11 : 12
+                                                font.weight: modelData.value === rootField.level2 ? 600 : 400
+                                                elide: Text.ElideRight
+                                            }
+
+                                            MouseArea {
+                                                id: itemMouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    rootField.level2 = modelData.value
+                                                    rootField.level3Options = level3OptionsFn ? level3OptionsFn(rootField.level1, rootField.level2) : []
+                                                    rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: rootField.level3Options.length > 0
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 180
+                                    implicitHeight: 220
+                                    radius: rootField.formPopupItemRadius
+                                    color: rootField.fieldBg
+                                    border.width: 1
+                                    border.color: rootField.fieldLine
+
+                                    ListView {
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        clip: true
+                                        model: rootField.level3Options
+                                        spacing: 2
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: ListView.view.width
+                                            height: rootField.formPopupItemHeight
+                                            radius: rootField.formPopupItemRadius
+                                            color: itemMouseArea.containsMouse
+                                                   ? rootField.hoverBg
+                                                   : (modelData.value === rootField.level3 ? rootField.accentTint : "transparent")
+
+                                            Text {
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.leftMargin: 10
+                                                anchors.rightMargin: 10
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: modelData.text
+                                                color: modelData.value === rootField.level3 ? rootField.accent : rootField.titleInk
+                                                font.family: rootField.uiFont
+                                                font.pixelSize: rootField.compact ? 11 : 12
+                                                font.weight: modelData.value === rootField.level3 ? 600 : 400
+                                                elide: Text.ElideRight
+                                            }
+
+                                            MouseArea {
+                                                id: itemMouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: rootField.level3 = modelData.value
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
 
-                        Rectangle {
-                            visible: rootField.level2Options.length > 0
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 180
-                            implicitHeight: 220
-                            radius: rootField.formPopupItemRadius
-                            color: rootField.fieldBg
-                            border.width: 1
-                            border.color: rootField.fieldLine
-
-                            ListView {
-                                anchors.fill: parent
-                                anchors.margins: 4
-                                clip: true
-                                model: rootField.level2Options
-                                spacing: 2
-
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    width: ListView.view.width
-                                    height: rootField.formPopupItemHeight
-                                    radius: rootField.formPopupItemRadius
-                                    color: itemMouseArea.containsMouse
-                                           ? rootField.hoverBg
-                                           : (modelData.value === rootField.level2 ? rootField.accentTint : "transparent")
-
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: modelData.text
-                                        color: modelData.value === rootField.level2 ? rootField.accent : rootField.titleInk
-                                        font.family: rootField.uiFont
-                                        font.pixelSize: rootField.compact ? 11 : 12
-                                        font.weight: modelData.value === rootField.level2 ? 600 : 400
-                                        elide: Text.ElideRight
-                                    }
-
-                                    MouseArea {
-                                        id: itemMouseArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            rootField.level2 = modelData.value
-                                            rootField.level3Options = level3OptionsFn ? level3OptionsFn(rootField.level1, rootField.level2) : []
-                                            rootField.level3 = rootField.ensureSelection(rootField.level3Options, "")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            visible: rootField.level3Options.length > 0
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 180
-                            implicitHeight: 220
-                            radius: rootField.formPopupItemRadius
-                            color: rootField.fieldBg
-                            border.width: 1
-                            border.color: rootField.fieldLine
-
-                            ListView {
-                                anchors.fill: parent
-                                anchors.margins: 4
-                                clip: true
-                                model: rootField.level3Options
-                                spacing: 2
-
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    width: ListView.view.width
-                                    height: rootField.formPopupItemHeight
-                                    radius: rootField.formPopupItemRadius
-                                    color: itemMouseArea.containsMouse
-                                           ? rootField.hoverBg
-                                           : (modelData.value === rootField.level3 ? rootField.accentTint : "transparent")
-
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: modelData.text
-                                        color: modelData.value === rootField.level3 ? rootField.accent : rootField.titleInk
-                                        font.family: rootField.uiFont
-                                        font.pixelSize: rootField.compact ? 11 : 12
-                                        font.weight: modelData.value === rootField.level3 ? 600 : 400
-                                        elide: Text.ElideRight
-                                    }
-
-                                    MouseArea {
-                                        id: itemMouseArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: rootField.level3 = modelData.value
-                                    }
-                                }
-                            }
-                        }
+                    onOpened: {
+                        Qt.callLater(function() {
+                            searchInput.forceActiveFocus()
+                        })
                     }
                 }
             }
