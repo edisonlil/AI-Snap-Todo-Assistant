@@ -598,6 +598,20 @@ def test_system_settings_persists_timeline_polish_toggle(monkeypatch: pytest.Mon
     assert bridge.enableTimelinePolish is False
 
 
+def test_system_settings_persists_todo_detail_conclusion_only_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+
+    assert bridge.todoDetailConclusionOnlyMode is False
+
+    bridge.updateTodoDetailConclusionOnlyMode(True)
+    bridge.saveConfig()
+
+    saved = bridge._config_manager.load()
+    assert saved.todo_detail_conclusion_only_mode is True
+    assert bridge.todoDetailConclusionOnlyMode is True
+
+
 def test_server_login_requires_base_url_and_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)

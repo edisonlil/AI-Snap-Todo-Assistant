@@ -26,6 +26,7 @@ class _Store:
         *,
         title: str | None = None,
         current_summary: str | None = None,
+        current_summary_attachments=None,
         summary_fields: TicketSummaryFields | None = None,
         timeline=None,
         conclusion: TodoConclusion | None = None,
@@ -36,6 +37,8 @@ class _Store:
             self.todo.title = title
         if current_summary is not None:
             self.todo.current_summary = current_summary
+        if current_summary_attachments is not None:
+            self.todo.current_summary_attachments = current_summary_attachments
         if summary_fields is not None:
             self.todo.summary_fields = summary_fields
         if timeline is not None:

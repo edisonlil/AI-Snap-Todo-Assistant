@@ -1228,6 +1228,11 @@ class _TodoDetailBridge(QObject):
         self._conclusion_updated_at = datetime.now().isoformat()
         self._conclusion_dirty = bool(mark_dirty)
 
+    def _clear_conclusion_content(self, *, mark_dirty: bool = True) -> None:
+        self._conclusion_content = ""
+        self._conclusion_updated_at = datetime.now().isoformat()
+        self._conclusion_dirty = bool(mark_dirty)
+
     def _ensure_visible_conclusion_state(self) -> None:
         has_valid_conclusion = bool(self._valid_conclusion_text() or self._conclusion_attachments)
         if not has_valid_conclusion or self._has_valid_conclusion_item():
@@ -1449,6 +1454,13 @@ class _TodoDetailBridge(QObject):
             return bool(self._config_manager.load().enable_timeline_polish)
         except Exception:
             return True
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def conclusionOnlyMode(self) -> bool:
+        try:
+            return bool(self._config_manager.load().todo_detail_conclusion_only_mode)
+        except Exception:
+            return False
 
     @pyqtProperty(int, notify=dataChanged)
     def syncRecordCount(self) -> int:
@@ -2191,6 +2203,7 @@ class _TodoDetailBridge(QObject):
     @pyqtSlot(str, str)
     def updateField(self, name: str, value: str) -> None:
         text = sanitize_text(value)
+        raw_text = strip_invalid_surrogates(str(value or ""))
         if name == "title":
             self._title = text.strip()
             self._overview = self._title
@@ -2212,14 +2225,15 @@ class _TodoDetailBridge(QObject):
             self._root_cause = text
             self._root_cause_source = "manual"
         elif name == "current_summary":
-            self._current_summary = text
+            self._current_summary = raw_text
         elif name == "conclusion_content":
-            if text:
-                self._conclusion_content = text
+            if raw_text:
+                self._conclusion_content = raw_text
                 self._conclusion_updated_at = datetime.now().isoformat()
                 self._conclusion_dirty = True
             else:
-                self._clear_conclusion()
+                self._clear_conclusion_content()
+            self._sync_local_conclusion_timeline_item()
         else:
             return
         self.dataChanged.emit()
@@ -2247,7 +2261,7 @@ class _TodoDetailBridge(QObject):
                     self._conclusion_updated_at = datetime.now().isoformat()
                     self._conclusion_dirty = True
                 else:
-                    self._clear_conclusion()
+                    self._clear_conclusion_content()
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
@@ -2508,6 +2522,27 @@ class _TodoDetailBridge(QObject):
             break
         if target_dir is None:
             target_dir = self._attachment_root / self._todo_id / _CURRENT_SUMMARY_ATTACHMENT_TARGET
+            target_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir)))
+
+    @pyqtSlot()
+    def openConclusionAttachmentFolder(self) -> None:
+        if self._todo_id is None:
+            return
+        target_dir: Path | None = None
+        for attachment in self._conclusion_attachments:
+            if not isinstance(attachment, dict):
+                continue
+            raw_path = str(attachment.get("path") or "").strip()
+            if not raw_path:
+                continue
+            candidate = Path(raw_path).expanduser()
+            if not candidate.exists():
+                continue
+            target_dir = candidate.parent if candidate.is_file() else candidate
+            break
+        if target_dir is None:
+            target_dir = self._attachment_root / self._todo_id / "conclusion"
             target_dir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir)))
 
@@ -2917,8 +2952,6 @@ class _TodoDetailBridge(QObject):
         self._conclusion_attachments = remaining
         self._conclusion_updated_at = datetime.now().isoformat()
         self._conclusion_dirty = True
-        if not self._conclusion_content.strip():
-            self._conclusion_attachments = []
         if removed_path:
             self._remove_attachment_file(removed_path)
         self._sync_local_conclusion_timeline_item()

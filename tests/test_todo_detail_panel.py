@@ -23,8 +23,14 @@ from aica.todo.detail_panel import (
 from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink
 
 
-def _build_bridge(attachment_root: Path) -> _TodoDetailBridge:
-    config_manager = SimpleNamespace(load=lambda: SimpleNamespace(show_todo_sync_status=True, enable_timeline_polish=True))
+def _build_bridge(attachment_root: Path, *, conclusion_only_mode: bool = False) -> _TodoDetailBridge:
+    config_manager = SimpleNamespace(
+        load=lambda: SimpleNamespace(
+            show_todo_sync_status=True,
+            enable_timeline_polish=True,
+            todo_detail_conclusion_only_mode=conclusion_only_mode,
+        )
+    )
     return _TodoDetailBridge(
         attachment_root=attachment_root,
         environment_access_service=SimpleNamespace(
@@ -85,6 +91,30 @@ def test_timeline_draft_text_update_does_not_emit_draft_changed(tmp_path: Path) 
 
     assert bridge.timelineDraftText == "正在输入中文"
     assert signal_count == 0
+
+
+def test_todo_detail_bridge_reads_conclusion_only_mode_from_config(tmp_path: Path) -> None:
+    bridge = _build_bridge(tmp_path, conclusion_only_mode=True)
+
+    assert bridge.conclusionOnlyMode is True
+
+
+def test_update_conclusion_content_preserves_editing_newline() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    bridge.updateField("conclusion_content", "第一行\n")
+
+    assert bridge.conclusionContent == "第一行\n"
+
+
+def test_update_current_summary_preserves_editing_newline() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    bridge.updateField("current_summary", "现状第一行\n")
+
+    assert bridge.currentSummary == "现状第一行\n"
 
 
 def test_attachment_payload_does_not_expose_docx_as_image_source() -> None:
@@ -538,6 +568,31 @@ def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
     assert "height: modelData.isImage ? 74 : 42" in qml_text
     assert "source: modelData.isImage ? modelData.fileUrl : \"\"" in qml_text
     assert 'text: "预览"' in qml_text
+
+
+def test_todo_detail_external_id_visibility_follows_sync_status_toggle() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert 'text: "external_id: " + todoDetailBridge.externalId' in qml_text
+    assert "visible: todoDetailBridge.showSyncStatus && todoDetailBridge.hasExternalId" in qml_text
+
+
+def test_todo_detail_conclusion_only_mode_qml_keeps_summary_and_assist_actions() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "readonly property bool conclusionOnlyMode: detailBridge ? detailBridge.conclusionOnlyMode : false" in qml_text
+    assert 'text: root.conclusionOnlyMode ? "问题结论" : "时间线历史"' in qml_text
+    assert 'text: todoDetailBridge.stageSummaryVisible ? "收起阶段总结" : "阶段总结"' in qml_text
+    assert 'text: "辅助排查"' in qml_text
+    assert "visible: !root.conclusionOnlyMode && todoDetailBridge.timelineExpanded" in qml_text
+    assert 'text: "输入问题结论"' in qml_text
+    assert "property bool conclusionAttachmentManagerExpanded: false" in qml_text
+    assert 'text: root.conclusionAttachmentManagerExpanded ? "收起列表" : "附件管理"' in qml_text
+    assert "onClicked: root.toggleConclusionAttachmentManager()" in qml_text
+    assert "todoDetailBridge.requestAttachmentSelection(root.conclusionAttachmentTarget)" in qml_text
+    assert "onClicked: todoDetailBridge.openConclusionAttachmentFolder()" in qml_text
     assert 'text: "复制"' in qml_text
     assert 'text: "复制名"' in qml_text
     assert 'text: "复制路径"' in qml_text
@@ -1851,6 +1906,24 @@ def test_todo_detail_complete_button_is_gated_by_conclusion() -> None:
     assert "ToolTip." not in complete_button
 
 
+def test_update_conclusion_content_keeps_payload_and_hidden_timeline_synced() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+
+    bridge.updateField("conclusion_content", "仅保留结论")
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.canCompleteTodo is True
+    assert bridge.conclusionContent == "仅保留结论"
+    assert bridge.timelineCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "仅保留结论"
+    assert payload["conclusion"].content == "仅保留结论"
+    assert payload["timeline"][0].kind == "conclusion"
+    assert payload["timeline"][0].content == "仅保留结论"
+
+
 def test_manual_save_preserves_legacy_conclusion_timeline_item() -> None:
     bridge = _build_bridge(Path("unused"))
     todo = _build_todo()
@@ -1891,6 +1964,86 @@ def test_add_conclusion_emits_conclusion_command() -> None:
     assert saved[0][1]["action"] == "save_conclusion"
     assert saved[0][1]["saveMode"] == "autosave"
     assert saved[0][1]["conclusion"].content == "最终结论"
+
+
+def test_conclusion_attachment_updates_keep_hidden_timeline_synced(tmp_path: Path) -> None:
+    bridge = _build_bridge(tmp_path)
+    bridge.set_todo(_build_todo())
+    bridge.updateField("conclusion_content", "已有结论")
+
+    source = tmp_path / "evidence.txt"
+    source.write_text("attachment", encoding="utf-8")
+
+    bridge.attach_files_to_event("__conclusion__", [str(source)])
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.conclusionAttachmentCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert payload["conclusion"].content == "已有结论"
+    assert len(payload["conclusion"].attachments) == 1
+    assert payload["timeline"][0].attachments[0].name == "evidence.txt"
+
+    attachment_id = str(bridge.conclusionAttachments[0]["id"])
+    bridge.removeConclusionAttachment(attachment_id)
+
+    updated_payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.conclusionAttachmentCount == 0
+    assert bridge.timeline[0]["content"] == "已有结论"
+    assert bridge.timeline[0]["attachmentCount"] == 0
+    assert updated_payload["conclusion"].content == "已有结论"
+    assert updated_payload["conclusion"].attachments == []
+    assert updated_payload["timeline"][0].content == "已有结论"
+    assert updated_payload["timeline"][0].attachments == []
+
+
+def test_clearing_conclusion_content_preserves_conclusion_attachments(tmp_path: Path) -> None:
+    bridge = _build_bridge(tmp_path)
+    bridge.set_todo(_build_todo())
+    bridge.updateField("conclusion_content", "已有结论")
+
+    source = tmp_path / "evidence.txt"
+    source.write_text("attachment", encoding="utf-8")
+    bridge.attach_files_to_event("__conclusion__", [str(source)])
+
+    bridge.updateField("conclusion_content", "")
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.conclusionContent == ""
+    assert bridge.conclusionAttachmentCount == 1
+    assert bridge.timeline[0]["kind"] == "conclusion"
+    assert bridge.timeline[0]["content"] == "结论已清空"
+    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert payload["conclusion"].content == ""
+    assert len(payload["conclusion"].attachments) == 1
+    assert payload["timeline"][0].attachments[0].name == "evidence.txt"
+
+
+def test_removing_conclusion_attachment_with_empty_content_keeps_remaining_attachments(tmp_path: Path) -> None:
+    bridge = _build_bridge(tmp_path)
+    bridge.set_todo(_build_todo())
+    bridge.updateField("conclusion_content", "已有结论")
+
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+    bridge.attach_files_to_event("__conclusion__", [str(first), str(second)])
+    bridge.updateField("conclusion_content", "")
+
+    first_id = str(bridge.conclusionAttachments[0]["id"])
+    bridge.removeConclusionAttachment(first_id)
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.conclusionAttachmentCount == 1
+    assert bridge.conclusionAttachments[0]["name"] == "second.txt"
+    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert len(payload["conclusion"].attachments) == 1
+    assert payload["conclusion"].attachments[0].name == "second.txt"
 
 
 def test_timeline_detail_save_preserves_raw_summary_and_detail() -> None:

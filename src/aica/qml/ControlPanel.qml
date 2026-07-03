@@ -2145,6 +2145,45 @@ Rectangle {
                                 }
 
                                 SectionCard {
+                                    visible: root.currentSection === "hotkeys"
+                                    Layout.fillWidth: true
+                                    implicitHeight: todoDetailModeContent.implicitHeight + 32
+                                    color: root.panelAltBg
+
+                                    ColumnLayout {
+                                        id: todoDetailModeContent
+                                        anchors.fill: parent
+                                        anchors.margins: 16
+                                        spacing: 12
+
+                                        Text {
+                                            text: "待办详情录入模式"
+                                            color: root.titleInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            font.weight: 700
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "控制待办详情面板显示当前时间线模式，还是仅显示结论输入框。关闭时保持当前时间线模式。"
+                                            color: root.labelInk
+                                            font.family: root.uiFont
+                                            font.pixelSize: 11
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        ControlPanelSettingsCheckBox {
+                                            Layout.fillWidth: true
+                                            theme: root.themeTokens
+                                            checked: controlPanelBridge.todoDetailConclusionOnlyMode
+                                            text: "仅显示结论框"
+                                            onToggled: controlPanelBridge.updateTodoDetailConclusionOnlyMode(checked)
+                                        }
+                                    }
+                                }
+
+                                SectionCard {
                                     visible: root.currentSection === "analysis_rules"
                                     Layout.fillWidth: true
                                     implicitHeight: analysisRulesContent.implicitHeight + 32

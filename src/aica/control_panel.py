@@ -1382,6 +1382,7 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
+        self._todo_detail_conclusion_only_mode = bool(self._config.todo_detail_conclusion_only_mode)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -1620,6 +1621,10 @@ class _ControlPanelBridge(QObject):
     @pyqtProperty(bool, notify=dataChanged)
     def enableTimelinePolish(self) -> bool:
         return self._enable_timeline_polish
+
+    @pyqtProperty(bool, notify=dataChanged)
+    def todoDetailConclusionOnlyMode(self) -> bool:
+        return self._todo_detail_conclusion_only_mode
 
     @pyqtProperty(str, notify=dataChanged)
     def errorMessage(self) -> str:
@@ -2686,6 +2691,7 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
+        self._todo_detail_conclusion_only_mode = bool(self._config.todo_detail_conclusion_only_mode)
         self._data_dir = str(app_data_dir())
         self._log_dir = str(log_dir())
         self._project_repository = SQLiteProjectRepository(aica_database_file())
@@ -2928,6 +2934,12 @@ class _ControlPanelBridge(QObject):
     @pyqtSlot(bool)
     def updateEnableTimelinePolish(self, value: bool) -> None:
         self._enable_timeline_polish = bool(value)
+        self._clear_messages()
+        self._emit_data_changed()
+
+    @pyqtSlot(bool)
+    def updateTodoDetailConclusionOnlyMode(self, value: bool) -> None:
+        self._todo_detail_conclusion_only_mode = bool(value)
         self._clear_messages()
         self._emit_data_changed()
 
@@ -3203,6 +3215,7 @@ class _ControlPanelBridge(QObject):
                 theme=self._theme_draft.to_dict(),
                 show_todo_sync_status=self._show_todo_sync_status,
                 enable_timeline_polish=self._enable_timeline_polish,
+                todo_detail_conclusion_only_mode=self._todo_detail_conclusion_only_mode,
             )
         except ValueError as exc:
             self._error_message = str(exc)
@@ -3213,6 +3226,7 @@ class _ControlPanelBridge(QObject):
         self._max_image_megabytes = format_image_limit_megabytes(self._config.max_image_bytes)
         self._show_todo_sync_status = bool(self._config.show_todo_sync_status)
         self._enable_timeline_polish = bool(self._config.enable_timeline_polish)
+        self._todo_detail_conclusion_only_mode = bool(self._config.todo_detail_conclusion_only_mode)
         self._theme_draft = ThemeConfig.from_dict(self._config.theme.to_dict())
         self._theme_controller.set_config(self._config.theme)
         self._status_message = "配置已保存"

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.models import TicketSummaryFields
 from aica.todo.detail_panel import _TodoDetailBridge
-from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem
+from aica.todo.models import TimelineAttachment, TimelineEvent, TodoConclusion, TodoItem
 
 
 def _build_bridge() -> _TodoDetailBridge:
@@ -29,7 +29,11 @@ def test_manual_save_syncs_cleared_conclusion_to_timeline() -> None:
             title="测试待办",
             current_summary="当前描述",
             summary_fields=TicketSummaryFields(),
-            conclusion=TodoConclusion(content="旧结论", updated_at="2026-04-22T10:00:00"),
+            conclusion=TodoConclusion(
+                content="旧结论",
+                updated_at="2026-04-22T10:00:00",
+                attachments=[TimelineAttachment(id="att-1", name="evidence.txt", path="/tmp/evidence.txt", size_bytes=12)],
+            ),
             timeline=[
                 TimelineEvent(
                     id="conclusion-1",
@@ -51,4 +55,6 @@ def test_manual_save_syncs_cleared_conclusion_to_timeline() -> None:
     assert bridge.timelineCount == 1
     assert bridge.timeline[0]["kind"] == "conclusion"
     assert bridge.timeline[0]["content"] == "结论已清空"
+    assert bridge.conclusionAttachmentCount == 1
+    assert bridge.timeline[0]["attachmentCount"] == 1
     assert len(saved) == 1

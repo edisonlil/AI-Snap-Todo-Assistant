@@ -153,6 +153,7 @@ class AppConfig:
     max_image_bytes: int = 4 * 1024 * 1024
     show_todo_sync_status: bool = True
     enable_timeline_polish: bool = True
+    todo_detail_conclusion_only_mode: bool = False
 
 
 def _binding(provider_id: str, model_id: str) -> TaskModelBinding:
@@ -275,6 +276,7 @@ def build_default_config() -> AppConfig:
         max_image_bytes=4 * 1024 * 1024,
         show_todo_sync_status=True,
         enable_timeline_polish=True,
+        todo_detail_conclusion_only_mode=False,
     )
 
 
@@ -405,6 +407,10 @@ def _app_config_from_dict(data: object) -> AppConfig:
         max_image_bytes=_coerce_positive_int(data.get("max_image_bytes"), defaults.max_image_bytes),
         show_todo_sync_status=_coerce_bool(data.get("show_todo_sync_status"), defaults.show_todo_sync_status),
         enable_timeline_polish=_coerce_bool(data.get("enable_timeline_polish"), defaults.enable_timeline_polish),
+        todo_detail_conclusion_only_mode=_coerce_bool(
+            data.get("todo_detail_conclusion_only_mode"),
+            defaults.todo_detail_conclusion_only_mode,
+        ),
     )
 
 
@@ -435,6 +441,11 @@ def _migrate_legacy_config(data: dict[str, object]) -> AppConfig:
     migrated.theme = ThemeConfig()
     migrated.max_image_bytes = _coerce_positive_int(data.get("max_image_bytes"), migrated.max_image_bytes)
     migrated.show_todo_sync_status = _coerce_bool(data.get("show_todo_sync_status"), migrated.show_todo_sync_status)
+    migrated.enable_timeline_polish = _coerce_bool(data.get("enable_timeline_polish"), migrated.enable_timeline_polish)
+    migrated.todo_detail_conclusion_only_mode = _coerce_bool(
+        data.get("todo_detail_conclusion_only_mode"),
+        migrated.todo_detail_conclusion_only_mode,
+    )
     return migrated
 
 
