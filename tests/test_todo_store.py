@@ -111,6 +111,31 @@ def test_today_done_uses_completed_at_instead_of_updated_at() -> None:
     assert [todo.id for todo in today_done] == [today_todo.id]
 
 
+def test_get_and_list_todos_preserve_issue_product() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-issue-product-load")))
+    snapshot = _build_snapshot("issue-product-load")
+    snapshot.fields.issue_product = "WPS协作（泛）/协作-私网"
+
+    created = repository.create_todo_from_analysis(snapshot, "analysis")
+    loaded = repository.get_todo(created.id)
+    listed = repository.list_todos(status=TodoStatus.OPEN)
+
+    assert loaded is not None
+    assert loaded.summary_fields.issue_product == "WPS协作（泛）/协作-私网"
+    assert listed[0].summary_fields.issue_product == "WPS协作（泛）/协作-私网"
+
+
+def test_list_todos_query_matches_issue_product() -> None:
+    repository = SQLiteTodoRepository(str(_make_db_path("todo-query-issue-product")))
+    snapshot = _build_snapshot("issue-product-query")
+    snapshot.fields.issue_product = "WPS协作（泛）/协作-私网"
+
+    created = repository.create_todo_from_analysis(snapshot, "analysis")
+    result = repository.list_todos(query="协作-私网", status=TodoStatus.OPEN)
+
+    assert [todo.id for todo in result] == [created.id]
+
+
 def test_unlink_todo_project_removes_link_and_clears_project_fields() -> None:
     db_path = _make_db_path("todo-unlink-project")
     project_repository = SQLiteProjectRepository(db_path)

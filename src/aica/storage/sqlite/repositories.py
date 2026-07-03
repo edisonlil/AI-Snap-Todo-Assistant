@@ -2092,6 +2092,7 @@ class SQLiteTodoRepository:
                 OR LOWER(todos.current_summary) LIKE ?
                 OR LOWER(todos.group_name) LIKE ?
                 OR LOWER(todos.environment) LIKE ?
+                OR LOWER(todos.issue_product) LIKE ?
                 OR LOWER(todos.ticket_type) LIKE ?
                 OR LOWER(todos.reproduction_probability) LIKE ?
                 OR LOWER(todos.customer_environment_value) LIKE ?
@@ -2106,7 +2107,7 @@ class SQLiteTodoRepository:
               )
             """
             pattern = f"%{normalized_query}%"
-            params.extend([pattern] * 15)
+            params.extend([pattern] * 16)
         sql += " ORDER BY todos.updated_at DESC, todos.created_at DESC, todos.id DESC"
 
         with self._connect() as connection:
@@ -2716,7 +2717,7 @@ class SQLiteTodoRepository:
         row = connection.execute(
             """
             SELECT id, title, current_summary, group_name, environment,
-                   product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value,
+                   product_line, product_module, ticket_type, reproduction_probability, customer_environment_code, customer_environment_value, issue_product,
                    ach_no, ach_filled_at, ticket_version,
                    feature_point, feature_point_source,
                    root_cause_desc, root_cause_desc_source,
