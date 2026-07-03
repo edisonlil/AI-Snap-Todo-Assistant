@@ -546,6 +546,10 @@ def test_todo_detail_summary_panel_uses_theme_field_background() -> None:
 
     assert 'text: "当前描述"' in qml_text
     assert "color: root.fieldBg" in qml_text
+    assert "id: summaryScroll" in qml_text
+    assert "TextArea {" in qml_text
+    assert "width: summaryScroll.availableWidth" in qml_text
+    assert "background: null" in qml_text
 
 
 def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
@@ -588,6 +592,8 @@ def test_todo_detail_conclusion_only_mode_qml_keeps_summary_and_assist_actions()
     assert 'text: "辅助排查"' in qml_text
     assert "visible: !root.conclusionOnlyMode && todoDetailBridge.timelineExpanded" in qml_text
     assert 'text: "输入问题结论"' in qml_text
+    assert "id: conclusionScroll" in qml_text
+    assert "width: conclusionScroll.availableWidth" in qml_text
     assert "property bool conclusionAttachmentManagerExpanded: false" in qml_text
     assert 'text: root.conclusionAttachmentManagerExpanded ? "收起列表" : "附件管理"' in qml_text
     assert "onClicked: root.toggleConclusionAttachmentManager()" in qml_text
@@ -2014,11 +2020,12 @@ def test_clearing_conclusion_content_preserves_conclusion_attachments(tmp_path: 
 
     assert bridge.conclusionContent == ""
     assert bridge.conclusionAttachmentCount == 1
-    assert bridge.timeline[0]["kind"] == "conclusion"
-    assert bridge.timeline[0]["content"] == ""
-    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert bridge.timelineCount == 0
     assert payload["conclusion"].content == ""
     assert len(payload["conclusion"].attachments) == 1
+    assert payload["timeline"][0].kind == "conclusion"
+    assert payload["timeline"][0].content == ""
+    assert len(payload["timeline"][0].attachments) == 1
     assert payload["timeline"][0].attachments[0].name == "evidence.txt"
 
 
@@ -2056,9 +2063,11 @@ def test_removing_conclusion_attachment_with_empty_content_keeps_remaining_attac
 
     assert bridge.conclusionAttachmentCount == 1
     assert bridge.conclusionAttachments[0]["name"] == "second.txt"
-    assert bridge.timeline[0]["attachmentCount"] == 1
+    assert bridge.timelineCount == 0
     assert len(payload["conclusion"].attachments) == 1
     assert payload["conclusion"].attachments[0].name == "second.txt"
+    assert len(payload["timeline"][0].attachments) == 1
+    assert payload["timeline"][0].attachments[0].name == "second.txt"
 
 
 def test_timeline_detail_save_preserves_raw_summary_and_detail() -> None:

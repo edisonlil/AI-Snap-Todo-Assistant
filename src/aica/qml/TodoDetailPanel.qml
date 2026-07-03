@@ -781,25 +781,30 @@ Rectangle {
                                 }
                             }
 
-                            Flickable {
-                                id: summaryFlick
+                            ScrollView {
+                                id: summaryScroll
                                 anchors.fill: parent
                                 anchors.margins: 14
                                 clip: true
-                                contentWidth: width
-                                contentHeight: Math.max(height, summaryEdit.contentHeight + 4)
-                                boundsBehavior: Flickable.StopAtBounds
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                                TextEdit {
+                                TextArea {
                                     id: summaryEdit
-                                    width: parent.width
+                                    width: summaryScroll.availableWidth
                                     wrapMode: TextEdit.Wrap
                                     selectByMouse: true
                                     textFormat: TextEdit.PlainText
                                     color: root.bodyInk
+                                    selectedTextColor: "#FFFFFF"
+                                    selectionColor: root.accentTint
                                     font.family: root.uiFont
                                     font.pixelSize: 12
                                     font.weight: root.bodyWeight
+                                    leftPadding: 0
+                                    rightPadding: 0
+                                    topPadding: 0
+                                    bottomPadding: 0
+                                    background: null
                                     onTextChanged: root.pushField("current_summary", text)
                                 }
                             }
@@ -823,16 +828,6 @@ Rectangle {
                                 }
                             }
 
-                            Rectangle {
-                                anchors.right: parent.right
-                                anchors.rightMargin: 8
-                                y: 10 + (summaryFlick.contentY / Math.max(1, summaryFlick.contentHeight - summaryFlick.height)) * (parent.height - height - 20)
-                                width: 4
-                                height: Math.max(28, (summaryFlick.height / Math.max(summaryFlick.contentHeight, 1)) * (parent.height - 20))
-                                radius: 2
-                                color: "#C3CAD6"
-                                visible: summaryFlick.contentHeight > summaryFlick.height + 2
-                            }
                         }
 
                         Row {
@@ -1621,26 +1616,40 @@ Rectangle {
                                     }
                                 }
 
-                                TextEdit {
-                                    id: conclusionEdit
+                                ScrollView {
+                                    id: conclusionScroll
                                     x: 16
                                     y: 16
                                     width: parent.width - 32
+                                    height: parent.height - y - 46
+                                    clip: true
+                                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                                    TextArea {
+                                    id: conclusionEdit
+                                    width: conclusionScroll.availableWidth
                                     wrapMode: TextEdit.Wrap
                                     selectByMouse: true
                                     textFormat: TextEdit.PlainText
                                     color: root.bodyInk
+                                    selectedTextColor: "#FFFFFF"
+                                    selectionColor: root.accentTint
                                     font.family: root.uiFont
                                     font.pixelSize: 13
                                     font.weight: root.bodyWeight
-                                    activeFocusOnPress: true
+                                    leftPadding: 0
+                                    rightPadding: 0
+                                    topPadding: 0
+                                    bottomPadding: 0
+                                    background: null
                                     onTextChanged: root.pushField("conclusion_content", text)
+                                }
                                 }
 
                                 Text {
-                                    x: conclusionEdit.x
+                                    x: conclusionScroll.x
                                     y: 16
-                                    width: conclusionEdit.width
+                                    width: conclusionScroll.width
                                     visible: conclusionEdit.text.length === 0 && !conclusionEdit.activeFocus
                                     text: "输入问题结论"
                                     wrapMode: Text.Wrap

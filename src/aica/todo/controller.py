@@ -288,7 +288,7 @@ class TodoController:
     def _build_conclusion_timeline_event(conclusion: TodoConclusion) -> TimelineEvent:
         attachment_names = [attachment.name for attachment in conclusion.attachments if attachment.name]
         suffix = f"\n附件: {', '.join(attachment_names[:5])}" if attachment_names else ""
-        content = str(conclusion.content or "").strip() or "结论已清空"
+        content = str(conclusion.content or "").strip()
         return TimelineEvent(
             kind="conclusion",
             scenario="结论更新",

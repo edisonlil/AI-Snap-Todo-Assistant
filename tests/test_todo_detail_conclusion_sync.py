@@ -52,9 +52,9 @@ def test_manual_save_syncs_cleared_conclusion_to_timeline() -> None:
     bridge.updateField("conclusion_content", "")
     bridge.saveTodo()
 
-    assert bridge.timelineCount == 1
-    assert bridge.timeline[0]["kind"] == "conclusion"
-    assert bridge.timeline[0]["content"] == ""
+    assert bridge.timelineCount == 0
     assert bridge.conclusionAttachmentCount == 1
-    assert bridge.timeline[0]["attachmentCount"] == 1
     assert len(saved) == 1
+    assert saved[0][1]["timeline"][0].kind == "conclusion"
+    assert saved[0][1]["timeline"][0].content == ""
+    assert len(saved[0][1]["timeline"][0].attachments) == 1
