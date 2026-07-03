@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from aica.models import TicketSummaryFields
+from aica.models import TicketSummaryFields, normalize_issue_product_path
 from aica.config import ServerConfig
 from aica.server_api import ChattodoServerClient, ChattodoServerError
 from aica.storage.adapters import now_iso
@@ -210,7 +210,7 @@ def build_work_order_payload(event: TodoDomainEvent) -> dict[str, object]:
         "customer_environment": _first_meaningful(fields.get("customer_environment"), fields.get("customer_environment_value")),
         "product_line": _first_meaningful(fields.get("product_line"), project_snapshot.get("product_line")),
         "product_module": _first_meaningful(fields.get("product_module")),
-        "issue_product": _first_meaningful(fields.get("issue_product")),
+        "issue_product": normalize_issue_product_path(_first_meaningful(fields.get("issue_product"))),
         "product_version": product_version,
         "function_point_name": feature_point,
         "root_cause": _first_meaningful(fields.get("root_cause")),
@@ -557,7 +557,7 @@ def todo_from_server_work_order(item: dict[str, Any]) -> TodoItem:
             environment=_clean(item.get("environment")),
             product_line=_clean(item.get("product_line")),
             product_module=_clean(item.get("product_module")),
-            issue_product=_clean(item.get("issue_product")),
+            issue_product=normalize_issue_product_path(item.get("issue_product")),
             ticket_type=_clean(item.get("work_order_type")),
             reproduction_probability=_clean(item.get("reproduction_probability")),
             customer_environment_code=_clean(item.get("customer_environment_code")),

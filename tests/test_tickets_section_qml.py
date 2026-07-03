@@ -111,8 +111,14 @@ def test_tickets_section_includes_issue_product_cascade_dropdown() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
 
-    assert 'label: "问题所属产品"' in qml_text
+    assert 'placeholderText: "问题所属产品"' in qml_text
+    assert "ControlPanelCascadeFilterField {" in qml_text
+    assert "selectedIssueProduct" in qml_text
     assert "issueProductOptions" in qml_text
+    assert "issueProductMatchesFilter" in qml_text
+    assert "var issuePath = parseIssueProductPath(issueProduct)" in qml_text
+    assert "var filterPath = parseIssueProductPath(filterValue)" in qml_text
+    assert 'split(/[\\/／]/)' in qml_text
     assert 'commitTicketFieldEdit("issueProduct", "issue_product")' in qml_text
     assert "parseIssueProductPath" in qml_text
     assert "issueProductLevel1Options" in qml_text

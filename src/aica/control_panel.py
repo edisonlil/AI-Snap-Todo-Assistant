@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import os
 from pathlib import Path
 import sys
@@ -333,7 +334,7 @@ from aica.paths import (
     storage_config_file,
     qml_dir,
 )
-from aica.models import TicketSummaryFields, is_unknown_text
+from aica.models import TicketSummaryFields, is_unknown_text, normalize_issue_product_path
 from aica.product_catalog import canonical_product_line, normalize_product_module, product_line_options, product_module_options
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.adapters import normalize_group_alias
@@ -923,7 +924,7 @@ def _normalize_customer_environment_option(item: object) -> dict[str, object] | 
     text = value or code
     if not text:
         return None
-    sort_order = item.get("sort_order")
+    sort_order = item.get("sortOrder", item.get("sort_order"))
     try:
         normalized_sort_order = int(sort_order) if sort_order is not None else None
     except (TypeError, ValueError):
@@ -931,6 +932,31 @@ def _normalize_customer_environment_option(item: object) -> dict[str, object] | 
     return {
         "code": code or value,
         "value": value or code,
+        "text": text,
+        "sortOrder": normalized_sort_order,
+    }
+
+
+def _normalize_issue_product_option(item: object) -> dict[str, object] | None:
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("code") or "").strip()
+    value = normalize_issue_product_path(item.get("value"))
+    text = normalize_issue_product_path(item.get("text")) or value
+    if not value:
+        value = text
+    if not text:
+        text = value
+    if not text:
+        return None
+    sort_order = item.get("sortOrder", item.get("sort_order"))
+    try:
+        normalized_sort_order = int(sort_order) if sort_order is not None else None
+    except (TypeError, ValueError):
+        normalized_sort_order = None
+    return {
+        "code": code or value,
+        "value": value,
         "text": text,
         "sortOrder": normalized_sort_order,
     }
@@ -974,6 +1000,50 @@ def _normalize_feature_point_option(item: object) -> dict[str, object] | None:
         "value": value,
         "text": text,
     }
+
+
+def _custom_field_option_cache_file(cache_key: str) -> Path:
+    return app_data_dir() / f"{cache_key}_options_cache.json"
+
+
+def _load_cached_custom_field_options(cache_key: str) -> list[dict[str, object]]:
+    path = _custom_field_option_cache_file(cache_key)
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    items = payload.get("items") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        return []
+    normalized_items: list[dict[str, object]] = []
+    for item in items:
+        normalized_item = _normalize_customer_environment_option(item)
+        if normalized_item is not None:
+            normalized_items.append(normalized_item)
+    return _sort_customer_environment_options(normalized_items)
+
+
+def _save_cached_custom_field_options(cache_key: str, items: list[dict[str, object]]) -> None:
+    path = _custom_field_option_cache_file(cache_key)
+    payload = {
+        "items": [
+            {
+                "code": str(item.get("code") or "").strip(),
+                "value": str(item.get("value") or "").strip(),
+                "text": str(item.get("text") or "").strip(),
+                "sortOrder": item.get("sortOrder") if isinstance(item.get("sortOrder"), int) else None,
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
 
 
 class ProjectServerSyncWorker(QThread):
@@ -1153,7 +1223,7 @@ class FeaturePointRefreshWorker(QThread):
         self._config_manager = config_manager
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
-        self._issue_product = str(issue_product or "").strip()
+        self._issue_product = normalize_issue_product_path(issue_product)
         self._problem_desc = str(problem_desc or "").strip()
 
     def run(self) -> None:
@@ -1347,11 +1417,17 @@ class _ControlPanelBridge(QObject):
         self._server_identity = self._empty_server_identity_payload()
         self._server_identity_loading = False
         self._server_identity_worker: ServerIdentityWorker | None = None
-        self._customer_environment_options: list[dict[str, object]] = []
+        self._customer_environment_options: list[dict[str, object]] = _load_cached_custom_field_options("customer_environment")
         self._customer_environment_loading = False
         self._customer_environment_error = ""
         self._customer_environment_worker: CustomerEnvironmentDictionaryWorker | None = None
-        self._issue_product_options: list[dict[str, object]] = []
+        self._issue_product_options: list[dict[str, object]] = _sort_customer_environment_options(
+            [
+                normalized_item
+                for item in _load_cached_custom_field_options("issue_product")
+                if (normalized_item := _normalize_issue_product_option(item)) is not None
+            ]
+        )
         self._issue_product_loading = False
         self._issue_product_error = ""
         self._issue_product_worker: IssueProductOptionsWorker | None = None
@@ -2138,6 +2214,7 @@ class _ControlPanelBridge(QObject):
             "summary": str(todo.current_summary or "").strip(),
             "groupName": str(todo.summary_fields.group_name or "").strip(),
             "environment": "" if is_unknown_text(todo.summary_fields.environment) else str(todo.summary_fields.environment or "").strip(),
+            "issueProduct": str(todo.summary_fields.issue_product or "").strip(),
             "productLine": "" if is_unknown_text(todo.summary_fields.product_line) else str(todo.summary_fields.product_line or "").strip(),
             "ticketType": str(todo.summary_fields.ticket_type or "").strip(),
             "reproductionProbability": str(todo.summary_fields.reproduction_probability or "").strip(),
@@ -2324,8 +2401,8 @@ class _ControlPanelBridge(QObject):
 
     def _selected_ticket_issue_product_options(self, issue_product: str) -> list[dict[str, object]]:
         options = [dict(item) for item in self._issue_product_options]
-        normalized_value = str(issue_product or "").strip()
-        if normalized_value and any(str(item.get("value") or "").strip() == normalized_value for item in options):
+        normalized_value = normalize_issue_product_path(issue_product)
+        if normalized_value and any(normalize_issue_product_path(item.get("value")) == normalized_value for item in options):
             return options
         if normalized_value:
             options.append(
@@ -2339,10 +2416,12 @@ class _ControlPanelBridge(QObject):
         deduplicated: list[dict[str, object]] = []
         seen_values: set[str] = set()
         for item in options:
-            value = str(item.get("value") or "").strip()
+            value = normalize_issue_product_path(item.get("value"))
             if value in seen_values:
                 continue
             seen_values.add(value)
+            item["value"] = value
+            item["text"] = normalize_issue_product_path(item.get("text")) or value
             deduplicated.append(item)
         return _sort_customer_environment_options(deduplicated)
 
@@ -3951,6 +4030,7 @@ class _ControlPanelBridge(QObject):
             if normalized_item is not None:
                 normalized_items.append(normalized_item)
         self._customer_environment_options = _sort_customer_environment_options(normalized_items)
+        _save_cached_custom_field_options("customer_environment", self._customer_environment_options)
         self._customer_environment_loading = False
         self._customer_environment_error = ""
         self._refresh_selected_ticket_payload()
@@ -3965,10 +4045,11 @@ class _ControlPanelBridge(QObject):
     def _handle_issue_product_options_finished(self, items: object) -> None:
         normalized_items: list[dict[str, object]] = []
         for item in list(items or []):
-            normalized_item = _normalize_customer_environment_option(item)
+            normalized_item = _normalize_issue_product_option(item)
             if normalized_item is not None:
                 normalized_items.append(normalized_item)
         self._issue_product_options = _sort_customer_environment_options(normalized_items)
+        _save_cached_custom_field_options("issue_product", self._issue_product_options)
         self._issue_product_loading = False
         self._issue_product_error = ""
         self._refresh_selected_ticket_payload()
@@ -4131,7 +4212,7 @@ class _ControlPanelBridge(QObject):
             )
             customer_environment_value = str(selected_option.get("value") or "").strip() if isinstance(selected_option, dict) else ""
         if normalized_field == "issue_product":
-            issue_product = next_value
+            issue_product = normalize_issue_product_path(next_value)
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(

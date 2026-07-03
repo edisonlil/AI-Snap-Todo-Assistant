@@ -79,6 +79,19 @@ def test_result_dialog_saves_issue_product() -> None:
     assert bridge.build_snapshot().fields.issue_product == "产品A/模块B/功能C"
 
 
+def test_result_dialog_normalizes_issue_product_path_segments() -> None:
+    bridge = _ResultDialogBridge(
+        result=_build_snapshot(),
+        scenario="\u5de5\u5355\u8ddf\u8fdb",
+        model="test-model",
+    )
+
+    bridge.updateField("issue_product", "产品A / 模块B ／ 功能C")
+
+    assert bridge.issueProduct == "产品A/模块B/功能C"
+    assert bridge.build_snapshot().fields.issue_product == "产品A/模块B/功能C"
+
+
 def test_result_dialog_does_not_require_product_line_when_group_has_no_project_match() -> None:
     bridge = _ResultDialogBridge(
         result=_build_snapshot(),

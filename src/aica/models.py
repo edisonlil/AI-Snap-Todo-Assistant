@@ -125,6 +125,7 @@ _TRIGGER_HINTS = (
 
 _SINGLE_CHAR_CHANGE_RE = re.compile(r"变(?:为|成)?([A-Za-z0-9])(?:了)?")
 _DISPLAY_CHAR_RE = re.compile(r"显示(?:为|成)?([A-Za-z0-9])")
+_ISSUE_PRODUCT_PATH_SPLIT_RE = re.compile(r"[／/]")
 
 
 def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
@@ -134,6 +135,17 @@ def _clean(value: Any, fallback: str = UNKNOWN_TEXT) -> str:
 
 def _clean_free_text(value: Any) -> str:
     return sanitize_text(value)
+
+
+def normalize_issue_product_path(value: Any) -> str:
+    text = sanitize_text(value)
+    if not text:
+        return ""
+    if "/" not in text and "／" not in text:
+        return text
+    parts = [sanitize_text(part) for part in _ISSUE_PRODUCT_PATH_SPLIT_RE.split(text)]
+    normalized_parts = [part for part in parts if part]
+    return "/".join(normalized_parts)
 
 
 def _normalize_field_source(value: Any) -> str:
@@ -295,7 +307,7 @@ class TicketSummaryFields:
         self.reproduction_probability = _normalize_reproduction_probability(self.reproduction_probability)
         self.customer_environment_code = _clean_free_text(self.customer_environment_code)
         self.customer_environment_value = _clean_free_text(self.customer_environment_value)
-        self.issue_product = _clean_free_text(self.issue_product)
+        self.issue_product = normalize_issue_product_path(self.issue_product)
         self.ach_no = _clean_free_text(self.ach_no)
         self.ach_filled_at = _clean_free_text(self.ach_filled_at)
         self.ticket_version = _clean_free_text(self.ticket_version)

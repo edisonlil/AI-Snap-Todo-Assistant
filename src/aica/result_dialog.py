@@ -168,7 +168,7 @@ except Exception:  # pragma: no cover - fallback for test environments without Q
             return None
 
 from aica.analysis.metrics import AnalysisRunStats
-from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text
+from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text, normalize_issue_product_path
 from aica.runtime import RUNTIME_CAPABILITIES
 from aica.storage.contracts import ProjectMatchCandidate, ProjectMatchResult
 from aica.storage.sqlite.repositories import SQLiteProjectRepository
@@ -235,7 +235,7 @@ class _ResultDialogBridge(QObject):
         self._environment = _clean_text(result.fields.environment)
         self._environment_manual = not is_unknown_text(result.fields.environment)
         self._product_line = sanitize_text(result.fields.product_line)
-        self._issue_product = sanitize_text(result.fields.issue_product)
+        self._issue_product = normalize_issue_product_path(result.fields.issue_product)
         self._issue_product_manual = bool(self._issue_product.strip())
         self._product_line_error = ""
         self._project_candidates: list[dict[str, object]] = []
@@ -330,8 +330,8 @@ class _ResultDialogBridge(QObject):
             self._environment = text
             self._environment_manual = not is_unknown_text(text)
         elif name == "issue_product":
-            self._issue_product = text
-            self._issue_product_manual = bool(text.strip())
+            self._issue_product = normalize_issue_product_path(text)
+            self._issue_product_manual = bool(self._issue_product.strip())
         elif name == "ticket_type":
             self._ticket_type = normalize_ticket_type(text, summary_text=self._recognition_conclusion)
         elif name == "timeline_entry":
@@ -366,7 +366,7 @@ class _ResultDialogBridge(QObject):
                 group_name=_clean_text(self._group_name),
                 environment=_clean_text(self._environment),
                 product_line=self._product_line,
-                issue_product=self._issue_product.strip(),
+                issue_product=normalize_issue_product_path(self._issue_product),
                 ticket_type=normalize_ticket_type(
                     self._ticket_type,
                     summary_text="\n".join(
@@ -443,7 +443,7 @@ class _ResultDialogBridge(QObject):
         if not normalized_project_id:
             return
         try:
-            latest_issue_product = sanitize_text(provider(normalized_project_id))
+            latest_issue_product = normalize_issue_product_path(provider(normalized_project_id))
         except Exception:
             latest_issue_product = ""
         if latest_issue_product:

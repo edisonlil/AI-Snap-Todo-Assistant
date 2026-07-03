@@ -9,7 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from aica.models import TicketSnapshot, TicketSummaryFields, is_unknown_text, merge_summary_fields_for_append
+from aica.models import (
+    TicketSnapshot,
+    TicketSummaryFields,
+    is_unknown_text,
+    merge_summary_fields_for_append,
+    normalize_issue_product_path,
+)
 from aica.paths import aica_database_file, todo_bindings_file, todos_file
 from aica.project_management import is_project_active, split_project_product_lines
 from aica.log_analysis.models import LogAnalysisTask
@@ -107,7 +113,7 @@ def _build_project_version_record(row: sqlite3.Row | dict[str, Any]) -> ProjectV
     return ProjectVersionRecord(
         id=str(payload.get("id") or ""),
         project_id=str(payload.get("project_id") or ""),
-        issue_product=str(payload.get("issue_product") or ""),
+        issue_product=normalize_issue_product_path(payload.get("issue_product")),
         environment=str(payload.get("environment") or ""),
         version=str(payload.get("version") or ""),
         created_at=str(payload.get("created_at") or now_iso()),
@@ -351,6 +357,98 @@ class SQLiteStorageMigrator:
         )
         self._migrate_projects_without_product_version(connection)
         self._repair_project_foreign_keys_after_projects_rebuild(connection)
+        self._normalize_issue_product_storage(connection)
+
+    def _normalize_issue_product_storage(self, connection: sqlite3.Connection) -> None:
+        todo_rows = connection.execute(
+            """
+            SELECT id, issue_product
+            FROM todos
+            WHERE TRIM(COALESCE(issue_product, '')) <> ''
+            """
+        ).fetchall()
+        for row in todo_rows:
+            normalized_issue_product = normalize_issue_product_path(row["issue_product"])
+            raw_issue_product = sanitize_text(row["issue_product"])
+            if not normalized_issue_product or normalized_issue_product == raw_issue_product:
+                continue
+            connection.execute(
+                "UPDATE todos SET issue_product = ? WHERE id = ?",
+                (normalized_issue_product, str(row["id"] or "")),
+            )
+
+        project_version_rows = connection.execute(
+            """
+            SELECT id, project_id, issue_product, environment, version, created_at, updated_at
+            FROM project_versions
+            ORDER BY updated_at DESC, created_at DESC, id DESC
+            """
+        ).fetchall()
+        if not project_version_rows:
+            return
+
+        normalized_rows: list[tuple[str, str, str, str, str, str, str]] = []
+        seen_keys: set[tuple[str, str, str]] = set()
+        requires_rebuild = False
+        for row in project_version_rows:
+            record_id = str(row["id"] or "")
+            project_id = sanitize_text(row["project_id"])
+            issue_product = normalize_issue_product_path(row["issue_product"])
+            environment = sanitize_text(row["environment"])
+            version = sanitize_text(row["version"])
+            created_at = sanitize_text(row["created_at"])
+            updated_at = sanitize_text(row["updated_at"])
+            key = (project_id, issue_product, environment)
+            if issue_product != sanitize_text(row["issue_product"]):
+                requires_rebuild = True
+            if key in seen_keys:
+                requires_rebuild = True
+                continue
+            seen_keys.add(key)
+            normalized_rows.append((record_id, project_id, issue_product, environment, version, created_at, updated_at))
+
+        if not requires_rebuild:
+            return
+
+        legacy_table_name = "project_versions_issue_product_old"
+        suffix = 0
+        while connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+            (legacy_table_name,),
+        ).fetchone() is not None:
+            suffix += 1
+            legacy_table_name = f"project_versions_issue_product_old_{suffix}"
+
+        connection.execute(f"ALTER TABLE project_versions RENAME TO {legacy_table_name}")
+        connection.execute(
+            """
+            CREATE TABLE project_versions (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              issue_product TEXT NOT NULL DEFAULT '',
+              environment TEXT NOT NULL DEFAULT '',
+              version TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO project_versions(
+              id, project_id, issue_product, environment, version, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+            """,
+            normalized_rows,
+        )
+        connection.execute(f"DROP TABLE {legacy_table_name}")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_versions_key ON project_versions(project_id, issue_product, environment)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_versions_project ON project_versions(project_id, updated_at DESC, created_at DESC)"
+        )
 
     def _migrate_projects_without_product_version(self, connection: sqlite3.Connection) -> None:
         columns = _table_info(connection, "projects")
@@ -1017,7 +1115,7 @@ class SQLiteProjectRepository:
             ).fetchone()
         if row is None:
             return ""
-        return sanitize_text(row["issue_product"])
+        return normalize_issue_product_path(row["issue_product"])
 
     def latest_environment_for_project(self, project_id: str) -> str:
         normalized_project_id = sanitize_text(project_id)
@@ -1427,7 +1525,7 @@ class SQLiteProjectRepository:
         environment: str,
     ) -> ProjectVersionRecord | None:
         normalized_project_id = sanitize_text(project_id)
-        normalized_issue_product = sanitize_text(issue_product)
+        normalized_issue_product = normalize_issue_product_path(issue_product)
         normalized_environment = sanitize_text(environment)
         if not normalized_project_id or not normalized_issue_product or not normalized_environment:
             return None
@@ -1453,7 +1551,7 @@ class SQLiteProjectRepository:
         version: str,
     ) -> ProjectVersionRecord | None:
         normalized_project_id = sanitize_text(project_id)
-        normalized_issue_product = sanitize_text(issue_product)
+        normalized_issue_product = normalize_issue_product_path(issue_product)
         normalized_environment = sanitize_text(environment)
         normalized_version = sanitize_text(version)
         if not normalized_project_id or not normalized_issue_product or not normalized_environment or not normalized_version:
@@ -1625,7 +1723,7 @@ class SQLiteTodoRepository:
         current_product_module = sanitize_text(current_row["product_module"])
         current_customer_environment_code = sanitize_text(current_row["customer_environment_code"])
         current_customer_environment_value = sanitize_text(current_row["customer_environment_value"])
-        current_issue_product = sanitize_text(current_row["issue_product"])
+        current_issue_product = normalize_issue_product_path(current_row["issue_product"])
         current_ticket_version = sanitize_text(current_row["ticket_version"]) if "ticket_version" in current_row.keys() else ""
 
         updated_environment = previous_environment if is_unknown_text(current_environment) else current_environment
@@ -1710,7 +1808,11 @@ class SQLiteTodoRepository:
             (normalized_project_id, normalized_todo_id),
         ).fetchall()
         for item in row:
-            value = sanitize_text(item["value"])
+            value = (
+                normalize_issue_product_path(item["value"])
+                if normalized_field_name == "issue_product"
+                else sanitize_text(item["value"])
+            )
             if not value:
                 continue
             if not include_unknown and is_unknown_text(value):
@@ -1754,7 +1856,7 @@ class SQLiteTodoRepository:
             project_id = sanitize_text(project_link.project_id if project_link is not None else row["project_id"])
             match_status = sanitize_text(project_link.match_status if project_link is not None else row["match_status"])
             environment = sanitize_text(row["environment"])
-            issue_product = sanitize_text(row["issue_product"])
+            issue_product = normalize_issue_product_path(row["issue_product"])
             ticket_version = sanitize_text(row["ticket_version"])
             if match_status not in {"matched", "manual"}:
                 return
@@ -1804,7 +1906,7 @@ class SQLiteTodoRepository:
             if match_status not in {"matched", "manual"}:
                 return
             environment = sanitize_text(row["environment"])
-            issue_product = sanitize_text(row["issue_product"])
+            issue_product = normalize_issue_product_path(row["issue_product"])
             if not environment or not issue_product or not project_id:
                 return
             project_version = self._project_repository.get_project_version(project_id, issue_product, environment)
@@ -2155,7 +2257,7 @@ class SQLiteTodoRepository:
                     sanitize_text(snapshot.fields.reproduction_probability),
                     sanitize_text(snapshot.fields.customer_environment_code),
                     sanitize_text(snapshot.fields.customer_environment_value),
-                    sanitize_text(snapshot.fields.issue_product),
+                    normalize_issue_product_path(snapshot.fields.issue_product),
                     ach_no,
                     ach_filled_at,
                     sanitize_text(snapshot.fields.ticket_version),
@@ -2229,7 +2331,7 @@ class SQLiteTodoRepository:
                     sanitize_text(merged_fields.reproduction_probability),
                     sanitize_text(merged_fields.customer_environment_code),
                     sanitize_text(merged_fields.customer_environment_value),
-                    sanitize_text(merged_fields.issue_product),
+                    normalize_issue_product_path(merged_fields.issue_product),
                     sanitize_text(merged_fields.ach_no),
                     sanitize_text(merged_fields.ach_filled_at),
                     sanitize_text(merged_fields.ticket_version),
@@ -2369,9 +2471,9 @@ class SQLiteTodoRepository:
                 else str(row["customer_environment_value"])
             )
             updated_issue_product = (
-                sanitize_text(summary_fields.issue_product)
+                normalize_issue_product_path(summary_fields.issue_product)
                 if summary_fields is not None
-                else str(row["issue_product"])
+                else normalize_issue_product_path(row["issue_product"])
             )
             updated_ach_no = (
                 sanitize_text(summary_fields.ach_no)
@@ -3279,7 +3381,7 @@ def _upsert_todo(connection: sqlite3.Connection, todo: TodoItem) -> None:
             sanitize_text(todo.summary_fields.reproduction_probability),
             sanitize_text(todo.summary_fields.customer_environment_code),
             sanitize_text(todo.summary_fields.customer_environment_value),
-            sanitize_text(todo.summary_fields.issue_product),
+            normalize_issue_product_path(todo.summary_fields.issue_product),
             sanitize_text(todo.summary_fields.ach_no),
             sanitize_text(todo.summary_fields.ach_filled_at),
             sanitize_text(todo.summary_fields.ticket_version),

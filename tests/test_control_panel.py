@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -393,6 +394,42 @@ def test_control_panel_bridge_exposes_macos_platform_flag(monkeypatch: pytest.Mo
     bridge = _build_bridge(monkeypatch, todo)
 
     assert bridge.isMacos is True
+
+
+def test_control_panel_bridge_loads_cached_custom_field_options_on_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "control-panel-cache"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    (temp_dir / "customer_environment_options_cache.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {"code": "env-prod", "value": "生产环境", "text": "生产环境", "sortOrder": 1},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (temp_dir / "issue_product_options_cache.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {"code": "product-1", "value": "产品A/模块B/功能C", "text": "产品A/模块B/功能C", "sortOrder": 2},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda prefix="", dir=None: str(temp_dir))
+
+    bridge = _build_bridge(monkeypatch, _build_todo())
+
+    assert bridge.customerEnvironmentOptions[0]["text"] == "生产环境"
+    assert bridge.issueProductOptions[0]["text"] == "产品A/模块B/功能C"
 
 
 def test_plan_export_model_options_include_text_only_models(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1488,6 +1525,34 @@ def test_selected_ticket_exposes_issue_product_value_and_options(monkeypatch: py
     assert bridge.selectedTicket["issueProductOptions"][0]["text"] == "产品A/模块B/功能C"
 
 
+def test_issue_product_refresh_persists_option_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "control-panel-cache-write"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda prefix="", dir=None: str(temp_dir))
+    bridge = _build_bridge(monkeypatch, _build_todo())
+
+    bridge._handle_issue_product_options_finished(  # noqa: SLF001
+        [
+            {"code": "product-2", "value": "产品X/模块Y/功能Z", "sort_order": 3},
+        ]
+    )
+
+    payload = json.loads((temp_dir / "issue_product_options_cache.json").read_text(encoding="utf-8"))
+    assert payload["items"][0]["value"] == "产品X/模块Y/功能Z"
+    assert payload["items"][0]["sortOrder"] == 3
+
+
+def test_ticket_list_payload_includes_issue_product(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.listTickets("", "open")
+
+    assert bridge.tickets[0]["issueProduct"] == "产品A/模块B/功能C"
+
+
 def test_save_selected_ticket_issue_product_updates_summary_field(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()
@@ -1502,6 +1567,17 @@ def test_save_selected_ticket_issue_product_updates_summary_field(monkeypatch: p
 
     assert bridge.selectedTicket["issueProduct"] == "产品X/模块Y/功能Z"
     assert [str(event.event_type) for event in publisher.events] == ["updated"]
+
+
+def test_save_selected_ticket_issue_product_normalizes_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("issue_product", "产品A / 模块B ／ 功能C")
+
+    assert bridge.selectedTicket["issueProduct"] == "产品A/模块B/功能C"
+    assert bridge._todo_store.get_todo(todo.id).summary_fields.issue_product == "产品A/模块B/功能C"  # noqa: SLF001
 
 
 def test_selected_ticket_exposes_feature_point_search_payload(monkeypatch: pytest.MonkeyPatch) -> None:

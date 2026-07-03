@@ -859,6 +859,72 @@ def test_schema_migration_creates_error_codes_table_and_updates_version() -> Non
     assert "idx_error_codes_last_seen" in indexes
 
 
+def test_schema_migration_normalizes_issue_product_storage_and_deduplicates_versions() -> None:
+    db_path = _make_db_path("issue-product-normalization")
+    migrator = SQLiteStorageMigrator(str(db_path))
+    migrator.ensure_schema()
+
+    project_repository = SQLiteProjectRepository(db_path)
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            customer_name="Demo Customer",
+            task_order_no="WO-001",
+            aliases=("测试群",),
+        )
+    )
+    todo_repository = SQLiteTodoRepository(str(db_path))
+    todo = todo_repository.create_todo_from_analysis(
+        TicketSnapshot(
+            title="待办一",
+            fields=TicketSummaryFields(
+                group_name="测试群",
+                environment="正式环境",
+                issue_product="产品A/模块B/功能C",
+                ticket_version="v1",
+            ),
+            current_summary="描述一",
+            timeline_entry="结论一",
+        ),
+        "analysis",
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE todos SET issue_product = ? WHERE id = ?",
+            ("产品A / 模块B ／ 功能C", todo.id),
+        )
+        connection.execute(
+            """
+            INSERT INTO project_versions(
+              id, project_id, issue_product, environment, version, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "version-spaced",
+                "project-1",
+                "产品A / 模块B ／ 功能C",
+                "正式环境",
+                "v2",
+                "2099-07-02T00:00:00",
+                "2099-07-02T00:00:00",
+            ),
+        )
+
+    _INITIALIZED_DATABASES.discard(migrator._cache_key())  # noqa: SLF001
+    migrator.ensure_schema()
+
+    repaired_todo = todo_repository.get_todo(todo.id)
+    assert repaired_todo is not None
+    assert repaired_todo.summary_fields.issue_product == "产品A/模块B/功能C"
+
+    project_versions = project_repository.list_project_versions("project-1")
+    assert len(project_versions) == 1
+    assert project_versions[0].issue_product == "产品A/模块B/功能C"
+    assert project_versions[0].version == "v2"
+
+
 def test_schema_migration_repairs_project_related_foreign_keys_after_projects_rebuild() -> None:
     db_path = _make_db_path("todo-project-fk-repair")
     migrator = SQLiteStorageMigrator(str(db_path))

@@ -519,6 +519,18 @@ def test_todo_from_server_work_order_maps_pull_payload() -> None:
     assert todo.timeline[0].attachments[0].path == "https://example.com/install-log.txt"
 
 
+def test_todo_from_server_work_order_normalizes_issue_product_path() -> None:
+    todo = todo_from_server_work_order(
+        {
+            "external_order_no": "WO-003",
+            "title": "问题所属产品需要规范化",
+            "issue_product": "产品A / 模块B ／ 功能C",
+        }
+    )
+
+    assert todo.summary_fields.issue_product == "产品A/模块B/功能C"
+
+
 def test_todo_from_server_work_order_keeps_other_customer_environment_field_empty_when_missing() -> None:
     todo = todo_from_server_work_order(
         {

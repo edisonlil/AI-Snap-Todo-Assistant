@@ -19,7 +19,7 @@ ColumnLayout {
     property string currentTicketId: ""
     property bool pendingCustomerEnvironmentEdit: false
     property bool pendingIssueProductEdit: false
-    property string selectedProductLine: "all"
+    property string selectedIssueProduct: ""
     property string selectedTicketType: "all"
     property int ticketPageSize: 10
     property int ticketCurrentPage: 1
@@ -34,11 +34,6 @@ ColumnLayout {
         { value: "today_done", text: "\u4eca\u65e5\u5b8c\u6210" },
         { value: "done_missing_ach", text: "\u5df2\u5b8c\u6210\u672a\u586bACH" },
         { value: "all", text: "\u5168\u90e8\u72b6\u6001" }
-    ]
-    property var productLineOptions: [
-        { value: "all", text: "\u4ea7\u54c1\u7ebf" },
-        { value: "\u6587\u6863\u4e2d\u53f0", text: "\u6587\u6863\u4e2d\u53f0" },
-        { value: "\u6587\u6863\u4e2d\u5fc3", text: "\u6587\u6863\u4e2d\u5fc3" }
     ]
     property var ticketTypeOptions: [
         { value: "all", text: "\u7c7b\u578b" },
@@ -161,14 +156,35 @@ ColumnLayout {
         return options[index % options.length]
     }
 
+    function issueProductMatchesFilter(issueProduct, filterValue) {
+        var issuePath = parseIssueProductPath(issueProduct)
+        var filterPath = parseIssueProductPath(filterValue)
+        if (!filterPath.level1.length) {
+            return true
+        }
+        if (!issuePath.level1.length) {
+            return false
+        }
+        if (issuePath.level1 !== filterPath.level1) {
+            return false
+        }
+        if (filterPath.level2.length > 0 && issuePath.level2 !== filterPath.level2) {
+            return false
+        }
+        if (filterPath.level3.length > 0 && issuePath.level3 !== filterPath.level3) {
+            return false
+        }
+        return true
+    }
+
     function refreshTicketListView(resetPage) {
         var sourceTickets = controlPanelBridge.tickets || []
         var nextTickets = []
         for (var i = 0; i < sourceTickets.length; i += 1) {
             var ticket = sourceTickets[i]
-            var productLine = String(ticket.productLine || "").trim()
+            var issueProduct = String(ticket.issueProduct || "").trim()
             var ticketType = String(ticket.ticketType || "").trim()
-            if (selectedProductLine !== "all" && productLine !== selectedProductLine) {
+            if (!issueProductMatchesFilter(issueProduct, selectedIssueProduct)) {
                 continue
             }
             if (selectedTicketType !== "all" && ticketType !== selectedTicketType) {
@@ -462,7 +478,10 @@ ColumnLayout {
     }
 
     function parseIssueProductPath(value) {
-        var parts = String(value || "").split("/")
+        var parts = String(value || "").split(/[\/／]/)
+        for (var index = 0; index < parts.length; index += 1) {
+            parts[index] = String(parts[index] || "").trim()
+        }
         var level1 = parts.length > 0 ? parts[0] : ""
         var level2 = parts.length > 1 ? parts[1] : ""
         var level3 = parts.length > 2 ? parts.slice(2).join("/") : ""
@@ -740,17 +759,18 @@ ColumnLayout {
                                 onActivated: if (currentIndex >= 0) controlPanelBridge.listTickets(ticketSearchInput.text, ticketSection.statusOptions[currentIndex].value)
                             }
 
-                            ControlPanelSettingsCombo {
-                                id: ticketProductLineCombo
+                            ControlPanelCascadeFilterField {
+                                id: ticketIssueProductFilter
                                 theme: ticketSection.theme
                                 width: 112
-                                model: ticketSection.productLineOptions
-                                currentIndex: ticketSection.theme.optionIndex(ticketSection.productLineOptions, ticketSection.selectedProductLine)
-                                onActivated: {
-                                    if (currentIndex < 0) {
-                                        return
-                                    }
-                                    ticketSection.selectedProductLine = ticketSection.productLineOptions[currentIndex].value
+                                value: ticketSection.selectedIssueProduct
+                                placeholderText: "问题所属产品"
+                                parsePathFn: ticketSection.parseIssueProductPath
+                                level1OptionsFn: ticketSection.issueProductLevel1Options
+                                level2OptionsFn: ticketSection.issueProductLevel2Options
+                                level3OptionsFn: ticketSection.issueProductLevel3Options
+                                onAccepted: function(value) {
+                                    ticketSection.selectedIssueProduct = value
                                     ticketSection.refreshTicketListView(true)
                                 }
                             }

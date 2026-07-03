@@ -62,6 +62,30 @@ def test_control_panel_sections_use_shared_form_components() -> None:
     assert "height: 40" not in ticket_filter_source
 
 
+def test_cascade_filter_field_matches_ticket_detail_cascade_popup_style() -> None:
+    cascade_filter = _qml("ControlPanelCascadeFilterField.qml")
+
+    assert 'readonly property color popupBg: resolveThemeColor("panelAltBg", "#F5F5F5")' in cascade_filter
+    assert "function popupOffsetX(popupWidth)" in cascade_filter
+    assert "function acceptCurrentSelection()" in cascade_filter
+    assert "function clearSelection()" in cascade_filter
+    assert "padding: rootField.popupPadding" in cascade_filter
+    assert "width: Math.max(rootField.width, rootField.popupContentWidth())" in cascade_filter
+    assert "x: rootField.popupOffsetX(width)" in cascade_filter
+    assert 'color: rootField.popupBg' in cascade_filter
+    assert cascade_filter.count("color: rootField.popupBg") >= 5
+    assert 'Layout.preferredWidth: 180' in cascade_filter
+    assert 'font.weight: modelData.value === rootField.level2 ? 600 : 400' in cascade_filter
+    assert 'text: "未找到匹配项"' in cascade_filter
+    assert "id: clearAction" in cascade_filter
+    assert 'text: "清空"' in cascade_filter
+    assert 'rightPadding: clearAction.visible ? 56 : 12' in cascade_filter
+    assert "ControlPanelPlainButton {" not in cascade_filter
+    assert 'text: "一级"' not in cascade_filter
+    assert 'text: "应用"' not in cascade_filter
+    assert 'text: "清空筛选"' not in cascade_filter
+
+
 def test_project_alias_chips_render_normalized_alias_text() -> None:
     projects = _qml("ProjectsSection.qml")
     control_panel = _qml("ControlPanel.qml")
