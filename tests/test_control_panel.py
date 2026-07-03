@@ -18,7 +18,7 @@ from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnviron
 from aica.models import TicketSummaryFields  # noqa: E402
 from aica.otp_secret_extractor import OtpSecretExtractResult  # noqa: E402
 from aica.storage.contracts import ProjectRecord, ProjectVersionRecord  # noqa: E402
-from aica.todo.models import TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
+from aica.todo.models import TimelineEvent, TodoConclusion, TodoItem, TodoProjectLink, TodoStatus  # noqa: E402
 
 
 class _TextClipboard:
@@ -1445,6 +1445,35 @@ def test_reopen_selected_ticket_publishes_reopened_event(monkeypatch: pytest.Mon
 
     assert [str(event.event_type) for event in publisher.events] == ["reopened"]
     assert publisher.events[0].todo_snapshot["status"] == TodoStatus.OPEN
+
+
+def test_selected_ticket_hides_cleared_conclusion_timeline_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="manual-1",
+            timestamp="2026-07-03T14:58:00",
+            kind="manual",
+            scenario="工单跟进",
+            content="先复现问题",
+        ),
+        TimelineEvent(
+            id="conclusion-1",
+            timestamp="2026-07-03T15:00:00",
+            kind="conclusion",
+            scenario="结论更新",
+            content="结论已清空",
+        ),
+    ]
+    bridge = _build_bridge(monkeypatch, todo)
+
+    bridge.listTickets("", "open")
+    bridge.openTicketDetail(todo.id)
+
+    assert bridge.selectedTicket["timelineCount"] == 1
+    assert len(bridge.selectedTicket["timeline"]) == 1
+    assert bridge.selectedTicket["timeline"][0]["kind"] == "manual"
+    assert bridge.selectedTicket["timeline"][0]["content"] == "先复现问题"
 
 
 def test_save_selected_ticket_field_ignores_readonly_ach_no(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -54,7 +54,7 @@ def test_manual_save_syncs_cleared_conclusion_to_timeline() -> None:
 
     assert bridge.timelineCount == 1
     assert bridge.timeline[0]["kind"] == "conclusion"
-    assert bridge.timeline[0]["content"] == "结论已清空"
+    assert bridge.timeline[0]["content"] == ""
     assert bridge.conclusionAttachmentCount == 1
     assert bridge.timeline[0]["attachmentCount"] == 1
     assert len(saved) == 1

@@ -2013,6 +2013,9 @@ class _TodoDetailBridge(QObject):
 
     @staticmethod
     def _should_hide_timeline_item(item: dict[str, object]) -> bool:
+        if str(item.get("kind") or "").strip() == "conclusion":
+            content = str(item.get("content", "") or "").strip()
+            return not content or content == "结论已清空"
         if str(item.get("type") or "") != _TIMELINE_EVENT_TYPE_LOG_ANALYSIS_COMMAND:
             return False
         payload = _clone_dict(item.get("payload", {}))
@@ -2035,10 +2038,12 @@ class _TodoDetailBridge(QObject):
             existing_item = item
             break
         has_meaningful_conclusion = bool(self._conclusion_content.strip() or self._conclusion_attachments)
-        if not has_meaningful_conclusion and not self._conclusion_dirty:
-            return
-        should_render = bool(has_meaningful_conclusion or existing_item is not None or self._conclusion_dirty)
-        if not should_render:
+        if not has_meaningful_conclusion:
+            if existing_index is None:
+                return
+            del self._timeline[existing_index]
+            self._refresh_display_timeline()
+            self.timelineChanged.emit()
             return
         timestamp = self._conclusion_updated_at or datetime.now().isoformat()
         content = build_conclusion_timeline_content(

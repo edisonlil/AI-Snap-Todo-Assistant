@@ -6,14 +6,13 @@ from .models import TimelineEvent, TodoConclusion
 
 _CONCLUSION_KIND = "conclusion"
 _CONCLUSION_SCENARIO = "结论更新"
-_CLEARED_CONCLUSION_TEXT = "结论已清空"
 
 
 def build_conclusion_timeline_content(
     content: str,
     attachment_names: list[str],
 ) -> str:
-    return sanitize_text(content).strip() or _CLEARED_CONCLUSION_TEXT
+    return sanitize_text(content).strip()
 
 
 def sync_conclusion_timeline(
@@ -33,8 +32,8 @@ def sync_conclusion_timeline(
     has_meaningful_conclusion = bool(
         sanitize_text(conclusion.content).strip() or attachment_names
     )
-    if not has_meaningful_conclusion and existing_event is None:
-        return list(timeline)
+    if not has_meaningful_conclusion:
+        return remaining
 
     timestamp = (
         sanitize_text(conclusion.updated_at)

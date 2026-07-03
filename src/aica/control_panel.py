@@ -801,6 +801,13 @@ def _ticket_timeline_scenario(kind: str, scenario: str) -> str:
     return str(scenario or "").strip() or "\u7cfb\u7edf\u8bb0\u5f55"
 
 
+def _should_show_ticket_timeline_event(event: object) -> bool:
+    if str(getattr(event, "kind", "") or "").strip() != "conclusion":
+        return True
+    content = str(getattr(event, "content", "") or "").strip()
+    return bool(content and content != "结论已清空")
+
+
 def _new_project_aliases(previous_aliases: list[str], next_aliases: list[str]) -> list[str]:
     seen = {normalize_group_alias(alias) for alias in previous_aliases if normalize_group_alias(alias)}
     added: list[str] = []
@@ -2239,7 +2246,7 @@ class _ControlPanelBridge(QObject):
             "completedAtLabel": _format_display_timestamp(todo.completed_at),
             "updatedAt": str(todo.updated_at or ""),
             "updatedAtLabel": _format_display_timestamp(todo.updated_at),
-            "timelineCount": len(todo.timeline),
+            "timelineCount": sum(1 for event in todo.timeline if _should_show_ticket_timeline_event(event)),
         }
 
     def _build_ticket_detail_payload(self, todo: TodoItem) -> dict[str, object]:
@@ -2251,6 +2258,8 @@ class _ControlPanelBridge(QObject):
         issue_product = str(todo.summary_fields.issue_product or "").strip()
         timeline_payload = []
         for event in reversed(todo.timeline):
+            if not _should_show_ticket_timeline_event(event):
+                continue
             attachments = [
                 {
                     "id": attachment.id,

@@ -2015,11 +2015,26 @@ def test_clearing_conclusion_content_preserves_conclusion_attachments(tmp_path: 
     assert bridge.conclusionContent == ""
     assert bridge.conclusionAttachmentCount == 1
     assert bridge.timeline[0]["kind"] == "conclusion"
-    assert bridge.timeline[0]["content"] == "结论已清空"
+    assert bridge.timeline[0]["content"] == ""
     assert bridge.timeline[0]["attachmentCount"] == 1
     assert payload["conclusion"].content == ""
     assert len(payload["conclusion"].attachments) == 1
     assert payload["timeline"][0].attachments[0].name == "evidence.txt"
+
+
+def test_clearing_conclusion_content_removes_empty_conclusion_timeline_entry() -> None:
+    bridge = _build_bridge(Path("unused"))
+    bridge.set_todo(_build_todo())
+    bridge.updateField("conclusion_content", "已有结论")
+
+    bridge.updateField("conclusion_content", "")
+
+    payload = bridge._build_payload()  # noqa: SLF001
+
+    assert bridge.conclusionContent == ""
+    assert bridge.timelineCount == 0
+    assert payload["conclusion"].content == ""
+    assert [item.kind for item in payload["timeline"]] == []
 
 
 def test_removing_conclusion_attachment_with_empty_content_keeps_remaining_attachments(tmp_path: Path) -> None:

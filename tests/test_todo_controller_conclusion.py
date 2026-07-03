@@ -81,7 +81,7 @@ def test_update_todo_adds_conclusion_timeline_entry_when_conclusion_changes() ->
     assert updated.timeline[-1].content == "已定位为配置缺失"
 
 
-def test_update_todo_keeps_conclusion_timeline_entry_when_conclusion_is_cleared() -> None:
+def test_update_todo_removes_conclusion_timeline_entry_when_conclusion_is_cleared() -> None:
     todo = _build_todo()
     todo.conclusion = TodoConclusion(content="旧结论", updated_at="2026-04-22T10:00:00")
     todo.timeline.append(
@@ -102,6 +102,4 @@ def test_update_todo_keeps_conclusion_timeline_entry_when_conclusion_is_cleared(
     )
 
     assert updated is not None
-    assert [event.kind for event in updated.timeline] == ["manual", "conclusion"]
-    assert updated.timeline[-1].id == "conclusion-1"
-    assert updated.timeline[-1].content == "结论已清空"
+    assert [event.kind for event in updated.timeline] == ["manual"]

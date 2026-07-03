@@ -44,7 +44,7 @@ def test_sync_conclusion_timeline_appends_conclusion_event() -> None:
     assert [attachment.name for attachment in updated[-1].attachments] == ["detail.txt"]
 
 
-def test_sync_conclusion_timeline_preserves_existing_conclusion_event_id_when_cleared() -> None:
+def test_sync_conclusion_timeline_removes_existing_conclusion_event_when_cleared() -> None:
     timeline = [
         TimelineEvent(
             id="progress-1",
@@ -71,6 +71,4 @@ def test_sync_conclusion_timeline_preserves_existing_conclusion_event_id_when_cl
         ),
     )
 
-    assert [event.kind for event in updated] == ["manual", "conclusion"]
-    assert updated[-1].id == "conclusion-1"
-    assert updated[-1].content == "结论已清空"
+    assert [event.kind for event in updated] == ["manual"]
