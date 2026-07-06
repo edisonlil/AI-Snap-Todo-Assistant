@@ -555,16 +555,33 @@ Rectangle {
                                 cacheBuffer: rootField.formPopupItemHeight * 10
                                 model: rootField.options
                                 spacing: 2
-                                onMovementEnded: {
+                                function loadMoreTriggerDistance() {
+                                    return Math.max(rootField.formPopupItemHeight * 6, height * 0.5)
+                                }
+
+                                function isNearLoadMoreEdge() {
+                                    if (contentHeight <= height) {
+                                        return true
+                                    }
+                                    return contentY + height + loadMoreTriggerDistance() >= contentHeight
+                                }
+
+                                function requestLoadMoreIfNeeded() {
                                     if (
                                         visible
                                         && rootField.hasMore
                                         && !rootField.loading
-                                        && contentHeight > height
-                                        && contentY + height >= contentHeight - (rootField.formPopupItemHeight * 2)
+                                        && isNearLoadMoreEdge()
                                     ) {
                                         rootField.loadMoreRequested()
                                     }
+                                }
+
+                                onContentYChanged: requestLoadMoreIfNeeded()
+                                onHeightChanged: requestLoadMoreIfNeeded()
+                                onContentHeightChanged: requestLoadMoreIfNeeded()
+                                onMovementEnded: {
+                                    requestLoadMoreIfNeeded()
                                 }
 
                                 delegate: Rectangle {

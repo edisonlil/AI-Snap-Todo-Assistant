@@ -283,7 +283,16 @@ def test_feature_point_remote_select_field_supports_debounced_search_and_selecti
     assert "flickableDirection: Flickable.VerticalFlick" in feature_point_qml
     assert "reuseItems: true" in feature_point_qml
     assert "cacheBuffer: rootField.formPopupItemHeight * 10" in feature_point_qml
+    assert "function loadMoreTriggerDistance()" in feature_point_qml
+    assert "function isNearLoadMoreEdge()" in feature_point_qml
+    assert "function requestLoadMoreIfNeeded()" in feature_point_qml
+    assert "onContentYChanged: requestLoadMoreIfNeeded()" in feature_point_qml
+    assert "onHeightChanged: requestLoadMoreIfNeeded()" in feature_point_qml
+    assert "onContentHeightChanged: requestLoadMoreIfNeeded()" in feature_point_qml
     assert "onMovementEnded: {" in feature_point_qml
+    assert "return Math.max(rootField.formPopupItemHeight * 6, height * 0.5)" in feature_point_qml
+    assert "return contentY + height + loadMoreTriggerDistance() >= contentHeight" in feature_point_qml
+    assert "requestLoadMoreIfNeeded()" in feature_point_qml
     assert "rootField.loadMoreRequested()" in feature_point_qml
     assert "ScrollBar.vertical: ScrollBar {" in feature_point_qml
     assert 'text: "正在加载更多功能点..."' in feature_point_qml
