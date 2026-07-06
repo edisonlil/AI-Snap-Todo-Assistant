@@ -2098,6 +2098,7 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
             config_manager,
             todo_id,
             request_id,
+            product_line,
             query,
             page,
             page_size,
@@ -2107,6 +2108,7 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
+            self.product_line = product_line
             self.query = query
             self.page = page
             self.page_size = page_size
@@ -2122,11 +2124,12 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
 
     monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
 
-    bridge.searchSelectedTicketFeaturePointOptions("页面跑版")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("文档中台", "页面跑版")
 
     assert len(created_workers) == 1
     worker = created_workers[0]
     assert worker.started is True
+    assert worker.product_line == "文档中台"
     assert worker.query == "页面跑版"
     assert worker.page == 1
     assert worker.page_size == 20
@@ -2163,7 +2166,7 @@ def test_search_selected_ticket_feature_point_options_clears_on_empty_query(monk
     bridge._feature_point_query = "旧关键字"  # noqa: SLF001
     bridge._refresh_selected_ticket_payload()  # noqa: SLF001
 
-    bridge.searchSelectedTicketFeaturePointOptions("")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("文档中台", "")
 
     assert bridge.selectedTicket["featurePointOptions"] == []
     assert bridge.selectedTicket["featurePointLoading"] is False
@@ -2195,6 +2198,7 @@ def test_search_selected_ticket_feature_point_options_clears_stale_results_befor
             config_manager,
             todo_id,
             request_id,
+            product_line,
             query,
             page,
             page_size,
@@ -2204,6 +2208,7 @@ def test_search_selected_ticket_feature_point_options_clears_stale_results_befor
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
+            self.product_line = product_line
             self.query = query
             self.page = page
             self.page_size = page_size
@@ -2218,10 +2223,11 @@ def test_search_selected_ticket_feature_point_options_clears_stale_results_befor
 
     monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
 
-    bridge.searchSelectedTicketFeaturePointOptions("页面跑版")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("文档中台", "页面跑版")
 
     assert len(created_workers) == 1
     assert created_workers[0].started is True
+    assert created_workers[0].product_line == "文档中台"
     assert created_workers[0].page == 1
     assert bridge.selectedTicket["featurePointOptions"] == []
     assert bridge.selectedTicket["featurePointLoading"] is True
@@ -2247,6 +2253,7 @@ def test_load_more_selected_ticket_feature_point_options_requests_next_page(monk
             config_manager,
             todo_id,
             request_id,
+            product_line,
             query,
             page,
             page_size,
@@ -2256,6 +2263,7 @@ def test_load_more_selected_ticket_feature_point_options_requests_next_page(monk
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
+            self.product_line = product_line
             self.query = query
             self.page = page
             self.page_size = page_size
@@ -2270,7 +2278,7 @@ def test_load_more_selected_ticket_feature_point_options_requests_next_page(monk
 
     monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
 
-    bridge.searchSelectedTicketFeaturePointOptions("协作")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("WPS协作（移动端）", "协作")
     created_workers[0].finished.emit(
         created_workers[0].todo_id,
         created_workers[0].request_id,
@@ -2286,6 +2294,7 @@ def test_load_more_selected_ticket_feature_point_options_requests_next_page(monk
 
     assert len(created_workers) == 2
     assert created_workers[1].started is True
+    assert created_workers[1].product_line == "WPS协作（移动端）"
     assert created_workers[1].query == "协作"
     assert created_workers[1].page == 2
     assert bridge.selectedTicket["featurePointLoading"] is True
@@ -2312,6 +2321,7 @@ def test_load_more_selected_ticket_feature_point_options_appends_results(monkeyp
             config_manager,
             todo_id,
             request_id,
+            product_line,
             query,
             page,
             page_size,
@@ -2321,6 +2331,7 @@ def test_load_more_selected_ticket_feature_point_options_appends_results(monkeyp
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
+            self.product_line = product_line
             self.query = query
             self.page = page
             self.page_size = page_size
@@ -2334,7 +2345,7 @@ def test_load_more_selected_ticket_feature_point_options_appends_results(monkeyp
 
     monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
 
-    bridge.searchSelectedTicketFeaturePointOptions("协作")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("WPS协作（移动端）", "协作")
     created_workers[0].finished.emit(
         created_workers[0].todo_id,
         created_workers[0].request_id,
@@ -2389,6 +2400,7 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
             config_manager,
             todo_id,
             request_id,
+            product_line,
             query,
             page,
             page_size,
@@ -2398,6 +2410,7 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
             self.error = control_panel._Signal()
             self.todo_id = todo_id
             self.request_id = request_id
+            self.product_line = product_line
             self.query = query
             self.page = page
             self.page_size = page_size
@@ -2411,8 +2424,8 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
 
     monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
 
-    bridge.searchSelectedTicketFeaturePointOptions("页面")
-    bridge.searchSelectedTicketFeaturePointOptions("跑版")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("文档中台", "页面")
+    bridge.searchSelectedTicketFeaturePointOptionsWithProductLine("文档中台", "跑版")
 
     assert len(created_workers) == 2
 

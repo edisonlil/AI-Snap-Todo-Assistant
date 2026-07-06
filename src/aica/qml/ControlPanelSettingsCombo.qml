@@ -188,6 +188,12 @@ ComboBox {
         popupList.positionViewAtIndex(popupList.currentIndex, ListView.Contain)
     }
 
+    function dismissPopup() {
+        popup.close()
+        filterText = ""
+        input.focus = false
+    }
+
     textRole: "text"
     editable: true
     font.family: theme.uiFont

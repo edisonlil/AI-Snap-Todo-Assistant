@@ -69,6 +69,7 @@ def test_cascade_filter_field_matches_ticket_detail_cascade_popup_style() -> Non
     assert "function popupOffsetX(popupWidth)" in cascade_filter
     assert "function acceptCurrentSelection()" in cascade_filter
     assert "function clearSelection()" in cascade_filter
+    assert "function closePopup()" in cascade_filter
     assert "padding: rootField.popupPadding" in cascade_filter
     assert "width: Math.max(rootField.width, rootField.popupContentWidth())" in cascade_filter
     assert "x: rootField.popupOffsetX(width)" in cascade_filter
@@ -156,6 +157,7 @@ def test_control_panel_settings_combo_supports_typed_fuzzy_filtering() -> None:
     assert "property string filterText" in combo
     assert "function fuzzyMatch(text, query)" in combo
     assert "function filteredOptions()" in combo
+    assert "function dismissPopup()" in combo
     assert "TextField {" in combo
     assert "model: combo.popup.visible ? combo.filteredOptions() : null" in combo
     assert "text: modelData.label" in combo

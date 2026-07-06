@@ -260,6 +260,14 @@ Rectangle {
         })
     }
 
+    function closePopup() {
+        popup.close()
+        filterText = ""
+        if (searchInput) {
+            searchInput.focus = false
+        }
+    }
+
     radius: fieldRadius
     color: fieldBg
     border.width: 1

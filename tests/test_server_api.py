@@ -156,7 +156,13 @@ def test_fetch_function_point_options_sends_expected_request() -> None:
         session=session,  # type: ignore[arg-type]
     )
 
-    items = client.fetch_function_point_options(q="页面跑版", page=2, page_size=50, active_only=False)
+    items = client.fetch_function_point_options(
+        product_line="文档中台",
+        q="页面跑版",
+        page=2,
+        page_size=50,
+        active_only=False,
+    )
 
     assert items == [
         {
@@ -167,6 +173,7 @@ def test_fetch_function_point_options_sends_expected_request() -> None:
     assert session.calls[0]["method"] == "GET"
     assert session.calls[0]["url"] == "https://server.example.com/api/open/v1/workbench/function-points/options"
     assert session.calls[0]["params"] == {
+        "product_line": "文档中台",
         "q": "页面跑版",
         "page": 2,
         "page_size": 50,

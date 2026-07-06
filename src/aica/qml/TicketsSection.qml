@@ -9,6 +9,7 @@ ColumnLayout {
     visible: controlPanelBridge.currentSection === "tickets"
     onVisibleChanged: {
         if (!visible) {
+            ticketSection.closeListFilterPopups()
             ticketSection.resetAllFieldStates()
         }
     }
@@ -220,6 +221,13 @@ ColumnLayout {
         }
         ticketCurrentPage = nextPage
         refreshTicketListView(false)
+    }
+
+    function closeListFilterPopups() {
+        ticketStatusCombo.dismissPopup()
+        ticketIssueProductFilter.closePopup()
+        ticketTypeCombo.dismissPopup()
+        pageSizeCombo.dismissPopup()
     }
 
     function currentTicketFieldValue(fieldName) {
@@ -736,6 +744,11 @@ ColumnLayout {
     PageRuntime {
         id: ticketListRuntime
         visible: controlPanelBridge.selectedTicket.id.length === 0
+        onVisibleChanged: {
+            if (!visible) {
+                ticketSection.closeListFilterPopups()
+            }
+        }
         theme: ticketSection.theme
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -2052,8 +2065,8 @@ ColumnLayout {
                                             actionIconSource: controlPanelBridge.refreshFeaturePointIconSource
 
                                             onClicked: ticketSection.beginTicketFieldEdit("featurePoint")
-                                            onSearchRequested: function(query) {
-                                                controlPanelBridge.searchSelectedTicketFeaturePointOptions(query)
+                                            onSearchRequested: function(productLine, query) {
+                                                controlPanelBridge.searchSelectedTicketFeaturePointOptionsWithProductLine(productLine, query)
                                             }
                                             onLoadMoreRequested: controlPanelBridge.loadMoreSelectedTicketFeaturePointOptions()
                                             onActionTriggered: ticketSection.refreshFeaturePointField()

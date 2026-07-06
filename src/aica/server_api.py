@@ -97,6 +97,7 @@ class ChattodoServerClient:
     def fetch_function_point_options(
         self,
         *,
+        product_line: str = "",
         q: str = "",
         page: int = 1,
         page_size: int = 20,
@@ -106,6 +107,7 @@ class ChattodoServerClient:
             "GET",
             "/api/open/v1/workbench/function-points/options",
             params={
+                "product_line": sanitize_text(product_line).strip(),
                 "q": sanitize_text(q).strip(),
                 "page": max(1, int(page or 1)),
                 "page_size": min(100, max(1, int(page_size or 20))),

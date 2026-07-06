@@ -30,7 +30,8 @@ info_plist = {
     "CFBundleShortVersionString": "1.0.0",
     "CFBundleVersion": "1.0.0",
     "NSInputMonitoringUsageDescription": "Chattodo 需要监听你设置的全局截图快捷键，用于快速开始截图。",
-    "LSUIElement": True,
+    # Keep the standard Dock presence while still showing the menu bar tray icon.
+    "LSUIElement": False,
 }
 
 

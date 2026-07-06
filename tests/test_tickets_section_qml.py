@@ -27,7 +27,21 @@ def test_tickets_section_resets_field_states_when_section_hides() -> None:
 
     assert 'visible: controlPanelBridge.currentSection === "tickets"' in qml_text
     assert "onVisibleChanged: {" in qml_text
+    assert "ticketSection.closeListFilterPopups()" in qml_text
     assert "ticketSection.resetAllFieldStates()" in qml_text
+
+
+def test_tickets_section_closes_list_filter_popups_when_list_runtime_hides() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+
+    assert "function closeListFilterPopups()" in qml_text
+    assert "ticketStatusCombo.dismissPopup()" in qml_text
+    assert "ticketIssueProductFilter.closePopup()" in qml_text
+    assert "ticketTypeCombo.dismissPopup()" in qml_text
+    assert "pageSizeCombo.dismissPopup()" in qml_text
+    runtime_block = qml_text[qml_text.index("id: ticketListRuntime"):qml_text.index("theme: ticketSection.theme", qml_text.index("id: ticketListRuntime"))]
+    assert "onVisibleChanged: {" in runtime_block
+    assert "ticketSection.closeListFilterPopups()" in runtime_block
 
 
 def test_tickets_section_table_supports_horizontal_scroll() -> None:
@@ -173,7 +187,7 @@ def test_tickets_section_uses_remote_feature_point_select_field() -> None:
     assert "featurePointLoading" in qml_text
     assert "featurePointHasMore" in qml_text
     assert "featurePointError" in qml_text
-    assert "searchSelectedTicketFeaturePointOptions(query)" in qml_text
+    assert "searchSelectedTicketFeaturePointOptionsWithProductLine(productLine, query)" in qml_text
     assert "loadMoreSelectedTicketFeaturePointOptions()" in qml_text
     assert 'commitTicketFieldEdit("featurePoint", "feature_point")' in qml_text
 
@@ -256,12 +270,17 @@ def test_feature_point_remote_select_field_supports_debounced_search_and_selecti
         Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "FeaturePointRemoteSelectField.qml"
     ).read_text(encoding="utf-8")
 
-    assert "signal searchRequested(string query)" in feature_point_qml
+    assert 'property string productLineFilterText: ""' in feature_point_qml
+    assert "signal searchRequested(string productLine, string query)" in feature_point_qml
     assert "Timer {" in feature_point_qml
     assert "searchDebounce.restart()" in feature_point_qml
+    assert "RowLayout {" in feature_point_qml
+    assert 'Layout.preferredWidth: Math.max(140, rootField.width * 0.32)' in feature_point_qml
+    assert 'placeholderText: "功能点产品线"' in feature_point_qml
     assert 'placeholderText: "输入关键字搜索功能点"' in feature_point_qml
-    assert "rootField.searchRequested(rootField.filterText)" in feature_point_qml
-    assert 'rootField.searchRequested("")' in feature_point_qml
+    assert "function normalizedProductLineText()" in feature_point_qml
+    assert "rootField.searchRequested(rootField.normalizedProductLineText(), rootField.filterText)" in feature_point_qml
+    assert 'rootField.searchRequested(rootField.normalizedProductLineText(), "")' in feature_point_qml
     assert 'rootField.accepted(String(option.value || ""))' in feature_point_qml
     assert 'visible: rootField.loading && rootField.options.length === 0' in feature_point_qml
     assert '"正在搜索功能点..."' in feature_point_qml
@@ -274,6 +293,8 @@ def test_feature_point_remote_select_field_supports_debounced_search_and_selecti
     assert "function popupHeightValue()" in feature_point_qml
     assert "function popupYPosition()" in feature_point_qml
     assert "onAccepted: rootField.submitSearchInput()" in feature_point_qml
+    assert "onAccepted: searchInput.forceActiveFocus()" in feature_point_qml
+    assert 'productLineFilterText = ""' in feature_point_qml
     assert 'text: "直接填写：" + rootField.normalizedFilterText()' in feature_point_qml
     assert "onClicked: rootField.commitManualValue(rootField.filterText)" in feature_point_qml
     assert 'visible: rootField.normalizedFilterText().length > 0 && options.length > 0' in feature_point_qml

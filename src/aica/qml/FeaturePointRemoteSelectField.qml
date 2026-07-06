@@ -16,6 +16,7 @@ Rectangle {
     property bool compact: false
     property var options: []
     property string errorText: ""
+    property string productLineFilterText: ""
     property string filterText: ""
     property bool actionVisible: false
     property bool actionBusy: false
@@ -47,7 +48,7 @@ Rectangle {
     signal accepted(string value)
     signal canceled
     signal actionTriggered
-    signal searchRequested(string query)
+    signal searchRequested(string productLine, string query)
     signal loadMoreRequested
 
     function resolveThemeColor(name, fallback) {
@@ -128,6 +129,10 @@ Rectangle {
         return String(rootField.filterText || "").trim()
     }
 
+    function normalizedProductLineText() {
+        return String(rootField.productLineFilterText || "").trim()
+    }
+
     function hasExactOptionMatch(rawValue) {
         var normalized = String(rawValue || "").trim()
         if (!normalized.length) {
@@ -185,6 +190,7 @@ Rectangle {
     onEditingChanged: {
         if (!editing) {
             committingSelection = false
+            productLineFilterText = ""
             filterText = ""
             searchDebounce.stop()
             popup.close()
@@ -194,9 +200,10 @@ Rectangle {
             if (!rootField.editing) {
                 return
             }
+            productLineFilterText = ""
             filterText = ""
             popup.open()
-            rootField.searchRequested("")
+            rootField.searchRequested(rootField.normalizedProductLineText(), "")
             searchInput.forceActiveFocus()
         })
     }
@@ -210,7 +217,7 @@ Rectangle {
         id: searchDebounce
         interval: 250
         repeat: false
-        onTriggered: rootField.searchRequested(rootField.filterText)
+        onTriggered: rootField.searchRequested(rootField.normalizedProductLineText(), rootField.filterText)
     }
 
     ColumnLayout {
@@ -458,33 +465,68 @@ Rectangle {
                             anchors.margins: 4
                             spacing: 4
 
-                            TextField {
-                                id: searchInput
+                            RowLayout {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: rootField.formInlineEditHeight
-                                placeholderText: "输入关键字搜索功能点"
-                                text: rootField.filterText
-                                color: rootField.titleInk
-                                font.family: rootField.uiFont
-                                font.pixelSize: rootField.compact ? 11 : 12
-                                selectByMouse: true
+                                spacing: 6
 
-                                background: Rectangle {
-                                    radius: rootField.formPopupItemRadius
-                                    color: rootField.panelBg
-                                    border.width: 1
-                                    border.color: rootField.fieldLine
+                                TextField {
+                                    id: productLineInput
+                                    Layout.preferredWidth: Math.max(140, rootField.width * 0.32)
+                                    Layout.preferredHeight: rootField.formInlineEditHeight
+                                    placeholderText: "功能点产品线"
+                                    text: rootField.productLineFilterText
+                                    color: rootField.titleInk
+                                    font.family: rootField.uiFont
+                                    font.pixelSize: rootField.compact ? 11 : 12
+                                    selectByMouse: true
+
+                                    background: Rectangle {
+                                        radius: rootField.formPopupItemRadius
+                                        color: rootField.panelBg
+                                        border.width: 1
+                                        border.color: rootField.fieldLine
+                                    }
+
+                                    onTextEdited: {
+                                        rootField.productLineFilterText = text
+                                        searchDebounce.restart()
+                                    }
+                                    onAccepted: searchInput.forceActiveFocus()
+                                    Keys.onEscapePressed: {
+                                        rootField.committingSelection = true
+                                        popup.close()
+                                        rootField.canceled()
+                                    }
                                 }
 
-                                onTextEdited: {
-                                    rootField.filterText = text
-                                    searchDebounce.restart()
-                                }
-                                onAccepted: rootField.submitSearchInput()
-                                Keys.onEscapePressed: {
-                                    rootField.committingSelection = true
-                                    popup.close()
-                                    rootField.canceled()
+                                TextField {
+                                    id: searchInput
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: rootField.formInlineEditHeight
+                                    placeholderText: "输入关键字搜索功能点"
+                                    text: rootField.filterText
+                                    color: rootField.titleInk
+                                    font.family: rootField.uiFont
+                                    font.pixelSize: rootField.compact ? 11 : 12
+                                    selectByMouse: true
+
+                                    background: Rectangle {
+                                        radius: rootField.formPopupItemRadius
+                                        color: rootField.panelBg
+                                        border.width: 1
+                                        border.color: rootField.fieldLine
+                                    }
+
+                                    onTextEdited: {
+                                        rootField.filterText = text
+                                        searchDebounce.restart()
+                                    }
+                                    onAccepted: rootField.submitSearchInput()
+                                    Keys.onEscapePressed: {
+                                        rootField.committingSelection = true
+                                        popup.close()
+                                        rootField.canceled()
+                                    }
                                 }
                             }
 

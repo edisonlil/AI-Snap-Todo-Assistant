@@ -26,6 +26,12 @@ def test_macos_spec_collects_onnxruntime_runtime() -> None:
     assert 'collect_dynamic_libs("onnxruntime")' in spec_text
 
 
+def test_macos_spec_keeps_dock_icon_enabled() -> None:
+    spec_text = (ROOT / "aica_macos.spec").read_text(encoding="utf-8")
+
+    assert '"LSUIElement": False' in spec_text
+
+
 def test_macos_build_script_uses_env_not_cli_target_arch() -> None:
     script_text = (ROOT / "scripts" / "build_macos_app.sh").read_text(encoding="utf-8")
 

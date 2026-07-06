@@ -1324,6 +1324,7 @@ class FeaturePointOptionsWorker(QThread):
         config_manager: ConfigManager,
         todo_id: str,
         request_id: str,
+        product_line: str,
         query: str,
         page: int,
         page_size: int,
@@ -1333,6 +1334,7 @@ class FeaturePointOptionsWorker(QThread):
         self._config_manager = config_manager
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
+        self._product_line = str(product_line or "").strip()
         self._query = str(query or "").strip()
         self._page = max(1, int(page or 1))
         self._page_size = min(100, max(1, int(page_size or 20)))
@@ -1341,6 +1343,7 @@ class FeaturePointOptionsWorker(QThread):
         try:
             client = ChattodoServerClient.from_config(self._config_manager.load().server)
             items = client.fetch_function_point_options(
+                product_line=self._product_line,
                 q=self._query,
                 page=self._page,
                 page_size=self._page_size,
@@ -1460,6 +1463,7 @@ class _ControlPanelBridge(QObject):
         self._feature_point_options: list[dict[str, object]] = []
         self._feature_point_loading = False
         self._feature_point_error = ""
+        self._feature_point_product_line = ""
         self._feature_point_query = ""
         self._feature_point_page = 0
         self._feature_point_page_size = 20
@@ -2583,6 +2587,7 @@ class _ControlPanelBridge(QObject):
         self._feature_point_options = []
         self._feature_point_loading = False
         self._feature_point_error = ""
+        self._feature_point_product_line = ""
         self._feature_point_query = ""
         self._feature_point_page = 0
         self._feature_point_has_more = False
@@ -4171,27 +4176,50 @@ class _ControlPanelBridge(QObject):
 
     @pyqtSlot(str)
     def searchSelectedTicketFeaturePointOptions(self, query: str) -> None:
+        self._search_selected_ticket_feature_point_options("", query)
+
+    @pyqtSlot(str, str)
+    def searchSelectedTicketFeaturePointOptionsWithProductLine(self, product_line: str, query: str) -> None:
+        self._search_selected_ticket_feature_point_options(product_line, query)
+
+    def _search_selected_ticket_feature_point_options(self, product_line: str, query: str) -> None:
         if not self._selected_ticket_id:
             return
+        normalized_product_line = str(product_line or "").strip()
         normalized_query = str(query or "").strip()
         if not normalized_query:
+            self._feature_point_product_line = normalized_product_line
             self._feature_point_query = ""
             self._feature_point_options = []
             self._feature_point_loading = False
             self._feature_point_error = ""
+            self._feature_point_page = 0
+            self._feature_point_has_more = False
             self._refresh_selected_ticket_payload()
             self._emit_data_changed()
             return
         if not _is_server_config_ready(self._config.server):
+            self._feature_point_product_line = normalized_product_line
+            self._feature_point_query = normalized_query
             self._feature_point_loading = False
             self._feature_point_error = "服务端未配置，无法搜索功能点。"
             self._refresh_selected_ticket_payload()
             self._emit_data_changed()
             return
-        if self._feature_point_loading and self._feature_point_query == normalized_query:
+        if (
+            self._feature_point_loading
+            and self._feature_point_product_line == normalized_product_line
+            and self._feature_point_query == normalized_query
+        ):
             return
-        if not self._feature_point_loading and self._feature_point_query == normalized_query and self._feature_point_options:
+        if (
+            not self._feature_point_loading
+            and self._feature_point_product_line == normalized_product_line
+            and self._feature_point_query == normalized_query
+            and self._feature_point_options
+        ):
             return
+        self._feature_point_product_line = normalized_product_line
         self._feature_point_query = normalized_query
         self._feature_point_options = []
         self._feature_point_page = 0
@@ -4219,6 +4247,7 @@ class _ControlPanelBridge(QObject):
             config_manager=self._config_manager,
             todo_id=self._selected_ticket_id,
             request_id=request_id,
+            product_line=self._feature_point_product_line,
             query=self._feature_point_query,
             page=request_page,
             page_size=self._feature_point_page_size,
