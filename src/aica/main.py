@@ -129,15 +129,32 @@ class _AppCommandDispatcher(QObject):
         self.command_received.emit(command)
 
 
-def _show_control_panel_for_external_activation(app: QApplication, show_control_panel) -> None:
+def _show_control_panel_for_external_activation(
+    app: QApplication,
+    show_control_panel,
+    *,
+    is_capture_ui_active=None,
+) -> None:
+    if callable(is_capture_ui_active) and is_capture_ui_active():
+        return
     if _cursor_is_over_application_window(app):
         return
     show_control_panel("server")
 
 
-def _handle_application_state_changed(state, app: QApplication, show_control_panel) -> None:
+def _handle_application_state_changed(
+    state,
+    app: QApplication,
+    show_control_panel,
+    *,
+    is_capture_ui_active=None,
+) -> None:
     if state == Qt.ApplicationState.ApplicationActive:
-        _show_control_panel_for_external_activation(app, show_control_panel)
+        _show_control_panel_for_external_activation(
+            app,
+            show_control_panel,
+            is_capture_ui_active=is_capture_ui_active,
+        )
 
 
 def _resolve_error_log_file() -> Path:
@@ -345,6 +362,7 @@ def _install_macos_dock_handlers(
     show_control_panel,
     request_capture,
     startup_log_file: Path,
+    is_capture_ui_active=None,
 ):
     if not RUNTIME_CAPABILITIES.is_macos:
         return None
@@ -362,14 +380,26 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
 
     activation_filter = _ApplicationActivationFilter(
-        lambda: QTimer.singleShot(0, lambda: _show_control_panel_for_external_activation(app, show_control_panel)),
+        lambda: QTimer.singleShot(
+            0,
+            lambda: _show_control_panel_for_external_activation(
+                app,
+                show_control_panel,
+                is_capture_ui_active=is_capture_ui_active,
+            ),
+        ),
         app,
     )
     app.installEventFilter(activation_filter)
     app.applicationStateChanged.connect(
         lambda state: QTimer.singleShot(
             0,
-            lambda state=state: _handle_application_state_changed(state, app, show_control_panel),
+            lambda state=state: _handle_application_state_changed(
+                state,
+                app,
+                show_control_panel,
+                is_capture_ui_active=is_capture_ui_active,
+            ),
         )
     )
     _append_startup_log(startup_log_file, "startup: macos dock activation handler installed")
@@ -472,6 +502,17 @@ def main() -> None:
         todo_detail_panel=todo_detail_panel,
         capture_session=capture_session,
     )
+    capture_launch_pending = False
+
+    def _is_capture_ui_active() -> bool:
+        return (
+            capture_launch_pending
+            or capture_ui.any_overlay_visible()
+            or capture_session.active_overlay is not None
+            or capture_session.current_selection is not None
+            or capture_session.current_capture is not None
+        )
+
     def _resolve_tray_icon_path() -> Path:
         if not RUNTIME_CAPABILITIES.is_macos:
             return icon_file()
@@ -509,6 +550,7 @@ def main() -> None:
         )
 
     def _request_capture(source: str) -> None:
+        nonlocal capture_launch_pending
         _append_startup_log(startup_log_file, f"capture: request source={source}")
         if analysis_flow.capture_locked:
             _append_startup_log(startup_log_file, "capture: ignored because analysis capture is locked")
@@ -522,12 +564,14 @@ def main() -> None:
 
         if capture_ui.any_overlay_visible():
             _append_startup_log(startup_log_file, "capture: hiding active overlays")
+            capture_launch_pending = False
             _hide_overlays(reset=True)
             capture_session.active_overlay = None
             toolbar.hide()
             _refresh_todo_panel()
         else:
             _append_startup_log(startup_log_file, "capture: scheduling overlays")
+            capture_launch_pending = True
             toolbar.hide()
             QTimer.singleShot(50, _show_overlays)
 
@@ -564,6 +608,7 @@ def main() -> None:
         show_control_panel=_show_control_panel,
         request_capture=_request_capture,
         startup_log_file=startup_log_file,
+        is_capture_ui_active=_is_capture_ui_active,
     )
 
     def _on_tray_activated(reason) -> None:
@@ -630,21 +675,25 @@ def main() -> None:
         return save_result.action, save_result.todo.title
 
     def _show_overlays() -> None:
-        screens = app.screens()
-        _append_startup_log(startup_log_file, f"capture: show overlays requested screens={len(screens)}")
-        capture_ui.rebuild_overlays(
-            screens,
-            overlay_factory=lambda screen: OverlayWindow(screen, theme_controller=theme_controller),
-            on_selection_complete=_on_selection_complete,
-            on_selection_changed=_on_selection_changed,
-            on_cancel=_on_cancel,
-        )
-        capture_ui.show_overlays()
-        visible_count = sum(1 for overlay in capture_ui.overlays if overlay.isVisible())
-        _append_startup_log(
-            startup_log_file,
-            f"capture: overlays shown total={len(capture_ui.overlays)} visible={visible_count}",
-        )
+        nonlocal capture_launch_pending
+        try:
+            screens = app.screens()
+            _append_startup_log(startup_log_file, f"capture: show overlays requested screens={len(screens)}")
+            capture_ui.rebuild_overlays(
+                screens,
+                overlay_factory=lambda screen: OverlayWindow(screen, theme_controller=theme_controller),
+                on_selection_complete=_on_selection_complete,
+                on_selection_changed=_on_selection_changed,
+                on_cancel=_on_cancel,
+            )
+            capture_ui.show_overlays()
+            visible_count = sum(1 for overlay in capture_ui.overlays if overlay.isVisible())
+            _append_startup_log(
+                startup_log_file,
+                f"capture: overlays shown total={len(capture_ui.overlays)} visible={visible_count}",
+            )
+        finally:
+            capture_launch_pending = False
 
     def _hide_overlays(*, reset: bool = True, preserve_active: bool = False) -> None:
         capture_ui.hide_overlays(reset=reset, preserve_active=preserve_active)
@@ -653,9 +702,13 @@ def main() -> None:
         return capture_session.sync_from_active_overlay()
 
     def _clear_capture_state() -> None:
+        nonlocal capture_launch_pending
+        capture_launch_pending = False
         capture_ui.clear_capture_state(_refresh_todo_panel)
 
     def _release_capture_mode() -> None:
+        nonlocal capture_launch_pending
+        capture_launch_pending = False
         capture_ui.release_capture_mode(_refresh_todo_panel)
 
     def _restore_toolbar_for_current_capture() -> None:

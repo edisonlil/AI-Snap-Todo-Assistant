@@ -301,6 +301,28 @@ def test_application_state_changed_opens_control_panel_when_active(monkeypatch) 
     assert shown_sections == ["server"]
 
 
+def test_application_state_changed_ignores_capture_ui_when_active(monkeypatch) -> None:
+    shown_sections: list[str] = []
+
+    class _ApplicationState:
+        ApplicationActive = object()
+
+    class _Qt:
+        ApplicationState = _ApplicationState
+
+    monkeypatch.setattr("aica.main.Qt", _Qt)
+    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
+
+    _handle_application_state_changed(
+        _ApplicationState.ApplicationActive,
+        object(),
+        lambda section: shown_sections.append(section),
+        is_capture_ui_active=lambda: True,
+    )
+
+    assert shown_sections == []
+
+
 def test_application_activation_ignores_clicks_on_app_windows(monkeypatch) -> None:
     shown_sections: list[str] = []
     app = object()
@@ -308,6 +330,20 @@ def test_application_activation_ignores_clicks_on_app_windows(monkeypatch) -> No
     monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda checked_app: checked_app is app)
 
     _show_control_panel_for_external_activation(app, lambda section: shown_sections.append(section))
+
+    assert shown_sections == []
+
+
+def test_application_activation_ignores_capture_ui_state(monkeypatch) -> None:
+    shown_sections: list[str] = []
+
+    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
+
+    _show_control_panel_for_external_activation(
+        object(),
+        lambda section: shown_sections.append(section),
+        is_capture_ui_active=lambda: True,
+    )
 
     assert shown_sections == []
 
