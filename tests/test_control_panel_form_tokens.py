@@ -160,3 +160,16 @@ def test_control_panel_settings_combo_supports_typed_fuzzy_filtering() -> None:
     assert "model: combo.popup.visible ? combo.filteredOptions() : null" in combo
     assert "text: modelData.label" in combo
     assert "onTextEdited: {" in combo
+
+
+def test_control_panel_settings_combo_supports_read_only_dropdown_mode() -> None:
+    combo = _qml("ControlPanelSettingsCombo.qml")
+    focus_block = combo[combo.index("onActiveFocusChanged: {"):combo.index("onAccepted:", combo.index("onActiveFocusChanged: {"))]
+
+    assert "readOnly: !combo.editable" in combo
+    assert "selectByMouse: combo.editable" in combo
+    assert "cursorVisible: combo.editable && activeFocus" in combo
+    assert "enabled: !combo.editable" in combo
+    assert 'combo.filterText = ""' in focus_block
+    assert "if (combo.editable) {" in focus_block
+    assert "input.selectAll()" in focus_block

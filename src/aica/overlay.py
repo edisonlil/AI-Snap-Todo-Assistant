@@ -316,7 +316,10 @@ class OverlayWindow(QWidget):
         if cropped is None:
             return QPixmap()
 
-        annotated = QPixmap.fromImage(cropped.toImage())
+        # Rounded translucent windows on macOS can carry alpha in the
+        # capture. Flatten first so copied/shared screenshots do not
+        # preview with a dark matte around the corners.
+        annotated = self._flatten_transparent_pixmap(cropped)
         annotated.setDevicePixelRatio(1.0)
 
         painter = QPainter(annotated)
@@ -327,6 +330,19 @@ class OverlayWindow(QWidget):
         self._paint_annotations(painter)
         painter.end()
         return annotated
+
+    @staticmethod
+    def _flatten_transparent_pixmap(pixmap: QPixmap) -> QPixmap:
+        image = pixmap.toImage()
+        if not image.hasAlphaChannel():
+            return QPixmap.fromImage(image)
+
+        flattened = QPixmap(image.size())
+        flattened.fill(QColor(255, 255, 255))
+        painter = QPainter(flattened)
+        painter.drawImage(0, 0, image)
+        painter.end()
+        return flattened
 
     def _reset_editor_state(self) -> None:
         self._start = None

@@ -29,11 +29,11 @@ ColumnLayout {
     readonly property int ticketTotalPages: Math.max(1, Math.ceil(ticketTotalCount / ticketPageSize))
 
     property var statusOptions: [
+        { value: "all", text: "\u5168\u90e8\u72b6\u6001" },
         { value: "open", text: "\u8fdb\u884c\u4e2d" },
         { value: "done", text: "\u5df2\u5b8c\u6210" },
         { value: "today_done", text: "\u4eca\u65e5\u5b8c\u6210" },
-        { value: "done_missing_ach", text: "\u5df2\u5b8c\u6210\u672a\u586bACH" },
-        { value: "all", text: "\u5168\u90e8\u72b6\u6001" }
+        { value: "done_missing_ach", text: "\u5df2\u5b8c\u6210\u672a\u586bACH" }
     ]
     property var ticketTypeOptions: [
         { value: "all", text: "\u7c7b\u578b" },
@@ -753,6 +753,7 @@ ColumnLayout {
                             ControlPanelSettingsCombo {
                                 id: ticketStatusCombo
                                 theme: ticketSection.theme
+                                editable: false
                                 width: 108
                                 model: ticketSection.statusOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.statusOptions, controlPanelBridge.ticketStatusFilter)
@@ -778,6 +779,7 @@ ColumnLayout {
                             ControlPanelSettingsCombo {
                                 id: ticketTypeCombo
                                 theme: ticketSection.theme
+                                editable: false
                                 width: 96
                                 model: ticketSection.ticketTypeOptions
                                 currentIndex: ticketSection.theme.optionIndex(ticketSection.ticketTypeOptions, ticketSection.selectedTicketType)
@@ -1331,6 +1333,7 @@ ColumnLayout {
                 ControlPanelSettingsCombo {
                     id: pageSizeCombo
                     theme: ticketSection.theme
+                    editable: false
                     width: 86
                     height: 28
                     fieldRadius: 6

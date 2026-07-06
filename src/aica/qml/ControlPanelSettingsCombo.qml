@@ -209,7 +209,9 @@ ComboBox {
         font.family: theme.uiFont
         font.pixelSize: combo.fieldFontSize
         verticalAlignment: TextInput.AlignVCenter
-        selectByMouse: true
+        readOnly: !combo.editable
+        selectByMouse: combo.editable
+        cursorVisible: combo.editable && activeFocus
         leftPadding: 0
         rightPadding: 0
         topPadding: 0
@@ -223,8 +225,15 @@ ComboBox {
 
         onActiveFocusChanged: {
             if (activeFocus) {
-                combo.filterText = text
+                combo.filterText = ""
                 combo.openPopup()
+                if (combo.editable) {
+                    Qt.callLater(function() {
+                        if (input.activeFocus) {
+                            input.selectAll()
+                        }
+                    })
+                }
                 return
             }
             if (!popup.visible) {
@@ -237,6 +246,22 @@ ComboBox {
         Keys.onEscapePressed: popup.close()
         Keys.onDownPressed: combo.moveHighlight(1)
         Keys.onUpPressed: combo.moveHighlight(-1)
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: !combo.editable
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: {
+            input.forceActiveFocus()
+            combo.filterText = ""
+            if (popup.visible) {
+                popup.close()
+            } else {
+                combo.openPopup()
+            }
+        }
     }
 
     indicator: Canvas {

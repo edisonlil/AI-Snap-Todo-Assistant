@@ -124,6 +124,25 @@ def test_tickets_section_includes_issue_product_cascade_dropdown() -> None:
     assert "issueProductLevel1Options" in qml_text
 
 
+def test_ticket_list_filter_combos_are_dropdown_only() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+
+    status_block = qml_text[qml_text.index("id: ticketStatusCombo"):qml_text.index("ControlPanelCascadeFilterField {", qml_text.index("id: ticketStatusCombo"))]
+    type_block = qml_text[qml_text.index("id: ticketTypeCombo"):qml_text.index("}", qml_text.index("id: ticketTypeCombo"))]
+    page_size_block = qml_text[qml_text.index("id: pageSizeCombo"):qml_text.index("Text {", qml_text.index("id: pageSizeCombo"))]
+
+    assert "editable: false" in status_block
+    assert "editable: false" in type_block
+    assert "editable: false" in page_size_block
+
+
+def test_ticket_status_filter_places_all_option_first() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+    status_options_block = qml_text[qml_text.index("property var statusOptions: ["):qml_text.index("property var ticketTypeOptions: [")]
+
+    assert status_options_block.index('{ value: "all", text: "\\u5168\\u90e8\\u72b6\\u6001" }') < status_options_block.index('{ value: "open", text: "\\u8fdb\\u884c\\u4e2d" }')
+
+
 def test_tickets_section_includes_local_product_line_and_module_dropdowns() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
