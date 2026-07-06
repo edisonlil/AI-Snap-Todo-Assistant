@@ -7,6 +7,11 @@ ColumnLayout {
     required property var theme
 
     visible: controlPanelBridge.currentSection === "tickets"
+    onVisibleChanged: {
+        if (!visible) {
+            ticketSection.resetAllFieldStates()
+        }
+    }
     spacing: 0
     readonly property int detailGridColumns: ticketSection.width < 720 ? 1 : ticketSection.width < 1080 ? 2 : ticketSection.width < 1440 ? 3 : 4
     readonly property bool compactDetailLayout: ticketSection.width < 920
@@ -2038,6 +2043,7 @@ ColumnLayout {
                                             editing: !!controlPanelBridge.selectedTicket.featurePointEditable && ticketSection.isFieldEditing("featurePoint")
                                             saving: ticketSection.isFieldSaving("featurePoint")
                                             loading: !!controlPanelBridge.selectedTicket.featurePointLoading
+                                            hasMore: !!controlPanelBridge.selectedTicket.featurePointHasMore
                                             errorText: controlPanelBridge.selectedTicket.featurePointError || ""
                                             compact: ticketSection.detailGridColumns === 1
                                             options: controlPanelBridge.selectedTicket.featurePointOptions || []
@@ -2049,6 +2055,7 @@ ColumnLayout {
                                             onSearchRequested: function(query) {
                                                 controlPanelBridge.searchSelectedTicketFeaturePointOptions(query)
                                             }
+                                            onLoadMoreRequested: controlPanelBridge.loadMoreSelectedTicketFeaturePointOptions()
                                             onActionTriggered: ticketSection.refreshFeaturePointField()
                                             onAccepted: function(value) {
                                                 ticketSection.setFieldState("featurePoint", { draft: value })

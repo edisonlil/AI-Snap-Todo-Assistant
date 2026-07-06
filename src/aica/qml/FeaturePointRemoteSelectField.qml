@@ -12,6 +12,7 @@ Rectangle {
     property bool editing: false
     property bool saving: false
     property bool loading: false
+    property bool hasMore: false
     property bool compact: false
     property var options: []
     property string errorText: ""
@@ -20,6 +21,7 @@ Rectangle {
     property bool actionBusy: false
     property string actionIconSource: ""
     property bool committingSelection: false
+    readonly property bool loadingMore: rootField.loading && rootField.options.length > 0
 
     readonly property color titleInk: resolveThemeColor("titleInk", "#18202E")
     readonly property color labelInk: resolveThemeColor("labelInk", "#7C8795")
@@ -37,12 +39,16 @@ Rectangle {
     readonly property int formPopupRadius: theme && theme.formPopupRadius ? theme.formPopupRadius : 8
     readonly property int formPopupItemRadius: theme && theme.formPopupItemRadius ? theme.formPopupItemRadius : 6
     readonly property int formPopupItemHeight: theme && theme.formPopupItemHeight ? theme.formPopupItemHeight : 30
+    readonly property int popupOuterMargin: 12
+    readonly property int popupPreferredHeight: 280
+    readonly property int popupPreferredWidth: 460
 
     signal clicked
     signal accepted(string value)
     signal canceled
     signal actionTriggered
     signal searchRequested(string query)
+    signal loadMoreRequested
 
     function resolveThemeColor(name, fallback) {
         return theme && theme[name] !== undefined ? theme[name] : fallback
@@ -55,6 +61,91 @@ Rectangle {
         return editorColumn.mapToItem(rootField, 0, editorColumn.height + 8)
     }
 
+    function popupParentItem() {
+        return rootField
+    }
+
+    function popupOpenPoint() {
+        return rootField.popupAnchorPoint()
+    }
+
+    function popupSceneOpenPoint() {
+        if (!editorColumn) {
+            return rootField.mapToItem(null, 0, formInlineEditHeight + 8)
+        }
+        return editorColumn.mapToItem(null, 0, editorColumn.height + 8)
+    }
+
+    function popupContentHeight() {
+        return Math.min(popupColumn.implicitHeight + 8, popupPreferredHeight)
+    }
+
+    function popupWidthValue() {
+        var preferred = Math.max(320, Math.min(rootField.width - 12, popupPreferredWidth))
+        return preferred
+    }
+
+    function popupXPosition() {
+        return popupOpenPoint().x
+    }
+
+    function popupViewportHeight() {
+        if (Overlay.overlay && Overlay.overlay.height) {
+            return Overlay.overlay.height
+        }
+        if (rootField.parent && rootField.parent.height) {
+            return rootField.parent.height
+        }
+        return popupPreferredHeight
+    }
+
+    function popupSpaceBelow() {
+        return Math.max(0, popupViewportHeight() - popupSceneOpenPoint().y - popupOuterMargin)
+    }
+
+    function popupHeightValue() {
+        var desiredHeight = popupContentHeight()
+        var availableHeight = popupSpaceBelow()
+        if (availableHeight <= 0) {
+            return desiredHeight
+        }
+        return Math.min(desiredHeight, availableHeight)
+    }
+
+    function popupYPosition() {
+        return popupOpenPoint().y
+    }
+
+    function optionText(option) {
+        return String(option && (option.text || option.value) || "")
+    }
+
+    function optionValue(option) {
+        return String(option && option.value || "")
+    }
+
+    function normalizedFilterText() {
+        return String(rootField.filterText || "").trim()
+    }
+
+    function hasExactOptionMatch(rawValue) {
+        var normalized = String(rawValue || "").trim()
+        if (!normalized.length) {
+            return false
+        }
+        for (var index = 0; index < rootField.options.length; index += 1) {
+            var option = rootField.options[index]
+            if (rootField.optionValue(option) === normalized || rootField.optionText(option) === normalized) {
+                return true
+            }
+        }
+        return false
+    }
+
+    function shouldShowManualSubmit() {
+        return rootField.normalizedFilterText().length > 0 && !rootField.hasExactOptionMatch(rootField.filterText)
+    }
+
     function commitOption(option) {
         if (!option) {
             return
@@ -62,6 +153,33 @@ Rectangle {
         committingSelection = true
         popup.close()
         rootField.accepted(String(option.value || ""))
+    }
+
+    function commitManualValue(rawValue) {
+        var normalized = String(rawValue || "").trim()
+        if (!normalized.length) {
+            return
+        }
+        committingSelection = true
+        popup.close()
+        rootField.accepted(normalized)
+    }
+
+    function submitSearchInput() {
+        if (rootField.shouldShowManualSubmit()) {
+            rootField.commitManualValue(rootField.filterText)
+            return
+        }
+        for (var index = 0; index < rootField.options.length; index += 1) {
+            var option = rootField.options[index]
+            if (
+                rootField.optionValue(option) === rootField.normalizedFilterText()
+                || rootField.optionText(option) === rootField.normalizedFilterText()
+            ) {
+                rootField.commitOption(option)
+                return
+            }
+        }
     }
 
     onEditingChanged: {
@@ -78,7 +196,7 @@ Rectangle {
             }
             filterText = ""
             popup.open()
-            searchDebounce.restart()
+            rootField.searchRequested("")
             searchInput.forceActiveFocus()
         })
     }
@@ -310,10 +428,11 @@ Rectangle {
 
                 Popup {
                     id: popup
-                    parent: rootField
-                    x: rootField.popupAnchorPoint().x
-                    y: rootField.popupAnchorPoint().y
-                    width: Math.max(320, Math.min(rootField.width - 12, 460))
+                    parent: rootField.popupParentItem()
+                    x: rootField.popupXPosition()
+                    y: rootField.popupYPosition()
+                    width: rootField.popupWidthValue()
+                    height: rootField.popupHeightValue()
                     modal: false
                     focus: true
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -327,11 +446,11 @@ Rectangle {
                     }
 
                     contentItem: Rectangle {
+                        clip: true
                         color: rootField.fieldBg
                         border.width: 1
                         border.color: rootField.fieldLine
                         radius: rootField.formPopupItemRadius
-                        implicitHeight: Math.min(popupColumn.implicitHeight + 8, 280)
 
                         ColumnLayout {
                             id: popupColumn
@@ -361,6 +480,7 @@ Rectangle {
                                     rootField.filterText = text
                                     searchDebounce.restart()
                                 }
+                                onAccepted: rootField.submitSearchInput()
                                 Keys.onEscapePressed: {
                                     rootField.committingSelection = true
                                     popup.close()
@@ -370,7 +490,7 @@ Rectangle {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                visible: rootField.loading
+                                visible: rootField.loading && rootField.options.length === 0
                                 spacing: 8
 
                                 BusyIndicator {
@@ -380,21 +500,72 @@ Rectangle {
                                 }
 
                                 Text {
-                                    text: "正在搜索功能点..."
+                                    text: rootField.options.length > 0 ? "正在加载更多功能点..." : "正在搜索功能点..."
                                     color: rootField.labelInk
                                     font.family: rootField.uiFont
                                     font.pixelSize: 11
                                 }
                             }
 
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: rootField.shouldShowManualSubmit()
+                                implicitHeight: manualLabel.implicitHeight + 16
+                                radius: rootField.formPopupItemRadius
+                                color: manualMouseArea.containsMouse ? rootField.hoverBg : rootField.panelBg
+                                border.width: 1
+                                border.color: rootField.fieldLine
+
+                                Text {
+                                    id: manualLabel
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "直接填写：" + rootField.normalizedFilterText()
+                                    color: rootField.accent
+                                    font.family: rootField.uiFont
+                                    font.pixelSize: rootField.compact ? 11 : 12
+                                    font.weight: 600
+                                    elide: Text.ElideRight
+                                }
+
+                                MouseArea {
+                                    id: manualMouseArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: rootField.commitManualValue(rootField.filterText)
+                                }
+                            }
+
                             ListView {
                                 id: optionList
                                 Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: rootField.formPopupItemHeight * 3
                                 Layout.preferredHeight: Math.min(contentHeight, 212)
-                                visible: options.length > 0
+                                visible: rootField.normalizedFilterText().length > 0 && options.length > 0
                                 clip: true
+                                interactive: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
+                                reuseItems: true
+                                cacheBuffer: rootField.formPopupItemHeight * 10
                                 model: rootField.options
                                 spacing: 2
+                                onMovementEnded: {
+                                    if (
+                                        visible
+                                        && rootField.hasMore
+                                        && !rootField.loading
+                                        && contentHeight > height
+                                        && contentY + height >= contentHeight - (rootField.formPopupItemHeight * 2)
+                                    ) {
+                                        rootField.loadMoreRequested()
+                                    }
+                                }
 
                                 delegate: Rectangle {
                                     required property var modelData
@@ -431,6 +602,34 @@ Rectangle {
                                         onClicked: rootField.commitOption(modelData)
                                     }
                                 }
+
+                                ScrollBar.vertical: ScrollBar {
+                                    policy: optionList.contentHeight > optionList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                                }
+
+                                footer: Item {
+                                    width: optionList.width
+                                    height: rootField.loadingMore ? rootField.formPopupItemHeight : 0
+                                    visible: rootField.loadingMore
+
+                                    Row {
+                                        anchors.centerIn: parent
+                                        spacing: 8
+
+                                        BusyIndicator {
+                                            running: rootField.loadingMore
+                                            width: 16
+                                            height: 16
+                                        }
+
+                                        Text {
+                                            text: "正在加载更多功能点..."
+                                            color: rootField.labelInk
+                                            font.family: rootField.uiFont
+                                            font.pixelSize: 11
+                                        }
+                                    }
+                                }
                             }
 
                             Text {
@@ -445,7 +644,10 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                visible: !rootField.loading && rootField.errorText.length === 0 && rootField.options.length === 0
+                                visible: rootField.normalizedFilterText().length > 0
+                                         && !rootField.loading
+                                         && rootField.errorText.length === 0
+                                         && rootField.options.length === 0
                                 text: "未找到匹配项"
                                 color: rootField.labelInk
                                 font.family: rootField.uiFont

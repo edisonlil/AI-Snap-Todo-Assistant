@@ -1639,6 +1639,18 @@ def test_selected_ticket_exposes_feature_point_search_payload(monkeypatch: pytes
     assert bridge.selectedTicket["featurePointError"] == "功能点选项加载失败。"
 
 
+def test_selected_ticket_feature_point_options_do_not_inject_current_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    todo.summary_fields.feature_point = "已填写功能点"
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    bridge._feature_point_options = [{"value": "检索结果A", "text": "检索结果A"}]  # noqa: SLF001
+    bridge._refresh_selected_ticket_payload()  # noqa: SLF001
+
+    assert bridge.selectedTicket["featurePoint"] == "已填写功能点"
+    assert bridge.selectedTicket["featurePointOptions"] == [{"value": "检索结果A", "text": "检索结果A"}]
+
+
 def test_save_selected_ticket_feature_point_updates_summary_field_as_manual(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     publisher = _EventPublisher()
@@ -2087,6 +2099,8 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
             todo_id,
             request_id,
             query,
+            page,
+            page_size,
             parent=None,
         ) -> None:
             self.finished = control_panel._Signal()
@@ -2094,6 +2108,8 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
             self.todo_id = todo_id
             self.request_id = request_id
             self.query = query
+            self.page = page
+            self.page_size = page_size
             self.started = False
             self.deleted = False
             created_workers.append(self)
@@ -2112,21 +2128,245 @@ def test_search_selected_ticket_feature_point_options_waits_for_async_worker(mon
     worker = created_workers[0]
     assert worker.started is True
     assert worker.query == "页面跑版"
+    assert worker.page == 1
+    assert worker.page_size == 20
     assert bridge.selectedTicket["featurePointLoading"] is True
     assert bridge.selectedTicket["featurePointOptions"] == []
 
     worker.finished.emit(
         worker.todo_id,
         worker.request_id,
-        [{"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}],
+        {
+            "items": [{"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}],
+            "page": 1,
+            "pageSize": 20,
+            "hasMore": True,
+        },
     )
 
     assert bridge.selectedTicket["featurePointLoading"] is False
+    assert bridge.selectedTicket["featurePointHasMore"] is True
     assert bridge.selectedTicket["featurePointError"] == ""
     assert bridge.selectedTicket["featurePointOptions"] == [
         {"value": "文档中台-运维平台-页面跑版-兼容问题", "text": "文档中台-运维平台-页面跑版-兼容问题"}
     ]
     assert worker.deleted is True
+
+
+def test_search_selected_ticket_feature_point_options_clears_on_empty_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+    bridge._feature_point_options = [{"value": "旧结果", "text": "旧结果"}]  # noqa: SLF001
+    bridge._feature_point_loading = True  # noqa: SLF001
+    bridge._feature_point_error = "旧错误"  # noqa: SLF001
+    bridge._feature_point_query = "旧关键字"  # noqa: SLF001
+    bridge._refresh_selected_ticket_payload()  # noqa: SLF001
+
+    bridge.searchSelectedTicketFeaturePointOptions("")
+
+    assert bridge.selectedTicket["featurePointOptions"] == []
+    assert bridge.selectedTicket["featurePointLoading"] is False
+    assert bridge.selectedTicket["featurePointHasMore"] is False
+    assert bridge.selectedTicket["featurePointError"] == ""
+
+
+def test_search_selected_ticket_feature_point_options_clears_stale_results_before_worker_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(  # noqa: SLF001
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    bridge._feature_point_options = [{"value": "旧结果", "text": "旧结果"}]  # noqa: SLF001
+    bridge._refresh_selected_ticket_payload()  # noqa: SLF001
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointOptionsWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            query,
+            page,
+            page_size,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.query = query
+            self.page = page
+            self.page_size = page_size
+            self.started = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
+
+    bridge.searchSelectedTicketFeaturePointOptions("页面跑版")
+
+    assert len(created_workers) == 1
+    assert created_workers[0].started is True
+    assert created_workers[0].page == 1
+    assert bridge.selectedTicket["featurePointOptions"] == []
+    assert bridge.selectedTicket["featurePointLoading"] is True
+
+
+def test_load_more_selected_ticket_feature_point_options_requests_next_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(  # noqa: SLF001
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointOptionsWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            query,
+            page,
+            page_size,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.query = query
+            self.page = page
+            self.page_size = page_size
+            self.started = False
+            created_workers.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
+
+    bridge.searchSelectedTicketFeaturePointOptions("协作")
+    created_workers[0].finished.emit(
+        created_workers[0].todo_id,
+        created_workers[0].request_id,
+        {
+            "items": [{"value": "第一页结果", "text": "第一页结果"}],
+            "page": 1,
+            "pageSize": 20,
+            "hasMore": True,
+        },
+    )
+
+    bridge.loadMoreSelectedTicketFeaturePointOptions()
+
+    assert len(created_workers) == 2
+    assert created_workers[1].started is True
+    assert created_workers[1].query == "协作"
+    assert created_workers[1].page == 2
+    assert bridge.selectedTicket["featurePointLoading"] is True
+    assert bridge.selectedTicket["featurePointOptions"] == [{"value": "第一页结果", "text": "第一页结果"}]
+
+
+def test_load_more_selected_ticket_feature_point_options_appends_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    todo = _build_todo()
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._config.server = ServerConfig(  # noqa: SLF001
+        enabled=True,
+        base_url="https://server.example.com/",
+        api_key="server-key",
+        timeout_seconds=18,
+    )
+    bridge._config_manager.save(bridge._config)  # noqa: SLF001
+    bridge.openTicketDetail(todo.id)
+    created_workers: list[object] = []
+
+    class _FakeFeaturePointOptionsWorker:
+        def __init__(
+            self,
+            *,
+            config_manager,
+            todo_id,
+            request_id,
+            query,
+            page,
+            page_size,
+            parent=None,
+        ) -> None:
+            self.finished = control_panel._Signal()
+            self.error = control_panel._Signal()
+            self.todo_id = todo_id
+            self.request_id = request_id
+            self.query = query
+            self.page = page
+            self.page_size = page_size
+            created_workers.append(self)
+
+        def start(self) -> None:
+            return None
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(control_panel, "FeaturePointOptionsWorker", _FakeFeaturePointOptionsWorker)
+
+    bridge.searchSelectedTicketFeaturePointOptions("协作")
+    created_workers[0].finished.emit(
+        created_workers[0].todo_id,
+        created_workers[0].request_id,
+        {
+            "items": [{"value": "第一页结果", "text": "第一页结果"}],
+            "page": 1,
+            "pageSize": 20,
+            "hasMore": True,
+        },
+    )
+
+    bridge.loadMoreSelectedTicketFeaturePointOptions()
+    created_workers[1].finished.emit(
+        created_workers[1].todo_id,
+        created_workers[1].request_id,
+        {
+            "items": [
+                {"value": "第二页结果", "text": "第二页结果"},
+                {"value": "第一页结果", "text": "第一页结果"},
+            ],
+            "page": 2,
+            "pageSize": 20,
+            "hasMore": False,
+        },
+    )
+
+    assert bridge.selectedTicket["featurePointOptions"] == [
+        {"value": "第一页结果", "text": "第一页结果"},
+        {"value": "第二页结果", "text": "第二页结果"},
+    ]
+    assert bridge.selectedTicket["featurePointLoading"] is False
+    assert bridge.selectedTicket["featurePointHasMore"] is False
 
 
 def test_search_selected_ticket_feature_point_options_discards_stale_worker_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2150,6 +2390,8 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
             todo_id,
             request_id,
             query,
+            page,
+            page_size,
             parent=None,
         ) -> None:
             self.finished = control_panel._Signal()
@@ -2157,6 +2399,8 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
             self.todo_id = todo_id
             self.request_id = request_id
             self.query = query
+            self.page = page
+            self.page_size = page_size
             created_workers.append(self)
 
         def start(self) -> None:
@@ -2175,7 +2419,12 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
     created_workers[0].finished.emit(
         created_workers[0].todo_id,
         created_workers[0].request_id,
-        [{"value": "旧结果", "text": "旧结果"}],
+        {
+            "items": [{"value": "旧结果", "text": "旧结果"}],
+            "page": 1,
+            "pageSize": 20,
+            "hasMore": True,
+        },
     )
 
     assert bridge.selectedTicket["featurePointOptions"] == []
@@ -2184,7 +2433,12 @@ def test_search_selected_ticket_feature_point_options_discards_stale_worker_resu
     created_workers[1].finished.emit(
         created_workers[1].todo_id,
         created_workers[1].request_id,
-        [{"value": "新结果", "text": "新结果"}],
+        {
+            "items": [{"value": "新结果", "text": "新结果"}],
+            "page": 1,
+            "pageSize": 20,
+            "hasMore": False,
+        },
     )
 
     assert bridge.selectedTicket["featurePointOptions"] == [{"value": "新结果", "text": "新结果"}]

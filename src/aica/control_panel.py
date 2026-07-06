@@ -1325,6 +1325,8 @@ class FeaturePointOptionsWorker(QThread):
         todo_id: str,
         request_id: str,
         query: str,
+        page: int,
+        page_size: int,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -1332,17 +1334,33 @@ class FeaturePointOptionsWorker(QThread):
         self._todo_id = str(todo_id or "").strip()
         self._request_id = str(request_id or "").strip()
         self._query = str(query or "").strip()
+        self._page = max(1, int(page or 1))
+        self._page_size = min(100, max(1, int(page_size or 20)))
 
     def run(self) -> None:
         try:
             client = ChattodoServerClient.from_config(self._config_manager.load().server)
-            items = client.fetch_function_point_options(q=self._query, page=1, page_size=20, active_only=True)
+            items = client.fetch_function_point_options(
+                q=self._query,
+                page=self._page,
+                page_size=self._page_size,
+                active_only=True,
+            )
         except (ChattodoServerError, ValueError) as exc:
             self.error.emit(self._todo_id, self._request_id, str(exc))
         except Exception as exc:  # noqa: BLE001
             self.error.emit(self._todo_id, self._request_id, str(exc))
         else:
-            self.finished.emit(self._todo_id, self._request_id, items)
+            self.finished.emit(
+                self._todo_id,
+                self._request_id,
+                {
+                    "items": items,
+                    "page": self._page,
+                    "pageSize": self._page_size,
+                    "hasMore": len(items) >= self._page_size,
+                },
+            )
 
 
 class _ControlPanelBridge(QObject):
@@ -1443,6 +1461,9 @@ class _ControlPanelBridge(QObject):
         self._feature_point_loading = False
         self._feature_point_error = ""
         self._feature_point_query = ""
+        self._feature_point_page = 0
+        self._feature_point_page_size = 20
+        self._feature_point_has_more = False
         self._feature_point_option_workers: list[FeaturePointOptionsWorker] = []
         self._pending_feature_point_option_requests: dict[str, str] = {}
         self._product_line_options: list[dict[str, object]] = [
@@ -2293,6 +2314,7 @@ class _ControlPanelBridge(QObject):
             "featurePointOptions": self._selected_ticket_feature_point_options(str(todo.summary_fields.feature_point or "").strip()),
             "featurePointEditable": _is_server_config_ready(self._config.server),
             "featurePointLoading": self._feature_point_loading,
+            "featurePointHasMore": self._feature_point_has_more,
             "featurePointError": self._feature_point_error,
             "rootCauseDesc": str(todo.summary_fields.root_cause_desc or "").strip(),
             "rootCause": str(todo.summary_fields.root_cause or "").strip(),
@@ -2334,6 +2356,7 @@ class _ControlPanelBridge(QObject):
             "featurePointOptions": [],
             "featurePointEditable": False,
             "featurePointLoading": False,
+            "featurePointHasMore": False,
             "featurePointError": "",
             "rootCauseDesc": "",
             "rootCause": "",
@@ -2441,15 +2464,6 @@ class _ControlPanelBridge(QObject):
 
     def _selected_ticket_feature_point_options(self, feature_point: str) -> list[dict[str, object]]:
         options = [dict(item) for item in self._feature_point_options]
-        normalized_value = str(feature_point or "").strip()
-        if normalized_value and not any(str(item.get("value") or "").strip() == normalized_value for item in options):
-            options.insert(
-                0,
-                {
-                    "value": normalized_value,
-                    "text": normalized_value,
-                },
-            )
         deduplicated: list[dict[str, object]] = []
         seen_values: set[str] = set()
         for item in options:
@@ -2570,6 +2584,8 @@ class _ControlPanelBridge(QObject):
         self._feature_point_loading = False
         self._feature_point_error = ""
         self._feature_point_query = ""
+        self._feature_point_page = 0
+        self._feature_point_has_more = False
         self._pending_feature_point_option_requests = {}
 
     def _missing_ach_candidates(self, todo_ids: list[str] | None = None) -> list[str]:
@@ -4084,17 +4100,30 @@ class _ControlPanelBridge(QObject):
         self._refresh_selected_ticket_payload()
         self._emit_data_changed()
 
-    def _handle_feature_point_options_finished(self, todo_id: str, request_id: str, items: object) -> None:
+    def _handle_feature_point_options_finished(self, todo_id: str, request_id: str, payload: object) -> None:
         normalized_todo_id = str(todo_id or "").strip()
         if self._pending_feature_point_option_requests.get(normalized_todo_id) != str(request_id or "").strip():
             return
         self._pending_feature_point_option_requests.pop(normalized_todo_id, None)
+        raw_items = payload.get("items") if isinstance(payload, dict) else payload
+        page = int(payload.get("page") or 1) if isinstance(payload, dict) else 1
+        has_more = bool(payload.get("hasMore")) if isinstance(payload, dict) else False
         normalized_items: list[dict[str, object]] = []
-        for item in list(items or []):
+        for item in list(raw_items or []):
             normalized_item = _normalize_feature_point_option(item)
             if normalized_item is not None:
                 normalized_items.append(normalized_item)
-        self._feature_point_options = normalized_items
+        if page <= 1:
+            merged_items = normalized_items
+        else:
+            merged_items = [dict(item) for item in self._feature_point_options]
+            for item in normalized_items:
+                value = str(item.get("value") or "").strip()
+                if value and not any(str(existing.get("value") or "").strip() == value for existing in merged_items):
+                    merged_items.append(item)
+        self._feature_point_options = merged_items
+        self._feature_point_page = max(1, page)
+        self._feature_point_has_more = bool(has_more)
         self._feature_point_loading = False
         self._feature_point_error = ""
         self._refresh_selected_ticket_payload()
@@ -4145,6 +4174,14 @@ class _ControlPanelBridge(QObject):
         if not self._selected_ticket_id:
             return
         normalized_query = str(query or "").strip()
+        if not normalized_query:
+            self._feature_point_query = ""
+            self._feature_point_options = []
+            self._feature_point_loading = False
+            self._feature_point_error = ""
+            self._refresh_selected_ticket_payload()
+            self._emit_data_changed()
+            return
         if not _is_server_config_ready(self._config.server):
             self._feature_point_loading = False
             self._feature_point_error = "服务端未配置，无法搜索功能点。"
@@ -4156,6 +4193,25 @@ class _ControlPanelBridge(QObject):
         if not self._feature_point_loading and self._feature_point_query == normalized_query and self._feature_point_options:
             return
         self._feature_point_query = normalized_query
+        self._feature_point_options = []
+        self._feature_point_page = 0
+        self._feature_point_has_more = False
+        self._start_feature_point_option_request(page=1)
+
+    @pyqtSlot()
+    def loadMoreSelectedTicketFeaturePointOptions(self) -> None:
+        if not self._selected_ticket_id:
+            return
+        if self._feature_point_loading:
+            return
+        if not self._feature_point_query:
+            return
+        if not self._feature_point_has_more:
+            return
+        self._start_feature_point_option_request(page=self._feature_point_page + 1)
+
+    def _start_feature_point_option_request(self, *, page: int) -> None:
+        request_page = max(1, int(page or 1))
         self._feature_point_loading = True
         self._feature_point_error = ""
         request_id = str(uuid.uuid4())
@@ -4163,7 +4219,9 @@ class _ControlPanelBridge(QObject):
             config_manager=self._config_manager,
             todo_id=self._selected_ticket_id,
             request_id=request_id,
-            query=normalized_query,
+            query=self._feature_point_query,
+            page=request_page,
+            page_size=self._feature_point_page_size,
         )
         self._pending_feature_point_option_requests[self._selected_ticket_id] = request_id
         self._feature_point_option_workers.append(worker)

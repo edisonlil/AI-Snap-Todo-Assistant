@@ -22,6 +22,14 @@ def test_tickets_section_uses_page_runtime_slots() -> None:
     assert qml_text.index("listContent: ColumnLayout") < qml_text.index("footerContent: Rectangle")
 
 
+def test_tickets_section_resets_field_states_when_section_hides() -> None:
+    qml_text = Path("src/aica/qml/TicketsSection.qml").read_text(encoding="utf-8")
+
+    assert 'visible: controlPanelBridge.currentSection === "tickets"' in qml_text
+    assert "onVisibleChanged: {" in qml_text
+    assert "ticketSection.resetAllFieldStates()" in qml_text
+
+
 def test_tickets_section_table_supports_horizontal_scroll() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TicketsSection.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -163,8 +171,10 @@ def test_tickets_section_uses_remote_feature_point_select_field() -> None:
     assert 'label: "\\u529f\\u80fd\\u70b9"' in qml_text
     assert "featurePointOptions" in qml_text
     assert "featurePointLoading" in qml_text
+    assert "featurePointHasMore" in qml_text
     assert "featurePointError" in qml_text
     assert "searchSelectedTicketFeaturePointOptions(query)" in qml_text
+    assert "loadMoreSelectedTicketFeaturePointOptions()" in qml_text
     assert 'commitTicketFieldEdit("featurePoint", "feature_point")' in qml_text
 
 
@@ -251,5 +261,40 @@ def test_feature_point_remote_select_field_supports_debounced_search_and_selecti
     assert "searchDebounce.restart()" in feature_point_qml
     assert 'placeholderText: "输入关键字搜索功能点"' in feature_point_qml
     assert "rootField.searchRequested(rootField.filterText)" in feature_point_qml
+    assert 'rootField.searchRequested("")' in feature_point_qml
     assert 'rootField.accepted(String(option.value || ""))' in feature_point_qml
-    assert 'text: "正在搜索功能点..."' in feature_point_qml
+    assert 'visible: rootField.loading && rootField.options.length === 0' in feature_point_qml
+    assert '"正在搜索功能点..."' in feature_point_qml
+    assert "function commitManualValue(rawValue)" in feature_point_qml
+    assert "function shouldShowManualSubmit()" in feature_point_qml
+    assert "function popupParentItem()" in feature_point_qml
+    assert "function popupSceneOpenPoint()" in feature_point_qml
+    assert "function popupViewportHeight()" in feature_point_qml
+    assert "function popupSpaceBelow()" in feature_point_qml
+    assert "function popupHeightValue()" in feature_point_qml
+    assert "function popupYPosition()" in feature_point_qml
+    assert "onAccepted: rootField.submitSearchInput()" in feature_point_qml
+    assert 'text: "直接填写：" + rootField.normalizedFilterText()' in feature_point_qml
+    assert "onClicked: rootField.commitManualValue(rootField.filterText)" in feature_point_qml
+    assert 'visible: rootField.normalizedFilterText().length > 0 && options.length > 0' in feature_point_qml
+    assert "signal loadMoreRequested" in feature_point_qml
+    assert "readonly property bool loadingMore: rootField.loading && rootField.options.length > 0" in feature_point_qml
+    assert "boundsBehavior: Flickable.StopAtBounds" in feature_point_qml
+    assert "flickableDirection: Flickable.VerticalFlick" in feature_point_qml
+    assert "reuseItems: true" in feature_point_qml
+    assert "cacheBuffer: rootField.formPopupItemHeight * 10" in feature_point_qml
+    assert "onMovementEnded: {" in feature_point_qml
+    assert "rootField.loadMoreRequested()" in feature_point_qml
+    assert "ScrollBar.vertical: ScrollBar {" in feature_point_qml
+    assert 'text: "正在加载更多功能点..."' in feature_point_qml
+    assert "footer: Item {" in feature_point_qml
+    assert "parent: rootField.popupParentItem()" in feature_point_qml
+    assert "x: rootField.popupXPosition()" in feature_point_qml
+    assert "y: rootField.popupYPosition()" in feature_point_qml
+    assert "height: rootField.popupHeightValue()" in feature_point_qml
+    assert "return rootField.popupAnchorPoint()" in feature_point_qml
+    assert "return editorColumn.mapToItem(null, 0, editorColumn.height + 8)" in feature_point_qml
+    assert "return Math.max(0, popupViewportHeight() - popupSceneOpenPoint().y - popupOuterMargin)" in feature_point_qml
+    assert "return popupOpenPoint().y" in feature_point_qml
+    assert "clip: true" in feature_point_qml
+    assert "Layout.fillHeight: true" in feature_point_qml
