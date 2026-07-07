@@ -43,6 +43,18 @@ Rectangle {
         }
     }
 
+    function beginEditing() {
+        if (bodyEditingLocked) {
+            return false
+        }
+        timelineCard.originalContent = eventData ? (eventData.rawContent || eventData.content || "") : ""
+        if (rootContext) {
+            rootContext.markAttachmentTarget(timelineCard.eventId)
+            return rootContext.requestTimelineEdit(timelineCard.eventId)
+        }
+        return false
+    }
+
     function exitEditing() {
         if (rootContext) {
             rootContext.exitTimelineEdit(eventId)
@@ -68,6 +80,14 @@ Rectangle {
         if (registeredEditorEventId.length > 0 && rootContext) {
             rootContext.unregisterTimelineEditorCard(registeredEditorEventId, timelineCard)
         }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: !editing && !bodyEditingLocked
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton
+        onClicked: timelineCard.beginEditing()
     }
 
     Column {
@@ -295,16 +315,7 @@ Rectangle {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 acceptedButtons: Qt.LeftButton
-                onClicked: {
-                    if (timelineCard.bodyEditingLocked) {
-                        return
-                    }
-                    if (rootContext) {
-                        rootContext.markAttachmentTarget(timelineCard.eventId)
-                        rootContext.requestTimelineEdit(timelineCard.eventId)
-                    }
-                    timelineCard.originalContent = eventData ? (eventData.rawContent || eventData.content || "") : ""
-                }
+                onClicked: timelineCard.beginEditing()
                 onDoubleClicked: {
                     if (todoDetailBridge) {
                         todoDetailBridge.openTimelineDetail(timelineCard.eventId)

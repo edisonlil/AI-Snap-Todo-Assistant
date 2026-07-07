@@ -609,6 +609,19 @@ def test_todo_detail_conclusion_only_mode_qml_keeps_summary_and_assist_actions()
     assert '"当前描述附件 " + todoDetailBridge.currentSummaryAttachmentCount' not in qml_text
 
 
+def test_default_timeline_card_qml_keeps_card_level_click_target_for_editing() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "DefaultTimelineCard.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+    preamble = qml_text.split("Component.onDestruction:", 1)[1].split("Column {", 1)[0]
+
+    assert "function beginEditing()" in qml_text
+    assert "rootContext.requestTimelineEdit(timelineCard.eventId)" in qml_text
+    assert "MouseArea {" in preamble
+    assert "anchors.fill: parent" in preamble
+    assert "enabled: !editing && !bodyEditingLocked" in preamble
+    assert "onClicked: timelineCard.beginEditing()" in preamble
+
+
 def test_todo_detail_product_line_does_not_follow_project_snapshot() -> None:
     bridge = _build_bridge(Path("unused"))
     todo = _build_todo()
