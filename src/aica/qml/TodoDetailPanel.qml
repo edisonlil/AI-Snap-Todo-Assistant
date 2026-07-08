@@ -793,6 +793,7 @@ Rectangle {
                                     width: summaryScroll.availableWidth
                                     wrapMode: TextEdit.Wrap
                                     selectByMouse: true
+                                    cursorVisible: activeFocus
                                     textFormat: TextEdit.PlainText
                                     color: root.bodyInk
                                     selectedTextColor: "#FFFFFF"
@@ -1626,24 +1627,25 @@ Rectangle {
                                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                                     TextArea {
-                                    id: conclusionEdit
-                                    width: conclusionScroll.availableWidth
-                                    wrapMode: TextEdit.Wrap
-                                    selectByMouse: true
-                                    textFormat: TextEdit.PlainText
-                                    color: root.bodyInk
-                                    selectedTextColor: "#FFFFFF"
-                                    selectionColor: root.accentTint
-                                    font.family: root.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: root.bodyWeight
-                                    leftPadding: 0
-                                    rightPadding: 0
-                                    topPadding: 0
-                                    bottomPadding: 0
-                                    background: null
-                                    onTextChanged: root.pushField("conclusion_content", text)
-                                }
+                                        id: conclusionEdit
+                                        width: conclusionScroll.availableWidth
+                                        wrapMode: TextEdit.Wrap
+                                        selectByMouse: true
+                                        cursorVisible: activeFocus
+                                        textFormat: TextEdit.PlainText
+                                        color: root.bodyInk
+                                        selectedTextColor: "#FFFFFF"
+                                        selectionColor: root.accentTint
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        font.weight: root.bodyWeight
+                                        leftPadding: 0
+                                        rightPadding: 0
+                                        topPadding: 0
+                                        bottomPadding: 0
+                                        background: null
+                                        onTextChanged: root.pushField("conclusion_content", text)
+                                    }
                                 }
 
                                 Text {
@@ -2014,6 +2016,7 @@ Rectangle {
                                     width: parent.width - x - 82
                                     wrapMode: TextEdit.Wrap
                                     selectByMouse: true
+                                    cursorVisible: activeFocus
                                     textFormat: TextEdit.PlainText
                                     color: root.bodyInk
                                     font.family: root.uiFont

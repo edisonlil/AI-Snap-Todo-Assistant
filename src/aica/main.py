@@ -10,8 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import uuid
 
-from PyQt6.QtCore import QEvent, QObject, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QCursor, QFont, QIcon, QPixmap
+from PyQt6.QtCore import QObject, QRect, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
@@ -87,74 +87,11 @@ _TOOLBAR_SELECTED_TODO_SCENARIOS: dict[str, str] = {
 }
 
 
-class _ApplicationActivationFilter(QObject):
-    """Open the control panel when the macOS Dock icon activates the app."""
-
-    def __init__(self, activated_callback, parent=None):
-        super().__init__(parent)
-        self._activated_callback = activated_callback
-
-    def eventFilter(self, _watched, event) -> bool:  # noqa: N802
-        if event.type() == QEvent.Type.ApplicationActivate:
-            self._activated_callback()
-        return False
-
-
-def _cursor_is_over_application_window(app: QApplication) -> bool:
-    """Return True when the current pointer target is one of this app's windows."""
-    try:
-        cursor_pos = QCursor.pos()
-    except Exception:
-        return False
-
-    top_level_windows = getattr(app, "topLevelWindows", None)
-    if not callable(top_level_windows):
-        return False
-
-    for window in top_level_windows():
-        try:
-            if not window.isVisible():
-                continue
-            if window.geometry().contains(cursor_pos):
-                return True
-        except Exception:
-            continue
-    return False
-
-
 class _AppCommandDispatcher(QObject):
     command_received = pyqtSignal(str)
 
     def dispatch(self, command: str) -> None:
         self.command_received.emit(command)
-
-
-def _show_control_panel_for_external_activation(
-    app: QApplication,
-    show_control_panel,
-    *,
-    is_capture_ui_active=None,
-) -> None:
-    if callable(is_capture_ui_active) and is_capture_ui_active():
-        return
-    if _cursor_is_over_application_window(app):
-        return
-    show_control_panel("server")
-
-
-def _handle_application_state_changed(
-    state,
-    app: QApplication,
-    show_control_panel,
-    *,
-    is_capture_ui_active=None,
-) -> None:
-    if state == Qt.ApplicationState.ApplicationActive:
-        _show_control_panel_for_external_activation(
-            app,
-            show_control_panel,
-            is_capture_ui_active=is_capture_ui_active,
-        )
 
 
 def _resolve_error_log_file() -> Path:
@@ -362,15 +299,17 @@ def _install_macos_dock_handlers(
     show_control_panel,
     request_capture,
     startup_log_file: Path,
-    is_capture_ui_active=None,
 ):
     if not RUNTIME_CAPABILITIES.is_macos:
         return None
 
     dock_menu = QMenu()
     action_capture = QAction("开始截图", app)
+    action_open_panel = QAction("打开控制面板", app)
     action_capture.triggered.connect(lambda: request_capture("dock"))
+    action_open_panel.triggered.connect(lambda: show_control_panel("server"))
     dock_menu.addAction(action_capture)
+    dock_menu.addAction(action_open_panel)
 
     set_as_dock_menu = getattr(dock_menu, "setAsDockMenu", None)
     if callable(set_as_dock_menu):
@@ -378,35 +317,9 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock menu installed")
     else:
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
-
-    activation_filter = _ApplicationActivationFilter(
-        lambda: QTimer.singleShot(
-            0,
-            lambda: _show_control_panel_for_external_activation(
-                app,
-                show_control_panel,
-                is_capture_ui_active=is_capture_ui_active,
-            ),
-        ),
-        app,
-    )
-    app.installEventFilter(activation_filter)
-    app.applicationStateChanged.connect(
-        lambda state: QTimer.singleShot(
-            0,
-            lambda state=state: _handle_application_state_changed(
-                state,
-                app,
-                show_control_panel,
-                is_capture_ui_active=is_capture_ui_active,
-            ),
-        )
-    )
-    _append_startup_log(startup_log_file, "startup: macos dock activation handler installed")
     return SimpleNamespace(
         dock_menu=dock_menu,
-        activation_filter=activation_filter,
-        actions=(action_capture,),
+        actions=(action_capture, action_open_panel),
     )
 
 
@@ -504,15 +417,6 @@ def main() -> None:
     )
     capture_launch_pending = False
 
-    def _is_capture_ui_active() -> bool:
-        return (
-            capture_launch_pending
-            or capture_ui.any_overlay_visible()
-            or capture_session.active_overlay is not None
-            or capture_session.current_selection is not None
-            or capture_session.current_capture is not None
-        )
-
     def _resolve_tray_icon_path() -> Path:
         if not RUNTIME_CAPABILITIES.is_macos:
             return icon_file()
@@ -608,7 +512,6 @@ def main() -> None:
         show_control_panel=_show_control_panel,
         request_capture=_request_capture,
         startup_log_file=startup_log_file,
-        is_capture_ui_active=_is_capture_ui_active,
     )
 
     def _on_tray_activated(reason) -> None:

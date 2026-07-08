@@ -348,6 +348,9 @@ class SQLiteStorageMigrator:
         )
         self._migrate_environment_sort_order_columns(connection)
         self._migrate_project_environments_scope(connection)
+        self._migrate_projects_without_product_version(connection)
+        self._repair_project_foreign_keys_after_projects_rebuild(connection)
+        self._repair_environment_access_foreign_keys_after_project_environment_rebuild(connection)
         connection.execute(
             """
             UPDATE environment_access_entries
@@ -355,8 +358,6 @@ class SQLiteStorageMigrator:
             WHERE TRIM(LOWER(COALESCE(access_type, ''))) IN ('', 'http', 'https', 'web')
             """
         )
-        self._migrate_projects_without_product_version(connection)
-        self._repair_project_foreign_keys_after_projects_rebuild(connection)
         self._normalize_issue_product_storage(connection)
 
     def _normalize_issue_product_storage(self, connection: sqlite3.Connection) -> None:
@@ -677,6 +678,76 @@ class SQLiteStorageMigrator:
                 "CREATE INDEX IF NOT EXISTS idx_project_environments_project ON project_environments(project_id, scope, is_active, sort_order, updated_at DESC)"
             )
 
+        connection.execute("PRAGMA foreign_keys = ON")
+
+    def _repair_environment_access_foreign_keys_after_project_environment_rebuild(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        try:
+            foreign_key_rows = connection.execute(
+                "PRAGMA foreign_key_list(environment_access_entries)"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return
+        actual_tables = {str(row["table"] or "") for row in foreign_key_rows}
+        if actual_tables == {"project_environments"}:
+            return
+
+        legacy_table_name = "environment_access_entries_old_fkfix"
+        suffix = 0
+        while connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+            (legacy_table_name,),
+        ).fetchone() is not None:
+            suffix += 1
+            legacy_table_name = f"environment_access_entries_old_fkfix_{suffix}"
+
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute(f"ALTER TABLE environment_access_entries RENAME TO {legacy_table_name}")
+        connection.execute(
+            """
+            CREATE TABLE environment_access_entries (
+              id TEXT PRIMARY KEY,
+              environment_id TEXT NOT NULL,
+              access_name TEXT NOT NULL,
+              access_type TEXT NOT NULL DEFAULT '',
+              url_or_host TEXT NOT NULL DEFAULT '',
+              username TEXT NOT NULL DEFAULT '',
+              password_encrypted TEXT NOT NULL DEFAULT '',
+              otp_secret_encrypted TEXT NOT NULL DEFAULT '',
+              requires_otp INTEGER NOT NULL DEFAULT 0,
+              note TEXT NOT NULL DEFAULT '',
+              open_command TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(environment_id) REFERENCES project_environments(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO environment_access_entries(
+              id, environment_id, access_name, access_type, url_or_host,
+              username, password_encrypted, otp_secret_encrypted,
+              requires_otp, note, open_command, sort_order, is_active,
+              created_at, updated_at
+            )
+            SELECT
+              id, environment_id, access_name, COALESCE(access_type, ''), COALESCE(url_or_host, ''),
+              COALESCE(username, ''), COALESCE(password_encrypted, ''), COALESCE(otp_secret_encrypted, ''),
+              COALESCE(requires_otp, 0), COALESCE(note, ''), COALESCE(open_command, ''), COALESCE(sort_order, 0),
+              COALESCE(is_active, 1), COALESCE(created_at, ''), COALESCE(updated_at, '')
+            FROM %s
+            """
+            % legacy_table_name
+        )
+        connection.execute(f"DROP TABLE {legacy_table_name}")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_environment_access_entries_environment ON environment_access_entries(environment_id, is_active, sort_order, updated_at DESC)"
+        )
         connection.execute("PRAGMA foreign_keys = ON")
 
     def _migrate_environment_sort_order_columns(self, connection: sqlite3.Connection) -> None:

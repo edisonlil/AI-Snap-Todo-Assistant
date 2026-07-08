@@ -552,6 +552,16 @@ def test_todo_detail_summary_panel_uses_theme_field_background() -> None:
     assert "background: null" in qml_text
 
 
+def test_todo_detail_inputs_only_show_cursor_when_focused() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "id: summaryEdit" in qml_text
+    assert "id: conclusionEdit" in qml_text
+    assert "id: addTimelineEdit" in qml_text
+    assert qml_text.count("cursorVisible: activeFocus") >= 3
+
+
 def test_todo_detail_summary_attachments_use_count_and_folder_entry() -> None:
     qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "TodoDetailPanel.qml"
     qml_text = qml_path.read_text(encoding="utf-8")
@@ -620,6 +630,16 @@ def test_default_timeline_card_qml_keeps_card_level_click_target_for_editing() -
     assert "anchors.fill: parent" in preamble
     assert "enabled: !editing && !bodyEditingLocked" in preamble
     assert "onClicked: timelineCard.beginEditing()" in preamble
+
+
+def test_default_timeline_card_qml_exits_edit_before_commit() -> None:
+    qml_path = Path(__file__).resolve().parents[1] / "src" / "aica" / "qml" / "DefaultTimelineCard.qml"
+    qml_text = qml_path.read_text(encoding="utf-8")
+
+    assert "var nextText = timelineEditor.text" in qml_text
+    assert "rootContext.exitTimelineEdit(timelineCard.eventId)" in qml_text
+    assert "todoDetailBridge.commitTimelineContent(timelineCard.eventId, nextText)" in qml_text
+    assert "timelineCard.exitEditing()" not in qml_text
 
 
 def test_todo_detail_product_line_does_not_follow_project_snapshot() -> None:
@@ -2137,6 +2157,49 @@ def test_timeline_detail_save_triggers_async_summary_request() -> None:
     assert requests[0][1]["content"] == "新的详细原文"
 
 
+def test_timeline_detail_save_skips_async_summary_when_polish_disabled() -> None:
+    temp_dir = Path(tempfile.mkdtemp(prefix="todo-detail-config-", dir=Path.cwd()))
+    config_manager = ConfigManager(str(temp_dir / "config.json"))
+    config = config_manager.load()
+    config.enable_timeline_polish = False
+    config_manager.save(config)
+    bridge = _TodoDetailBridge(
+        attachment_root=Path("unused"),
+        environment_access_service=SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
+        ),
+        config_manager=config_manager,
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="旧摘要",
+        )
+    ]
+    requests: list[tuple[str, dict[str, object]]] = []
+    saved: list[tuple[str, dict[str, object]]] = []
+    bridge.timelineSummaryRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.saveRequested.connect(lambda todo_id, payload: saved.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.openTimelineDetail("event-1")
+    bridge.updateTimelineDetailText("新的详细原文")
+    bridge.saveTimelineDetail()
+
+    event = saved[-1][1]["timeline"][0]
+    assert requests == []
+    assert event.content == "新的详细原文"
+    assert event.payload["summary"] == "新的详细原文"
+    assert event.payload["raw_content"] == "新的详细原文"
+    assert event.payload["polished_detail"] == "新的详细原文"
+    assert bridge.timelineDetailSummary == "新的详细原文"
+
+
 def test_timeline_detail_edit_does_not_persist_without_explicit_save() -> None:
     bridge = _build_bridge(Path("unused"))
     todo = _build_todo()
@@ -2301,6 +2364,47 @@ def test_timeline_polish_request_is_blocked_when_feature_disabled() -> None:
     assert requests == []
     assert bridge.timelinePolishEnabled is False
     assert bridge.timelineDetailError == "时间线润色功能已关闭"
+
+
+def test_timeline_summary_request_is_blocked_when_feature_disabled() -> None:
+    temp_dir = Path(tempfile.mkdtemp(prefix="todo-detail-config-", dir=Path.cwd()))
+    config_manager = ConfigManager(str(temp_dir / "config.json"))
+    config = config_manager.load()
+    config.enable_timeline_polish = False
+    config_manager.save(config)
+    bridge = _TodoDetailBridge(
+        attachment_root=Path("unused"),
+        environment_access_service=SimpleNamespace(
+            list_project_environments=lambda _project_id: [],
+            list_effective_environments=lambda _project_id: [],
+        ),
+        config_manager=config_manager,
+    )
+    todo = _build_todo()
+    todo.timeline = [
+        TimelineEvent(
+            id="event-1",
+            timestamp="2026-06-14T11:00:00",
+            kind="manual",
+            scenario="问题反馈",
+            content="旧摘要",
+            payload={
+                "note_mode": "detail",
+                "raw_content": "原始长文",
+                "summary": "旧摘要",
+                "polished_detail": "原始长文",
+            },
+        )
+    ]
+    requests: list[tuple[str, dict[str, object]]] = []
+    bridge.timelineSummaryRequested.connect(lambda todo_id, payload: requests.append((todo_id, payload)))
+    bridge.set_todo(todo)
+
+    bridge.requestTimelineSummary("event-1")
+
+    assert requests == []
+    assert bridge.timeline[0]["content"] == "旧摘要"
+    assert bridge.timeline[0]["summary"] == "旧摘要"
 
 
 def test_timeline_detail_markdown_renderer_outputs_html() -> None:

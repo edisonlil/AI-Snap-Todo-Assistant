@@ -7,10 +7,14 @@ from pathlib import Path
 import sys
 import tempfile
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from aica.environment_access import EnvironmentAccessEntryRecord, ProjectEnvironmentRecord
 from aica.models import TicketSnapshot, TicketSummaryFields
 from aica.storage.contracts import ProjectRecord
+from aica.storage.sqlite.environment_repositories import SQLiteProjectEnvironmentRepository
 from aica.storage.sqlite.repositories import (
     SCHEMA_VERSION,
     SQLiteProjectRepository,
@@ -1059,3 +1063,133 @@ def test_schema_migration_repairs_project_related_foreign_keys_after_projects_re
     assert {row["table"] for row in link_fk} == {"todos", "projects"}
     assert {row["table"] for row in versions_fk} == {"projects"}
     assert {row["table"] for row in environments_fk} == {"projects"}
+
+
+def test_schema_migration_repairs_environment_access_foreign_key_after_project_environment_rebuild() -> None:
+    db_path = _make_db_path("todo-env-access-fk-repair")
+    project_repository = SQLiteProjectRepository(str(db_path))
+    environment_repository = SQLiteProjectEnvironmentRepository(str(db_path))
+
+    project_repository.upsert_project(
+        ProjectRecord(
+            id="project-1",
+            project_name="Demo Project",
+            task_order_no="WO-001",
+        )
+    )
+    environment_repository.upsert_project_environment(
+        ProjectEnvironmentRecord(
+            id="env-1",
+            project_id="project-1",
+            env_name="生产环境",
+            scope="project",
+        )
+    )
+    environment_repository.replace_access_entries(
+        "env-1",
+        [
+            EnvironmentAccessEntryRecord(
+                id="entry-1",
+                environment_id="env-1",
+                access_name="legacy-console",
+                access_type="web",
+                url_or_host="https://legacy.example.com",
+            )
+        ],
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript(
+            """
+            BEGIN;
+            ALTER TABLE project_environments RENAME TO project_environments_old_fkfix;
+            CREATE TABLE project_environments (
+              id TEXT PRIMARY KEY,
+              project_id TEXT DEFAULT '',
+              env_name TEXT NOT NULL,
+              scope TEXT NOT NULL DEFAULT 'project',
+              env_type TEXT NOT NULL DEFAULT '',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK(scope IN ('global', 'project')),
+              CHECK((scope = 'global' AND (project_id = '' OR project_id IS NULL)) OR (scope = 'project' AND project_id <> '')),
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+            INSERT INTO project_environments(
+              id, project_id, env_name, scope, env_type, sort_order,
+              is_active, note, created_at, updated_at
+            )
+            SELECT
+              id, project_id, env_name, scope, env_type, sort_order,
+              is_active, note, created_at, updated_at
+            FROM project_environments_old_fkfix;
+            DROP TABLE project_environments_old_fkfix;
+            COMMIT;
+            """
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        broken_fk = connection.execute("PRAGMA foreign_key_list(environment_access_entries)").fetchall()
+        assert {row["table"] for row in broken_fk} == {"project_environments_old_fkfix"}
+        with pytest.raises(sqlite3.OperationalError, match="project_environments_old_fkfix"):
+            connection.execute(
+                """
+                INSERT INTO environment_access_entries(
+                  id, environment_id, access_name, access_type, url_or_host,
+                  username, password_encrypted, otp_secret_encrypted,
+                  requires_otp, note, open_command, sort_order, is_active,
+                  created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "broken-entry",
+                    "env-1",
+                    "broken-console",
+                    "web",
+                    "https://broken.example.com",
+                    "",
+                    "",
+                    "",
+                    0,
+                    "",
+                    "",
+                    0,
+                    1,
+                    "2026-07-08T00:00:00",
+                    "2026-07-08T00:00:00",
+                ),
+            )
+
+    repair_migrator = SQLiteStorageMigrator(str(db_path))
+    _INITIALIZED_DATABASES.discard(repair_migrator._cache_key())  # noqa: SLF001
+    repair_migrator.ensure_schema()
+
+    repaired_repository = SQLiteProjectEnvironmentRepository(str(db_path))
+    repaired_repository.replace_access_entries(
+        "env-1",
+        [
+            EnvironmentAccessEntryRecord(
+                id="entry-2",
+                environment_id="env-1",
+                access_name="repaired-console",
+                access_type="web",
+                url_or_host="https://repaired.example.com",
+            )
+        ],
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        repaired_fk = connection.execute("PRAGMA foreign_key_list(environment_access_entries)").fetchall()
+
+    assert {row["table"] for row in repaired_fk} == {"project_environments"}
+    repaired_entry = repaired_repository.get_access_entry("entry-2")
+    assert repaired_entry is not None
+    assert repaired_entry.url_or_host == "https://repaired.example.com"

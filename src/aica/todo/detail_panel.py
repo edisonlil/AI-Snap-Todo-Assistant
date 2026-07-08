@@ -2270,11 +2270,17 @@ class _TodoDetailBridge(QObject):
 
     @pyqtSlot(str, str)
     def commitTimelineContent(self, event_id: str, value: str) -> None:
+        timeline_polish_enabled = self.timelinePolishEnabled
         self.updateTimelineContent(event_id, value)
+        if not timeline_polish_enabled:
+            self._sync_timeline_summary_from_raw_content(event_id)
         self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
-        self.requestTimelineSummary(event_id)
+        if timeline_polish_enabled:
+            self.requestTimelineSummary(event_id)
+        else:
+            self.dataChanged.emit()
 
     @pyqtSlot(str)
     def openTimelineDetail(self, event_id: str) -> None:
@@ -2315,6 +2321,7 @@ class _TodoDetailBridge(QObject):
         item = self._find_timeline_item(event_id)
         if item is None:
             return
+        timeline_polish_enabled = self.timelinePolishEnabled
         raw_content = sanitize_text(self._timeline_detail_text).strip()
         summary = sanitize_text(self._timeline_detail_summary).strip() or raw_content
         polished_detail = sanitize_text(self._timeline_detail_polished_text).strip() or raw_content
@@ -2328,10 +2335,15 @@ class _TodoDetailBridge(QObject):
         item["summary"] = summary
         item["detailContent"] = polished_detail
         item["content"] = summary or raw_content
+        if not timeline_polish_enabled:
+            self._sync_timeline_summary_from_raw_content(event_id)
         self._refresh_display_timeline()
         self.timelineChanged.emit()
         self._emit_save_request()
-        self.requestTimelineSummary(event_id)
+        if timeline_polish_enabled:
+            self.requestTimelineSummary(event_id)
+        else:
+            self.dataChanged.emit()
 
     @pyqtSlot(str)
     def requestTimelinePolish(self, event_id: str) -> None:
@@ -2366,6 +2378,8 @@ class _TodoDetailBridge(QObject):
     def requestTimelineSummary(self, event_id: str) -> None:
         if self._todo_id is None:
             return
+        if not self.timelinePolishEnabled:
+            return
         item = self._find_timeline_item(event_id)
         if item is None:
             return
@@ -2386,6 +2400,30 @@ class _TodoDetailBridge(QObject):
                 "content": raw_content,
             },
         )
+
+    def _sync_timeline_summary_from_raw_content(self, event_id: str) -> None:
+        item = self._find_timeline_item(event_id)
+        if item is None:
+            return
+        payload = _clone_dict(item.get("payload", {}))
+        raw_content = _timeline_payload_raw_content(
+            payload,
+            str(item.get("rawContent") or item.get("detailContent") or item.get("content") or ""),
+        )
+        if not raw_content:
+            return
+        payload["summary"] = raw_content
+        if not str(payload.get("raw_content") or "").strip():
+            payload["raw_content"] = raw_content
+        if not str(payload.get("polished_detail") or "").strip():
+            payload["polished_detail"] = raw_content
+        item["payload"] = payload
+        item["summary"] = raw_content
+        item["content"] = raw_content
+        item["rawContent"] = payload["raw_content"]
+        item["detailContent"] = _timeline_payload_detail(payload, raw_content)
+        if self._timeline_detail_event_id == event_id:
+            self._timeline_detail_summary = raw_content
 
     def apply_timeline_polish_result(self, todo_id: str, request_id: str, event_id: str, summary: str, detail: str) -> bool:
         if self._todo_id is None or str(todo_id or "").strip() != self._todo_id:

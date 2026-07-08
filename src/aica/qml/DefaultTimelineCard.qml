@@ -188,9 +188,12 @@ Rectangle {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            todoDetailBridge.commitTimelineContent(timelineCard.eventId, timelineEditor.text)
-                            timelineCard.originalContent = timelineEditor.text
-                            timelineCard.exitEditing()
+                            var nextText = timelineEditor.text
+                            timelineCard.originalContent = nextText
+                            if (rootContext) {
+                                rootContext.exitTimelineEdit(timelineCard.eventId)
+                            }
+                            todoDetailBridge.commitTimelineContent(timelineCard.eventId, nextText)
                         }
                     }
                 }

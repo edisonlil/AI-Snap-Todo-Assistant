@@ -7,13 +7,10 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.main import (  # noqa: E402
-    _ApplicationActivationFilter,
     _TOOLBAR_BASE_SCENARIOS,
     _TOOLBAR_SELECTED_TODO_SCENARIOS,
     _apply_application_icon,
     _build_hotkey_manager,
-    _handle_application_state_changed,
-    _show_control_panel_for_external_activation,
     _install_windows_taskbar_handlers,
     _install_macos_dock_handlers,
     _set_windows_app_user_model_id,
@@ -168,8 +165,6 @@ def test_show_startup_control_panel_relies_on_existing_state_without_forcing_rel
 
 
 def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path: Path) -> None:
-    events: list[object] = []
-
     class _Signal:
         def __init__(self) -> None:
             self._callbacks = []
@@ -200,29 +195,14 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
         def setAsDockMenu(self) -> None:
             self.dock_menu_set = True
 
-    class _App:
-        def __init__(self) -> None:
-            self.applicationStateChanged = _Signal()
-
-        def installEventFilter(self, event_filter) -> None:
-            events.append(event_filter)
-
-    class _ActivationFilter:
-        def __init__(self, callback, parent=None) -> None:
-            self.callback = callback
-            self.parent = parent
-
     monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_macos=True))
     monkeypatch.setattr("aica.main.QAction", _Action)
     monkeypatch.setattr("aica.main.QMenu", _Menu)
-    monkeypatch.setattr("aica.main.QTimer", SimpleNamespace(singleShot=lambda _ms, callback: callback()))
-    monkeypatch.setattr("aica.main._ApplicationActivationFilter", _ActivationFilter)
 
     shown_sections: list[str] = []
     capture_sources: list[str] = []
-    quit_calls: list[str] = []
 
-    app = _App()
+    app = object()
     handlers = _install_macos_dock_handlers(
         app,
         show_control_panel=lambda section: shown_sections.append(section),
@@ -231,16 +211,13 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     )
 
     assert handlers.dock_menu.dock_menu_set is True
-    assert [getattr(item, "text", None) for item in handlers.dock_menu.items] == ["开始截图"]
+    assert [getattr(item, "text", None) for item in handlers.dock_menu.items] == ["开始截图", "打开控制面板"]
 
     handlers.dock_menu.items[0].triggered.emit()
-    handlers.activation_filter.callback()
-    app.applicationStateChanged.emit("inactive")
+    handlers.dock_menu.items[1].triggered.emit()
 
     assert capture_sources == ["dock"]
-    assert quit_calls == []
     assert shown_sections == ["server"]
-    assert events == [handlers.activation_filter]
     assert "macos dock menu installed" in (tmp_path / "startup.log").read_text(encoding="utf-8")
 
 
@@ -255,98 +232,6 @@ def test_macos_dock_handlers_are_skipped_on_non_macos(monkeypatch, tmp_path: Pat
     )
 
     assert handlers is None
-
-
-def test_application_activation_filter_opens_control_panel(monkeypatch) -> None:
-    calls: list[str] = []
-
-    class _EventType:
-        ApplicationActivate = object()
-
-    class _QEvent:
-        Type = _EventType
-
-    class _Event:
-        @staticmethod
-        def type():
-            return _EventType.ApplicationActivate
-
-    monkeypatch.setattr("aica.main.QEvent", _QEvent)
-
-    activation_filter = _ApplicationActivationFilter(lambda: calls.append("activated"))
-    activation_filter.eventFilter(None, _Event())
-
-    assert calls == ["activated"]
-
-
-def test_application_state_changed_opens_control_panel_when_active(monkeypatch) -> None:
-    shown_sections: list[str] = []
-
-    class _ApplicationState:
-        ApplicationActive = object()
-
-    class _Qt:
-        ApplicationState = _ApplicationState
-
-    monkeypatch.setattr("aica.main.Qt", _Qt)
-    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
-
-    _handle_application_state_changed(
-        _ApplicationState.ApplicationActive,
-        object(),
-        lambda section: shown_sections.append(section),
-    )
-    _handle_application_state_changed(object(), object(), lambda section: shown_sections.append(section))
-
-    assert shown_sections == ["server"]
-
-
-def test_application_state_changed_ignores_capture_ui_when_active(monkeypatch) -> None:
-    shown_sections: list[str] = []
-
-    class _ApplicationState:
-        ApplicationActive = object()
-
-    class _Qt:
-        ApplicationState = _ApplicationState
-
-    monkeypatch.setattr("aica.main.Qt", _Qt)
-    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
-
-    _handle_application_state_changed(
-        _ApplicationState.ApplicationActive,
-        object(),
-        lambda section: shown_sections.append(section),
-        is_capture_ui_active=lambda: True,
-    )
-
-    assert shown_sections == []
-
-
-def test_application_activation_ignores_clicks_on_app_windows(monkeypatch) -> None:
-    shown_sections: list[str] = []
-    app = object()
-
-    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda checked_app: checked_app is app)
-
-    _show_control_panel_for_external_activation(app, lambda section: shown_sections.append(section))
-
-    assert shown_sections == []
-
-
-def test_application_activation_ignores_capture_ui_state(monkeypatch) -> None:
-    shown_sections: list[str] = []
-
-    monkeypatch.setattr("aica.main._cursor_is_over_application_window", lambda _app: False)
-
-    _show_control_panel_for_external_activation(
-        object(),
-        lambda section: shown_sections.append(section),
-        is_capture_ui_active=lambda: True,
-    )
-
-    assert shown_sections == []
-
 
 def test_exception_handler_exits_when_error_dialog_fails(monkeypatch, tmp_path: Path) -> None:
     exit_codes: list[int] = []
