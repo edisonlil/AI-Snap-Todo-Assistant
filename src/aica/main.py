@@ -293,6 +293,39 @@ def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_f
     _append_startup_log(startup_log_file, "startup: control panel shown")
 
 
+def _has_visible_top_level_widget(app: QApplication) -> bool:
+    top_level_widgets = getattr(app, "topLevelWidgets", None)
+    if not callable(top_level_widgets):
+        return False
+    for widget in top_level_widgets():
+        is_visible = getattr(widget, "isVisible", None)
+        if not callable(is_visible) or not is_visible():
+            continue
+        is_minimized = getattr(widget, "isMinimized", None)
+        if callable(is_minimized) and is_minimized():
+            continue
+        return True
+    return False
+
+
+class _MacOSDockReopenHandler:
+    def __init__(self, app: QApplication, *, show_control_panel, startup_log_file: Path) -> None:
+        self._app = app
+        self._show_control_panel = show_control_panel
+        self._startup_log_file = startup_log_file
+
+    def handle_application_state_changed(self, state) -> None:
+        if state != Qt.ApplicationState.ApplicationActive:
+            return
+        if _has_visible_top_level_widget(self._app):
+            return
+        self._show_control_panel("server")
+        _append_startup_log(
+            self._startup_log_file,
+            "startup: macos dock reopen opened control panel",
+        )
+
+
 def _install_macos_dock_handlers(
     app: QApplication,
     *,
@@ -317,9 +350,23 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock menu installed")
     else:
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
+
+    reopen_handler = _MacOSDockReopenHandler(
+        app,
+        show_control_panel=show_control_panel,
+        startup_log_file=startup_log_file,
+    )
+    application_state_changed = getattr(app, "applicationStateChanged", None)
+    if hasattr(application_state_changed, "connect"):
+        application_state_changed.connect(reopen_handler.handle_application_state_changed)
+        _append_startup_log(startup_log_file, "startup: macos dock reopen handler installed")
+    else:
+        _append_startup_log(startup_log_file, "startup: macos dock reopen handler unavailable")
+
     return SimpleNamespace(
         dock_menu=dock_menu,
         actions=(action_capture, action_open_panel),
+        reopen_handler=reopen_handler,
     )
 
 

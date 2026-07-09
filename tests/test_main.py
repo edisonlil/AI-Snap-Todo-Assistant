@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+from PyQt6.QtCore import Qt
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aica.main import (  # noqa: E402
@@ -11,8 +13,10 @@ from aica.main import (  # noqa: E402
     _TOOLBAR_SELECTED_TODO_SCENARIOS,
     _apply_application_icon,
     _build_hotkey_manager,
+    _has_visible_top_level_widget,
     _install_windows_taskbar_handlers,
     _install_macos_dock_handlers,
+    _MacOSDockReopenHandler,
     _set_windows_app_user_model_id,
     _setup_exception_handler,
     _show_startup_control_panel,
@@ -176,6 +180,10 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
             for callback in self._callbacks:
                 callback(*args)
 
+        @property
+        def callbacks(self) -> list:
+            return list(self._callbacks)
+
     class _Action:
         def __init__(self, text: str, _app) -> None:
             self.text = text
@@ -202,7 +210,7 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     shown_sections: list[str] = []
     capture_sources: list[str] = []
 
-    app = object()
+    app = SimpleNamespace(applicationStateChanged=_Signal())
     handlers = _install_macos_dock_handlers(
         app,
         show_control_panel=lambda section: shown_sections.append(section),
@@ -218,7 +226,78 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
 
     assert capture_sources == ["dock"]
     assert shown_sections == ["server"]
-    assert "macos dock menu installed" in (tmp_path / "startup.log").read_text(encoding="utf-8")
+    assert handlers.reopen_handler is not None
+    assert len(app.applicationStateChanged.callbacks) == 1
+    log_text = (tmp_path / "startup.log").read_text(encoding="utf-8")
+    assert "macos dock menu installed" in log_text
+    assert "macos dock reopen handler installed" in log_text
+
+
+def test_has_visible_top_level_widget_ignores_hidden_and_minimized_windows() -> None:
+    class _Widget:
+        def __init__(self, visible: bool, minimized: bool = False) -> None:
+            self._visible = visible
+            self._minimized = minimized
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return self._visible
+
+        def isMinimized(self) -> bool:  # noqa: N802
+            return self._minimized
+
+    app = SimpleNamespace(
+        topLevelWidgets=lambda: [
+            _Widget(False),
+            _Widget(True, minimized=True),
+            _Widget(True),
+        ]
+    )
+
+    assert _has_visible_top_level_widget(app) is True
+
+
+def test_macos_dock_reopen_opens_control_panel_when_no_visible_window(tmp_path: Path) -> None:
+    shown_sections: list[str] = []
+    app = SimpleNamespace(topLevelWidgets=lambda: [])
+    handler = _MacOSDockReopenHandler(
+        app,
+        show_control_panel=lambda section: shown_sections.append(section),
+        startup_log_file=tmp_path / "startup.log",
+    )
+
+    handler.handle_application_state_changed("inactive")
+    handler.handle_application_state_changed("active")
+    handler.handle_application_state_changed(SimpleNamespace())
+    handler.handle_application_state_changed(Qt.ApplicationState.ApplicationActive)
+
+    assert shown_sections == ["server"]
+    assert "macos dock reopen opened control panel" in (tmp_path / "startup.log").read_text(encoding="utf-8")
+
+
+def test_macos_dock_reopen_ignores_when_window_is_visible(tmp_path: Path) -> None:
+    shown_sections: list[str] = []
+
+    class _Widget:
+        @staticmethod
+        def isVisible() -> bool:  # noqa: N802
+            return True
+
+        @staticmethod
+        def isMinimized() -> bool:  # noqa: N802
+            return False
+
+    app = SimpleNamespace(topLevelWidgets=lambda: [_Widget()])
+    handler = _MacOSDockReopenHandler(
+        app,
+        show_control_panel=lambda section: shown_sections.append(section),
+        startup_log_file=tmp_path / "startup.log",
+    )
+
+    handler.handle_application_state_changed(Qt.ApplicationState.ApplicationActive)
+
+    assert shown_sections == []
+    log_file = tmp_path / "startup.log"
+    assert not log_file.exists() or "macos dock reopen opened control panel" not in log_file.read_text(encoding="utf-8")
 
 
 def test_macos_dock_handlers_are_skipped_on_non_macos(monkeypatch, tmp_path: Path) -> None:
