@@ -1623,6 +1623,40 @@ def test_save_selected_ticket_issue_product_normalizes_path(monkeypatch: pytest.
     assert bridge._todo_store.get_todo(todo.id).summary_fields.issue_product == "产品A/模块B/功能C"  # noqa: SLF001
 
 
+def test_save_selected_ticket_issue_product_clears_stale_ticket_version_before_backfill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields.from_dict(
+        {
+            **todo.summary_fields.to_dict(),
+            "ticket_version": "release_old_product",
+        }
+    )
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+        },
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge._issue_product_options = [  # noqa: SLF001
+        {"code": "p1", "value": "产品A/模块B/功能C", "text": "产品A/模块B/功能C", "sortOrder": 1},
+        {"code": "p2", "value": "产品X/模块Y/功能Z", "text": "产品X/模块Y/功能Z", "sortOrder": 2},
+    ]
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("issue_product", "产品X/模块Y/功能Z")
+
+    assert bridge.selectedTicket["issueProduct"] == "产品X/模块Y/功能Z"
+    assert bridge.selectedTicket["ticketVersion"] == ""
+    assert bridge._todo_store.get_todo(todo.id).summary_fields.ticket_version == ""  # noqa: SLF001
+
+
 def test_selected_ticket_exposes_feature_point_search_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     todo = _build_todo()
     bridge = _build_bridge(monkeypatch, todo)
@@ -1813,6 +1847,36 @@ def test_save_selected_ticket_environment_backfills_ticket_version(monkeypatch: 
 
     assert bridge.selectedTicket["environment"] == "正式环境"
     assert bridge.selectedTicket["ticketVersion"] == "release_dc_v7.0.2504b.20250424"
+
+
+def test_save_selected_ticket_environment_clears_stale_ticket_version_before_backfill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    todo = _build_todo()
+    todo.summary_fields = TicketSummaryFields.from_dict(
+        {
+            **todo.summary_fields.to_dict(),
+            "ticket_version": "release_old_env",
+        }
+    )
+    todo.project_link = TodoProjectLink(
+        todo_id=todo.id,
+        project_id="project-1",
+        match_status="manual",
+        project_snapshot={
+            "project_name": "Demo Project",
+            "customer_name": "Demo Customer",
+            "task_order_no": "WO-001",
+        },
+    )
+    bridge = _build_bridge(monkeypatch, todo)
+    bridge.openTicketDetail(todo.id)
+
+    bridge.saveSelectedTicketField("environment", "正式环境")
+
+    assert bridge.selectedTicket["environment"] == "正式环境"
+    assert bridge.selectedTicket["ticketVersion"] == ""
+    assert bridge._todo_store.get_todo(todo.id).summary_fields.ticket_version == ""  # noqa: SLF001
 
 
 def test_save_selected_ticket_product_line_clears_invalid_module(monkeypatch: pytest.MonkeyPatch) -> None:

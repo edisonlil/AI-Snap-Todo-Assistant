@@ -2413,6 +2413,23 @@ class _ControlPanelBridge(QObject):
         payload.update(overrides)
         return TicketSummaryFields.from_dict(payload)
 
+    @staticmethod
+    def _should_refresh_ticket_version_from_project_mapping(
+        todo: TodoItem,
+        *,
+        environment: str,
+        issue_product: str,
+    ) -> bool:
+        project_id = str(todo.project_link.project_id or "").strip()
+        match_status = str(todo.project_link.match_status or "").strip()
+        if not project_id or match_status not in {"matched", "manual"}:
+            return False
+        current_environment = str(todo.summary_fields.environment or "").strip()
+        current_issue_product = normalize_issue_product_path(todo.summary_fields.issue_product)
+        next_environment = str(environment or "").strip()
+        next_issue_product = normalize_issue_product_path(issue_product)
+        return next_environment != current_environment or next_issue_product != current_issue_product
+
     def _selected_ticket_customer_environment_options(
         self,
         customer_environment_value: str,
@@ -4323,6 +4340,15 @@ class _ControlPanelBridge(QObject):
             customer_environment_value = str(selected_option.get("value") or "").strip() if isinstance(selected_option, dict) else ""
         if normalized_field == "issue_product":
             issue_product = normalize_issue_product_path(next_value)
+        ticket_version = todo.summary_fields.ticket_version
+        if normalized_field == "ticket_version":
+            ticket_version = next_value
+        elif self._should_refresh_ticket_version_from_project_mapping(
+            todo,
+            environment=environment,
+            issue_product=issue_product,
+        ):
+            ticket_version = ""
         updated = self._todo_store.update_todo(
             todo.id,
             summary_fields=self._build_updated_ticket_summary_fields(
@@ -4335,7 +4361,7 @@ class _ControlPanelBridge(QObject):
                 ),
                 customer_environment_value=customer_environment_value,
                 issue_product=issue_product,
-                ticket_version=next_value if normalized_field == "ticket_version" else todo.summary_fields.ticket_version,
+                ticket_version=ticket_version,
                 feature_point=next_value if normalized_field == "feature_point" else todo.summary_fields.feature_point,
                 feature_point_source="manual" if normalized_field == "feature_point" else todo.summary_fields.feature_point_source,
                 root_cause_desc=next_value if normalized_field == "root_cause_desc" else todo.summary_fields.root_cause_desc,
