@@ -77,6 +77,38 @@ def test_detail_panel_defers_auxiliary_window_creation(monkeypatch) -> None:
     assert panel._assist_troubleshooting_window is None  # noqa: SLF001
 
 
+def test_detail_panel_defaults_to_pinned(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+
+    assert panel._pinned is True  # noqa: SLF001
+
+
+def test_detail_panel_set_pinned_keeps_panel_topmost(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    calls: list[bool] = []
+    panel._stage_summary_window = SimpleNamespace(set_pinned=lambda pinned: calls.append(bool(pinned)))  # noqa: SLF001
+    panel._timeline_detail_window = SimpleNamespace(set_pinned=lambda pinned: calls.append(bool(pinned)))  # noqa: SLF001
+    panel._assist_troubleshooting_window = SimpleNamespace(set_pinned=lambda pinned: calls.append(bool(pinned)))  # noqa: SLF001
+    panel._sync_stage_summary_window = lambda: None  # type: ignore[method-assign]  # noqa: SLF001
+    panel._sync_timeline_detail_window = lambda: None  # type: ignore[method-assign]  # noqa: SLF001
+    panel._sync_assist_troubleshooting_window = lambda: None  # type: ignore[method-assign]  # noqa: SLF001
+
+    panel.set_pinned(False)
+
+    assert panel._pinned is True  # noqa: SLF001
+    assert calls == [True, True, True]
+
+
+def test_detail_panel_deactivate_does_not_close(monkeypatch) -> None:
+    panel = _build_panel(monkeypatch)
+    closed: list[bool] = []
+    panel._close_panel = lambda: closed.append(True)  # type: ignore[method-assign]  # noqa: SLF001
+
+    panel._close_if_unpinned_after_deactivate()
+
+    assert closed == []
+
+
 def test_timeline_draft_text_update_does_not_emit_draft_changed(tmp_path: Path) -> None:
     bridge = _build_bridge(tmp_path)
     signal_count = 0

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import uuid
 
 from PyQt6.QtCore import QObject, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
+from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap, QWindow
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
@@ -296,13 +296,27 @@ def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_f
 def _has_visible_top_level_widget(app: QApplication) -> bool:
     top_level_widgets = getattr(app, "topLevelWidgets", None)
     if not callable(top_level_widgets):
-        return False
+        top_level_widgets = lambda: []
     for widget in top_level_widgets():
         is_visible = getattr(widget, "isVisible", None)
         if not callable(is_visible) or not is_visible():
             continue
         is_minimized = getattr(widget, "isMinimized", None)
         if callable(is_minimized) and is_minimized():
+            continue
+        return True
+    top_level_windows = getattr(app, "topLevelWindows", None)
+    if not callable(top_level_windows):
+        return False
+    for window in top_level_windows():
+        is_visible = getattr(window, "isVisible", None)
+        if not callable(is_visible) or not is_visible():
+            continue
+        visibility = getattr(window, "visibility", None)
+        if callable(visibility) and visibility() == QWindow.Visibility.Minimized:
+            continue
+        window_state = getattr(window, "windowState", None)
+        if callable(window_state) and window_state() & Qt.WindowState.WindowMinimized:
             continue
         return True
     return False
@@ -443,7 +457,7 @@ def main() -> None:
     control_panel.setWindowIcon(app_icon)
     todo_panel = TodoPanel(theme_controller=theme_controller)
     todo_detail_panel = TodoDetailPanel(notification_bridge=notification_bridge, theme_controller=theme_controller)
-    todo_detail_panel.set_pinned(todo_panel.pinned)
+    todo_detail_panel.set_pinned(True)
     toolbar.set_scenario_selector_visible(True)
     toolbar.set_scenarios(dict(_TOOLBAR_BASE_SCENARIOS))
 
@@ -1345,7 +1359,6 @@ def main() -> None:
     todo_panel.todo_completed.connect(_on_todo_completed)
     todo_panel.selection_cleared.connect(_on_todo_selection_cleared)
     todo_panel.detail_requested.connect(_on_todo_detail_requested)
-    todo_panel.pinned_changed.connect(todo_detail_panel.set_pinned)
     todo_detail_panel.save_requested.connect(_on_todo_detail_saved)
     todo_detail_panel.log_analysis_requested.connect(_on_log_analysis_requested)
     todo_detail_panel.closed.connect(_on_todo_detail_closed)

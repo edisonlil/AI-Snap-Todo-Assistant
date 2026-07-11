@@ -245,12 +245,30 @@ def test_has_visible_top_level_widget_ignores_hidden_and_minimized_windows() -> 
         def isMinimized(self) -> bool:  # noqa: N802
             return self._minimized
 
+    class _Window:
+        def __init__(self, visible: bool, minimized: bool = False) -> None:
+            self._visible = visible
+            self._minimized = minimized
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return self._visible
+
+        def visibility(self):
+            return "minimized" if self._minimized else "windowed"
+
+        def windowState(self):  # noqa: N802
+            return Qt.WindowState.WindowMinimized if self._minimized else Qt.WindowState.WindowNoState
+
     app = SimpleNamespace(
         topLevelWidgets=lambda: [
             _Widget(False),
             _Widget(True, minimized=True),
-            _Widget(True),
-        ]
+        ],
+        topLevelWindows=lambda: [
+            _Window(False),
+            _Window(True, minimized=True),
+            _Window(True),
+        ],
     )
 
     assert _has_visible_top_level_widget(app) is True
@@ -258,7 +276,7 @@ def test_has_visible_top_level_widget_ignores_hidden_and_minimized_windows() -> 
 
 def test_macos_dock_reopen_opens_control_panel_when_no_visible_window(tmp_path: Path) -> None:
     shown_sections: list[str] = []
-    app = SimpleNamespace(topLevelWidgets=lambda: [])
+    app = SimpleNamespace(topLevelWidgets=lambda: [], topLevelWindows=lambda: [])
     handler = _MacOSDockReopenHandler(
         app,
         show_control_panel=lambda section: shown_sections.append(section),
@@ -277,16 +295,20 @@ def test_macos_dock_reopen_opens_control_panel_when_no_visible_window(tmp_path: 
 def test_macos_dock_reopen_ignores_when_window_is_visible(tmp_path: Path) -> None:
     shown_sections: list[str] = []
 
-    class _Widget:
+    class _Window:
         @staticmethod
         def isVisible() -> bool:  # noqa: N802
             return True
 
         @staticmethod
-        def isMinimized() -> bool:  # noqa: N802
-            return False
+        def visibility():
+            return "windowed"
 
-    app = SimpleNamespace(topLevelWidgets=lambda: [_Widget()])
+        @staticmethod
+        def windowState():  # noqa: N802
+            return Qt.WindowState.WindowNoState
+
+    app = SimpleNamespace(topLevelWidgets=lambda: [], topLevelWindows=lambda: [_Window()])
     handler = _MacOSDockReopenHandler(
         app,
         show_control_panel=lambda section: shown_sections.append(section),

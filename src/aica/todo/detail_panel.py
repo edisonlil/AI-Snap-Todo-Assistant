@@ -5220,7 +5220,7 @@ class TodoDetailPanel(QQuickView):
         self._stage_summary_window_visible = False
         self._timeline_detail_window_visible = False
         self._assist_troubleshooting_window_visible = False
-        self._pinned = False
+        self._pinned = True
         self._auto_collapse_hold_count = 0
         self._target_panel_width = self._panel_width
         self._target_panel_height = self._panel_height
@@ -5334,21 +5334,19 @@ class TodoDetailPanel(QQuickView):
         QTimer.singleShot(0, self._release_auto_collapse)
 
     def set_pinned(self, pinned: bool) -> None:
-        pinned = bool(pinned)
-        if self._pinned == pinned:
-            return
-        self._pinned = pinned
-        self._apply_window_flags()
+        if not self._pinned:
+            self._pinned = True
+            self._apply_window_flags()
         if self._stage_summary_window is not None:
-            self._stage_summary_window.set_pinned(pinned)
+            self._stage_summary_window.set_pinned(True)
         if self._timeline_detail_window is not None:
-            self._timeline_detail_window.set_pinned(pinned)
+            self._timeline_detail_window.set_pinned(True)
         if self._assist_troubleshooting_window is not None:
-            self._assist_troubleshooting_window.set_pinned(pinned)
+            self._assist_troubleshooting_window.set_pinned(True)
         self._sync_stage_summary_window()
         self._sync_timeline_detail_window()
         self._sync_assist_troubleshooting_window()
-        if pinned and self.isVisible():
+        if self.isVisible():
             self.raise_()
             self.requestActivate()
 
@@ -5614,11 +5612,7 @@ class TodoDetailPanel(QQuickView):
         self.setPosition(target_x, target_y)
 
     def _close_if_unpinned_after_deactivate(self) -> None:
-        if self._pinned or self._auto_collapse_hold_count > 0 or not self.isVisible():
-            return
-        if QGuiApplication.focusWindow() is not None:
-            return
-        self._close_panel()
+        return
 
     def _close_panel(self) -> None:
         if (
@@ -5662,9 +5656,6 @@ class TodoDetailPanel(QQuickView):
         super().hide()
 
     def event(self, event):  # noqa: ANN001, ANN201
-        event_type = getattr(event, "type", None)
-        if callable(event_type) and event_type() == QEvent.Type.WindowDeactivate:
-            QTimer.singleShot(0, self._close_if_unpinned_after_deactivate)
         return super().event(event)
 
     def apply_stage_summary_result(self, todo_id: str, request_id: str, summary_text: str, notice: str = "") -> bool:
