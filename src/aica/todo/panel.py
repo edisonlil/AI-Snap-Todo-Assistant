@@ -286,7 +286,6 @@ class TodoPanel(QQuickView):
     detail_requested = pyqtSignal(str)
     pinned_changed = pyqtSignal(bool)
     geometry_changed = pyqtSignal()
-    interaction_started = pyqtSignal()
 
     def __init__(self, parent=None, *, theme_controller: ThemeController | None = None):
         super().__init__(parent)
@@ -568,7 +567,6 @@ class TodoPanel(QQuickView):
         return self.geometry()
 
     def _start_drag(self) -> None:
-        self.interaction_started.emit()
         if self._bridge.minimized:
             self._set_bridge_mini_hovering(True)
         cursor_pos = QCursor.pos()

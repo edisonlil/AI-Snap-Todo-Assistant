@@ -297,19 +297,9 @@ class _MacOSDockReopenHandler:
     def __init__(self, *, show_control_panel, startup_log_file: Path) -> None:
         self._show_control_panel = show_control_panel
         self._startup_log_file = startup_log_file
-        self._application_active = False
         self._reopen_check_pending = False
-        self._todo_interaction_suppressed = False
-
-    def handle_application_state_changed(self, state) -> None:
-        self._application_active = state == Qt.ApplicationState.ApplicationActive
-        if not self._application_active:
-            return
-        self._schedule_reopen()
 
     def handle_native_dock_reopen(self) -> None:
-        self._application_active = True
-        self._todo_interaction_suppressed = False
         self._schedule_reopen()
 
     def _schedule_reopen(self) -> None:
@@ -320,24 +310,11 @@ class _MacOSDockReopenHandler:
 
     def _open_control_panel_from_reopen(self) -> None:
         self._reopen_check_pending = False
-        if self._todo_interaction_suppressed:
-            self._todo_interaction_suppressed = False
-            return
-        if not self._application_active:
-            return
         self._show_control_panel("server")
         _append_startup_log(
             self._startup_log_file,
             "startup: macos dock reopen opened control panel",
         )
-
-    def suppress_reopen_for_todo_interaction(self) -> None:
-        self._todo_interaction_suppressed = True
-        QTimer.singleShot(500, self._clear_todo_interaction_suppression)
-
-    def _clear_todo_interaction_suppression(self) -> None:
-        self._todo_interaction_suppressed = False
-
 
 _NATIVE_REOPEN_DELEGATE_PROXY_CLASS = None
 
@@ -440,12 +417,6 @@ def _install_macos_dock_handlers(
         show_control_panel=show_control_panel,
         startup_log_file=startup_log_file,
     )
-    application_state_changed = getattr(app, "applicationStateChanged", None)
-    if hasattr(application_state_changed, "connect"):
-        application_state_changed.connect(reopen_handler.handle_application_state_changed)
-        _append_startup_log(startup_log_file, "startup: macos dock reopen handler installed")
-    else:
-        _append_startup_log(startup_log_file, "startup: macos dock reopen handler unavailable")
     native_reopen_handler = _install_native_macos_reopen_handler(reopen_handler, startup_log_file)
 
     return SimpleNamespace(
@@ -646,10 +617,6 @@ def main() -> None:
         request_capture=_request_capture,
         startup_log_file=startup_log_file,
     )
-    if macos_dock_handlers is not None:
-        todo_panel.interaction_started.connect(
-            macos_dock_handlers.reopen_handler.suppress_reopen_for_todo_interaction
-        )
 
     def _on_tray_activated(reason) -> None:
         if reason in (

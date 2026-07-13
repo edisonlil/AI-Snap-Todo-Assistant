@@ -403,33 +403,6 @@ def test_hover_width_is_initialized_after_panel_width() -> None:
     assert panel_width_index < hover_width_index
 
 
-def test_start_drag_emits_interaction_started(monkeypatch) -> None:
-    _install_pyqt_fakes()
-    from aica.todo import panel as todo_panel
-
-    class FakeSignal:
-        def __init__(self) -> None:
-            self.count = 0
-
-        def emit(self) -> None:
-            self.count += 1
-
-    class FakePoint:
-        def __sub__(self, _other):
-            return "drag-offset"
-
-    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
-    panel._bridge = types.SimpleNamespace(minimized=False)  # noqa: SLF001
-    panel.interaction_started = FakeSignal()
-    panel.position = lambda: FakePoint()
-    monkeypatch.setattr(todo_panel.QCursor, "pos", lambda: FakePoint())
-
-    panel._start_drag()  # noqa: SLF001
-
-    assert panel.interaction_started.count == 1
-    assert panel._drag_offset == "drag-offset"  # noqa: SLF001
-
-
 def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> None:
     _install_pyqt_fakes()
     from aica.todo import panel as todo_panel
