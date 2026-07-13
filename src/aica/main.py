@@ -327,9 +327,23 @@ class _MacOSDockReopenHandler:
         self._app = app
         self._show_control_panel = show_control_panel
         self._startup_log_file = startup_log_file
+        self._application_active = False
+        self._reopen_check_pending = False
+        self._todo_interaction_suppressed = False
 
     def handle_application_state_changed(self, state) -> None:
-        if state != Qt.ApplicationState.ApplicationActive:
+        self._application_active = state == Qt.ApplicationState.ApplicationActive
+        if not self._application_active or self._reopen_check_pending:
+            return
+        self._reopen_check_pending = True
+        QTimer.singleShot(0, self._open_control_panel_if_no_window)
+
+    def _open_control_panel_if_no_window(self) -> None:
+        self._reopen_check_pending = False
+        if self._todo_interaction_suppressed:
+            self._todo_interaction_suppressed = False
+            return
+        if not self._application_active:
             return
         if _has_visible_top_level_widget(self._app):
             return
@@ -338,6 +352,13 @@ class _MacOSDockReopenHandler:
             self._startup_log_file,
             "startup: macos dock reopen opened control panel",
         )
+
+    def suppress_reopen_for_todo_interaction(self) -> None:
+        self._todo_interaction_suppressed = True
+        QTimer.singleShot(500, self._clear_todo_interaction_suppression)
+
+    def _clear_todo_interaction_suppression(self) -> None:
+        self._todo_interaction_suppressed = False
 
 
 def _install_macos_dock_handlers(
@@ -574,6 +595,10 @@ def main() -> None:
         request_capture=_request_capture,
         startup_log_file=startup_log_file,
     )
+    if macos_dock_handlers is not None:
+        todo_panel.interaction_started.connect(
+            macos_dock_handlers.reopen_handler.suppress_reopen_for_todo_interaction
+        )
 
     def _on_tray_activated(reason) -> None:
         if reason in (

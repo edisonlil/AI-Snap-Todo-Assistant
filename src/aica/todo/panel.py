@@ -286,6 +286,7 @@ class TodoPanel(QQuickView):
     detail_requested = pyqtSignal(str)
     pinned_changed = pyqtSignal(bool)
     geometry_changed = pyqtSignal()
+    interaction_started = pyqtSignal()
 
     def __init__(self, parent=None, *, theme_controller: ThemeController | None = None):
         super().__init__(parent)
@@ -301,6 +302,7 @@ class TodoPanel(QQuickView):
         self._minimized_height = 50
         self._target_panel_size = QSize(self._panel_width, 194)
         self._last_screen_name = ""
+        self._observed_screen = None
         self._drag_offset = None
         self._custom_position = None
         self._dock_side = "right"
@@ -325,6 +327,7 @@ class TodoPanel(QQuickView):
         self.rootContext().setContextProperty("todoPanelBridge", self._bridge)
         self.setSource(QUrl.fromLocalFile(str(qml_dir() / "TodoPanel.qml")))
         self.screenChanged.connect(self._handle_screen_changed)
+        self._observe_screen(self.screen())
 
         self._bridge.todoSelected.connect(self.todo_selected)
         self._bridge.todoCompleted.connect(self.todo_completed)
@@ -345,30 +348,15 @@ class TodoPanel(QQuickView):
 
     def set_todos(self, todos: list[TodoItem], selected_id: str | None) -> None:
         was_visible = self.isVisible()
-        previous_width = self.width()
-        previous_height = self.height()
-        previous_target_size = self.__dict__.get("_target_panel_size")
-        previous_target_width = previous_target_size.width() if previous_target_size is not None else previous_width
-        previous_target_height = previous_target_size.height() if previous_target_size is not None else previous_height
         self._bridge.set_state(todos, selected_id)
         self._update_panel_size()
-        current_target_size = self.__dict__.get("_target_panel_size")
-        current_target_width = current_target_size.width() if current_target_size is not None else self.width()
-        current_target_height = current_target_size.height() if current_target_size is not None else self.height()
-        size_changed = (
-            self.width() != previous_width
-            or self.height() != previous_height
-            or current_target_width != previous_target_width
-            or current_target_height != previous_target_height
-        )
 
         if todos:
-            if not was_visible:
+            if self._drag_offset is None:
                 self._reposition()
-            elif self._drag_offset is None and size_changed:
-                self._keep_current_position()
             if not was_visible:
                 self.show()
+                self._schedule_restore_and_reposition()
             if self._bridge.pinned and not was_visible:
                 self.raise_()
             self._schedule_auto_minimize()
@@ -507,6 +495,7 @@ class TodoPanel(QQuickView):
         )
         if was_visible:
             self.show()
+            self._schedule_restore_and_reposition()
             self.geometry_changed.emit()
 
     def _handle_pinned_changed(self) -> None:
@@ -555,7 +544,8 @@ class TodoPanel(QQuickView):
         self._schedule_auto_minimize()
 
     def _reposition(self) -> None:
-        screen = _screen_for_point(self.position())
+        current = self.position()
+        screen = _screen_for_point(current)
         if screen is None:
             return
         available = screen.availableGeometry()
@@ -564,30 +554,12 @@ class TodoPanel(QQuickView):
         max_y = available.bottom() - self.height() - margin
         y_source = self._custom_position.y() if self._custom_position is not None else min_y
         y = min(max(y_source, min_y), max_y)
-        if self._custom_position is not None:
-            self._dock_side = "left" if self._custom_position.x() <= available.center().x() else "right"
-            self._sync_bridge_dock_side()
         if self._dock_side == "left":
             x = available.left() + margin
         else:
             x = available.right() - self.width() - margin
-        self.setPosition(x, y)
-        self._custom_position = self.position()
-        self.geometry_changed.emit()
-
-    def _keep_current_position(self) -> None:
-        screen = _screen_for_point(self.position())
-        if screen is None:
+        if current.x() == x and current.y() == y:
             return
-        available = screen.availableGeometry()
-        margin = self._current_snap_margin()
-        min_x = available.left() + margin
-        max_x = available.right() - self.width() - margin
-        min_y = available.top() + margin
-        max_y = available.bottom() - self.height() - margin
-        current = self.position()
-        x = min(max(current.x(), min_x), max_x)
-        y = min(max(current.y(), min_y), max_y)
         self.setPosition(x, y)
         self._custom_position = self.position()
         self.geometry_changed.emit()
@@ -596,6 +568,7 @@ class TodoPanel(QQuickView):
         return self.geometry()
 
     def _start_drag(self) -> None:
+        self.interaction_started.emit()
         if self._bridge.minimized:
             self._set_bridge_mini_hovering(True)
         cursor_pos = QCursor.pos()
@@ -655,8 +628,33 @@ class TodoPanel(QQuickView):
         self._set_bridge_mini_hovering(False)
         self.geometry_changed.emit()
 
-    def _handle_screen_changed(self, _screen) -> None:  # noqa: ANN001
-        QTimer.singleShot(0, self._restore_fixed_panel_size)
+    def _observe_screen(self, screen) -> None:  # noqa: ANN001
+        previous = self._observed_screen
+        if previous is screen:
+            return
+        if previous is not None:
+            try:
+                previous.availableGeometryChanged.disconnect(self._handle_available_geometry_changed)
+            except (RuntimeError, TypeError):
+                pass
+        self._observed_screen = screen
+        if screen is not None:
+            screen.availableGeometryChanged.connect(self._handle_available_geometry_changed)
+
+    def _handle_screen_changed(self, screen) -> None:  # noqa: ANN001
+        self._observe_screen(screen)
+        self._schedule_restore_and_reposition()
+
+    def _handle_available_geometry_changed(self, _geometry=None) -> None:  # noqa: ANN001
+        self._schedule_restore_and_reposition()
+
+    def _schedule_restore_and_reposition(self) -> None:
+        QTimer.singleShot(0, self._restore_and_reposition)
+
+    def _restore_and_reposition(self) -> None:
+        self._restore_fixed_panel_size()
+        if self.isVisible() and self._drag_offset is None:
+            self._reposition()
 
     def _repair_size_if_screen_changed(self) -> None:
         screen = _screen_for_point(QCursor.pos())

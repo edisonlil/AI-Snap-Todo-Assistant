@@ -11,6 +11,7 @@ FocusScope {
     property alias color: textEdit.color
     property alias font: textEdit.font
     property alias wrapMode: textEdit.wrapMode
+    property alias selectedText: textEdit.selectedText
     
     implicitWidth: textEdit.implicitWidth
     implicitHeight: textEdit.implicitHeight

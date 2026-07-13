@@ -142,7 +142,8 @@ Rectangle {
                         anchors.top: fieldRoot.multiline ? parent.top : undefined
                         anchors.rightMargin: actionRow.width > 0 ? 10 : 0
                         
-                        sourceComponent: fieldRoot.editable ? editableTextComponent : selectableTextComponent
+                        // 展示态始终使用可选中文本；进入编辑只通过独立操作按钮触发。
+                        sourceComponent: selectableTextComponent
                         
                         property int maxHeight: fieldRoot.multiline ? 120 : 9999
                     }
@@ -163,26 +164,9 @@ Rectangle {
                         }
                     }
                     
-                    Component {
-                        id: editableTextComponent
-                        Text {
-                            id: fieldText
-                            text: fieldRoot.value.length > 0 ? fieldRoot.value : fieldRoot.placeholderText
-                            color: fieldRoot.value.length > 0 ? theme.titleInk : theme.labelInk
-                            font.family: theme.uiFont
-                            font.pixelSize: fieldRoot.compact ? 12 : 13
-                            font.weight: fieldRoot.value.length > 0 ? 500 : 400
-                            wrapMode: fieldRoot.multiline ? Text.Wrap : Text.NoWrap
-                            elide: fieldRoot.multiline ? Text.ElideNone : Text.ElideRight
-                        }
-                    }
-
                     // Hover 检测层，只在可编辑字段时启用
-                    MouseArea {
+                    HoverHandler {
                         id: fieldHover
-                        anchors.fill: parent
-                        acceptedButtons: Qt.NoButton
-                        hoverEnabled: fieldRoot.editable
                         enabled: fieldRoot.editable
                     }
 
@@ -191,7 +175,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 8
-                        visible: fieldRoot.actionVisible || (fieldRoot.editable && fieldHover.containsMouse && !fieldRoot.actionBusy && !fieldRoot.saving)
+                        visible: fieldRoot.actionVisible || (fieldRoot.editable && fieldHover.hovered && !fieldRoot.actionBusy && !fieldRoot.saving)
                         width: visible ? implicitWidth : 0
                         z: 2
 
@@ -245,23 +229,20 @@ Rectangle {
                         }
 
                         Text {
-                            visible: fieldRoot.editable && fieldHover.containsMouse && !fieldRoot.actionBusy && !fieldRoot.saving
+                            id: editAction
+                            visible: fieldRoot.editable && fieldHover.hovered && !fieldRoot.actionBusy && !fieldRoot.saving
                             text: "\u270e"
                             color: theme.accent
                             font.family: theme.uiFont
                             font.pixelSize: 11
                             opacity: 0.75
-                        }
-                    }
 
-                    MouseArea {
-                        anchors.left: parent.left
-                        anchors.right: actionRow.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        enabled: fieldRoot.editable && !fieldRoot.saving && !fieldRoot.actionBusy
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: fieldRoot.clicked()
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: fieldRoot.clicked()
+                            }
+                        }
                     }
                 }
 

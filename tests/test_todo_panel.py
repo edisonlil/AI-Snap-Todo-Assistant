@@ -155,7 +155,7 @@ def test_repair_size_on_screen_change_does_not_recalculate_panel_size(monkeypatc
     assert resize_calls == []
 
 
-def test_set_todos_keeps_visible_panel_position_on_size_change(monkeypatch) -> None:
+def test_set_todos_reanchors_visible_panel_on_size_change(monkeypatch) -> None:
     _install_pyqt_fakes()
     from aica.todo import panel as todo_panel
 
@@ -189,7 +189,6 @@ def test_set_todos_keeps_visible_panel_position_on_size_change(monkeypatch) -> N
     panel.geometry_changed = FakeSignal()
     panel._update_panel_size = lambda: setattr(panel, "_target_panel_size", todo_panel.QSize(286, 158))  # noqa: SLF001
     panel._reposition_calls = []
-    panel._keep_calls = []
     panel.isVisible = lambda: True
     panel.show = lambda: None
     panel.raise_ = lambda: None
@@ -200,17 +199,15 @@ def test_set_todos_keeps_visible_panel_position_on_size_change(monkeypatch) -> N
     panel.width = lambda: 286
     panel.height = lambda: 158
     panel._reposition = lambda: panel._reposition_calls.append("reposition")  # noqa: SLF001
-    panel._keep_current_position = lambda: panel._keep_calls.append("keep")  # noqa: SLF001
     monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: types.SimpleNamespace(availableGeometry=lambda: types.SimpleNamespace(left=lambda: 0, right=lambda: 999, top=lambda: 0, bottom=lambda: 799)))
     panel._target_panel_size = todo_panel.QSize(286, 194)  # noqa: SLF001
 
     panel.set_todos([object()], "todo-1")  # noqa: SLF001
 
-    assert panel._reposition_calls == []  # noqa: SLF001
-    assert panel._keep_calls == ["keep"]  # noqa: SLF001
+    assert panel._reposition_calls == ["reposition"]  # noqa: SLF001
 
 
-def test_set_todos_skips_position_clamp_when_selection_only_refreshes_content(monkeypatch) -> None:
+def test_set_todos_repairs_drift_when_selection_only_refreshes_content(monkeypatch) -> None:
     _install_pyqt_fakes()
     from aica.todo import panel as todo_panel
 
@@ -247,7 +244,6 @@ def test_set_todos_skips_position_clamp_when_selection_only_refreshes_content(mo
     panel.geometry_changed = FakeSignal()
     panel._update_panel_size = lambda: None  # noqa: SLF001
     panel._reposition_calls = []
-    panel._keep_calls = []
     panel.isVisible = lambda: True
     panel.show = lambda: None
     panel.raise_ = lambda: None
@@ -258,14 +254,33 @@ def test_set_todos_skips_position_clamp_when_selection_only_refreshes_content(mo
     panel.width = lambda: 286
     panel.height = lambda: 158
     panel._reposition = lambda: panel._reposition_calls.append("reposition")  # noqa: SLF001
-    panel._keep_current_position = lambda: panel._keep_calls.append("keep")  # noqa: SLF001
     monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: types.SimpleNamespace(availableGeometry=lambda: types.SimpleNamespace(left=lambda: 0, right=lambda: 999, top=lambda: 0, bottom=lambda: 799)))
 
     panel._target_panel_size = todo_panel.QSize(286, 158)  # noqa: SLF001
     panel.set_todos([object(), object()], "todo-1")  # noqa: SLF001
 
-    assert panel._reposition_calls == []  # noqa: SLF001
-    assert panel._keep_calls == []  # noqa: SLF001
+    assert panel._reposition_calls == ["reposition"]  # noqa: SLF001
+
+
+def test_screen_change_restores_size_and_reanchors_visible_panel(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._drag_offset = None  # noqa: SLF001
+    observed_screens: list[object] = []
+    calls: list[str] = []
+    screen = object()
+    panel._observe_screen = lambda value: observed_screens.append(value)  # noqa: SLF001
+    panel._restore_fixed_panel_size = lambda: calls.append("restore")  # noqa: SLF001
+    panel._reposition = lambda: calls.append("reposition")  # noqa: SLF001
+    panel.isVisible = lambda: True
+    monkeypatch.setattr(todo_panel.QTimer, "singleShot", lambda _msec, callback: callback())
+
+    panel._handle_screen_changed(screen)  # noqa: SLF001
+
+    assert observed_screens == [screen]
+    assert calls == ["restore", "reposition"]
 
 
 def test_set_todos_does_not_re_show_visible_panel_on_refresh(monkeypatch) -> None:
@@ -294,7 +309,6 @@ def test_set_todos_does_not_re_show_visible_panel_on_refresh(monkeypatch) -> Non
     panel._dock_side = "right"  # noqa: SLF001
     panel._update_panel_size = lambda: None  # noqa: SLF001
     panel._reposition = lambda: None  # noqa: SLF001
-    panel._keep_current_position = lambda: None  # noqa: SLF001
     panel._schedule_auto_minimize = lambda: None  # noqa: SLF001
     show_calls: list[str] = []
     raise_calls: list[str] = []
@@ -387,6 +401,33 @@ def test_hover_width_is_initialized_after_panel_width() -> None:
     hover_width_index = source.index("self._minimized_hover_width = self._panel_width")
 
     assert panel_width_index < hover_width_index
+
+
+def test_start_drag_emits_interaction_started(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakeSignal:
+        def __init__(self) -> None:
+            self.count = 0
+
+        def emit(self) -> None:
+            self.count += 1
+
+    class FakePoint:
+        def __sub__(self, _other):
+            return "drag-offset"
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = types.SimpleNamespace(minimized=False)  # noqa: SLF001
+    panel.interaction_started = FakeSignal()
+    panel.position = lambda: FakePoint()
+    monkeypatch.setattr(todo_panel.QCursor, "pos", lambda: FakePoint())
+
+    panel._start_drag()  # noqa: SLF001
+
+    assert panel.interaction_started.count == 1
+    assert panel._drag_offset == "drag-offset"  # noqa: SLF001
 
 
 def test_end_drag_keeps_snapped_position_after_restoring_size(monkeypatch) -> None:
@@ -524,6 +565,72 @@ def test_minimized_panel_uses_compact_size_and_edge_position(monkeypatch) -> Non
 
     assert sizes == [(100, 50)]
     assert positions[-1] == (899, 18)
+
+
+def test_reposition_keeps_recorded_right_dock_side_after_window_drift(monkeypatch) -> None:
+    _install_pyqt_fakes()
+    from aica.todo import panel as todo_panel
+
+    class FakePoint:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class FakeGeometry:
+        def left(self) -> int:
+            return 0
+
+        def right(self) -> int:
+            return 999
+
+        def top(self) -> int:
+            return 0
+
+        def bottom(self) -> int:
+            return 799
+
+        def center(self) -> FakePoint:
+            return FakePoint(500, 399)
+
+    class FakeScreen:
+        def availableGeometry(self) -> FakeGeometry:
+            return FakeGeometry()
+
+    class FakeBridge:
+        minimized = True
+
+        def set_dock_side(self, _side: str) -> None:
+            raise AssertionError("window drift must not change the recorded dock side")
+
+    class FakeSignal:
+        def emit(self) -> None:
+            return None
+
+    panel = todo_panel.TodoPanel.__new__(todo_panel.TodoPanel)
+    panel._bridge = FakeBridge()  # noqa: SLF001
+    panel._dock_side = "right"  # noqa: SLF001
+    panel._snap_margin = 18  # noqa: SLF001
+    panel._mini_snap_margin = 0  # noqa: SLF001
+    panel._custom_position = FakePoint(340, 18)  # noqa: SLF001
+    panel.geometry_changed = FakeSignal()
+    current_position = FakePoint(340, 18)
+    panel.position = lambda: current_position
+    panel.width = lambda: 100
+    panel.height = lambda: 50
+    positions: list[tuple[int, int]] = []
+    panel.setPosition = lambda x, y: positions.append((int(x), int(y)))
+    monkeypatch.setattr(todo_panel, "_screen_for_point", lambda _point: FakeScreen())
+
+    panel._reposition()  # noqa: SLF001
+
+    assert panel._dock_side == "right"  # noqa: SLF001
+    assert positions == [(899, 18)]
 
 
 def test_minimized_panel_uses_hover_strip_width(monkeypatch) -> None:

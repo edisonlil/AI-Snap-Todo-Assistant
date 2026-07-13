@@ -287,7 +287,7 @@ Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: valueText.implicitHeight
 
-                    Text {
+                    SelectableText {
                         id: valueText
                         anchors.left: parent.left
                         anchors.right: valueAction.left
@@ -298,28 +298,31 @@ Rectangle {
                         font.family: rootField.uiFont
                         font.pixelSize: rootField.compact ? 12 : 13
                         font.weight: rootField.value.length > 0 ? 500 : 400
-                        elide: Text.ElideRight
+                        wrapMode: TextEdit.NoWrap
                     }
 
                     Text {
                         id: valueAction
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: hoverArea.containsMouse && !rootField.saving
+                        visible: hoverArea.hovered && !rootField.saving
                         text: "\u270e"
                         color: rootField.accent
                         font.family: rootField.uiFont
                         font.pixelSize: 11
                         opacity: 0.75
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: !rootField.saving
+                            onClicked: rootField.clicked()
+                        }
                     }
 
-                    MouseArea {
+                    HoverHandler {
                         id: hoverArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: !rootField.saving ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        enabled: !rootField.saving
-                        onClicked: rootField.clicked()
+                        enabled: true
                     }
                 }
             }
