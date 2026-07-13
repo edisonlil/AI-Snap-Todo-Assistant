@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import uuid
 
 from PyQt6.QtCore import QObject, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap, QWindow
+from PyQt6.QtGui import QAction, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from aica.analysis.flow import AnalysisFlowCoordinator
@@ -293,38 +293,9 @@ def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_f
     _append_startup_log(startup_log_file, "startup: control panel shown")
 
 
-def _has_visible_top_level_widget(app: QApplication) -> bool:
-    top_level_widgets = getattr(app, "topLevelWidgets", None)
-    if not callable(top_level_widgets):
-        top_level_widgets = lambda: []
-    for widget in top_level_widgets():
-        is_visible = getattr(widget, "isVisible", None)
-        if not callable(is_visible) or not is_visible():
-            continue
-        is_minimized = getattr(widget, "isMinimized", None)
-        if callable(is_minimized) and is_minimized():
-            continue
-        return True
-    top_level_windows = getattr(app, "topLevelWindows", None)
-    if not callable(top_level_windows):
-        return False
-    for window in top_level_windows():
-        is_visible = getattr(window, "isVisible", None)
-        if not callable(is_visible) or not is_visible():
-            continue
-        visibility = getattr(window, "visibility", None)
-        if callable(visibility) and visibility() == QWindow.Visibility.Minimized:
-            continue
-        window_state = getattr(window, "windowState", None)
-        if callable(window_state) and window_state() & Qt.WindowState.WindowMinimized:
-            continue
-        return True
-    return False
-
-
 class _MacOSDockReopenHandler:
-    def __init__(self, app: QApplication, *, show_control_panel, startup_log_file: Path) -> None:
-        self._app = app
+    def __init__(self, *, is_control_panel_visible, show_control_panel, startup_log_file: Path) -> None:
+        self._is_control_panel_visible = is_control_panel_visible
         self._show_control_panel = show_control_panel
         self._startup_log_file = startup_log_file
         self._application_active = False
@@ -345,7 +316,7 @@ class _MacOSDockReopenHandler:
             return
         if not self._application_active:
             return
-        if _has_visible_top_level_widget(self._app):
+        if self._is_control_panel_visible():
             return
         self._show_control_panel("server")
         _append_startup_log(
@@ -360,10 +331,10 @@ class _MacOSDockReopenHandler:
     def _clear_todo_interaction_suppression(self) -> None:
         self._todo_interaction_suppressed = False
 
-
 def _install_macos_dock_handlers(
     app: QApplication,
     *,
+    is_control_panel_visible,
     show_control_panel,
     request_capture,
     startup_log_file: Path,
@@ -387,7 +358,7 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
 
     reopen_handler = _MacOSDockReopenHandler(
-        app,
+        is_control_panel_visible=is_control_panel_visible,
         show_control_panel=show_control_panel,
         startup_log_file=startup_log_file,
     )
@@ -591,6 +562,7 @@ def main() -> None:
     tray_icon.setContextMenu(tray_menu)
     macos_dock_handlers = _install_macos_dock_handlers(
         app,
+        is_control_panel_visible=control_panel.isVisible,
         show_control_panel=_show_control_panel,
         request_capture=_request_capture,
         startup_log_file=startup_log_file,
