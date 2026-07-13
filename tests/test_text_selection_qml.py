@@ -41,3 +41,14 @@ def test_cascade_fields_keep_text_selection_and_move_editing_to_the_action_icon(
         assert "SelectableText" in display_block
         assert "HoverHandler" in display_block
         assert "onClicked: rootField.clicked()" in display_block
+
+
+def test_project_version_table_uses_selectable_text_for_data_cells() -> None:
+    qml_text = _qml("ProjectsSection.qml")
+    version_table = qml_text.split("id: projectVersionTableView", 1)[1].split(
+        "ColumnLayout {", 1
+    )[0]
+
+    assert version_table.count("SelectableText {") == 4
+    assert "text: modelData.version || \"未填写\"" in version_table
+    assert "wrapMode: TextEdit.NoWrap" in version_table

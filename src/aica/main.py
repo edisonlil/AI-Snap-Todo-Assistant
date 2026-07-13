@@ -294,8 +294,7 @@ def _show_startup_control_panel(control_panel: ControlPanelWindow, startup_log_f
 
 
 class _MacOSDockReopenHandler:
-    def __init__(self, *, is_control_panel_visible, show_control_panel, startup_log_file: Path) -> None:
-        self._is_control_panel_visible = is_control_panel_visible
+    def __init__(self, *, show_control_panel, startup_log_file: Path) -> None:
         self._show_control_panel = show_control_panel
         self._startup_log_file = startup_log_file
         self._application_active = False
@@ -304,19 +303,27 @@ class _MacOSDockReopenHandler:
 
     def handle_application_state_changed(self, state) -> None:
         self._application_active = state == Qt.ApplicationState.ApplicationActive
-        if not self._application_active or self._reopen_check_pending:
+        if not self._application_active:
+            return
+        self._schedule_reopen()
+
+    def handle_native_dock_reopen(self) -> None:
+        self._application_active = True
+        self._todo_interaction_suppressed = False
+        self._schedule_reopen()
+
+    def _schedule_reopen(self) -> None:
+        if self._reopen_check_pending:
             return
         self._reopen_check_pending = True
-        QTimer.singleShot(0, self._open_control_panel_if_no_window)
+        QTimer.singleShot(0, self._open_control_panel_from_reopen)
 
-    def _open_control_panel_if_no_window(self) -> None:
+    def _open_control_panel_from_reopen(self) -> None:
         self._reopen_check_pending = False
         if self._todo_interaction_suppressed:
             self._todo_interaction_suppressed = False
             return
         if not self._application_active:
-            return
-        if self._is_control_panel_visible():
             return
         self._show_control_panel("server")
         _append_startup_log(
@@ -331,10 +338,82 @@ class _MacOSDockReopenHandler:
     def _clear_todo_interaction_suppression(self) -> None:
         self._todo_interaction_suppressed = False
 
+
+_NATIVE_REOPEN_DELEGATE_PROXY_CLASS = None
+
+
+def _install_native_macos_reopen_handler(reopen_handler, startup_log_file: Path):  # noqa: ANN001, ANN201
+    global _NATIVE_REOPEN_DELEGATE_PROXY_CLASS
+
+    try:
+        import objc
+        from AppKit import NSApplication
+        from Foundation import NSObject
+
+        if _NATIVE_REOPEN_DELEGATE_PROXY_CLASS is None:
+            class ChattodoApplicationDelegateProxy(NSObject):
+                def initWithOriginal_callback_(self, original, callback):  # noqa: ANN001, ANN201, N802
+                    self = objc.super(ChattodoApplicationDelegateProxy, self).init()
+                    if self is not None:
+                        self._original_delegate = original
+                        self._reopen_callback = callback
+                    return self
+
+                def applicationShouldHandleReopen_hasVisibleWindows_(  # noqa: ANN001, ANN201, N802
+                    self,
+                    application,
+                    has_visible_windows,
+                ):
+                    self._reopen_callback()
+                    original = self._original_delegate
+                    selector = b"applicationShouldHandleReopen:hasVisibleWindows:"
+                    if original is not None and original.respondsToSelector_(selector):
+                        return bool(
+                            original.applicationShouldHandleReopen_hasVisibleWindows_(
+                                application,
+                                has_visible_windows,
+                            )
+                        )
+                    return True
+
+                def respondsToSelector_(self, selector):  # noqa: ANN001, ANN201, N802
+                    if objc.super(ChattodoApplicationDelegateProxy, self).respondsToSelector_(selector):
+                        return True
+                    original = getattr(self, "_original_delegate", None)
+                    return bool(original is not None and original.respondsToSelector_(selector))
+
+                def forwardingTargetForSelector_(self, selector):  # noqa: ANN001, ANN201, N802
+                    original = getattr(self, "_original_delegate", None)
+                    if original is not None and original.respondsToSelector_(selector):
+                        return original
+                    return objc.super(ChattodoApplicationDelegateProxy, self).forwardingTargetForSelector_(selector)
+
+            _NATIVE_REOPEN_DELEGATE_PROXY_CLASS = ChattodoApplicationDelegateProxy
+
+        native_application = NSApplication.sharedApplication()
+        original_delegate = native_application.delegate()
+        proxy = _NATIVE_REOPEN_DELEGATE_PROXY_CLASS.alloc().initWithOriginal_callback_(
+            original_delegate,
+            reopen_handler.handle_native_dock_reopen,
+        )
+        native_application.setDelegate_(proxy)
+        _append_startup_log(startup_log_file, "startup: native macos dock reopen handler installed")
+        return SimpleNamespace(
+            application=native_application,
+            original_delegate=original_delegate,
+            proxy=proxy,
+        )
+    except Exception as exc:
+        _append_startup_log(
+            startup_log_file,
+            f"startup: native macos dock reopen handler unavailable: {exc}",
+        )
+        return None
+
+
 def _install_macos_dock_handlers(
     app: QApplication,
     *,
-    is_control_panel_visible,
     show_control_panel,
     request_capture,
     startup_log_file: Path,
@@ -358,7 +437,6 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock menu unavailable")
 
     reopen_handler = _MacOSDockReopenHandler(
-        is_control_panel_visible=is_control_panel_visible,
         show_control_panel=show_control_panel,
         startup_log_file=startup_log_file,
     )
@@ -368,11 +446,13 @@ def _install_macos_dock_handlers(
         _append_startup_log(startup_log_file, "startup: macos dock reopen handler installed")
     else:
         _append_startup_log(startup_log_file, "startup: macos dock reopen handler unavailable")
+    native_reopen_handler = _install_native_macos_reopen_handler(reopen_handler, startup_log_file)
 
     return SimpleNamespace(
         dock_menu=dock_menu,
         actions=(action_capture, action_open_panel),
         reopen_handler=reopen_handler,
+        native_reopen_handler=native_reopen_handler,
     )
 
 
@@ -562,7 +642,6 @@ def main() -> None:
     tray_icon.setContextMenu(tray_menu)
     macos_dock_handlers = _install_macos_dock_handlers(
         app,
-        is_control_panel_visible=control_panel.isVisible,
         show_control_panel=_show_control_panel,
         request_capture=_request_capture,
         startup_log_file=startup_log_file,

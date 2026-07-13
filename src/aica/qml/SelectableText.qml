@@ -12,6 +12,8 @@ FocusScope {
     property alias font: textEdit.font
     property alias wrapMode: textEdit.wrapMode
     property alias selectedText: textEdit.selectedText
+    property alias horizontalAlignment: textEdit.horizontalAlignment
+    property alias verticalAlignment: textEdit.verticalAlignment
     
     implicitWidth: textEdit.implicitWidth
     implicitHeight: textEdit.implicitHeight

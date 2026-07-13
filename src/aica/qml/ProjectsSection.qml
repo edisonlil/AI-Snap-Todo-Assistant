@@ -555,38 +555,41 @@ ColumnLayout {
                                                             anchors.rightMargin: projectVersionTable.sidePadding
                                                             spacing: projectVersionTable.columnSpacing
 
-                                                            Text {
+                                                            SelectableText {
                                                                 Layout.preferredWidth: projectVersionTable.issueProductColumnWidth
                                                                 text: modelData.issueProduct || "未填写"
                                                                 color: theme.titleInk
                                                                 font.family: theme.uiFont
                                                                 font.pixelSize: 12
                                                                 font.weight: 500
-                                                                elide: Text.ElideRight
                                                                 verticalAlignment: Text.AlignVCenter
+                                                                wrapMode: TextEdit.NoWrap
+                                                                clip: true
                                                             }
 
-                                                            Text {
+                                                            SelectableText {
                                                                 Layout.preferredWidth: projectVersionTable.environmentColumnWidth
                                                                 text: modelData.environment || "未填写"
                                                                 color: theme.bodyInk
                                                                 font.family: theme.uiFont
                                                                 font.pixelSize: 12
-                                                                elide: Text.ElideRight
                                                                 verticalAlignment: Text.AlignVCenter
+                                                                wrapMode: TextEdit.NoWrap
+                                                                clip: true
                                                             }
 
-                                                            Text {
+                                                            SelectableText {
                                                                 Layout.preferredWidth: projectVersionTable.versionColumnWidth
                                                                 text: modelData.version || "未填写"
                                                                 color: theme.bodyInk
                                                                 font.family: theme.uiFont
                                                                 font.pixelSize: 12
-                                                                elide: Text.ElideRight
                                                                 verticalAlignment: Text.AlignVCenter
+                                                                wrapMode: TextEdit.NoWrap
+                                                                clip: true
                                                             }
 
-                                                            Text {
+                                                            SelectableText {
                                                                 Layout.preferredWidth: projectVersionTable.updatedColumnWidth
                                                                 text: modelData.updatedAtLabel || "未更新"
                                                                 color: "#6D7885"
@@ -594,7 +597,8 @@ ColumnLayout {
                                                                 font.pixelSize: 12
                                                                 horizontalAlignment: Text.AlignHCenter
                                                                 verticalAlignment: Text.AlignVCenter
-                                                                elide: Text.ElideRight
+                                                                wrapMode: TextEdit.NoWrap
+                                                                clip: true
                                                             }
                                                         }
 

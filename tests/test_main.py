@@ -205,6 +205,11 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     monkeypatch.setattr("aica.main.RUNTIME_CAPABILITIES", SimpleNamespace(is_macos=True))
     monkeypatch.setattr("aica.main.QAction", _Action)
     monkeypatch.setattr("aica.main.QMenu", _Menu)
+    native_handlers: list[object] = []
+    monkeypatch.setattr(
+        "aica.main._install_native_macos_reopen_handler",
+        lambda handler, _log_file: native_handlers.append(handler) or "native-handler",
+    )
 
     shown_sections: list[str] = []
     capture_sources: list[str] = []
@@ -212,7 +217,6 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     app = SimpleNamespace(applicationStateChanged=_Signal())
     handlers = _install_macos_dock_handlers(
         app,
-        is_control_panel_visible=lambda: False,
         show_control_panel=lambda section: shown_sections.append(section),
         request_capture=lambda source: capture_sources.append(source),
         startup_log_file=tmp_path / "startup.log",
@@ -227,6 +231,8 @@ def test_macos_dock_handlers_install_capture_and_exit_menu(monkeypatch, tmp_path
     assert capture_sources == ["dock"]
     assert shown_sections == ["server"]
     assert handlers.reopen_handler is not None
+    assert handlers.native_reopen_handler == "native-handler"
+    assert native_handlers == [handlers.reopen_handler]
     assert len(app.applicationStateChanged.callbacks) == 1
     log_text = (tmp_path / "startup.log").read_text(encoding="utf-8")
     assert "macos dock menu installed" in log_text
@@ -238,7 +244,6 @@ def test_macos_dock_reopen_opens_control_panel_when_it_is_hidden(monkeypatch, tm
     queued_callbacks: list[object] = []
     monkeypatch.setattr("aica.main.QTimer.singleShot", lambda _msec, callback: queued_callbacks.append(callback))
     handler = _MacOSDockReopenHandler(
-        is_control_panel_visible=lambda: False,
         show_control_panel=lambda section: shown_sections.append(section),
         startup_log_file=tmp_path / "startup.log",
     )
@@ -256,26 +261,22 @@ def test_macos_dock_reopen_opens_control_panel_when_it_is_hidden(monkeypatch, tm
     assert "macos dock reopen opened control panel" in (tmp_path / "startup.log").read_text(encoding="utf-8")
 
 
-def test_macos_dock_reopen_does_not_reopen_visible_control_panel(monkeypatch, tmp_path: Path) -> None:
+def test_macos_dock_reopen_brings_visible_control_panel_forward(monkeypatch, tmp_path: Path) -> None:
     shown_sections: list[str] = []
     queued_callbacks: list[object] = []
-    control_panel_visible = False
     monkeypatch.setattr("aica.main.QTimer.singleShot", lambda _msec, callback: queued_callbacks.append(callback))
     handler = _MacOSDockReopenHandler(
-        is_control_panel_visible=lambda: control_panel_visible,
         show_control_panel=lambda section: shown_sections.append(section),
         startup_log_file=tmp_path / "startup.log",
     )
 
     handler.handle_application_state_changed(Qt.ApplicationState.ApplicationActive)
     handler.handle_application_state_changed(Qt.ApplicationState.ApplicationActive)
-    control_panel_visible = True
     queued_callbacks[0]()
 
-    assert shown_sections == []
+    assert shown_sections == ["server"]
     assert len(queued_callbacks) == 1
-    log_file = tmp_path / "startup.log"
-    assert not log_file.exists() or "macos dock reopen opened control panel" not in log_file.read_text(encoding="utf-8")
+    assert "macos dock reopen opened control panel" in (tmp_path / "startup.log").read_text(encoding="utf-8")
 
 
 def test_macos_dock_reopen_is_suppressed_by_todo_panel_interaction(monkeypatch, tmp_path: Path) -> None:
@@ -283,7 +284,6 @@ def test_macos_dock_reopen_is_suppressed_by_todo_panel_interaction(monkeypatch, 
     queued_callbacks: list[object] = []
     monkeypatch.setattr("aica.main.QTimer.singleShot", lambda _msec, callback: queued_callbacks.append(callback))
     handler = _MacOSDockReopenHandler(
-        is_control_panel_visible=lambda: False,
         show_control_panel=lambda section: shown_sections.append(section),
         startup_log_file=tmp_path / "startup.log",
     )
@@ -293,6 +293,21 @@ def test_macos_dock_reopen_is_suppressed_by_todo_panel_interaction(monkeypatch, 
     queued_callbacks[0]()
 
     assert shown_sections == []
+
+
+def test_native_macos_dock_reopen_opens_panel_without_application_state_change(monkeypatch, tmp_path: Path) -> None:
+    shown_sections: list[str] = []
+    queued_callbacks: list[object] = []
+    monkeypatch.setattr("aica.main.QTimer.singleShot", lambda _msec, callback: queued_callbacks.append(callback))
+    handler = _MacOSDockReopenHandler(
+        show_control_panel=lambda section: shown_sections.append(section),
+        startup_log_file=tmp_path / "startup.log",
+    )
+
+    handler.handle_native_dock_reopen()
+    queued_callbacks[0]()
+
+    assert shown_sections == ["server"]
 
 
 def test_macos_dock_reopen_ignores_other_visible_windows(monkeypatch, tmp_path: Path) -> None:
@@ -316,7 +331,6 @@ def test_macos_dock_reopen_ignores_other_visible_windows(monkeypatch, tmp_path: 
     assert todo_window.isVisible() is True
     monkeypatch.setattr("aica.main.QTimer.singleShot", lambda _msec, callback: queued_callbacks.append(callback))
     handler = _MacOSDockReopenHandler(
-        is_control_panel_visible=lambda: False,
         show_control_panel=lambda section: shown_sections.append(section),
         startup_log_file=tmp_path / "startup.log",
     )
@@ -332,7 +346,6 @@ def test_macos_dock_handlers_are_skipped_on_non_macos(monkeypatch, tmp_path: Pat
 
     handlers = _install_macos_dock_handlers(
         object(),
-        is_control_panel_visible=lambda: False,
         show_control_panel=lambda *_args: None,
         request_capture=lambda *_args: None,
         startup_log_file=tmp_path / "startup.log",
