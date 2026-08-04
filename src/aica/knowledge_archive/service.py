@@ -12,6 +12,7 @@ from os.path import relpath
 from typing import Protocol
 
 from ..llm.types import Message
+from ..models import normalize_issue_product_path
 from ..paths import error_log_file, knowledge_base_dir
 from ..text_sanitize import sanitize_text
 from ..ticket_field_resolver import normalize_ticket_type
@@ -29,6 +30,8 @@ _WIKI_DIRNAME = "_wiki"
 _OPERATION_TICKET_TYPE = "操作类"
 _INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _URL_RE = re.compile(r"https?://[^\s<>\"]+")
+_DEFAULT_MAJOR_VERSION = "V7"
+_MAJOR_VERSION_RE = re.compile(r"(?:^|[_-])v(?P<major>\d+)(?:[._-]|$)", re.IGNORECASE)
 
 
 class TodoReader(Protocol):
@@ -44,7 +47,8 @@ class RuntimeConfigProvider(Protocol):
 @dataclass(frozen=True)
 class KnowledgeArchivePaths:
     archive_root: Path
-    product_line: str
+    issue_product: str
+    major_version: str
     version: str
     ticket_type: str
     note_path: Path
@@ -108,16 +112,58 @@ def _build_note_stem(todo: TodoItem) -> str:
     return _safe_segment(_archive_title(todo), fallback="未分类任务")
 
 
+def _archive_issue_product(todo: TodoItem) -> str:
+    issue_product = _archive_issue_product_from_value(todo.summary_fields.issue_product)
+    return issue_product or _PATH_PLACEHOLDER
+
+
+def _archive_issue_product_segments(todo: TodoItem) -> list[str]:
+    issue_product = _archive_issue_product(todo)
+    segments = [_safe_segment(part) for part in issue_product.split("/") if str(part or "").strip()]
+    return segments or [_PATH_PLACEHOLDER]
+
+
+def _archive_issue_product_label(todo: TodoItem) -> str:
+    issue_product = _archive_issue_product(todo)
+    return _safe_segment(issue_product.replace("/", " - "))
+
+
+def _archive_issue_product_from_value(value: object) -> str:
+    issue_product = normalize_issue_product_path(value)
+    if not issue_product:
+        return ""
+    segments = [segment for segment in issue_product.split("/") if segment]
+    if len(segments) > 1 and re.fullmatch(r"V\d+", segments[-1], re.IGNORECASE):
+        segments = segments[:-1]
+    return "/".join(segments)
+
+
+def _archive_major_version(raw_version: object) -> str:
+    version_text = sanitize_text(raw_version).strip()
+    match = _MAJOR_VERSION_RE.search(version_text)
+    if match is not None:
+        return f"V{match.group('major')}"
+    return _DEFAULT_MAJOR_VERSION
+
+
 def build_knowledge_archive_paths(archive_root: Path, todo: TodoItem) -> KnowledgeArchivePaths:
-    product_line = _safe_segment(todo.summary_fields.product_line)
+    issue_product_segments = _archive_issue_product_segments(todo)
+    issue_product_label = _archive_issue_product_label(todo)
+    major_version = _archive_major_version(todo.summary_fields.ticket_version)
     version = _safe_segment(todo.summary_fields.ticket_version)
     ticket_type = _safe_segment(_ticket_type_for_archive(todo), fallback="未分类")
-    note_dir = archive_root / product_line / version / ticket_type
+    note_dir = archive_root.joinpath(*issue_product_segments, major_version, version, ticket_type)
     note_path = note_dir / f"{_build_note_stem(todo)}.md"
-    wiki_index_path = archive_root / product_line / _WIKI_DIRNAME / _wiki_index_filename(product_line)
+    wiki_index_path = archive_root.joinpath(
+        *issue_product_segments,
+        major_version,
+        _WIKI_DIRNAME,
+        _wiki_index_filename(issue_product_label),
+    )
     return KnowledgeArchivePaths(
         archive_root=archive_root,
-        product_line=product_line,
+        issue_product=issue_product_label,
+        major_version=major_version,
         version=version,
         ticket_type=ticket_type,
         note_path=note_path,
@@ -604,6 +650,7 @@ def build_knowledge_frontmatter(todo: TodoItem) -> str:
         f"todo_id: {_yaml_scalar(todo.id)}",
         f"title: {_yaml_scalar(_archive_title(todo), fallback='未分类任务')}",
         f"product_line: {_yaml_scalar(todo.summary_fields.product_line)}",
+        f"issue_product: {_yaml_scalar(_archive_issue_product(todo), fallback=_PATH_PLACEHOLDER)}",
         f"ticket_version: {_yaml_scalar(todo.summary_fields.ticket_version)}",
         f"ticket_type: {_yaml_scalar(_ticket_type_for_archive(todo), fallback='未分类')}",
         f"feature_point: {_yaml_scalar(todo.summary_fields.feature_point, fallback=_UNSPECIFIED_FEATURE)}",
@@ -659,7 +706,11 @@ def archive_completed_todo(
     body = append_archive_evidence_section(body, todo_payload, paths.note_path)
     markdown = f"{build_knowledge_frontmatter(todo)}\n\n{body.strip()}\n"
     paths.note_path.write_text(markdown, encoding="utf-8")
-    rebuild_product_line_wiki_index(root, paths.product_line)
+    rebuild_issue_product_wiki_index(
+        root,
+        todo.summary_fields.issue_product,
+        _archive_major_version(todo.summary_fields.ticket_version),
+    )
     return paths.note_path
 
 
@@ -705,13 +756,22 @@ def _note_title_from_frontmatter(path: Path) -> str:
     return stem
 
 
-def rebuild_product_line_wiki_index(archive_root: Path, product_line: str) -> Path:
-    product_line_dir = Path(archive_root) / product_line
-    wiki_dir = product_line_dir / _WIKI_DIRNAME
+def rebuild_issue_product_wiki_index(archive_root: Path, issue_product: str, major_version: str = _DEFAULT_MAJOR_VERSION) -> Path:
+    issue_product_dir = Path(archive_root)
+    normalized_issue_product = _archive_issue_product_from_value(issue_product)
+    if normalized_issue_product:
+        for part in normalized_issue_product.split("/"):
+            segment = _safe_segment(part)
+            if segment:
+                issue_product_dir = issue_product_dir / segment
+    else:
+        issue_product_dir = issue_product_dir / _PATH_PLACEHOLDER
+    issue_product_dir = issue_product_dir / _safe_segment(major_version, fallback=_DEFAULT_MAJOR_VERSION)
+    wiki_dir = issue_product_dir / _WIKI_DIRNAME
     wiki_dir.mkdir(parents=True, exist_ok=True)
     note_files = [
         path
-        for path in product_line_dir.rglob("*.md")
+        for path in issue_product_dir.rglob("*.md")
         if _WIKI_DIRNAME not in path.parts
     ]
     entries: dict[str, dict[str, list[Path]]] = {}
@@ -743,9 +803,24 @@ def rebuild_product_line_wiki_index(archive_root: Path, product_line: str) -> Pa
                     updated_label = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
                     lines.append(f"- [{title}]({relative_path}) · 更新 {updated_label}")
                 lines.append("")
-    index_path = wiki_dir / _wiki_index_filename(product_line)
+    index_path = wiki_dir / _wiki_index_filename(_archive_issue_product_label_from_value(issue_product))
     index_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return index_path
+
+
+def _archive_issue_product_label_from_value(value: object) -> str:
+    issue_product = _archive_issue_product_from_value(value)
+    if issue_product:
+        return _safe_segment(issue_product.replace("/", " - "))
+    return _safe_segment(value)
+
+
+def rebuild_product_line_wiki_index(
+    archive_root: Path,
+    product_line: str,
+    major_version: str = _DEFAULT_MAJOR_VERSION,
+) -> Path:
+    return rebuild_issue_product_wiki_index(archive_root, product_line, major_version)
 
 
 class KnowledgeArchiveEventHandler(TodoEventHandler):

@@ -29,7 +29,13 @@ class _RecordingLLM:
         return self.response_text
 
 
-def _build_todo(*, ticket_type: str = "排查类", summary: str = "OA系统上传Word后文字显示为粗体") -> TodoItem:
+def _build_todo(
+    *,
+    ticket_type: str = "排查类",
+    summary: str = "OA系统上传Word后文字显示为粗体",
+    product_line: str = "WPS协作",
+    issue_product: str = "文档中台/协作套件",
+) -> TodoItem:
     return TodoItem(
         id="9f32d1ab-cdef-1234-5678-abcdef123456",
         title="OA系统上传Word后文字显示为粗体",
@@ -40,7 +46,8 @@ def _build_todo(*, ticket_type: str = "排查类", summary: str = "OA系统上�
         summary_fields=TicketSummaryFields(
             group_name="公系统升级-使用沟通群",
             environment="生产",
-            product_line="WPS协作",
+            product_line=product_line,
+            issue_product=issue_product,
             ticket_type=ticket_type,
             ticket_version="",
             feature_point="OA上传Word",
@@ -75,7 +82,7 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     temp_dir.mkdir(parents=True, exist_ok=True)
     attachment_path = temp_dir / "screenshot.png"
     attachment_path.write_bytes(b"fake-image")
-    todo = _build_todo()
+    todo = _build_todo(product_line="WPS协作", issue_product="问题所属产品A/子产品B")
     todo.timeline[0].attachments[0].path = str(attachment_path)
     llm = _RecordingLLM("# Word上传后文字显示粗体处理方案\n\n## 问题结论\n\n已完成兼容处理。")
 
@@ -83,7 +90,10 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
 
     assert note_path is not None
     assert note_path.exists()
-    assert "WPS协作" in note_path.as_posix()
+    assert "问题所属产品A" in note_path.as_posix()
+    assert "子产品B" in note_path.as_posix()
+    assert "/V7/" in note_path.as_posix()
+    assert "WPS协作" not in note_path.as_posix()
     assert "未提供" in note_path.as_posix()
     assert "排查类" in note_path.as_posix()
     assert note_path.name == f"{todo.title}.md"
@@ -118,7 +128,7 @@ def test_archive_completed_todo_writes_solution_and_product_index() -> None:
     assert not (note_path.parent / f"{note_path.stem}_assets").exists()
     assert not (note_path.parent / "assets" / "screenshot_1.png").exists()
 
-    index_path = temp_dir / "WPS协作" / "_wiki" / "WPS协作 Wiki 索引.md"
+    index_path = temp_dir / "问题所属产品A" / "子产品B" / "V7" / "_wiki" / "问题所属产品A - 子产品B Wiki 索引.md"
     index_content = index_path.read_text(encoding="utf-8")
     assert note_path.name in index_content
     assert "排查类" in index_content
@@ -169,6 +179,23 @@ def test_archive_completed_todo_preserves_key_links_from_conclusion_and_timeline
     assert "参考文档" in content
     assert "模板链接" in content
     assert content.index("## 解决方案") < content.index("### 关键参考信息") < content.index("## 最终结论")
+
+
+def test_archive_completed_todo_deduplicates_major_version_from_issue_product_path() -> None:
+    base_dir = Path.cwd() / ".tmp"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = base_dir / f"knowledge-archive-{uuid.uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    todo = _build_todo(issue_product="文档中心/V7")
+    todo.summary_fields.ticket_version = "release_dc_v7.0.2512.20251225"
+
+    note_path = archive_completed_todo(todo, archive_root=temp_dir)
+
+    assert note_path is not None
+    assert note_path == temp_dir / "文档中心" / "V7" / "release_dc_v7.0.2512.20251225" / "排查类" / f"{todo.title}.md"
+    assert "文档中心/V7/V7" not in note_path.as_posix()
+    content = note_path.read_text(encoding="utf-8")
+    assert 'issue_product: "文档中心"' in content
 
 
 def test_knowledge_archive_event_handler_skips_operation_todos() -> None:
